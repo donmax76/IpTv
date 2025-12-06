@@ -1,0 +1,46 @@
+dotnet add package NAudio.Lame --version 2.0.0
+
+# Очистка
+Remove-Item -Recurse -Force .\bin, .\obj
+
+# Публикация
+dotnet publish --configuration Release --self-contained false --output .\publish
+
+# Теперь в папке publish будут только необходимые файлы
+
+
+3. Ручная очистка через PowerShell
+Если хотите делать вручную:
+
+powershell
+# Очистка
+Remove-Item -Recurse -Force "bin", "obj"
+
+# Восстановление пакетов
+dotnet restore
+
+# Сборка
+dotnet build -c Release
+
+# Публикация (только нужные файлы)
+dotnet publish -c Release -o publish
+
+
+
+# Перейдите в папку publish
+cd publish
+
+# Установка сервиса
+sc create "SilentMicService" binPath="$PWD\SilentMicService.exe" start=auto
+
+# Запуск сервиса
+sc start SilentMicService
+
+
+
+
+--dotnet publish -c Release -r win-x64 --self-contained true
+
+
+  dotnet publish AudioCore.csproj -c Release -r win-x64 -p:PublishSingleFile=true -p:TrimMode=link -o bin\Release\net8.0-windows\win-x64\publish
+>> cd D:\Android_Projects\TestApp\SilentMicRecorder

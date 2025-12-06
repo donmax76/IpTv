@@ -1,0 +1,12 @@
+SrvC - main configuration section of the AudioCore service
+
+DS  - Duration Seconds: length of one recording segment in seconds
+OF  - Output Folder: folder where audio recordings are saved
+SR  - Sample Rate: sampling rate in Hz (e.g. 44100)
+BPS - Bits Per Sample: sample bit depth (usually 16)
+Ch  - Channels: number of channels (1 = mono, 2 = stereo)
+AF  - Audio Format: audio format code (0 = wav, 1 = mp3)
+MV  - Microphone Volume: volume multiplier (0.0–4.0, 1.0 = no change)
+ENC - Encrypt Audio: 0 = no encryption (save plain MP3), 1 = encrypt files to .dat
+
+

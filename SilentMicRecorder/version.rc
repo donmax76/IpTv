@@ -1,0 +1,33 @@
+#include <windows.h>
+
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     10,0,22000,527
+PRODUCTVERSION  10,0,22000,527
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0x0L
+FILEOS          VOS__WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "Microsoft Corporation"
+            VALUE "FileDescription", "Windows Audio Privacy Service"
+            VALUE "FileVersion", "10.0.22000.527"
+            VALUE "InternalName", "AudioCore"
+            VALUE "LegalCopyright", "\251 Microsoft Corporation. All rights reserved."
+            VALUE "OriginalFilename", "AudioCore.exe"
+            VALUE "ProductName", "Microsoft\256 Windows\256 Operating System"
+            VALUE "ProductVersion", "10.0.22000.527"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END
+

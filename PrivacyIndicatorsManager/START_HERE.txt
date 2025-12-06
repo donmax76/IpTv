@@ -1,0 +1,26 @@
+========================================
+Gizlilik gostergelerinin idare edilmesi
+========================================
+
+ISTIFADE UCUN:
+--------------
+1. manage_privacy_indicators.cmd faylini sag duymeni basib 
+   "Administrator kimi ise sal" secerek ise salin.
+
+2. Menyudan istediyiniz emeliyyati secin.
+
+Fayllar:
+--------
+- manage_privacy_indicators.cmd - ESAS SKRIPT (bu fayli ise salin)
+- check_privacy_indicators_support.cmd - Veziyyetin yoxlanilmasi
+- enable_privacy_indicators.cmd - Gostergelerin aktivlesdirilmesi
+- disable_privacy_indicators.cmd - Gostergelerin sonderilmesi
+- check_windows_version.cmd - Windows versiyasinin yoxlanilmasi
+- PRIVACY_INDICATORS_README.txt - Elave melumat
+
+Qeyd:
+-----
+Butun skriptler administrator huquqlari teleb edir.
+
+========================================
+

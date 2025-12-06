@@ -1,0 +1,31 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\HiddenAudioRecorderClient.cs" Link="HiddenAudioRecorderClient.cs" />
+    <Compile Include="..\IAudioRecorderController.cs" Link="IAudioRecorderController.cs" />
+    <Compile Include="..\Shared\ServiceContracts.cs" Link="Shared\ServiceContracts.cs" />
+    <Compile Include="..\AppLogger.cs" Link="AppLogger.cs" />
+  </ItemGroup>
+
+  <Target Name="CopyHiddenAudioService" AfterTargets="Build">
+    <PropertyGroup>
+      <HiddenServiceSource>$(ProjectDir)..\HiddenAudioService\bin\$(Configuration)\net8.0-windows\</HiddenServiceSource>
+      <HiddenServiceDestination>$(OutDir)HiddenAudioService\</HiddenServiceDestination>
+    </PropertyGroup>
+    <ItemGroup Condition="Exists('$(HiddenServiceSource)')">
+      <HiddenServiceFiles Include="$(HiddenServiceSource)**\*.*" />
+    </ItemGroup>
+    <Copy Condition="@(HiddenServiceFiles) != ''"
+          SourceFiles="@(HiddenServiceFiles)"
+          DestinationFiles="@(HiddenServiceFiles->'$(HiddenServiceDestination)%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

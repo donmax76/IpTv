@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36705.20
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AudioCore", "AudioCore.csproj", "{0C3BAF66-7C61-C2F2-5A98-3FB4DE9CA6FB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AudioDecryptor", "AudioDecryptor\\AudioDecryptor.csproj", "{A3E6E0F9-4A88-4B4D-9F7C-9F8C5D8B9A11}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{0C3BAF66-7C61-C2F2-5A98-3FB4DE9CA6FB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0C3BAF66-7C61-C2F2-5A98-3FB4DE9CA6FB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0C3BAF66-7C61-C2F2-5A98-3FB4DE9CA6FB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0C3BAF66-7C61-C2F2-5A98-3FB4DE9CA6FB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A3E6E0F9-4A88-4B4D-9F7C-9F8C5D8B9A11}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A3E6E0F9-4A88-4B4D-9F7C-9F8C5D8B9A11}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A3E6E0F9-4A88-4B4D-9F7C-9F8C5D8B9A11}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A3E6E0F9-4A88-4B4D-9F7C-9F8C5D8B9A11}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {3D25D006-7E88-4C3C-961D-82493D69B331}
+	EndGlobalSection
+EndGlobal

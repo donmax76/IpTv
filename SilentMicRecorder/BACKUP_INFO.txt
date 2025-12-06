@@ -1,0 +1,89 @@
+========================================
+  ТОЧКА ВОЗВРАТА - РАБОЧИЙ ВАРИАНТ
+========================================
+Дата создания: 2025-12-05
+Статус: РАБОТАЕТ - Все свойства файла отображаются корректно в Windows Explorer
+
+ОПИСАНИЕ КОНФИГУРАЦИИ:
+----------------------
+- SelfContained: true (.NET 8 Runtime внутри exe, не требует установки на ПК)
+- PublishSingleFile: true (все управляемые DLL в одном exe)
+- PublishTrimmed: false (не обрезаем, чтобы не сломать MP3)
+- IncludeNativeLibrariesForSelfExtract: false (нативные DLL отдельными файлами)
+- TargetFramework: net8.0 (без GUI DLL)
+- Автоматическая версия: меняется при каждой компиляции (формат: 1.0.Build.Revision)
+- Win32Resource: version.res (версионный ресурс из version.rc)
+
+РЕЗУЛЬТАТ СБОРКИ:
+-----------------
+Файлов в publish: 6
+- AudioCore.exe (~67 МБ) - все управляемые DLL внутри, включает .NET 8 Runtime
+- libmp3lame.32.dll (0.67 МБ)
+- libmp3lame.64.dll (1.03 МБ)
+- apts.sys (конфигурация)
+- install.bat (скрипт установки)
+- apts_comments.txt (документация)
+
+Общий размер: ~69 МБ
+
+СВОЙСТВА ФАЙЛА (Windows Explorer):
+-----------------------------------
+✓ Версия файла: 10.0.22000.527
+✓ Версия продукта: 10.0.22000.527
+✓ Язык: Английский (США) / English (United States)
+✓ Исходное имя файла: AudioCore.exe
+✓ Описание файла: Windows Audio Privacy Service
+✓ Название продукта: Microsoft® Windows® Operating System
+✓ Авторские права: © Microsoft Corporation. All rights reserved.
+✓ Компания: Microsoft Corporation
+
+ЧТО РАБОТАЕТ:
+-------------
+✓ MP3 запись работает корректно
+✓ Все Microsoft.Extensions.*.dll интегрированы в exe
+✓ Нативные DLL (libmp3lame) остаются отдельными файлами
+✓ Все свойства файла отображаются корректно в Windows Explorer
+✓ Встроенный версионный ресурс Windows (version.res из version.rc)
+
+ТРЕБОВАНИЯ:
+----------
+- НЕ требуется установка .NET 8 Runtime на целевом ПК
+  (Self-contained сборка, рантайм внутри exe)
+- Windows SDK для компиляции version.rc (rc.exe)
+
+КАК ВЕРНУТЬСЯ К ЭТОМУ ВАРИАНТУ:
+--------------------------------
+1. Найти последний файл точки возврата: AudioCore.csproj.WORKING_YYYY-MM-DD_HH-mm-ss
+2. Скопировать его в AudioCore.csproj
+3. Пересобрать проект: dotnet publish -c Release -r win-x64 -o bin\Release\net8.0\win-x64\publish
+
+ПОСЛЕДНЯЯ ТОЧКА ВОЗВРАТА:
+-------------------------
+AudioCore.csproj.WORKING_2025-12-05_10-54-45
+
+АВТОМАТИЧЕСКАЯ ВЕРСИЯ:
+----------------------
+✓ Версия автоматически меняется при каждой компиляции
+✓ Формат: 1.0.Build.Revision
+  - Build = дни с 2022-01-01
+  - Revision = секунды с начала дня (ограничено до 43200)
+✓ Пример: 1.0.1434.38091
+✓ FileVersion и ProductVersion: фиксированные 10.0.22000.527 (для Windows Explorer)
+
+ВЕРСИОННЫЙ РЕСУРС:
+-----------------
+✓ version.rc компилируется в version.res с помощью rc.exe из Windows SDK
+✓ version.res встраивается в exe через Win32Resource
+✓ Все свойства файла (версия, язык, описание, исходное имя) берутся из version.rc
+✓ ApplicationManifest удалён (конфликтовал с Win32Resource)
+
+ОСОБЕННОСТИ:
+-----------
+✓ Автоматическое копирование libmp3lame*.dll в publish
+✓ Автоматическое изменение версии при каждой компиляции
+✓ Self-contained сборка (не требует .NET 8 Runtime на целевой машине)
+✓ Single-file для управляемых DLL
+✓ Нативные DLL отдельными файлами
+✓ Правильное отображение всех свойств файла в Windows Explorer
+
+========================================
