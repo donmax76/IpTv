@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Remote Desktop Server
-Сервер для удаленного доступа к компьютеру
+Remote Desktop Server v2.0
+Улучшенный сервер для удаленного доступа к компьютеру
+- Стабильное соединение с keepalive
+- Улучшенная обработка ошибок
+- Настраиваемое качество
 """
 
 import socket
@@ -11,63 +14,87 @@ import struct
 import json
 import os
 import hashlib
-import base64
-from pathlib import Path
-from typing import Optional, Tuple
+import io
 import time
 import subprocess
+import sys
+from pathlib import Path
+from typing import Optional, Tuple
+from datetime import datetime
 
 try:
     import mss
     from PIL import Image
     import pyautogui
-    import pynput
-    from pynput import mouse, keyboard
-except ImportError:
+except ImportError as e:
     print("=" * 60)
     print("ОШИБКА: Не найдены зависимости для сервера.")
-    print("Установите их ОДИН раз вручную (ничего скачиваться из кода не будет):")
+    print(f"Отсутствует: {e}")
+    print("Установите их командой:")
     print("  pip install -r requirements.txt")
-    print("или минимально:")
-    print("  pip install mss pillow pyautogui pynput")
     print("=" * 60)
-    raise
+    sys.exit(1)
+
+# Отключаем failsafe pyautogui (мешает при работе в углах экрана)
+pyautogui.FAILSAFE = False
+pyautogui.PAUSE = 0.01  # Уменьшаем задержку для быстрого отклика
 
 
 class RemoteServer:
+    VERSION = "2.0"
+    
     def __init__(self, host='0.0.0.0', port=5900, password=None):
         self.host = host
         self.port = port
-        # Если пароль не задан явно, работаем БЕЗ пароля (для простоты подключения)
-        # Чтобы включить пароль, запустите сервер с параметром --password
-        self.password = password  # None => аутентификация отключена
+        self.password = password
         self.socket = None
         self.client_socket = None
+        self.client_addr = None
         self.running = False
+        self.client_connected = False
+        
+        # Потоки
         self.screen_thread = None
         self.input_thread = None
-        self.mouse_listener = None
-        self.keyboard_listener = None
+        self.keepalive_thread = None
         
-        if self.password:
-            print(f"Сервер инициализирован. Пароль: {self.password}")
-        else:
-            print("Сервер инициализирован. Доступ БЕЗ пароля (аутентификация отключена).")
-        print(f"IP адрес: {self._get_local_ip()}")
-        print(f"Порт: {self.port}")
+        # Настройки
+        self.screen_quality = 60  # JPEG качество (30-95)
+        self.screen_fps = 15  # Кадров в секунду
+        self.screen_scale = 1.0  # Масштаб (1.0 = 100%)
+        
+        # Статистика
+        self.frames_sent = 0
+        self.bytes_sent = 0
+        self.last_activity = time.time()
+        
+        # Блокировки для потокобезопасности
+        self.send_lock = threading.Lock()
+        self.socket_lock = threading.Lock()
+        
+        self._print_banner()
     
-    def _generate_password(self) -> str:
-        """Генерирует случайный пароль"""
-        import random
-        import string
-        # Простой пароль: только большие буквы и цифры, чтобы легче было вводить/копировать
-        chars = string.ascii_uppercase + string.digits
-        return "".join(random.choice(chars) for _ in range(8))
+    def _print_banner(self):
+        """Выводит баннер при запуске"""
+        local_ip = self._get_local_ip()
+        print("\n" + "=" * 60)
+        print(f"  Remote Desktop Server v{self.VERSION}")
+        print("=" * 60)
+        print(f"  IP адрес:  {local_ip}")
+        print(f"  Порт:      {self.port}")
+        if self.password:
+            print(f"  Пароль:    {self.password}")
+        else:
+            print("  Пароль:    [ОТКЛЮЧЕН]")
+        print(f"  Качество:  {self.screen_quality}%")
+        print(f"  FPS:       {self.screen_fps}")
+        print("=" * 60 + "\n")
     
     def _get_local_ip(self) -> str:
         """Получает локальный IP адрес"""
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.settimeout(1)
             s.connect(("8.8.8.8", 80))
             ip = s.getsockname()[0]
             s.close()
@@ -77,76 +104,94 @@ class RemoteServer:
     
     def _hash_password(self, password: str) -> str:
         """Хеширует пароль"""
-        # Обрезаем пробелы по краям, чтобы не ломалось из-за случайных пробелов при копировании
         password = (password or "").strip()
         return hashlib.sha256(password.encode("utf-8")).hexdigest()
     
-    def _send_data(self, data: bytes):
-        """Отправляет данные клиенту"""
-        if self.client_socket:
+    def _send_data(self, data: bytes) -> bool:
+        """Отправляет данные клиенту (потокобезопасно)"""
+        with self.send_lock:
+            if not self.client_socket or not self.client_connected:
+                return False
             try:
                 self.client_socket.sendall(struct.pack('!I', len(data)) + data)
-            except:
-                pass
+                self.bytes_sent += len(data) + 4
+                self.last_activity = time.time()
+                return True
+            except Exception as e:
+                self._log(f"Ошибка отправки: {e}")
+                return False
     
-    def _send_json(self, data: dict):
+    def _send_json(self, data: dict) -> bool:
         """Отправляет JSON данные"""
-        json_str = json.dumps(data, ensure_ascii=False)
-        self._send_data(json_str.encode('utf-8'))
+        try:
+            json_str = json.dumps(data, ensure_ascii=False)
+            return self._send_data(json_str.encode('utf-8'))
+        except Exception as e:
+            self._log(f"Ошибка JSON: {e}")
+            return False
     
-    def _recv_exact(self, n: int, timeout=5) -> Optional[bytes]:
+    def _recv_exact(self, sock, n: int, timeout: float = 30) -> Optional[bytes]:
         """Принимает точно n байт"""
-        if not self.client_socket:
+        if not sock:
             return None
         try:
-            # Устанавливаем таймаут
-            old_timeout = self.client_socket.gettimeout()
-            self.client_socket.settimeout(timeout)
+            old_timeout = sock.gettimeout()
+            sock.settimeout(timeout)
             
             data = b''
             while len(data) < n:
-                chunk = self.client_socket.recv(n - len(data))
-                if not chunk:
-                    self.client_socket.settimeout(old_timeout)
+                try:
+                    chunk = sock.recv(n - len(data))
+                    if not chunk:
+                        return None
+                    data += chunk
+                except socket.timeout:
                     return None
-                data += chunk
             
-            self.client_socket.settimeout(old_timeout)
+            sock.settimeout(old_timeout)
             return data
-        except socket.timeout:
-            return None
         except Exception:
             return None
     
-    def _recv_json(self, timeout=5) -> Optional[dict]:
+    def _recv_json(self, sock, timeout: float = 30) -> Optional[dict]:
         """Принимает JSON данные"""
-        header = self._recv_exact(4, timeout)
+        header = self._recv_exact(sock, 4, timeout)
         if not header:
             return None
+        
         length = struct.unpack('!I', header)[0]
         if length > 10 * 1024 * 1024:  # Максимум 10 MB
             return None
-        data = self._recv_exact(length, timeout)
+        
+        data = self._recv_exact(sock, length, timeout)
         if not data:
             return None
+        
         try:
             return json.loads(data.decode('utf-8'))
         except:
             return None
     
-    def _authenticate(self) -> bool:
+    def _log(self, message: str):
+        """Логирует сообщение с временем"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        print(f"[{timestamp}] {message}")
+    
+    def _authenticate(self, sock) -> bool:
         """Аутентификация клиента"""
         if not self.password:
+            # Без пароля - сразу успех
+            self._send_json({'type': 'auth_not_required'})
             return True
         
         try:
-            # Отправляем запрос на пароль
+            # Запрашиваем пароль
             self._send_json({'type': 'auth_required'})
             
-            # Получаем пароль от клиента (таймаут 10 секунд)
-            auth_data = self._recv_json(timeout=10)
+            # Ждем ответ
+            auth_data = self._recv_json(sock, timeout=30)
             if not auth_data or auth_data.get('type') != 'auth':
-                print("Ошибка: не получен ответ на аутентификацию")
+                self._log("Не получен ответ на аутентификацию")
                 return False
             
             client_password = auth_data.get('password', '')
@@ -155,12 +200,13 @@ class RemoteServer:
                 return True
             else:
                 self._send_json({'type': 'auth_failed'})
+                self._log("Неверный пароль")
                 return False
         except Exception as e:
-            print(f"Ошибка аутентификации: {e}")
+            self._log(f"Ошибка аутентификации: {e}")
             return False
     
-    def _capture_screen(self, quality=70) -> bytes:
+    def _capture_screen(self) -> bytes:
         """Захватывает экран и возвращает JPEG"""
         try:
             with mss.mss() as sct:
@@ -168,52 +214,95 @@ class RemoteServer:
                 screenshot = sct.grab(monitor)
                 img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
                 
-                # Сжимаем изображение
-                import io
+                # Масштабирование если нужно
+                if self.screen_scale != 1.0:
+                    new_size = (int(img.width * self.screen_scale), 
+                               int(img.height * self.screen_scale))
+                    img = img.resize(new_size, Image.Resampling.LANCZOS)
+                
+                # Сжимаем в JPEG
                 buf = io.BytesIO()
-                img.save(buf, format='JPEG', quality=quality, optimize=True)
+                img.save(buf, format='JPEG', quality=self.screen_quality, optimize=True)
                 return buf.getvalue()
         except Exception as e:
-            print(f"Ошибка захвата экрана: {e}")
+            self._log(f"Ошибка захвата экрана: {e}")
             return b''
     
     def _handle_screen_stream(self):
         """Поток для отправки скриншотов"""
-        while self.running and self.client_socket:
+        frame_interval = 1.0 / self.screen_fps
+        
+        while self.running and self.client_connected:
             try:
+                start_time = time.time()
+                
                 frame = self._capture_screen()
                 if frame:
-                    self._send_data(b'SCREEN' + frame)
-                time.sleep(0.1)  # ~10 FPS
+                    if not self._send_data(b'SCREEN' + frame):
+                        break
+                    self.frames_sent += 1
+                
+                # Поддерживаем стабильный FPS
+                elapsed = time.time() - start_time
+                sleep_time = frame_interval - elapsed
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+                    
             except Exception as e:
-                print(f"Ошибка отправки экрана: {e}")
+                self._log(f"Ошибка стрима экрана: {e}")
                 break
+        
+        self._log("Поток экрана завершен")
+    
+    def _handle_keepalive(self):
+        """Поток для keepalive пингов"""
+        while self.running and self.client_connected:
+            try:
+                time.sleep(5)  # Каждые 5 секунд
+                
+                if not self.client_connected:
+                    break
+                
+                # Отправляем ping
+                if not self._send_json({'type': 'ping', 'time': time.time()}):
+                    self._log("Keepalive не удался, клиент отключен")
+                    break
+                    
+            except Exception as e:
+                self._log(f"Ошибка keepalive: {e}")
+                break
+        
+        self._log("Поток keepalive завершен")
     
     def _handle_mouse_input(self, x: int, y: int, button: str, action: str):
         """Обрабатывает команды мыши"""
         try:
-            pyautogui.moveTo(x, y)
-            if action == 'click':
-                if button == 'left':
-                    pyautogui.click()
-                elif button == 'right':
-                    pyautogui.rightClick()
-                elif button == 'middle':
-                    pyautogui.middleClick()
+            # Корректируем координаты если был масштаб
+            if self.screen_scale != 1.0:
+                x = int(x / self.screen_scale)
+                y = int(y / self.screen_scale)
+            
+            if action == 'move':
+                pyautogui.moveTo(x, y, _pause=False)
+            elif action == 'click':
+                pyautogui.click(x, y, button=button if button != 'middle' else 'middle')
             elif action == 'down':
-                if button == 'left':
-                    pyautogui.mouseDown()
-                elif button == 'right':
-                    pyautogui.mouseDown(button='right')
+                pyautogui.moveTo(x, y, _pause=False)
+                pyautogui.mouseDown(button=button)
             elif action == 'up':
-                if button == 'left':
-                    pyautogui.mouseUp()
-                elif button == 'right':
-                    pyautogui.mouseUp(button='right')
+                pyautogui.moveTo(x, y, _pause=False)
+                pyautogui.mouseUp(button=button)
             elif action == 'scroll':
-                pyautogui.scroll(button)
+                # button содержит delta для скролла
+                try:
+                    delta = int(button) // 120  # Windows delta обычно 120
+                    pyautogui.scroll(delta, x, y)
+                except:
+                    pass
+            elif action == 'doubleclick':
+                pyautogui.doubleClick(x, y, button=button)
         except Exception as e:
-            print(f"Ошибка управления мышью: {e}")
+            self._log(f"Ошибка мыши: {e}")
     
     def _handle_keyboard_input(self, key: str, action: str):
         """Обрабатывает команды клавиатуры"""
@@ -221,43 +310,54 @@ class RemoteServer:
             if action == 'press':
                 pyautogui.press(key)
             elif action == 'type':
-                pyautogui.write(key)
+                pyautogui.write(key, interval=0.02)
             elif action == 'keyDown':
                 pyautogui.keyDown(key)
             elif action == 'keyUp':
                 pyautogui.keyUp(key)
+            elif action == 'hotkey':
+                # Комбинация клавиш типа "ctrl+c"
+                keys = key.split('+')
+                pyautogui.hotkey(*keys)
         except Exception as e:
-            print(f"Ошибка управления клавиатурой: {e}")
+            self._log(f"Ошибка клавиатуры: {e}")
     
     def _handle_file_request(self, request: dict):
         """Обрабатывает запросы файлового менеджера"""
         cmd = request.get('command')
         
         if cmd == 'list_drives':
-            # Список дисков Windows (упрощённый и надёжный)
             drives = []
             try:
                 import string
                 for letter in string.ascii_uppercase:
                     drive_path = f"{letter}:\\"
                     if os.path.exists(drive_path):
-                        drives.append({
-                            'path': drive_path,
-                            'name': f'Диск {letter}',
-                            'type': 'drive'
-                        })
+                        try:
+                            # Получаем информацию о диске
+                            import ctypes
+                            free_bytes = ctypes.c_ulonglong(0)
+                            total_bytes = ctypes.c_ulonglong(0)
+                            ctypes.windll.kernel32.GetDiskFreeSpaceExW(
+                                ctypes.c_wchar_p(drive_path), None, 
+                                ctypes.pointer(total_bytes), 
+                                ctypes.pointer(free_bytes)
+                            )
+                            drives.append({
+                                'path': drive_path,
+                                'name': f'Диск {letter}:',
+                                'type': 'drive',
+                                'total': total_bytes.value,
+                                'free': free_bytes.value
+                            })
+                        except:
+                            drives.append({
+                                'path': drive_path,
+                                'name': f'Диск {letter}:',
+                                'type': 'drive'
+                            })
             except Exception as e:
-                print(f"Ошибка получения дисков: {e}")
-            
-            # Если ничего не нашли, хотя бы пробуем C:\
-            if not drives:
-                default_drive = "C:\\"
-                if os.path.exists(default_drive):
-                    drives.append({
-                        'path': default_drive,
-                        'name': 'Диск C',
-                        'type': 'drive'
-                    })
+                self._log(f"Ошибка получения дисков: {e}")
             
             self._send_json({
                 'type': 'file_response',
@@ -265,67 +365,7 @@ class RemoteServer:
                 'data': drives
             })
         
-        elif cmd == 'run_command':
-            # Удалённый запуск команды в терминале
-            # Реальная командная строка передаётся в отдельном поле,
-            # чтобы не путать с полем маршрутизации 'command'
-            command = request.get('command_str') or request.get('shell') or ''
-            cwd = request.get('cwd', None) or os.getcwd()
-            try:
-                # Безопасно ограничиваем длину команды
-                command = command.strip()
-                if not command:
-                    self._send_json({
-                        'type': 'terminal_response',
-                        'command': command,
-                        'output': '',
-                        'error': 'Пустая команда',
-                        'returncode': -1,
-                        'cwd': cwd
-                    })
-                    return
-                
-                # Выполняем команду
-                result = subprocess.run(
-                    command,
-                    shell=True,
-                    cwd=cwd,
-                    capture_output=True,
-                    text=True,
-                    encoding='utf-8',
-                    errors='replace',
-                    timeout=60  # 60 секунд на команду
-                )
-                
-                self._send_json({
-                    'type': 'terminal_response',
-                    'command': command,
-                    'output': result.stdout[-5000:],  # ограничиваем размер
-                    'error': result.stderr[-5000:],
-                    'returncode': result.returncode,
-                    'cwd': cwd
-                })
-            except subprocess.TimeoutExpired:
-                self._send_json({
-                    'type': 'terminal_response',
-                    'command': command,
-                    'output': '',
-                    'error': 'Команда превысила лимит времени (60 секунд)',
-                    'returncode': -1,
-                    'cwd': cwd
-                })
-            except Exception as e:
-                self._send_json({
-                    'type': 'terminal_response',
-                    'command': command,
-                    'output': '',
-                    'error': str(e),
-                    'returncode': -1,
-                    'cwd': cwd
-                })
-        
         elif cmd == 'list_dir':
-            # Список файлов в директории
             path = request.get('path', '')
             try:
                 items = []
@@ -334,15 +374,20 @@ class RemoteServer:
                         item_path = os.path.join(path, item)
                         try:
                             stat = os.stat(item_path)
+                            is_dir = os.path.isdir(item_path)
                             items.append({
                                 'name': item,
                                 'path': item_path,
-                                'type': 'directory' if os.path.isdir(item_path) else 'file',
-                                'size': stat.st_size if os.path.isfile(item_path) else 0,
+                                'type': 'directory' if is_dir else 'file',
+                                'size': stat.st_size if not is_dir else 0,
                                 'modified': stat.st_mtime
                             })
-                        except:
+                        except (PermissionError, OSError):
+                            # Пропускаем файлы без доступа
                             pass
+                
+                # Сортируем: папки сначала, потом файлы
+                items.sort(key=lambda x: (0 if x['type'] == 'directory' else 1, x['name'].lower()))
                 
                 self._send_json({
                     'type': 'file_response',
@@ -357,8 +402,61 @@ class RemoteServer:
                     'error': str(e)
                 })
         
+        elif cmd == 'run_command':
+            command_str = request.get('command_str', '') or request.get('shell', '')
+            cwd = request.get('cwd') or os.getcwd()
+            
+            try:
+                if not command_str.strip():
+                    self._send_json({
+                        'type': 'terminal_response',
+                        'command': command_str,
+                        'output': '',
+                        'error': 'Пустая команда',
+                        'returncode': -1,
+                        'cwd': cwd
+                    })
+                    return
+                
+                result = subprocess.run(
+                    command_str,
+                    shell=True,
+                    cwd=cwd,
+                    capture_output=True,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace',
+                    timeout=120
+                )
+                
+                self._send_json({
+                    'type': 'terminal_response',
+                    'command': command_str,
+                    'output': result.stdout[-10000:],
+                    'error': result.stderr[-5000:],
+                    'returncode': result.returncode,
+                    'cwd': cwd
+                })
+            except subprocess.TimeoutExpired:
+                self._send_json({
+                    'type': 'terminal_response',
+                    'command': command_str,
+                    'output': '',
+                    'error': 'Таймаут команды (120 сек)',
+                    'returncode': -1,
+                    'cwd': cwd
+                })
+            except Exception as e:
+                self._send_json({
+                    'type': 'terminal_response',
+                    'command': command_str,
+                    'output': '',
+                    'error': str(e),
+                    'returncode': -1,
+                    'cwd': cwd
+                })
+        
         elif cmd == 'download_file':
-            # Отправка файла клиенту
             file_path = request.get('path', '')
             try:
                 if os.path.isfile(file_path):
@@ -370,9 +468,8 @@ class RemoteServer:
                         'size': file_size
                     })
                     
-                    # Отправляем файл по частям
                     with open(file_path, 'rb') as f:
-                        chunk_size = 64 * 1024  # 64 KB
+                        chunk_size = 64 * 1024
                         while True:
                             chunk = f.read(chunk_size)
                             if not chunk:
@@ -384,7 +481,7 @@ class RemoteServer:
                     self._send_json({
                         'type': 'file_response',
                         'command': 'download_file',
-                        'error': 'File not found'
+                        'error': 'Файл не найден'
                     })
             except Exception as e:
                 self._send_json({
@@ -393,232 +490,231 @@ class RemoteServer:
                     'error': str(e)
                 })
         
-        elif cmd == 'upload_file':
-            # Прием файла от клиента (в отдельном потоке)
-            filename = request.get('filename', '')
-            save_path = request.get('save_path', '')
-            file_size = request.get('size', 0)
+        elif cmd == 'set_quality':
+            quality = request.get('quality', 60)
+            fps = request.get('fps', 15)
+            scale = request.get('scale', 1.0)
             
-            def upload_thread():
-                try:
-                    full_path = os.path.join(save_path, filename)
-                    os.makedirs(save_path, exist_ok=True)
-                    
-                    # Подтверждаем готовность
-                    self._send_json({
-                        'type': 'file_response',
-                        'command': 'upload_file',
-                        'status': 'ready'
-                    })
-                    
-                    # Принимаем файл по частям
-                    received = 0
-                    with open(full_path, 'wb') as f:
-                        while received < file_size:
-                            # Читаем заголовок (таймаут 60 секунд для больших файлов)
-                            header = self._recv_exact(4, timeout=60)
-                            if not header:
-                                break
-                            length = struct.unpack('!I', header)[0]
-                            
-                            # Читаем данные
-                            data = self._recv_exact(length, timeout=60)
-                            if not data:
-                                break
-                            
-                            # Проверяем префикс
-                            if data.startswith(b'FILE_DATA'):
-                                chunk = data[9:]  # Убираем префикс
-                                f.write(chunk)
-                                received += len(chunk)
-                            elif data.startswith(b'FILE_END'):
-                                break
-                            else:
-                                # Данные без префикса (старый формат)
-                                f.write(data)
-                                received += len(data)
-                    
-                    self._send_json({
-                        'type': 'file_response',
-                        'command': 'upload_file',
-                        'status': 'success'
-                    })
-                except Exception as e:
-                    self._send_json({
-                        'type': 'file_response',
-                        'command': 'upload_file',
-                        'error': str(e)
-                    })
+            self.screen_quality = max(20, min(95, quality))
+            self.screen_fps = max(1, min(30, fps))
+            self.screen_scale = max(0.25, min(1.0, scale))
             
-            # Запускаем в отдельном потоке
-            threading.Thread(target=upload_thread, daemon=True).start()
+            self._log(f"Качество: {self.screen_quality}%, FPS: {self.screen_fps}, Масштаб: {self.screen_scale}")
+            
+            self._send_json({
+                'type': 'settings_updated',
+                'quality': self.screen_quality,
+                'fps': self.screen_fps,
+                'scale': self.screen_scale
+            })
     
     def _handle_client_input(self):
         """Обрабатывает команды от клиента"""
-        # Локальная ссылка на сокет, чтобы избежать гонок
         sock = self.client_socket
-        try:
-            while self.running and sock:
-                try:
-                    header = self._recv_exact(4, timeout=30)
-                    if not header:
-                        break
-                    
-                    length = struct.unpack('!I', header)[0]
-                    if length > 10 * 1024 * 1024:  # Максимум 10 MB
-                        break
-                    
-                    data = self._recv_exact(length, timeout=30)
-                    if not data:
-                        break
-                    
-                    # Проверяем тип команды
-                    if data.startswith(b'SCREEN'):
-                        # Это скриншот (не должно быть здесь)
-                        continue
-                    elif data.startswith(b'FILE_DATA'):
-                        # Данные файла
-                        continue
-                    elif data.startswith(b'FILE_END'):
-                        # Конец файла
-                        continue
-                    else:
-                        # JSON команда
-                        try:
-                            request = json.loads(data.decode('utf-8'))
-                            req_type = request.get('type')
-                            
-                            if req_type == 'mouse':
-                                self._handle_mouse_input(
-                                    request.get('x', 0),
-                                    request.get('y', 0),
-                                    request.get('button', 'left'),
-                                    request.get('action', 'click')
-                                )
-                            elif req_type == 'keyboard':
-                                self._handle_keyboard_input(
-                                    request.get('key', ''),
-                                    request.get('action', 'press')
-                                )
-                            elif req_type == 'file_request':
-                                self._handle_file_request(request)
-                        except:
-                            pass
-                except Exception as e:
-                    print(f"Ошибка обработки команды: {e}")
+        
+        while self.running and self.client_connected and sock:
+            try:
+                header = self._recv_exact(sock, 4, timeout=60)
+                if not header:
+                    self._log("Клиент не отвечает (таймаут)")
                     break
-        finally:
-            # Очистка при отключении клиента
-            print("Клиент отключен")
-            if sock:
+                
+                length = struct.unpack('!I', header)[0]
+                if length > 10 * 1024 * 1024:
+                    self._log("Слишком большой пакет")
+                    break
+                
+                data = self._recv_exact(sock, length, timeout=60)
+                if not data:
+                    break
+                
+                self.last_activity = time.time()
+                
+                # Обработка разных типов данных
+                if data.startswith(b'FILE_DATA') or data.startswith(b'FILE_END'):
+                    continue
+                
                 try:
-                    sock.close()
+                    request = json.loads(data.decode('utf-8'))
+                    req_type = request.get('type')
+                    
+                    if req_type == 'mouse':
+                        self._handle_mouse_input(
+                            request.get('x', 0),
+                            request.get('y', 0),
+                            request.get('button', 'left'),
+                            request.get('action', 'click')
+                        )
+                    elif req_type == 'keyboard':
+                        self._handle_keyboard_input(
+                            request.get('key', ''),
+                            request.get('action', 'press')
+                        )
+                    elif req_type == 'file_request':
+                        self._handle_file_request(request)
+                    elif req_type == 'pong':
+                        # Ответ на ping - клиент жив
+                        pass
+                    elif req_type == 'disconnect':
+                        self._log("Клиент запросил отключение")
+                        break
+                except json.JSONDecodeError:
+                    pass
+                    
+            except Exception as e:
+                self._log(f"Ошибка обработки: {e}")
+                break
+        
+        self._disconnect_client()
+    
+    def _disconnect_client(self):
+        """Отключает текущего клиента"""
+        self.client_connected = False
+        
+        with self.socket_lock:
+            if self.client_socket:
+                try:
+                    self.client_socket.close()
                 except:
                     pass
-            self.client_socket = None
+                self.client_socket = None
+        
+        if self.client_addr:
+            self._log(f"Клиент {self.client_addr} отключен")
+            self.client_addr = None
+        
+        # Сбрасываем статистику
+        self.frames_sent = 0
+        self.bytes_sent = 0
     
     def start(self):
         """Запускает сервер"""
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         
+        # Включаем TCP keepalive на уровне сокета
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        
         try:
             self.socket.bind((self.host, self.port))
             self.socket.listen(1)
             self.running = True
             
-            print(f"\n{'='*50}")
-            print(f"Сервер запущен и ожидает подключения...")
-            print(f"IP: {self._get_local_ip()}")
-            print(f"Порт: {self.port}")
-            if self.password:
-                print(f"Пароль: {self.password}")
-            else:
-                print("Пароль: [ОТКЛЮЧЕН] (подключение без пароля)")
-            print(f"{'='*50}\n")
+            self._log("Сервер запущен, ожидание подключений...")
             
             while self.running:
                 try:
-                    # Если уже есть активный клиент, ждём, пока он отключится
-                    if self.client_socket:
+                    # Ждем нового клиента только если текущий отключен
+                    if self.client_connected:
                         time.sleep(0.5)
                         continue
                     
-                    conn, addr = self.socket.accept()
-                    print(f"Подключение от {addr}")
-                    
-                    # Присваиваем активный сокет
-                    self.client_socket = conn
-                    self.client_socket.settimeout(30)  # 30 секунд таймаут по умолчанию
-                    
-                    # Аутентификация (если включена)
-                    if not self._authenticate():
-                        print("Ошибка аутентификации")
-                        try:
-                            self.client_socket.close()
-                        except:
-                            pass
-                        self.client_socket = None
+                    self.socket.settimeout(1.0)  # Таймаут для проверки self.running
+                    try:
+                        conn, addr = self.socket.accept()
+                    except socket.timeout:
                         continue
                     
-                    print("Клиент успешно подключен!")
+                    self._log(f"Новое подключение от {addr}")
+                    
+                    # Настраиваем сокет клиента
+                    conn.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                    conn.settimeout(60)
+                    
+                    self.client_socket = conn
+                    self.client_addr = addr
+                    
+                    # Аутентификация
+                    if not self._authenticate(conn):
+                        self._log("Аутентификация не пройдена")
+                        self._disconnect_client()
+                        continue
+                    
+                    self._log(f"Клиент {addr} успешно подключен!")
+                    self.client_connected = True
+                    
+                    # Отправляем информацию о сервере
+                    self._send_json({
+                        'type': 'server_info',
+                        'version': self.VERSION,
+                        'quality': self.screen_quality,
+                        'fps': self.screen_fps,
+                        'scale': self.screen_scale
+                    })
                     
                     # Запускаем потоки
                     self.screen_thread = threading.Thread(
                         target=self._handle_screen_stream,
+                        name="ScreenThread",
                         daemon=True
                     )
                     self.input_thread = threading.Thread(
                         target=self._handle_client_input,
+                        name="InputThread",
+                        daemon=True
+                    )
+                    self.keepalive_thread = threading.Thread(
+                        target=self._handle_keepalive,
+                        name="KeepaliveThread",
                         daemon=True
                     )
                     
                     self.screen_thread.start()
                     self.input_thread.start()
+                    self.keepalive_thread.start()
                     
                 except Exception as e:
                     if self.running:
-                        print(f"Ошибка: {e}")
-                    try:
-                        if self.client_socket:
-                            self.client_socket.close()
-                    except:
-                        pass
-                    self.client_socket = None
+                        self._log(f"Ошибка: {e}")
+                    self._disconnect_client()
+                    
         except Exception as e:
-            print(f"Ошибка запуска сервера: {e}")
+            self._log(f"Критическая ошибка: {e}")
         finally:
             self.stop()
     
     def stop(self):
         """Останавливает сервер"""
+        self._log("Остановка сервера...")
         self.running = False
-        if self.client_socket:
-            self.client_socket.close()
+        self._disconnect_client()
+        
         if self.socket:
-            self.socket.close()
-        print("Сервер остановлен")
+            try:
+                self.socket.close()
+            except:
+                pass
+            self.socket = None
+        
+        self._log("Сервер остановлен")
 
 
 def main():
     import argparse
     
-    parser = argparse.ArgumentParser(description='Remote Desktop Server')
-    parser.add_argument('--host', default='0.0.0.0', help='Host адрес')
-    parser.add_argument('--port', type=int, default=5900, help='Порт')
-    parser.add_argument('--password', default=None, help='Пароль (если не указан, будет сгенерирован)')
+    parser = argparse.ArgumentParser(description='Remote Desktop Server v2.0')
+    parser.add_argument('--host', default='0.0.0.0', help='IP адрес для прослушивания')
+    parser.add_argument('--port', '-p', type=int, default=5900, help='Порт (по умолчанию 5900)')
+    parser.add_argument('--password', '-P', default=None, help='Пароль для подключения')
+    parser.add_argument('--quality', '-q', type=int, default=60, help='Качество JPEG (20-95)')
+    parser.add_argument('--fps', '-f', type=int, default=15, help='Кадров в секунду (1-30)')
     
     args = parser.parse_args()
     
-    server = RemoteServer(host=args.host, port=args.port, password=args.password)
+    server = RemoteServer(
+        host=args.host,
+        port=args.port,
+        password=args.password
+    )
+    server.screen_quality = max(20, min(95, args.quality))
+    server.screen_fps = max(1, min(30, args.fps))
     
     try:
         server.start()
     except KeyboardInterrupt:
-        print("\nОстановка сервера...")
+        print("\n")
         server.stop()
 
 
 if __name__ == '__main__':
     main()
-

@@ -1,8 +1,19 @@
+# Remote Desktop v2.0 Dependencies
+# Установка: pip install -r requirements.txt
+
+# Захват экрана
 mss>=9.0.1
+
+# Обработка изображений
 Pillow>=10.0.0
-pyautogui>=0.9.54
-pynput>=1.7.6
 opencv-python>=4.8.0
 numpy>=1.24.0
-pywin32>=306; sys_platform == 'win32'
 
+# Управление мышью и клавиатурой (сервер)
+pyautogui>=0.9.54
+
+# Современный UI (клиент)
+customtkinter>=5.2.0
+
+# Windows-специфичные
+pywin32>=306; sys_platform == 'win32'
