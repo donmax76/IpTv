@@ -1,0 +1,4 @@
+# Copy this file to local.properties and set your Android SDK path
+# Example for Linux: sdk.dir=/home/username/Android/Sdk
+# Example for Windows: sdk.dir=C\:\\Users\\username\\AppData\\Local\\Android\\Sdk
+sdk.dir=/path/to/your/Android/Sdk
