@@ -62,4 +62,6 @@
     <string name="play_pause">Oynat</string>
     <string name="tv_guide_now">İndi</string>
     <string name="tv_guide_channel">Kanal</string>
+    <string name="search_channels">Kanal axtarışı</string>
+    <string name="hide_channels">Siyahını gizlət</string>
 </resources>

@@ -5,10 +5,10 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#121212"
+    android:background="#000000"
     tools:context=".MainActivity">
 
-    <!-- Player (full area) -->
+    <!-- Player full screen -->
     <FrameLayout
         android:id="@+id/playerContainer"
         android:layout_width="match_parent"
@@ -29,6 +29,17 @@
             android:visibility="gone"
             android:indeterminateTint="#FFFFFF" />
 
+        <!-- Tap overlay: toggle channel list (like OTT Navigator) -->
+        <View
+            android:id="@+id/tapOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_marginTop="50dp"
+            android:layout_marginEnd="90dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="@android:color/transparent" />
+
         <TextView
             android:id="@+id/emptyState"
             android:layout_width="wrap_content"
@@ -39,7 +50,7 @@
             android:textSize="18sp"
             android:visibility="visible" />
 
-        <!-- Player overlay: fullscreen + aspect ratio -->
+        <!-- Player controls: fullscreen + aspect (always on top) -->
         <LinearLayout
             android:id="@+id/playerOverlay"
             android:layout_width="wrap_content"
@@ -47,12 +58,15 @@
             android:layout_gravity="top|end"
             android:orientation="horizontal"
             android:padding="8dp"
-            android:background="#80000000">
+            android:background="#CC000000"
+            android:elevation="10dp"
+            android:clickable="true"
+            android:focusable="true">
 
             <ImageButton
                 android:id="@+id/btnAspectRatio"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
                 android:layout_marginEnd="4dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/aspect_ratio"
@@ -60,23 +74,37 @@
 
             <ImageButton
                 android:id="@+id/btnFullscreen"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/fullscreen"
                 android:src="@drawable/ic_fullscreen" />
         </LinearLayout>
+
+        <!-- Show channels button (when panel hidden) -->
+        <ImageButton
+            android:id="@+id/btnShowChannels"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="start|center_vertical"
+            android:layout_marginStart="8dp"
+            android:background="#CC000000"
+            android:contentDescription="@string/channels"
+            android:src="@android:drawable/ic_menu_view"
+            android:visibility="gone"
+            android:elevation="10dp" />
     </FrameLayout>
 
-    <!-- Top bar: playlists, category (no app title) -->
+    <!-- Top bar: playlists, category -->
     <LinearLayout
         android:id="@+id/headerPanel"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top"
         android:orientation="vertical"
-        android:background="#CC1A1A1A"
-        android:padding="8dp">
+        android:background="#E6000000"
+        android:padding="8dp"
+        android:elevation="8dp">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -117,22 +145,51 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Left panel: channel list (semi-transparent, vertical) -->
+    <!-- Left panel: channels (slide-in, can hide) -->
     <LinearLayout
         android:id="@+id/channelPanel"
         android:layout_width="wrap_content"
         android:layout_height="match_parent"
         android:layout_gravity="start"
         android:orientation="vertical"
-        android:background="#CC1A1A1A"
+        android:background="#E61A1A1A"
         android:padding="4dp"
-        android:minWidth="180dp"
-        android:maxWidth="280dp">
+        android:minWidth="200dp"
+        android:maxWidth="300dp"
+        android:elevation="12dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+            <EditText
+                android:id="@+id/searchChannels"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:hint="@string/search_channels"
+                android:inputType="text"
+                android:imeOptions="actionSearch"
+                android:background="@drawable/spinner_background"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#888888"
+                android:paddingHorizontal="12dp" />
+            <ImageButton
+                android:id="@+id/btnHideChannels"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="4dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/hide_channels"
+                android:src="@android:drawable/ic_menu_close_clear_cancel" />
+        </LinearLayout>
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/recyclerView"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:layout_marginTop="4dp"
             android:clipToPadding="false"
             android:paddingVertical="4dp" />
     </LinearLayout>

@@ -70,4 +70,6 @@
     <string name="play_pause">Воспроизведение</string>
     <string name="tv_guide_now">Сейчас</string>
     <string name="tv_guide_channel">Канал</string>
+    <string name="search_channels">Поиск канала</string>
+    <string name="hide_channels">Скрыть список</string>
 </resources>

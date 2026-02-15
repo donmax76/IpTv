@@ -11,6 +11,9 @@ import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.text.Editable
+import android.text.TextWatcher
+import android.widget.EditText
 import android.widget.ProgressBar
 import android.widget.Spinner
 import android.widget.TextView
@@ -52,8 +55,11 @@ class MainActivity : BaseActivity() {
     private lateinit var channelPanel: LinearLayout
     private lateinit var btnFullscreen: ImageButton
     private lateinit var btnAspectRatio: ImageButton
+    private lateinit var btnShowChannels: ImageButton
+    private lateinit var searchChannels: EditText
 
     private var player: ExoPlayer? = null
+    private var channelsPanelVisible = true
     private var aspectRatioMode = 0 // 0=fit, 1=16:9, 2=4:3, 3=fill
     private lateinit var adapter: ChannelAdapter
     private var loadJob: Job? = null
@@ -80,8 +86,13 @@ class MainActivity : BaseActivity() {
             channelPanel = findViewById(R.id.channelPanel)
             btnFullscreen = findViewById(R.id.btnFullscreen)
             btnAspectRatio = findViewById(R.id.btnAspectRatio)
+            btnShowChannels = findViewById(R.id.btnShowChannels)
+            searchChannels = findViewById(R.id.searchChannels)
 
+            findViewById<View>(R.id.tapOverlay).setOnClickListener { toggleChannelsPanel() }
             setupPlayer()
+            setupChannelPanelToggle()
+            setupSearch()
             setupPlayerOverlay()
             setupMenuButton()
             setupRecyclerView()
@@ -168,24 +179,87 @@ class MainActivity : BaseActivity() {
         )
     }
 
+    private fun setupChannelPanelToggle() {
+        findViewById<ImageButton>(R.id.btnHideChannels).setOnClickListener { hideChannelsPanel() }
+        btnShowChannels.setOnClickListener { showChannelsPanel() }
+    }
+
+    private fun toggleChannelsPanel() {
+        channelsPanelVisible = !channelsPanelVisible
+        channelPanel.visibility = if (channelsPanelVisible) View.VISIBLE else View.GONE
+        btnShowChannels.visibility = if (channelsPanelVisible) View.GONE else View.VISIBLE
+    }
+
+    private fun hideChannelsPanel() {
+        channelsPanelVisible = false
+        channelPanel.visibility = View.GONE
+        btnShowChannels.visibility = View.VISIBLE
+    }
+
+    private fun showChannelsPanel() {
+        channelsPanelVisible = true
+        channelPanel.visibility = View.VISIBLE
+        btnShowChannels.visibility = View.GONE
+    }
+
+    private fun setupSearch() {
+        searchChannels.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                applyFilters()
+            }
+        })
+    }
+
+    private fun applyFilters() {
+        val query = searchChannels.text.toString().trim().lowercase()
+        var filtered = allChannels
+        if (showFavoritesOnly) filtered = filtered.filter { prefs.isFavorite(it.url) }
+        val spinnerAdapter = categorySpinner.adapter
+        val catIdx = categorySpinner.selectedItemPosition
+        if (catIdx > 0 && spinnerAdapter != null && catIdx < spinnerAdapter.count) {
+            val category = categorySpinner.getItemAtPosition(catIdx) as? String ?: ""
+            filtered = filtered.filter { it.group == category }
+        }
+        if (query.isNotEmpty()) {
+            filtered = filtered.filter { it.name.lowercase().contains(query) }
+        }
+        adapter.updateChannels(filtered)
+        adapter.updateFavorites(prefs.favorites)
+    }
+
     private fun applyFullscreen(fullscreen: Boolean) {
         if (fullscreen) {
             headerPanel.visibility = View.GONE
             channelPanel.visibility = View.GONE
+            btnShowChannels.visibility = View.VISIBLE
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                window.insetsController?.hide(android.view.WindowInsets.Type.statusBars())
+                window.insetsController?.let { ctrl ->
+                    ctrl.hide(android.view.WindowInsets.Type.statusBars())
+                    ctrl.hide(android.view.WindowInsets.Type.navigationBars())
+                    ctrl.systemBarsBehavior = android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                }
             } else {
                 @Suppress("DEPRECATION")
                 window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+                @Suppress("DEPRECATION")
+                window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_FULLSCREEN
+                    or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY)
             }
         } else {
             headerPanel.visibility = View.VISIBLE
-            channelPanel.visibility = View.VISIBLE
+            channelPanel.visibility = if (channelsPanelVisible) View.VISIBLE else View.GONE
+            btnShowChannels.visibility = if (channelsPanelVisible) View.GONE else View.VISIBLE
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 window.insetsController?.show(android.view.WindowInsets.Type.statusBars())
+                window.insetsController?.show(android.view.WindowInsets.Type.navigationBars())
             } else {
                 @Suppress("DEPRECATION")
                 window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+                @Suppress("DEPRECATION")
+                window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
             }
         }
     }
@@ -377,18 +451,8 @@ class MainActivity : BaseActivity() {
         categorySpinner.adapter = catAdapter
     }
 
-    private fun filterChannelsByCategory(categoryIndex: Int) {
-        var filtered = allChannels
-        if (showFavoritesOnly) {
-            filtered = filtered.filter { prefs.isFavorite(it.url) }
-        }
-        val spinnerAdapter = categorySpinner.adapter
-        if (categoryIndex > 0 && spinnerAdapter != null && categoryIndex < spinnerAdapter.count) {
-            val category = categorySpinner.getItemAtPosition(categoryIndex) as? String ?: ""
-            filtered = filtered.filter { it.group == category }
-        }
-        adapter.updateChannels(filtered)
-        adapter.updateFavorites(prefs.favorites)
+    private fun filterChannelsByCategory(@Suppress("UNUSED_PARAMETER") categoryIndex: Int) {
+        applyFilters()
     }
 
     private fun toggleFavorite(channel: Channel) {
@@ -466,6 +530,13 @@ class MainActivity : BaseActivity() {
             if (prefs.isFullscreen) R.drawable.ic_fullscreen_exit
             else R.drawable.ic_fullscreen
         )
+        if (channelsPanelVisible) {
+            channelPanel.visibility = View.VISIBLE
+            btnShowChannels.visibility = View.GONE
+        } else {
+            channelPanel.visibility = View.GONE
+            btnShowChannels.visibility = View.VISIBLE
+        }
     }
 
     private fun updatePlayerQuality() {

@@ -64,4 +64,6 @@
     <string name="play_pause">Відтворення</string>
     <string name="tv_guide_now">Зараз</string>
     <string name="tv_guide_channel">Канал</string>
+    <string name="search_channels">Пошук каналу</string>
+    <string name="hide_channels">Сховати список</string>
 </resources>
