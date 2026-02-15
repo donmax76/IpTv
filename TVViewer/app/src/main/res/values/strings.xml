@@ -102,8 +102,9 @@
     <string name="update_latest">Установлена последняя версия</string>
     <string name="update_check_failed">Ошибка проверки обновлений</string>
     <string name="update_downloading">Загрузка обновления…</string>
-    <string name="update_url_hint">URL version.json. Если 404: сделайте репо TestApp публичным на GitHub</string>
+    <string name="update_url_hint">URL version.json. По умолчанию: github.com/donmax76/IpTv</string>
     <string name="update_404_hint">Создайте Gist на gist.github.com с version.json, вставьте raw URL выше</string>
     <string name="update_url_hint_placeholder">Оставьте пустым для стандартного URL</string>
     <string name="stream_unavailable">Стрим недоступен (403/404). Попробуйте другой канал.</string>
+    <string name="reconnecting">Переподключение…</string>
 </resources>

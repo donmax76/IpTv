@@ -90,6 +90,7 @@
     <string name="list_display_grid">Grid (table)</string>
     <string name="list_autohide">Auto-hide list (sec)</string>
     <string name="stream_unavailable">Stream unavailable (403/404). Try another channel.</string>
+    <string name="reconnecting">Reconnecting…</string>
     <string name="version_format">Version %1$s (%2$d)</string>
     <string name="check_for_updates">Check for updates</string>
     <string name="update_available">New version %1$s available</string>
@@ -97,7 +98,7 @@
     <string name="update_latest">You have the latest version</string>
     <string name="update_check_failed">Update check failed</string>
     <string name="update_downloading">Downloading update…</string>
-    <string name="update_url_hint">URL of version.json (404 = repo is private)</string>
+    <string name="update_url_hint">URL of version.json. Default: github.com/donmax76/IpTv</string>
     <string name="update_404_hint">Create a Gist at gist.github.com with version.json, paste raw URL above</string>
     <string name="update_url_hint_placeholder">Leave empty for default URL</string>
 </resources>

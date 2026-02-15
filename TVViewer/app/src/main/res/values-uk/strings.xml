@@ -90,6 +90,7 @@
     <string name="list_display_grid">Таблиця (сітка)</string>
     <string name="list_autohide">Автоскриття списку (сек)</string>
     <string name="stream_unavailable">Стрім недоступний. Спробуйте інший канал.</string>
+    <string name="reconnecting">Перепідключення…</string>
     <string name="version_format">Версія %1$s (%2$d)</string>
     <string name="check_for_updates">Перевірити оновлення</string>
     <string name="update_available">Доступна нова версія %1$s</string>
@@ -97,7 +98,7 @@
     <string name="update_latest">Встановлено останню версію</string>
     <string name="update_check_failed">Помилка перевірки оновлень</string>
     <string name="update_downloading">Завантаження оновлення…</string>
-    <string name="update_url_hint">URL version.json (404 = репо приватний)</string>
+    <string name="update_url_hint">URL version.json. За замовчуванням: github.com/donmax76/IpTv</string>
     <string name="update_url_hint_placeholder">Залиште порожнім для стандартного URL</string>
     <string name="update_404_hint">Створіть Gist на gist.github.com з version.json, вставте raw URL вище</string>
 </resources>

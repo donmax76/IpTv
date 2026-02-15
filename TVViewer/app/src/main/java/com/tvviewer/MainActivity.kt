@@ -84,6 +84,11 @@ class MainActivity : BaseActivity() {
     private var aspectRatioMode = 0 // 0=fit, 1=16:9, 2=4:3, 3=fill
     private val autoHideHandler = Handler(Looper.getMainLooper())
     private var autoHideRunnable: Runnable? = null
+    private val reconnectHandler = Handler(Looper.getMainLooper())
+    private var reconnectCheckRunnable: Runnable? = null
+    private var bufferingStartTime = 0L
+    private var lastPlaybackPosition = 0L
+    private var lastPositionCheckTime = 0L
     private lateinit var adapter: ChannelAdapter
     private var trackSelector: DefaultTrackSelector? = null
     private var loadJob: Job? = null
@@ -472,6 +477,41 @@ class MainActivity : BaseActivity() {
         autoHideRunnable = null
     }
 
+    private fun startReconnectWatchdog() {
+        stopReconnectWatchdog()
+        reconnectCheckRunnable = object : Runnable {
+            override fun run() {
+                val p = player ?: return
+                if (prefs.playerType == AppPreferences.PLAYER_EXTERNAL) return
+                val channel = prefs.lastChannelUrl?.let { url -> allChannels.find { it.url == url } } ?: return
+                val now = System.currentTimeMillis()
+                val bufferingTooLong = p.playbackState == Player.STATE_BUFFERING &&
+                    bufferingStartTime > 0 && (now - bufferingStartTime) > 15_000
+                val positionStuck = p.playbackState == Player.STATE_READY && p.playWhenReady &&
+                    lastPositionCheckTime > 0 && (now - lastPositionCheckTime) > 12_000 &&
+                    kotlin.math.abs(p.currentPosition - lastPlaybackPosition) < 1000
+                if (bufferingTooLong || positionStuck) {
+                    Log.d(TAG, "Auto-reconnect: bufferingTooLong=$bufferingTooLong positionStuck=$positionStuck")
+                    Toast.makeText(this@MainActivity, getString(R.string.reconnecting), Toast.LENGTH_SHORT).show()
+                    playInternal(channel)
+                    bufferingStartTime = 0L
+                    lastPlaybackPosition = p.currentPosition
+                    lastPositionCheckTime = now
+                } else if (p.playbackState == Player.STATE_READY && p.playWhenReady) {
+                    lastPlaybackPosition = p.currentPosition
+                    lastPositionCheckTime = now
+                }
+                reconnectHandler.postDelayed(this, 3000L)
+            }
+        }
+        reconnectHandler.postDelayed(reconnectCheckRunnable!!, 3000L)
+    }
+
+    private fun stopReconnectWatchdog() {
+        reconnectCheckRunnable?.let { reconnectHandler.removeCallbacks(it) }
+        reconnectCheckRunnable = null
+    }
+
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
         when (keyCode) {
             KeyEvent.KEYCODE_DPAD_LEFT -> {
@@ -715,8 +755,16 @@ class MainActivity : BaseActivity() {
                 it.addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
                         when (playbackState) {
-                            Player.STATE_BUFFERING -> loadingIndicator.visibility = View.VISIBLE
-                            Player.STATE_READY, Player.STATE_ENDED -> loadingIndicator.visibility = View.GONE
+                            Player.STATE_BUFFERING -> {
+                                loadingIndicator.visibility = View.VISIBLE
+                                if (bufferingStartTime == 0L) bufferingStartTime = System.currentTimeMillis()
+                            }
+                            Player.STATE_READY, Player.STATE_ENDED -> {
+                                loadingIndicator.visibility = View.GONE
+                                bufferingStartTime = 0L
+                                lastPlaybackPosition = it.currentPosition
+                                lastPositionCheckTime = System.currentTimeMillis()
+                            }
                             Player.STATE_IDLE -> loadingIndicator.visibility = View.GONE
                         }
                         runOnUiThread {
@@ -724,12 +772,14 @@ class MainActivity : BaseActivity() {
                             if (prefs.playerType != AppPreferences.PLAYER_EXTERNAL) {
                                 when (playbackState) {
                                     Player.STATE_READY, Player.STATE_BUFFERING -> {
+                                        startReconnectWatchdog()
                                         updateBottomBarChannelInfo()
                                         playerBottomBar.visibility = View.VISIBLE
                                         autoHideRunnable = Runnable { playerBottomBar.visibility = View.GONE }
                                         autoHideHandler.postDelayed(autoHideRunnable!!, 4000L)
                                     }
                                     else -> {
+                                        stopReconnectWatchdog()
                                         cancelAutoHide()
                                         playerBottomBar.visibility = View.GONE
                                     }
@@ -1067,6 +1117,7 @@ class MainActivity : BaseActivity() {
     override fun onDestroy() {
         super.onDestroy()
         cancelAutoHide()
+        stopReconnectWatchdog()
         loadJob?.cancel()
         player?.release()
         player = null
