@@ -10,9 +10,13 @@ import java.util.Locale
 abstract class BaseActivity : AppCompatActivity() {
 
     override fun attachBaseContext(newBase: Context) {
-        val prefs = AppPreferences(newBase)
-        val lang = prefs.language
-        super.attachBaseContext(if (lang == "system") newBase else wrapContext(newBase, lang))
+        try {
+            val prefs = AppPreferences(newBase)
+            val lang = prefs.language
+            super.attachBaseContext(if (lang == "system") newBase else wrapContext(newBase, lang))
+        } catch (e: Exception) {
+            super.attachBaseContext(newBase)
+        }
     }
 
     private fun wrapContext(context: Context, lang: String): Context {

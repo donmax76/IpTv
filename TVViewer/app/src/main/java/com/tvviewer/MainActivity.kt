@@ -80,6 +80,11 @@ class MainActivity : BaseActivity() {
         }
     }
 
+    override fun onCreateOptionsMenu(menu: android.view.Menu): Boolean {
+        menuInflater.inflate(R.menu.main_menu, menu)
+        return true
+    }
+
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         if (item.itemId == R.id.action_settings) {
             startActivity(Intent(this, SettingsActivity::class.java))
@@ -145,6 +150,9 @@ class MainActivity : BaseActivity() {
     }
 
     private fun setupCategorySpinner() {
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, listOf(getString(R.string.all)))
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        categorySpinner.adapter = adapter
         categorySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 filterChannelsByCategory(position)
@@ -219,7 +227,8 @@ class MainActivity : BaseActivity() {
         if (showFavoritesOnly) {
             filtered = filtered.filter { prefs.isFavorite(it.url) }
         }
-        if (categoryIndex > 0 && categorySpinner.adapter != null) {
+        val spinnerAdapter = categorySpinner.adapter
+        if (categoryIndex > 0 && spinnerAdapter != null && categoryIndex < spinnerAdapter.count) {
             val category = categorySpinner.getItemAtPosition(categoryIndex) as? String ?: ""
             filtered = filtered.filter { it.group == category }
         }

@@ -18,11 +18,15 @@ class AppPreferences(context: Context) {
 
     var customPlaylists: List<Pair<String, String>>
         get() {
-            val json = prefs.getString(KEY_CUSTOM_PLAYLISTS, "[]") ?: "[]"
-            val arr = JSONArray(json)
-            return (0 until arr.length()).map {
-                val obj = arr.getJSONObject(it)
-                obj.getString("name") to obj.getString("url")
+            return try {
+                val json = prefs.getString(KEY_CUSTOM_PLAYLISTS, "[]") ?: "[]"
+                val arr = JSONArray(json)
+                (0 until arr.length()).map {
+                    val obj = arr.getJSONObject(it)
+                    obj.getString("name") to obj.getString("url")
+                }
+            } catch (e: Exception) {
+                emptyList()
             }
         }
         set(value) {
