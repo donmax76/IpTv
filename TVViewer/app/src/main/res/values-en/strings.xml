@@ -33,4 +33,9 @@
     <string name="error_player">Player error</string>
     <string name="open_with">Open with</string>
     <string name="no_player_app">Install a video player (VLC, MX Player)</string>
+    <string name="crash_reports">Send errors to developer</string>
+    <string name="crash_reports_hint">Firebase: create project at console.firebase.google.com, enable Realtime Database, paste Project ID. Or use Webhook URL (webhook.site). Send me the Project ID — I can view errors.</string>
+    <string name="firebase_project_id">Firebase Project ID</string>
+    <string name="webhook_url">Webhook URL (optional)</string>
+    <string name="test_crash">Test: trigger error</string>
 </resources>

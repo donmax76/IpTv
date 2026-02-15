@@ -20,6 +20,8 @@ class SettingsActivity : BaseActivity() {
     private lateinit var customList: ListView
     private lateinit var addPlaylistName: EditText
     private lateinit var addPlaylistUrl: EditText
+    private lateinit var crashFirebaseId: EditText
+    private lateinit var crashWebhookUrl: EditText
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,11 +38,28 @@ class SettingsActivity : BaseActivity() {
         customList = findViewById(R.id.customPlaylistsList)
         addPlaylistName = findViewById(R.id.addPlaylistName)
         addPlaylistUrl = findViewById(R.id.addPlaylistUrl)
+        crashFirebaseId = findViewById(R.id.crashFirebaseId)
+        crashWebhookUrl = findViewById(R.id.crashWebhookUrl)
 
         setupPlayerSpinner()
         setupLanguageSpinner()
         setupCustomPlaylists()
         setupAddPlaylist()
+        setupCrashReporting()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        prefs.crashReportFirebaseId = crashFirebaseId.text.toString().trim().ifEmpty { null }
+        prefs.crashReportUrl = crashWebhookUrl.text.toString().trim().ifEmpty { null }
+    }
+
+    private fun setupCrashReporting() {
+        crashFirebaseId.setText(prefs.crashReportFirebaseId ?: "")
+        crashWebhookUrl.setText(prefs.crashReportUrl ?: "")
+        findViewById<Button>(R.id.btnTestCrash).setOnClickListener {
+            throw RuntimeException("Тестовая ошибка - проверка отправки")
+        }
     }
 
     private fun setupPlayerSpinner() {

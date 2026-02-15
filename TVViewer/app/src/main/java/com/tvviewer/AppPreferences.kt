@@ -68,12 +68,22 @@ class AppPreferences(context: Context) {
 
     fun isFavorite(url: String) = url in favorites
 
+    var crashReportUrl: String?
+        get() = prefs.getString(KEY_CRASH_URL, null)
+        set(value) = prefs.edit().putString(KEY_CRASH_URL, value).apply()
+
+    var crashReportFirebaseId: String?
+        get() = prefs.getString(KEY_CRASH_FIREBASE, null)
+        set(value) = prefs.edit().putString(KEY_CRASH_FIREBASE, value).apply()
+
     companion object {
         private const val PREFS_NAME = "tvviewer_prefs"
         private const val KEY_PLAYER = "player_type"
         private const val KEY_LANGUAGE = "language"
         private const val KEY_CUSTOM_PLAYLISTS = "custom_playlists"
         private const val KEY_FAVORITES = "favorites"
+        private const val KEY_CRASH_URL = "crash_report_url"
+        private const val KEY_CRASH_FIREBASE = "crash_report_firebase"
 
         const val PLAYER_INTERNAL = "internal"
         const val PLAYER_EXTERNAL = "external"

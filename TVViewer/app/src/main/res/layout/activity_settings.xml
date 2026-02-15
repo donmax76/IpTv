@@ -90,5 +90,46 @@
             android:background="@drawable/spinner_background"
             android:divider="#333333"
             android:dividerHeight="1dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/crash_reports"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:layout_marginTop="24dp" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/crash_reports_hint"
+            android:textColor="#888888"
+            android:textSize="12sp"
+            android:layout_marginTop="4dp" />
+        <EditText
+            android:id="@+id/crashFirebaseId"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:hint="@string/firebase_project_id"
+            android:inputType="text"
+            android:background="@drawable/spinner_background"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#888888" />
+        <EditText
+            android:id="@+id/crashWebhookUrl"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:hint="@string/webhook_url"
+            android:inputType="textUri"
+            android:background="@drawable/spinner_background"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#888888" />
+        <Button
+            android:id="@+id/btnTestCrash"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:text="@string/test_crash" />
     </LinearLayout>
 </ScrollView>
