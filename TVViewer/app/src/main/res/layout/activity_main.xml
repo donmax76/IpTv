@@ -49,17 +49,15 @@
             android:textSize="18sp"
             android:visibility="visible" />
 
-        <!-- Top-left: arrow button to open settings + channel list -->
-        <ImageButton
-            android:id="@+id/btnShowLeft"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_gravity="top|start"
-            android:layout_margin="8dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/settings"
-            android:src="@drawable/ic_arrow_left"
-            android:visibility="visible" />
+        <!-- Left edge: open channel list -->
+        <View
+            android:id="@+id/leftEdgeZone"
+            android:layout_width="56dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="start"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="@android:color/transparent" />
 
         <!-- Right edge: hide panels -->
         <View
@@ -82,7 +80,8 @@
             android:background="#E6000000"
             android:elevation="15dp"
             android:clickable="true"
-            android:focusable="true">
+            android:focusable="true"
+            android:visibility="gone">
 
             <ImageButton
                 android:id="@+id/btnAspectRatio"
@@ -113,7 +112,7 @@
         android:elevation="12dp"
         android:visibility="gone">
 
-        <!-- Settings panel: playlists, category, settings, TV guide, favorites -->
+        <!-- Settings panel: playlists, category, settings, TV guide, favorites (hidden until arrow clicked) -->
         <LinearLayout
             android:id="@+id/settingsPanel"
             android:layout_width="wrap_content"
@@ -121,7 +120,8 @@
             android:orientation="vertical"
             android:background="#E6000000"
             android:padding="8dp"
-            android:minWidth="140dp">
+            android:minWidth="140dp"
+            android:visibility="gone">
 
             <ImageButton
                 android:id="@+id/btnHideLeft"
@@ -178,7 +178,7 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- Channel list: transparent, to the right of settings -->
+        <!-- Channel list: transparent, arrow at top opens settings -->
         <LinearLayout
             android:id="@+id/channelPanel"
             android:layout_width="wrap_content"
@@ -188,6 +188,16 @@
             android:padding="4dp"
             android:minWidth="200dp"
             android:maxWidth="300dp">
+
+            <!-- Arrow at top: click to open settings menu -->
+            <ImageButton
+                android:id="@+id/btnMenuArrow"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/settings"
+                android:src="@drawable/ic_arrow_left"
+                android:padding="8dp" />
 
             <LinearLayout
                 android:layout_width="match_parent"
