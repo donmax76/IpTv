@@ -1,5 +1,6 @@
 package com.tvviewer
 
+import android.util.Log
 import java.io.BufferedReader
 import java.io.InputStream
 import java.io.InputStreamReader
@@ -7,6 +8,8 @@ import java.net.URL
 import java.nio.charset.Charset
 
 object M3UParser {
+
+    private const val TAG = "TVViewer"
 
     /**
      * Parse M3U playlist from string content.
@@ -20,6 +23,7 @@ object M3UParser {
         val lines = content.lines()
         var i = 0
 
+        Log.d(TAG, "Parsing M3U, ${lines.size} lines")
         while (i < lines.size) {
             val line = lines[i].trim()
             if (line.startsWith("#EXTINF:")) {
@@ -44,6 +48,7 @@ object M3UParser {
             }
             i++
         }
+        Log.d(TAG, "Parsed ${channels.size} channels")
         return channels
     }
 

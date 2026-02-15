@@ -1,6 +1,7 @@
 package com.tvviewer
 
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
@@ -8,19 +9,24 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : AppCompatActivity() {
+
+    companion object {
+        private const val TAG = "TVViewer"
+    }
 
     private lateinit var playerView: PlayerView
     private lateinit var loadingIndicator: ProgressBar
@@ -34,31 +40,51 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        Log.d(TAG, "onCreate started")
+        try {
+            setContentView(R.layout.activity_main)
 
-        playerView = findViewById(R.id.playerView)
-        loadingIndicator = findViewById(R.id.loadingIndicator)
-        emptyState = findViewById(R.id.emptyState)
-        recyclerView = findViewById(R.id.recyclerView)
-        playlistSpinner = findViewById(R.id.playlistSpinner)
+            playerView = findViewById(R.id.playerView)
+            loadingIndicator = findViewById(R.id.loadingIndicator)
+            emptyState = findViewById(R.id.emptyState)
+            recyclerView = findViewById(R.id.recyclerView)
+            playlistSpinner = findViewById(R.id.playlistSpinner)
 
-        setupPlayer()
-        setupRecyclerView()
-        setupPlaylistSpinner()
+            setupPlayer()
+            setupRecyclerView()
+            setupPlaylistSpinner()
+            Log.d(TAG, "onCreate completed")
+        } catch (e: Exception) {
+            Log.e(TAG, "onCreate error", e)
+            Toast.makeText(this, "Ошибка запуска: ${e.message}", Toast.LENGTH_LONG).show()
+            throw e
+        }
     }
 
     private fun setupPlayer() {
-        player = ExoPlayer.Builder(this).build().also {
-            playerView.player = it
-            it.addListener(object : Player.Listener {
-                override fun onPlaybackStateChanged(playbackState: Int) {
-                    when (playbackState) {
-                        Player.STATE_BUFFERING -> loadingIndicator.visibility = View.VISIBLE
-                        Player.STATE_READY, Player.STATE_ENDED -> loadingIndicator.visibility = View.GONE
-                        Player.STATE_IDLE -> loadingIndicator.visibility = View.GONE
+        try {
+            player = ExoPlayer.Builder(this).build().also {
+                playerView.player = it
+                it.addListener(object : Player.Listener {
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        Log.d(TAG, "Playback state: $playbackState")
+                        when (playbackState) {
+                            Player.STATE_BUFFERING -> loadingIndicator.visibility = View.VISIBLE
+                            Player.STATE_READY, Player.STATE_ENDED -> loadingIndicator.visibility = View.GONE
+                            Player.STATE_IDLE -> loadingIndicator.visibility = View.GONE
+                        }
                     }
-                }
-            })
+                    override fun onPlayerError(error: PlaybackException) {
+                        Log.e(TAG, "Player error: ${error.message}", error)
+                        loadingIndicator.visibility = View.GONE
+                        Toast.makeText(this@MainActivity, "Ошибка воспроизведения: ${error.message}", Toast.LENGTH_LONG).show()
+                    }
+                })
+            }
+            Log.d(TAG, "Player initialized")
+        } catch (e: Exception) {
+            Log.e(TAG, "setupPlayer error", e)
+            Toast.makeText(this, "Ошибка плеера: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -78,12 +104,13 @@ class MainActivity : AppCompatActivity() {
 
         playlistSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                Log.d(TAG, "Playlist selected: $position - ${BuiltInPlaylists.playlists[position].name}")
                 loadPlaylist(BuiltInPlaylists.playlists[position])
             }
 
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
-
+        // Загрузить первый плейлист при старте
         if (BuiltInPlaylists.playlists.isNotEmpty()) {
             loadPlaylist(BuiltInPlaylists.playlists[0])
         }
@@ -96,24 +123,28 @@ class MainActivity : AppCompatActivity() {
 
         val url = playlist.url
         if (url.isNullOrEmpty()) {
+            Log.e(TAG, "Playlist URL is empty")
             Toast.makeText(this, "Нет URL плейлиста", Toast.LENGTH_SHORT).show()
             return
         }
 
+        Log.d(TAG, "Loading playlist: ${playlist.name} from $url")
         loadingIndicator.visibility = View.VISIBLE
-        loadJob = CoroutineScope(Dispatchers.Main).launch {
+        loadJob = lifecycleScope.launch {
             try {
                 val channels = withContext(Dispatchers.IO) {
                     PlaylistRepository.fetchPlaylist(url)
                 }
                 loadingIndicator.visibility = View.GONE
+                Log.d(TAG, "Loaded ${channels.size} channels")
                 if (channels.isEmpty()) {
-                    Toast.makeText(this@MainActivity, "Не удалось загрузить каналы", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "Не удалось загрузить каналы. Проверьте интернет.", Toast.LENGTH_LONG).show()
                 } else {
                     adapter.updateChannels(channels)
                     emptyState.visibility = View.GONE
                 }
             } catch (e: Exception) {
+                Log.e(TAG, "Load playlist error", e)
                 loadingIndicator.visibility = View.GONE
                 Toast.makeText(this@MainActivity, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
             }
@@ -121,11 +152,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun playChannel(channel: Channel) {
+        Log.d(TAG, "Playing channel: ${channel.name} - ${channel.url}")
         emptyState.visibility = View.GONE
-        player?.apply {
-            setMediaItem(MediaItem.fromUri(channel.url))
-            prepare()
-            playWhenReady = true
+        try {
+            player?.apply {
+                setMediaItem(MediaItem.fromUri(channel.url))
+                prepare()
+                playWhenReady = true
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "playChannel error", e)
+            Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
