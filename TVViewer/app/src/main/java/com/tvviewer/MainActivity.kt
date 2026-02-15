@@ -22,6 +22,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
 import android.widget.PopupMenu
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.recyclerview.widget.GridLayoutManager
@@ -60,6 +61,7 @@ class MainActivity : BaseActivity() {
     private lateinit var channelPanel: LinearLayout
     private lateinit var btnFullscreen: ImageButton
     private lateinit var btnAspectRatio: ImageButton
+    private lateinit var playerBottomBar: View
     private lateinit var btnShowChannels: ImageButton
     private lateinit var searchChannels: EditText
 
@@ -93,10 +95,17 @@ class MainActivity : BaseActivity() {
             channelPanel = findViewById(R.id.channelPanel)
             btnFullscreen = findViewById(R.id.btnFullscreen)
             btnAspectRatio = findViewById(R.id.btnAspectRatio)
+            playerBottomBar = findViewById(R.id.playerBottomBar)
             btnShowChannels = findViewById(R.id.btnShowChannels)
             searchChannels = findViewById(R.id.searchChannels)
 
-            findViewById<View>(R.id.tapOverlay).setOnClickListener { toggleChannelsPanel() }
+            findViewById<View>(R.id.tapOverlay).setOnClickListener {
+                if (prefs.isFullscreen) {
+                    showFullscreenControlsTemporarily()
+                } else {
+                    toggleChannelsPanel()
+                }
+            }
             findViewById<View>(R.id.leftEdgeZone).setOnClickListener { showChannelsPanelWithAutoHide() }
             setupPlayer()
             setupChannelPanelToggle()
@@ -107,6 +116,7 @@ class MainActivity : BaseActivity() {
             setupCategorySpinner()
             setupFavoritesButton()
             setupPlaylistSpinner()
+            setupBackPress()
             restoreState()
             Log.d(TAG, "onCreate completed")
         } catch (e: Exception) {
@@ -245,7 +255,31 @@ class MainActivity : BaseActivity() {
             showChannelsPanelWithAutoHide()
             return true
         }
+        if (keyCode == KeyEvent.KEYCODE_BACK && prefs.isFullscreen) {
+            toggleFullscreen()
+            return true
+        }
         return super.onKeyDown(keyCode, event)
+    }
+
+    private fun setupBackPress() {
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (prefs.isFullscreen) {
+                    toggleFullscreen()
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                }
+            }
+        })
+    }
+
+    private fun showFullscreenControlsTemporarily() {
+        cancelAutoHide()
+        playerBottomBar.visibility = View.VISIBLE
+        autoHideRunnable = Runnable { playerBottomBar.visibility = View.GONE }
+        autoHideHandler.postDelayed(autoHideRunnable!!, 3000L)
     }
 
     private fun setupSearch() {
@@ -279,6 +313,7 @@ class MainActivity : BaseActivity() {
         if (fullscreen) {
             headerPanel.visibility = View.GONE
             channelPanel.visibility = View.GONE
+            playerBottomBar.visibility = View.GONE
             btnShowChannels.visibility = View.VISIBLE
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 window.insetsController?.let { ctrl ->
@@ -296,6 +331,7 @@ class MainActivity : BaseActivity() {
             }
         } else {
             headerPanel.visibility = View.VISIBLE
+            playerBottomBar.visibility = View.VISIBLE
             channelPanel.visibility = if (channelsPanelVisible) View.VISIBLE else View.GONE
             btnShowChannels.visibility = if (channelsPanelVisible) View.GONE else View.VISIBLE
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
