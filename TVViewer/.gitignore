@@ -8,6 +8,7 @@
 /captures
 .externalNativeBuild
 .cxx
-*.apk
 *.ap_
 *.aab
+# APK для скачивания с GitHub
+!app-debug.apk

@@ -181,7 +181,7 @@ class AppPreferences(context: Context) {
         private const val KEY_LIST_AUTOHIDE = "list_autohide"
         private const val KEY_TIME_DISPLAY = "time_display"
         private const val KEY_UPDATE_CHECK_URL = "update_check_url"
-        private const val DEFAULT_UPDATE_CHECK_URL = "https://tmpfiles.org/dl/24370540/version.json"
+        private const val DEFAULT_UPDATE_CHECK_URL = "https://raw.githubusercontent.com/donmax76/TestApp/master/TVViewer/version.json"
 
         const val PLAYER_INTERNAL = "internal"
         const val PLAYER_EXTERNAL = "external"
