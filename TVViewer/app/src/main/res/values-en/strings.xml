@@ -46,4 +46,14 @@
     <string name="quality_auto">Auto</string>
     <string name="quality_1080">1080p</string>
     <string name="quality_4k">4K</string>
+    <string name="my_channels">My channels</string>
+    <string name="custom_channels">Add channel</string>
+    <string name="channel_name">Channel name</string>
+    <string name="channel_url">Stream URL</string>
+    <string name="add_mədəniyyət">Add Mədəniyyət</string>
+    <string name="buffer_mode">Buffer</string>
+    <string name="buffer_low">Less (fast start)</string>
+    <string name="buffer_normal">Normal</string>
+    <string name="buffer_high">More (no buffering)</string>
+    <string name="medeniyyet_url_hint">Paste Mədəniyyət TV stream URL if this one does not work</string>
 </resources>

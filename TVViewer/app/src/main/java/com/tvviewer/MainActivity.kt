@@ -23,6 +23,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -160,7 +161,17 @@ class MainActivity : BaseActivity() {
                     }
                 }.build()
             }
-            player = ExoPlayer.Builder(this).setTrackSelector(trackSelector).build().also {
+            val loadControl = DefaultLoadControl.Builder().apply {
+                when (prefs.bufferMode) {
+                    "low" -> setBufferDurationsMs(2000, 10000, 1000, 2500)
+                    "high" -> setBufferDurationsMs(10000, 60000, 5000, 10000)
+                    else -> {}
+                }
+            }.build()
+            player = ExoPlayer.Builder(this)
+                .setTrackSelector(trackSelector)
+                .setLoadControl(loadControl)
+                .build().also {
                 playerView.player = it
                 it.addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
@@ -194,7 +205,14 @@ class MainActivity : BaseActivity() {
     }
 
     private fun setupPlaylistSpinner() {
-        allPlaylists = BuiltInPlaylists.getAllPlaylists() + prefs.customPlaylists.map { Playlist(it.first, it.second) }
+        val customChannelsPlaylist = if (prefs.customChannels.isNotEmpty()) {
+            listOf(Playlist(
+                getString(R.string.my_channels),
+                "custom_channels",
+                prefs.customChannels.map { Channel(it.first, it.second, null, null) }
+            ))
+        } else emptyList()
+        allPlaylists = BuiltInPlaylists.getAllPlaylists() + prefs.customPlaylists.map { Playlist(it.first, it.second) } + customChannelsPlaylist
         val names = allPlaylists.map { it.name }
         val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, names)
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
@@ -266,6 +284,14 @@ class MainActivity : BaseActivity() {
         updateFavoritesButtonState()
 
         val url = playlist.url
+        if (url == "custom_channels" && playlist.channels.isNotEmpty()) {
+            prefs.lastPlaylistUrl = url
+            allChannels = playlist.channels
+            updateCategorySpinner(allChannels)
+            filterChannelsByCategory(0)
+            emptyState.visibility = View.GONE
+            return
+        }
         if (url.isNullOrEmpty()) {
             Toast.makeText(this, getString(R.string.no_playlist_url), Toast.LENGTH_SHORT).show()
             return
@@ -375,7 +401,11 @@ class MainActivity : BaseActivity() {
     override fun onResume() {
         super.onResume()
         // Refresh playlists (custom may have changed), restore selection
-        allPlaylists = BuiltInPlaylists.getAllPlaylists() + prefs.customPlaylists.map { Playlist(it.first, it.second) }
+        val customChannelsPlaylist = if (prefs.customChannels.isNotEmpty()) {
+            listOf(Playlist(getString(R.string.my_channels), "custom_channels",
+                prefs.customChannels.map { Channel(it.first, it.second, null, null) }))
+        } else emptyList()
+        allPlaylists = BuiltInPlaylists.getAllPlaylists() + prefs.customPlaylists.map { Playlist(it.first, it.second) } + customChannelsPlaylist
         val names = allPlaylists.map { it.name }
         val plAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, names)
         plAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)

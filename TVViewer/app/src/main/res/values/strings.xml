@@ -52,4 +52,14 @@
     <string name="quality_auto">Авто</string>
     <string name="quality_1080">1080p</string>
     <string name="quality_4k">4K</string>
+    <string name="my_channels">Мои каналы</string>
+    <string name="custom_channels">Добавить канал</string>
+    <string name="channel_name">Название канала</string>
+    <string name="channel_url">URL потока</string>
+    <string name="add_mədəniyyət">Добавить Mədəniyyət</string>
+    <string name="buffer_mode">Буфер</string>
+    <string name="buffer_low">Меньше (быстрый старт)</string>
+    <string name="buffer_normal">Обычный</string>
+    <string name="buffer_high">Больше (без обрывов)</string>
+    <string name="medeniyyet_url_hint">Вставьте URL потока Mədəniyyət TV (найдите в интернете)</string>
 </resources>

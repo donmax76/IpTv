@@ -96,6 +96,46 @@ class AppPreferences(context: Context) {
         get() = prefs.getString(KEY_QUALITY, "auto") ?: "auto"
         set(value) = prefs.edit().putString(KEY_QUALITY, value).apply()
 
+    var customChannels: List<Pair<String, String>>
+        get() {
+            return try {
+                val json = prefs.getString(KEY_CUSTOM_CHANNELS, "[]") ?: "[]"
+                val arr = JSONArray(json)
+                (0 until arr.length()).map {
+                    val obj = arr.getJSONObject(it)
+                    obj.getString("name") to obj.getString("url")
+                }
+            } catch (e: Exception) {
+                emptyList()
+            }
+        }
+        set(value) {
+            val arr = JSONArray()
+            value.forEach { (name, url) ->
+                arr.put(org.json.JSONObject().apply {
+                    put("name", name)
+                    put("url", url)
+                })
+            }
+            prefs.edit().putString(KEY_CUSTOM_CHANNELS, arr.toString()).apply()
+        }
+
+    fun addCustomChannel(name: String, url: String) {
+        customChannels = customChannels + (name to url)
+    }
+
+    fun removeCustomChannel(index: Int) {
+        val list = customChannels.toMutableList()
+        if (index in list.indices) {
+            list.removeAt(index)
+            customChannels = list
+        }
+    }
+
+    var bufferMode: String
+        get() = prefs.getString(KEY_BUFFER, "normal") ?: "normal"
+        set(value) = prefs.edit().putString(KEY_BUFFER, value).apply()
+
     companion object {
         private const val PREFS_NAME = "tvviewer_prefs"
         private const val KEY_PLAYER = "player_type"
@@ -109,6 +149,8 @@ class AppPreferences(context: Context) {
         private const val KEY_LAST_CHANNEL = "last_channel_url"
         private const val KEY_FULLSCREEN = "fullscreen"
         private const val KEY_QUALITY = "preferred_quality"
+        private const val KEY_CUSTOM_CHANNELS = "custom_channels"
+        private const val KEY_BUFFER = "buffer_mode"
 
         const val PLAYER_INTERNAL = "internal"
         const val PLAYER_EXTERNAL = "external"

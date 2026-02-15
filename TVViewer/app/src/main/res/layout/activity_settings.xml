@@ -65,6 +65,76 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:text="@string/buffer_mode"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:layout_marginTop="24dp" />
+        <Spinner
+            android:id="@+id/bufferSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/spinner_background" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/custom_channels"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:layout_marginTop="24dp" />
+        <EditText
+            android:id="@+id/addChannelName"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:hint="@string/channel_name"
+            android:inputType="text"
+            android:background="@drawable/spinner_background"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#888888" />
+        <EditText
+            android:id="@+id/addChannelUrl"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:hint="@string/channel_url"
+            android:inputType="textUri"
+            android:background="@drawable/spinner_background"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#888888" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="8dp">
+            <Button
+                android:id="@+id/btnAddChannel"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="@string/add_playlist"
+                android:layout_marginEnd="4dp" />
+            <Button
+                android:id="@+id/btnAddMedeniyyet"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="@string/add_mədəniyyət"
+                android:layout_marginStart="4dp" />
+        </LinearLayout>
+        <ListView
+            android:id="@+id/customChannelsList"
+            android:layout_width="match_parent"
+            android:layout_height="100dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/spinner_background"
+            android:divider="#333333"
+            android:dividerHeight="1dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:text="@string/custom_playlists"
             android:textColor="#FFFFFF"
             android:textSize="16sp"

@@ -26,6 +26,10 @@ class SettingsActivity : BaseActivity() {
     private lateinit var crashFirebaseId: EditText
     private lateinit var crashWebhookUrl: EditText
     private lateinit var qualitySpinner: Spinner
+    private lateinit var bufferSpinner: Spinner
+    private lateinit var addChannelName: EditText
+    private lateinit var addChannelUrl: EditText
+    private lateinit var customChannelsList: ListView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,9 +49,15 @@ class SettingsActivity : BaseActivity() {
         crashFirebaseId = findViewById(R.id.crashFirebaseId)
         crashWebhookUrl = findViewById(R.id.crashWebhookUrl)
         qualitySpinner = findViewById(R.id.qualitySpinner)
+        bufferSpinner = findViewById(R.id.bufferSpinner)
+        addChannelName = findViewById(R.id.addChannelName)
+        addChannelUrl = findViewById(R.id.addChannelUrl)
+        customChannelsList = findViewById(R.id.customChannelsList)
 
         setupPlayerSpinner()
         setupQualitySpinner()
+        setupBufferSpinner()
+        setupCustomChannels()
         setupLanguageSpinner()
         setupCustomPlaylists()
         setupAddPlaylist()
@@ -139,6 +149,73 @@ class SettingsActivity : BaseActivity() {
             }
             override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
         })
+    }
+
+    private fun setupBufferSpinner() {
+        val modes = listOf(
+            getString(R.string.buffer_low),
+            getString(R.string.buffer_normal),
+            getString(R.string.buffer_high)
+        )
+        bufferSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, modes)
+        val idx = when (prefs.bufferMode) {
+            "low" -> 0
+            "high" -> 2
+            else -> 1
+        }
+        bufferSpinner.setSelection(idx)
+        bufferSpinner.setOnItemSelectedListener(object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: android.widget.AdapterView<*>?, v: android.view.View?, pos: Int, id: Long) {
+                prefs.bufferMode = when (pos) {
+                    0 -> "low"
+                    2 -> "high"
+                    else -> "normal"
+                }
+            }
+            override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
+        })
+    }
+
+    private fun setupCustomChannels() {
+        refreshCustomChannelsList()
+        findViewById<Button>(R.id.btnAddChannel).setOnClickListener {
+            val name = addChannelName.text.toString().trim()
+            val url = addChannelUrl.text.toString().trim()
+            if (name.isEmpty() || url.isEmpty()) {
+                Toast.makeText(this, R.string.fill_all_fields, Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            if (!url.startsWith("http")) {
+                Toast.makeText(this, R.string.invalid_url, Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            prefs.addCustomChannel(name, url)
+            addChannelName.text.clear()
+            addChannelUrl.text.clear()
+            refreshCustomChannelsList()
+            Toast.makeText(this, R.string.playlist_added, Toast.LENGTH_SHORT).show()
+        }
+        findViewById<Button>(R.id.btnAddMedeniyyet).setOnClickListener {
+            addChannelName.setText("Mədəniyyət TV")
+            addChannelUrl.setText("https://streaming.mediaculture.az/mədəniyyət/stream.m3u8")
+            Toast.makeText(this, R.string.medeniyyet_url_hint, Toast.LENGTH_LONG).show()
+        }
+        customChannelsList.setOnItemLongClickListener { _, _, position, _ ->
+            AlertDialog.Builder(this)
+                .setTitle(R.string.remove_playlist)
+                .setPositiveButton(android.R.string.ok) { _, _ ->
+                    prefs.removeCustomChannel(position)
+                    refreshCustomChannelsList()
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+            true
+        }
+    }
+
+    private fun refreshCustomChannelsList() {
+        val channels = prefs.customChannels.map { "${it.first}\n${it.second}" }
+        customChannelsList.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, channels)
     }
 
     private fun setupLanguageSpinner() {

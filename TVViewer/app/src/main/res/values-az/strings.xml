@@ -44,4 +44,14 @@
     <string name="share_errors">Göndər</string>
     <string name="no_errors_saved">Saxlanılmış xəta yoxdur</string>
     <string name="copied_send_to_dev">Kopyalandı! Çata yapışdırın və tərtibatçıya göndərin.</string>
+    <string name="my_channels">Mənim kanallarım</string>
+    <string name="custom_channels">Kanal əlavə et</string>
+    <string name="channel_name">Kanal adı</string>
+    <string name="channel_url">Axın URL</string>
+    <string name="add_mədəniyyət">Mədəniyyət əlavə et</string>
+    <string name="buffer_mode">Bufer</string>
+    <string name="buffer_low">Az (sürətli başlanğıc)</string>
+    <string name="buffer_normal">Normal</string>
+    <string name="buffer_high">Çox (kəsilmə yoxdur)</string>
+    <string name="medeniyyet_url_hint">Mədəniyyət TV axın URL-i daxil edin (işləmirsə)</string>
 </resources>
