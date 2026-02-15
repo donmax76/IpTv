@@ -136,6 +136,14 @@ class AppPreferences(context: Context) {
         get() = prefs.getString(KEY_BUFFER, "normal") ?: "normal"
         set(value) = prefs.edit().putString(KEY_BUFFER, value).apply()
 
+    var listDisplayMode: String
+        get() = prefs.getString(KEY_LIST_DISPLAY, "list") ?: "list"
+        set(value) = prefs.edit().putString(KEY_LIST_DISPLAY, value).apply()
+
+    var channelListAutoHideSeconds: Int
+        get() = prefs.getInt(KEY_LIST_AUTOHIDE, 5).coerceIn(2, 30)
+        set(value) = prefs.edit().putInt(KEY_LIST_AUTOHIDE, value.coerceIn(2, 30)).apply()
+
     companion object {
         private const val PREFS_NAME = "tvviewer_prefs"
         private const val KEY_PLAYER = "player_type"
@@ -151,6 +159,8 @@ class AppPreferences(context: Context) {
         private const val KEY_QUALITY = "preferred_quality"
         private const val KEY_CUSTOM_CHANNELS = "custom_channels"
         private const val KEY_BUFFER = "buffer_mode"
+        private const val KEY_LIST_DISPLAY = "list_display"
+        private const val KEY_LIST_AUTOHIDE = "list_autohide"
 
         const val PLAYER_INTERNAL = "internal"
         const val PLAYER_EXTERNAL = "external"

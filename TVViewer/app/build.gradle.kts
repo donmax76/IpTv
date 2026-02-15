@@ -11,8 +11,8 @@ android {
         applicationId = "com.tvviewer"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 5
+        versionName = "2.3"
     }
 
     buildTypes {
@@ -33,6 +33,7 @@ android {
     }
     buildFeatures {
         viewBinding = true
+        buildConfig = true
     }
 }
 
@@ -55,4 +56,7 @@ dependencies {
     
     // OkHttp for fetching playlists
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    
+    // Coil for channel logos
+    implementation("io.coil-kt:coil:2.5.0")
 }

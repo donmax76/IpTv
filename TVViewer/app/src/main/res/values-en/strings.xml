@@ -56,4 +56,21 @@
     <string name="buffer_normal">Normal</string>
     <string name="buffer_high">More (no buffering)</string>
     <string name="medeniyyet_url_hint">Paste Mədəniyyət TV stream URL if this one does not work</string>
+    <string name="aspect_ratio">Aspect ratio</string>
+    <string name="aspect_fit">Fit</string>
+    <string name="aspect_16_9">16:9</string>
+    <string name="aspect_4_3">4:3</string>
+    <string name="aspect_fill">Stretch</string>
+    <string name="play_pause">Play</string>
+    <string name="tv_guide_now">Now</string>
+    <string name="tv_guide_channel">Channel</string>
+    <string name="search_channels">Search channel</string>
+    <string name="hide_channels">Hide list</string>
+    <string name="tv_guide_hint">Tap a channel to switch. Program guide often unavailable for free channels.</string>
+    <string name="list_display">List display</string>
+    <string name="list_display_list">List</string>
+    <string name="list_display_grid">Grid (table)</string>
+    <string name="list_autohide">Auto-hide list (sec)</string>
+    <string name="stream_unavailable">Stream unavailable (403/404). Try another channel.</string>
+    <string name="version_format">Version %1$s (%2$d)</string>
 </resources>

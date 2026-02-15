@@ -5,19 +5,27 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.view.MenuItem
 import android.view.View
 import android.view.WindowManager
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.text.Editable
+import android.text.TextWatcher
+import android.widget.EditText
 import android.widget.ProgressBar
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import android.os.Handler
+import android.os.Looper
+import android.view.KeyEvent
+import android.widget.PopupMenu
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.widget.Toolbar
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -25,6 +33,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -50,8 +59,17 @@ class MainActivity : BaseActivity() {
     private lateinit var btnFavorites: ImageButton
     private lateinit var headerPanel: LinearLayout
     private lateinit var channelPanel: LinearLayout
+    private lateinit var btnFullscreen: ImageButton
+    private lateinit var btnAspectRatio: ImageButton
+    private lateinit var playerBottomBar: View
+    private lateinit var searchChannels: EditText
 
     private var player: ExoPlayer? = null
+    private var channelsPanelVisible = true
+    private var headerPanelVisible = true
+    private var aspectRatioMode = 0 // 0=fit, 1=16:9, 2=4:3, 3=fill
+    private val autoHideHandler = Handler(Looper.getMainLooper())
+    private var autoHideRunnable: Runnable? = null
     private lateinit var adapter: ChannelAdapter
     private var loadJob: Job? = null
     private var allChannels: List<Channel> = emptyList()
@@ -75,17 +93,30 @@ class MainActivity : BaseActivity() {
             btnFavorites = findViewById(R.id.btnFavorites)
             headerPanel = findViewById(R.id.headerPanel)
             channelPanel = findViewById(R.id.channelPanel)
+            btnFullscreen = findViewById(R.id.btnFullscreen)
+            btnAspectRatio = findViewById(R.id.btnAspectRatio)
+            playerBottomBar = findViewById(R.id.playerBottomBar)
+            searchChannels = findViewById(R.id.searchChannels)
 
-            try {
-                val toolbar = findViewById<Toolbar>(R.id.toolbar)
-                setSupportActionBar(toolbar)
-            } catch (e: Exception) { Log.e(TAG, "Toolbar error", e) }
-
+            findViewById<View>(R.id.rightEdgeZone).setOnClickListener { showHeaderPanelWithAutoHide() }
+            findViewById<View>(R.id.tapOverlay).setOnClickListener {
+                if (prefs.isFullscreen) {
+                    showFullscreenControlsTemporarily()
+                } else {
+                    toggleChannelsPanel()
+                }
+            }
+            findViewById<View>(R.id.leftEdgeZone).setOnClickListener { showChannelsPanelWithAutoHide() }
             setupPlayer()
+            setupChannelPanelToggle()
+            setupSearch()
+            setupPlayerOverlay()
+            setupMenuButton()
             setupRecyclerView()
             setupCategorySpinner()
             setupFavoritesButton()
             setupPlaylistSpinner()
+            setupBackPress()
             restoreState()
             Log.d(TAG, "onCreate completed")
         } catch (e: Exception) {
@@ -95,57 +126,248 @@ class MainActivity : BaseActivity() {
         }
     }
 
-    override fun onCreateOptionsMenu(menu: android.view.Menu): Boolean {
-        menuInflater.inflate(R.menu.main_menu, menu)
-        return true
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        when (item.itemId) {
-            R.id.action_settings -> {
-                startActivity(Intent(this, SettingsActivity::class.java))
-                return true
-            }
-            R.id.action_fullscreen -> {
-                toggleFullscreen()
-                return true
-            }
-            R.id.action_tv_guide -> {
-                AlertDialog.Builder(this)
-                    .setTitle(R.string.tv_guide)
-                    .setMessage(R.string.tv_guide_unavailable)
-                    .setPositiveButton(android.R.string.ok, null)
-                    .show()
-                return true
+    private fun setupMenuButton() {
+        findViewById<ImageButton>(R.id.btnMenu).setOnClickListener { v ->
+            PopupMenu(this, v).apply {
+                menuInflater.inflate(R.menu.main_menu, menu)
+                setOnMenuItemClickListener { item ->
+                    when (item.itemId) {
+                        R.id.action_settings -> {
+                            startActivity(Intent(this@MainActivity, SettingsActivity::class.java))
+                            true
+                        }
+                        R.id.action_tv_guide -> {
+                            showTvGuide()
+                            true
+                        }
+                        else -> false
+                    }
+                }
+                show()
             }
         }
-        return super.onOptionsItemSelected(item)
+    }
+
+    private val tvGuideLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) {
+            result.data?.getStringExtra(TvGuideActivity.EXTRA_CHANNEL_URL)?.let { url ->
+                allChannels.find { it.url == url }?.let { playChannel(it) }
+            }
+        }
+    }
+
+    private fun showTvGuide() {
+        if (allChannels.isEmpty()) {
+            Toast.makeText(this, R.string.select_channel, Toast.LENGTH_SHORT).show()
+            return
+        }
+        TvGuideChannels.channels = allChannels
+        TvGuideChannels.currentUrl = prefs.lastChannelUrl
+        tvGuideLauncher.launch(Intent(this, TvGuideActivity::class.java))
+    }
+
+    private fun setupPlayerOverlay() {
+        btnFullscreen.setOnClickListener { toggleFullscreen() }
+        btnFullscreen.setImageResource(
+            if (prefs.isFullscreen) R.drawable.ic_fullscreen_exit
+            else R.drawable.ic_fullscreen
+        )
+        btnAspectRatio.setOnClickListener { cycleAspectRatio() }
+    }
+
+    private fun cycleAspectRatio() {
+        aspectRatioMode = (aspectRatioMode + 1) % 4
+        applyAspectRatio()
+        val modes = listOf(R.string.aspect_fit, R.string.aspect_16_9, R.string.aspect_4_3, R.string.aspect_fill)
+        Toast.makeText(this, getString(modes[aspectRatioMode]), Toast.LENGTH_SHORT).show()
+    }
+
+    private fun applyAspectRatio() {
+        val mode = when (aspectRatioMode) {
+            1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            2 -> AspectRatioFrameLayout.RESIZE_MODE_FIXED_HEIGHT
+            3 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+        }
+        playerView.resizeMode = mode
     }
 
     private fun toggleFullscreen() {
         prefs.isFullscreen = !prefs.isFullscreen
         applyFullscreen(prefs.isFullscreen)
-        invalidateOptionsMenu()
+        btnFullscreen.setImageResource(
+            if (prefs.isFullscreen) R.drawable.ic_fullscreen_exit
+            else R.drawable.ic_fullscreen
+        )
+    }
+
+    private fun setupChannelPanelToggle() {
+        findViewById<ImageButton>(R.id.btnHideChannels).setOnClickListener {
+            cancelAutoHide()
+            hideChannelsPanel()
+        }
+        findViewById<ImageButton>(R.id.btnHideHeader).setOnClickListener {
+            cancelAutoHide()
+            hideHeaderPanel()
+        }
+    }
+
+    private fun toggleChannelsPanel() {
+        channelsPanelVisible = !channelsPanelVisible
+        channelPanel.visibility = if (channelsPanelVisible) View.VISIBLE else View.GONE
+    }
+
+    private fun hideChannelsPanel() {
+        channelsPanelVisible = false
+        channelPanel.visibility = View.GONE
+    }
+
+    private fun showChannelsPanel() {
+        cancelAutoHide()
+        channelsPanelVisible = true
+        channelPanel.visibility = View.VISIBLE
+    }
+
+    private fun hideHeaderPanel() {
+        headerPanelVisible = false
+        headerPanel.visibility = View.GONE
+    }
+
+    private fun showHeaderPanel() {
+        cancelAutoHide()
+        headerPanelVisible = true
+        headerPanel.visibility = View.VISIBLE
+    }
+
+    private fun showHeaderPanelWithAutoHide() {
+        showHeaderPanel()
+        scheduleAutoHide { hideHeaderPanel() }
+    }
+
+    private fun showChannelsPanelWithAutoHide() {
+        showChannelsPanel()
+        scheduleAutoHide { hideChannelsPanel() }
+    }
+
+    private fun scheduleAutoHide(hideAction: () -> Unit) {
+        cancelAutoHide()
+        autoHideRunnable = Runnable { hideAction() }
+        autoHideHandler.postDelayed(autoHideRunnable!!, prefs.channelListAutoHideSeconds * 1000L)
+    }
+
+    private fun cancelAutoHide() {
+        autoHideRunnable?.let { autoHideHandler.removeCallbacks(it) }
+        autoHideRunnable = null
+    }
+
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                if (!channelsPanelVisible) {
+                    showChannelsPanelWithAutoHide()
+                    return true
+                }
+            }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                if (!headerPanelVisible) {
+                    showHeaderPanelWithAutoHide()
+                    return true
+                }
+            }
+            KeyEvent.KEYCODE_BACK -> {
+                if (prefs.isFullscreen) {
+                    toggleFullscreen()
+                    return true
+                }
+            }
+            KeyEvent.KEYCODE_MENU -> {
+                if (!headerPanelVisible) {
+                    showHeaderPanelWithAutoHide()
+                    return true
+                }
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    private fun setupBackPress() {
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (prefs.isFullscreen) {
+                    toggleFullscreen()
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                }
+            }
+        })
+    }
+
+    private fun showFullscreenControlsTemporarily() {
+        cancelAutoHide()
+        playerBottomBar.visibility = View.VISIBLE
+        autoHideRunnable = Runnable { playerBottomBar.visibility = View.GONE }
+        autoHideHandler.postDelayed(autoHideRunnable!!, 3000L)
+    }
+
+    private fun setupSearch() {
+        searchChannels.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                applyFilters()
+            }
+        })
+    }
+
+    private fun applyFilters() {
+        val query = searchChannels.text.toString().trim().lowercase()
+        var filtered = allChannels
+        if (showFavoritesOnly) filtered = filtered.filter { prefs.isFavorite(it.url) }
+        val spinnerAdapter = categorySpinner.adapter
+        val catIdx = categorySpinner.selectedItemPosition
+        if (catIdx > 0 && spinnerAdapter != null && catIdx < spinnerAdapter.count) {
+            val category = categorySpinner.getItemAtPosition(catIdx) as? String ?: ""
+            filtered = filtered.filter { it.group == category }
+        }
+        if (query.isNotEmpty()) {
+            filtered = filtered.filter { it.name.lowercase().contains(query) }
+        }
+        adapter.updateChannels(filtered)
+        adapter.updateFavorites(prefs.favorites)
     }
 
     private fun applyFullscreen(fullscreen: Boolean) {
         if (fullscreen) {
             headerPanel.visibility = View.GONE
             channelPanel.visibility = View.GONE
+            playerBottomBar.visibility = View.GONE
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                window.insetsController?.hide(android.view.WindowInsets.Type.statusBars())
+                window.insetsController?.let { ctrl ->
+                    ctrl.hide(android.view.WindowInsets.Type.statusBars())
+                    ctrl.hide(android.view.WindowInsets.Type.navigationBars())
+                    ctrl.systemBarsBehavior = android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                }
             } else {
                 @Suppress("DEPRECATION")
                 window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+                @Suppress("DEPRECATION")
+                window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_FULLSCREEN
+                    or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY)
             }
         } else {
-            headerPanel.visibility = View.VISIBLE
-            channelPanel.visibility = View.VISIBLE
+            headerPanel.visibility = if (headerPanelVisible) View.VISIBLE else View.GONE
+            playerBottomBar.visibility = View.VISIBLE
+            channelPanel.visibility = if (channelsPanelVisible) View.VISIBLE else View.GONE
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 window.insetsController?.show(android.view.WindowInsets.Type.statusBars())
+                window.insetsController?.show(android.view.WindowInsets.Type.navigationBars())
             } else {
                 @Suppress("DEPRECATION")
                 window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+                @Suppress("DEPRECATION")
+                window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
             }
         }
     }
@@ -182,9 +404,14 @@ class MainActivity : BaseActivity() {
                         }
                     }
                     override fun onPlayerError(error: PlaybackException) {
-                        ErrorLogger.logException(this@MainActivity, error)
                         loadingIndicator.visibility = View.GONE
-                        Toast.makeText(this@MainActivity, getString(R.string.error_playback) + ": ${error.message}", Toast.LENGTH_LONG).show()
+                        val msg = error.cause?.message ?: error.message ?: ""
+                        val friendly = if (msg.contains("403") || msg.contains("404")) {
+                            getString(R.string.stream_unavailable)
+                        } else {
+                            getString(R.string.error_playback) + ": $msg"
+                        }
+                        Toast.makeText(this@MainActivity, friendly, Toast.LENGTH_LONG).show()
                     }
                 })
             }
@@ -197,11 +424,24 @@ class MainActivity : BaseActivity() {
         adapter = ChannelAdapter(
             channels = emptyList(),
             favorites = prefs.favorites,
-            onChannelClick = { playChannel(it) },
+            isGridMode = { prefs.listDisplayMode == "grid" },
+            onChannelClick = { ch ->
+                playChannel(ch)
+                scheduleAutoHide { hideChannelsPanel() }
+            },
             onFavoriteClick = { toggleFavorite(it) }
         )
-        recyclerView.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+        applyListLayoutManager()
         recyclerView.adapter = adapter
+    }
+
+    private fun applyListLayoutManager() {
+        recyclerView.layoutManager = if (prefs.listDisplayMode == "grid") {
+            GridLayoutManager(this, 3)
+        } else {
+            LinearLayoutManager(this, LinearLayoutManager.VERTICAL, false)
+        }
+        adapter.refreshDisplayMode()
     }
 
     private fun setupPlaylistSpinner() {
@@ -337,18 +577,8 @@ class MainActivity : BaseActivity() {
         categorySpinner.adapter = catAdapter
     }
 
-    private fun filterChannelsByCategory(categoryIndex: Int) {
-        var filtered = allChannels
-        if (showFavoritesOnly) {
-            filtered = filtered.filter { prefs.isFavorite(it.url) }
-        }
-        val spinnerAdapter = categorySpinner.adapter
-        if (categoryIndex > 0 && spinnerAdapter != null && categoryIndex < spinnerAdapter.count) {
-            val category = categorySpinner.getItemAtPosition(categoryIndex) as? String ?: ""
-            filtered = filtered.filter { it.group == category }
-        }
-        adapter.updateChannels(filtered)
-        adapter.updateFavorites(prefs.favorites)
+    private fun filterChannelsByCategory(@Suppress("UNUSED_PARAMETER") categoryIndex: Int) {
+        applyFilters()
     }
 
     private fun toggleFavorite(channel: Channel) {
@@ -400,7 +630,6 @@ class MainActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Refresh playlists (custom may have changed), restore selection
         val customChannelsPlaylist = if (prefs.customChannels.isNotEmpty()) {
             listOf(Playlist(getString(R.string.my_channels), "custom_channels",
                 prefs.customChannels.map { Channel(it.first, it.second, null, null) }))
@@ -409,20 +638,43 @@ class MainActivity : BaseActivity() {
         val names = allPlaylists.map { it.name }
         val plAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, names)
         plAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        playlistSpinner.onItemSelectedListener = null
         playlistSpinner.adapter = plAdapter
-        // Restore playlist selection
-        prefs.lastPlaylistUrl?.let { url ->
-            val idx = allPlaylists.indexOfFirst { it.url == url }
-            if (idx >= 0 && allChannels.isNotEmpty()) {
-                playlistSpinner.setSelection(idx, false)
+        val savedUrl = prefs.lastPlaylistUrl
+        val idx = if (savedUrl != null) allPlaylists.indexOfFirst { it.url == savedUrl } else -1
+        if (idx >= 0) {
+            playlistSpinner.setSelection(idx, false)
+            if (allChannels.isNotEmpty()) {
                 val adapter = categorySpinner.adapter
                 val catIdx = if (adapter != null) prefs.lastCategoryIndex.coerceIn(0, adapter.count - 1) else 0
                 filterChannelsByCategory(catIdx)
             }
         }
+        playlistSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val playlist = allPlaylists.getOrNull(position) ?: return
+                if (playlist.url == prefs.lastPlaylistUrl && allChannels.isNotEmpty()) return
+                loadPlaylist(playlist)
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
         applyFullscreen(prefs.isFullscreen)
         updatePlayerQuality()
-        invalidateOptionsMenu()
+        applyListLayoutManager()
+        btnFullscreen.setImageResource(
+            if (prefs.isFullscreen) R.drawable.ic_fullscreen_exit
+            else R.drawable.ic_fullscreen
+        )
+        if (channelsPanelVisible) {
+            channelPanel.visibility = View.VISIBLE
+        } else {
+            channelPanel.visibility = View.GONE
+        }
+        if (headerPanelVisible) {
+            headerPanel.visibility = View.VISIBLE
+        } else {
+            headerPanel.visibility = View.GONE
+        }
     }
 
     private fun updatePlayerQuality() {
@@ -437,15 +689,9 @@ class MainActivity : BaseActivity() {
         }
     }
 
-    override fun onPrepareOptionsMenu(menu: android.view.Menu): Boolean {
-        menu.findItem(R.id.action_fullscreen)?.setTitle(
-            if (prefs.isFullscreen) getString(R.string.exit_fullscreen) else getString(R.string.fullscreen)
-        )
-        return true
-    }
-
     override fun onDestroy() {
         super.onDestroy()
+        cancelAutoHide()
         loadJob?.cancel()
         player?.release()
         player = null

@@ -32,6 +32,14 @@ object ErrorLogger {
 
     fun logException(context: Context, throwable: Throwable) {
         if (throwable is kotlinx.coroutines.CancellationException) return
+        if (throwable.message?.contains("Response code: 403") == true ||
+            throwable.message?.contains("Response code: 404") == true) return
+        var t: Throwable? = throwable
+        while (t != null) {
+            if (t.message?.contains("Response code: 403") == true ||
+                t.message?.contains("Response code: 404") == true) return
+            t = t.cause
+        }
         val sw = java.io.StringWriter()
         throwable.printStackTrace(java.io.PrintWriter(sw))
         var cause = throwable.cause

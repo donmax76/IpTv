@@ -56,4 +56,21 @@
     <string name="buffer_normal">Звичайний</string>
     <string name="buffer_high">Більше (без обривів)</string>
     <string name="medeniyyet_url_hint">Вставте URL потоку Mədəniyyət TV, якщо цей не працює</string>
+    <string name="aspect_ratio">Співвідношення сторін</string>
+    <string name="aspect_fit">По розміру</string>
+    <string name="aspect_16_9">16:9</string>
+    <string name="aspect_4_3">4:3</string>
+    <string name="aspect_fill">Розтягнути</string>
+    <string name="play_pause">Відтворення</string>
+    <string name="tv_guide_now">Зараз</string>
+    <string name="tv_guide_channel">Канал</string>
+    <string name="search_channels">Пошук каналу</string>
+    <string name="hide_channels">Сховати список</string>
+    <string name="tv_guide_hint">Натисніть на канал для перемикання.</string>
+    <string name="list_display">Відображення списку</string>
+    <string name="list_display_list">Список</string>
+    <string name="list_display_grid">Таблиця (сітка)</string>
+    <string name="list_autohide">Автоскриття списку (сек)</string>
+    <string name="stream_unavailable">Стрім недоступний. Спробуйте інший канал.</string>
+    <string name="version_format">Версія %1$s (%2$d)</string>
 </resources>

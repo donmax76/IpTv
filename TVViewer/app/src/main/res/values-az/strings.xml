@@ -54,4 +54,21 @@
     <string name="buffer_normal">Normal</string>
     <string name="buffer_high">Çox (kəsilmə yoxdur)</string>
     <string name="medeniyyet_url_hint">Mədəniyyət TV axın URL-i daxil edin (işləmirsə)</string>
+    <string name="aspect_ratio">En nisbəti</string>
+    <string name="aspect_fit">Uyğun</string>
+    <string name="aspect_16_9">16:9</string>
+    <string name="aspect_4_3">4:3</string>
+    <string name="aspect_fill">Uzat</string>
+    <string name="play_pause">Oynat</string>
+    <string name="tv_guide_now">İndi</string>
+    <string name="tv_guide_channel">Kanal</string>
+    <string name="search_channels">Kanal axtarışı</string>
+    <string name="hide_channels">Siyahını gizlət</string>
+    <string name="tv_guide_hint">Keçid üçün kanala toxunun.</string>
+    <string name="list_display">Siyahı görünüşü</string>
+    <string name="list_display_list">Siyahı</string>
+    <string name="list_display_grid">Cədvəl (şəbəkə)</string>
+    <string name="list_autohide">Avtomatik gizlətmə (san)</string>
+    <string name="stream_unavailable">Axın əlçatan deyil. Başqa kanal sınayın.</string>
+    <string name="version_format">Versiya %1$s (%2$d)</string>
 </resources>

@@ -35,11 +35,15 @@ object M3UParser {
                         if (baseUrl != null && !url.startsWith("http")) {
                             url = resolveUrl(baseUrl, url)
                         }
+                        var logoUrl = extInf.logo
+                        if (logoUrl != null && baseUrl != null && !logoUrl.startsWith("http")) {
+                            logoUrl = resolveUrl(baseUrl, logoUrl)
+                        }
                         channels.add(
                             Channel(
                                 name = extInf.name,
                                 url = url,
-                                logoUrl = extInf.logo,
+                                logoUrl = logoUrl,
                                 group = extInf.group
                             )
                         )
