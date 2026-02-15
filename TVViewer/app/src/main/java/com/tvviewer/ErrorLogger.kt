@@ -31,6 +31,7 @@ object ErrorLogger {
     }
 
     fun logException(context: Context, throwable: Throwable) {
+        if (throwable is kotlinx.coroutines.CancellationException) return
         val sw = java.io.StringWriter()
         throwable.printStackTrace(java.io.PrintWriter(sw))
         var cause = throwable.cause

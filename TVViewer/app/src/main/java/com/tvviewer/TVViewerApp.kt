@@ -3,14 +3,25 @@ package com.tvviewer
 import android.app.Application
 import android.content.Intent
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import java.io.PrintWriter
 import java.io.StringWriter
 
 class TVViewerApp : Application() {
 
+    private fun isCancellation(throwable: Throwable): Boolean {
+        var t: Throwable? = throwable
+        while (t != null) {
+            if (t is CancellationException) return true
+            t = t.cause
+        }
+        return false
+    }
+
     override fun onCreate() {
         super.onCreate()
         Thread.setDefaultUncaughtExceptionHandler { _, throwable ->
+            if (isCancellation(throwable)) return@setDefaultUncaughtExceptionHandler
             try {
                 Log.e("TVViewer", "Uncaught exception", throwable)
                 val errorText = getFullStackTrace(throwable)

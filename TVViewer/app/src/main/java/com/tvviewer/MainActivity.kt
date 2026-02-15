@@ -209,6 +209,8 @@ class MainActivity : BaseActivity() {
                     filterChannelsByCategory(0)
                     emptyState.visibility = View.GONE
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                return@launch
             } catch (e: Exception) {
                 Log.e(TAG, "Load playlist error", e)
                 ErrorLogger.logException(this@MainActivity, e)
