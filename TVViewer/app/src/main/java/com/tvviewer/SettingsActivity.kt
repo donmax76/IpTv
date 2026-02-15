@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -11,10 +12,12 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.Spinner
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 
 class SettingsActivity : BaseActivity() {
 
@@ -61,6 +64,7 @@ class SettingsActivity : BaseActivity() {
         addChannelUrl = findViewById(R.id.addChannelUrl)
         customChannelsList = findViewById(R.id.customChannelsList)
 
+        setupVersionAndUpdates()
         setupPlayerSpinner()
         setupQualitySpinner()
         setupBufferSpinner()
@@ -74,6 +78,56 @@ class SettingsActivity : BaseActivity() {
         setupAddMultiplePlaylists()
         setupErrorLog()
         setupCrashReporting()
+    }
+
+    private fun setupVersionAndUpdates() {
+        findViewById<TextView>(R.id.versionText).text =
+            getString(R.string.version_format, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)
+        findViewById<Button>(R.id.btnCheckUpdates).setOnClickListener {
+            checkForUpdates()
+        }
+    }
+
+    private fun checkForUpdates() {
+        findViewById<Button>(R.id.btnCheckUpdates).isEnabled = false
+        lifecycleScope.launch {
+            val result = UpdateChecker.check(prefs.updateCheckUrl)
+            runOnUiThread {
+                findViewById<Button>(R.id.btnCheckUpdates).isEnabled = true
+                when {
+                    result.isFailure -> {
+                        Toast.makeText(
+                            this@SettingsActivity,
+                            getString(R.string.update_check_failed) + ": ${result.exceptionOrNull()?.message}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                    result.getOrNull() == null -> {
+                        Toast.makeText(this@SettingsActivity, R.string.update_check_failed, Toast.LENGTH_SHORT).show()
+                    }
+                    result.getOrNull()!!.versionCode <= BuildConfig.VERSION_CODE -> {
+                        Toast.makeText(this@SettingsActivity, R.string.update_latest, Toast.LENGTH_SHORT).show()
+                    }
+                    else -> {
+                        val info = result.getOrNull()!!
+                        AlertDialog.Builder(this@SettingsActivity)
+                            .setTitle(getString(R.string.update_available, info.versionName))
+                            .setMessage(getString(R.string.version_format, info.versionName, info.versionCode))
+                            .setPositiveButton(R.string.update_download) { _, _ ->
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(info.downloadUrl))
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    startActivity(Intent.createChooser(intent, getString(R.string.update_download)))
+                                } catch (e: Exception) {
+                                    Toast.makeText(this@SettingsActivity, R.string.update_check_failed, Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            .setNegativeButton(android.R.string.cancel, null)
+                            .show()
+                    }
+                }
+            }
+        }
     }
 
     private fun setupErrorLog() {

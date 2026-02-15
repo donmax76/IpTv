@@ -155,6 +155,11 @@ class AppPreferences(context: Context) {
         get() = prefs.getString(KEY_TIME_DISPLAY, "off") ?: "off"
         set(value) = prefs.edit().putString(KEY_TIME_DISPLAY, value).apply()
 
+    var updateCheckUrl: String?
+        get() = prefs.getString(KEY_UPDATE_CHECK_URL, null)
+            ?: "https://raw.githubusercontent.com/donmax76/TestApp/master/TVViewer/version.json"
+        set(value) = prefs.edit().putString(KEY_UPDATE_CHECK_URL, value?.takeIf { it.isNotEmpty() }).apply()
+
     companion object {
         private const val PREFS_NAME = "tvviewer_prefs"
         private const val KEY_PLAYER = "player_type"
@@ -173,6 +178,7 @@ class AppPreferences(context: Context) {
         private const val KEY_LIST_DISPLAY = "list_display"
         private const val KEY_LIST_AUTOHIDE = "list_autohide"
         private const val KEY_TIME_DISPLAY = "time_display"
+        private const val KEY_UPDATE_CHECK_URL = "update_check_url"
 
         const val PLAYER_INTERNAL = "internal"
         const val PLAYER_EXTERNAL = "external"

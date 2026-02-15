@@ -89,4 +89,9 @@
     <string name="list_autohide">Avtomatik gizlətmə (san)</string>
     <string name="stream_unavailable">Axın əlçatan deyil. Başqa kanal sınayın.</string>
     <string name="version_format">Versiya %1$s (%2$d)</string>
+    <string name="check_for_updates">Yeniləmələri yoxla</string>
+    <string name="update_available">Yeni versiya %1$s mövcuddur</string>
+    <string name="update_download">Yüklə</string>
+    <string name="update_latest">Ən son versiya quraşdırılıb</string>
+    <string name="update_check_failed">Yeniləmə yoxlaması uğursuz oldu</string>
 </resources>
