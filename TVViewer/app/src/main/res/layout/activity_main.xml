@@ -120,10 +120,11 @@
                     android:id="@+id/bottomBarEpgInfo"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:maxLines="1"
+                    android:maxLines="2"
                     android:ellipsize="end"
                     android:textColor="#AAAAAA"
-                    android:textSize="11sp" />
+                    android:textSize="11sp"
+                    android:visibility="visible" />
             </LinearLayout>
 
             <TextView

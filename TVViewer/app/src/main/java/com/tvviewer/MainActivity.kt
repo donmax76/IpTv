@@ -125,7 +125,13 @@ class MainActivity : BaseActivity() {
             findViewById<View>(R.id.leftEdgeZone).setOnClickListener { showLeftSide() }
             findViewById<View>(R.id.tapOverlay).setOnClickListener {
                 if (leftSideVisible) {
-                    // OTT style: close only via right/back
+                    // Close only via right/back
+                } else if (playerBottomBar.visibility == View.VISIBLE) {
+                    cancelAutoHide()
+                    autoHideRunnable = Runnable { playerBottomBar.visibility = View.GONE }
+                    autoHideHandler.postDelayed(autoHideRunnable!!, 4000L)
+                } else if (prefs.playerType != AppPreferences.PLAYER_EXTERNAL && prefs.lastChannelUrl != null) {
+                    showBottomBarTemporarily()
                 } else {
                     showLeftSide()
                 }
@@ -391,6 +397,15 @@ class MainActivity : BaseActivity() {
         settingsPanel.visibility = View.GONE
     }
 
+    private fun showBottomBarTemporarily() {
+        if (prefs.playerType == AppPreferences.PLAYER_EXTERNAL) return
+        cancelAutoHide()
+        updateBottomBarChannelInfo()
+        playerBottomBar.visibility = View.VISIBLE
+        autoHideRunnable = Runnable { playerBottomBar.visibility = View.GONE }
+        autoHideHandler.postDelayed(autoHideRunnable!!, 4000L)
+    }
+
     private fun updateBottomBarChannelInfo() {
         val logoView = findViewById<android.widget.ImageView>(R.id.bottomBarChannelLogo)
         val nameView = findViewById<TextView>(R.id.bottomBarChannelName)
@@ -408,12 +423,12 @@ class MainActivity : BaseActivity() {
             logoView.visibility = View.VISIBLE
             val (now, next) = EpgRepository.getNowNext(epgData, channel.tvgId)
             epgView.text = when {
-                now != null && next != null -> "• $now → $next"
-                now != null -> "• $now"
-                next != null -> "→ $next"
-                else -> ""
+                now != null && next != null -> "${getString(R.string.epg_now)}: $now → ${getString(R.string.epg_next)}: $next"
+                now != null -> "${getString(R.string.epg_now)}: $now"
+                next != null -> "${getString(R.string.epg_next)}: $next"
+                else -> "${getString(R.string.epg_now)}: —"
             }
-            epgView.visibility = if (epgView.text.isNotEmpty()) View.VISIBLE else View.GONE
+            epgView.visibility = View.VISIBLE
         } else {
             nameView.visibility = View.GONE
             logoView.visibility = View.GONE
@@ -491,15 +506,31 @@ class MainActivity : BaseActivity() {
             }
             KeyEvent.KEYCODE_DPAD_UP -> {
                 if (!leftSideVisible && !rightPanelVisible && filteredChannels.isNotEmpty()) {
-                    switchToPrevChannel()
-                    updateBottomBarChannelInfo()
+                    if (playerBottomBar.visibility == View.VISIBLE) {
+                        switchToPrevChannel()
+                        updateBottomBarChannelInfo()
+                        cancelAutoHide()
+                        autoHideRunnable = Runnable { playerBottomBar.visibility = View.GONE }
+                        autoHideHandler.postDelayed(autoHideRunnable!!, 4000L)
+                    } else {
+                        switchToPrevChannel()
+                    }
                     return true
                 }
             }
             KeyEvent.KEYCODE_DPAD_DOWN -> {
                 if (!leftSideVisible && !rightPanelVisible && filteredChannels.isNotEmpty()) {
-                    switchToNextChannel()
-                    updateBottomBarChannelInfo()
+                    if (playerBottomBar.visibility == View.VISIBLE) {
+                        switchToNextChannel()
+                        updateBottomBarChannelInfo()
+                        cancelAutoHide()
+                        autoHideRunnable = Runnable { playerBottomBar.visibility = View.GONE }
+                        autoHideHandler.postDelayed(autoHideRunnable!!, 4000L)
+                    } else if (prefs.playerType != AppPreferences.PLAYER_EXTERNAL && prefs.lastChannelUrl != null) {
+                        showBottomBarTemporarily()
+                    } else {
+                        switchToNextChannel()
+                    }
                     return true
                 }
             }
@@ -682,11 +713,18 @@ class MainActivity : BaseActivity() {
                         runOnUiThread {
                             updateKeepScreenOn()
                             if (prefs.playerType != AppPreferences.PLAYER_EXTERNAL) {
-                                playerBottomBar.visibility = when (playbackState) {
-                                    Player.STATE_READY, Player.STATE_BUFFERING -> View.VISIBLE
-                                    else -> View.GONE
+                                when (playbackState) {
+                                    Player.STATE_READY, Player.STATE_BUFFERING -> {
+                                        updateBottomBarChannelInfo()
+                                        playerBottomBar.visibility = View.VISIBLE
+                                        autoHideRunnable = Runnable { playerBottomBar.visibility = View.GONE }
+                                        autoHideHandler.postDelayed(autoHideRunnable!!, 4000L)
+                                    }
+                                    else -> {
+                                        cancelAutoHide()
+                                        playerBottomBar.visibility = View.GONE
+                                    }
                                 }
-                                if (playbackState == Player.STATE_READY) updateBottomBarChannelInfo()
                             }
                         }
                     }
@@ -908,6 +946,8 @@ class MainActivity : BaseActivity() {
             else -> {
                 updateBottomBarChannelInfo()
                 playerBottomBar.visibility = View.VISIBLE
+                autoHideRunnable = Runnable { playerBottomBar.visibility = View.GONE }
+                autoHideHandler.postDelayed(autoHideRunnable!!, 4000L)
                 playInternal(channel)
             }
         }
