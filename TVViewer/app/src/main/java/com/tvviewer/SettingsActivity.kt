@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.Spinner
 import android.widget.Toast
@@ -67,6 +68,7 @@ class SettingsActivity : BaseActivity() {
         setupLanguageSpinner()
         setupCustomPlaylists()
         setupAddPlaylist()
+        setupAddMultiplePlaylists()
         setupErrorLog()
         setupCrashReporting()
     }
@@ -305,5 +307,67 @@ class SettingsActivity : BaseActivity() {
             refreshCustomList()
             Toast.makeText(this, R.string.playlist_added, Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun setupAddMultiplePlaylists() {
+        findViewById<Button>(R.id.btnAddMultiplePlaylists).setOnClickListener {
+            val input = EditText(this).apply {
+                setHint(R.string.add_multiple_hint)
+                minLines = 6
+                setPadding(48, 32, 48, 32)
+                setBackgroundResource(R.drawable.spinner_background)
+                setTextColor(0xFFFFFFFF.toInt())
+                setHintTextColor(0xFF888888.toInt())
+            }
+            val container = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(input)
+            }
+            AlertDialog.Builder(this)
+                .setTitle(R.string.add_multiple_playlists)
+                .setView(container)
+                .setPositiveButton(android.R.string.ok) { _, _ ->
+                    val text = input.text.toString()
+                    val items = parseMultiplePlaylists(text)
+                    if (items.isEmpty()) {
+                        Toast.makeText(this, R.string.fill_all_fields, Toast.LENGTH_SHORT).show()
+                    } else {
+                        prefs.addCustomPlaylists(items)
+                        refreshCustomList()
+                        Toast.makeText(this, getString(R.string.playlist_added) + " x${items.size}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+    }
+
+    private fun parseMultiplePlaylists(text: String): List<Pair<String, String>> {
+        val result = mutableListOf<Pair<String, String>>()
+        text.lines().forEachIndexed { index, line ->
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) return@forEachIndexed
+            val (name, url) = when {
+                trimmed.contains("|") -> {
+                    val parts = trimmed.split("|", limit = 2)
+                    parts[0].trim() to parts[1].trim()
+                }
+                trimmed.contains(" - ") -> {
+                    val parts = trimmed.split(" - ", limit = 2)
+                    parts[0].trim() to parts[1].trim()
+                }
+                trimmed.startsWith("http") -> {
+                    val nameFromUrl = try {
+                        java.net.URL(trimmed).host?.replace("www.", "")?.substringBefore(".") ?: "Playlist ${index + 1}"
+                    } catch (_: Exception) { "Playlist ${index + 1}" }
+                    nameFromUrl to trimmed
+                }
+                else -> return@forEachIndexed
+            }
+            if (url.startsWith("http")) {
+                result.add(name.ifEmpty { "Playlist ${index + 1}" } to url)
+            }
+        }
+        return result
     }
 }

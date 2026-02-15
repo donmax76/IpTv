@@ -46,6 +46,13 @@ class AppPreferences(context: Context) {
         customPlaylists = current
     }
 
+    fun addCustomPlaylists(items: List<Pair<String, String>>) {
+        if (items.isEmpty()) return
+        val current = customPlaylists.toMutableList()
+        current.addAll(items)
+        customPlaylists = current
+    }
+
     fun removeCustomPlaylist(index: Int) {
         val current = customPlaylists.toMutableList()
         if (index in current.indices) {

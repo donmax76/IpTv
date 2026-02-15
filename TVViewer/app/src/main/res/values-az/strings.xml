@@ -21,6 +21,8 @@
     <string name="playlist_name">Pleylist adı</string>
     <string name="playlist_url">Pleylist URL (M3U)</string>
     <string name="add_playlist">Əlavə et</string>
+    <string name="add_multiple_playlists">Bir neçə əlavə et</string>
+    <string name="add_multiple_hint">Hər sətir: «Ad|URL» və ya yalnız URL</string>
     <string name="remove_playlist">Pleylisti sil</string>
     <string name="remove_playlist_confirm">Bu pleylisti silmək istəyirsiniz?</string>
     <string name="fill_all_fields">Bütün sahələri doldurun</string>

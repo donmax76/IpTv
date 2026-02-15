@@ -21,6 +21,8 @@
     <string name="playlist_name">Playlist name</string>
     <string name="playlist_url">Playlist URL (M3U)</string>
     <string name="add_playlist">Add</string>
+    <string name="add_multiple_playlists">Add multiple</string>
+    <string name="add_multiple_hint">Each line: \"Name|URL\" or URL only</string>
     <string name="remove_playlist">Remove playlist</string>
     <string name="remove_playlist_confirm">Remove this playlist?</string>
     <string name="fill_all_fields">Fill all fields</string>

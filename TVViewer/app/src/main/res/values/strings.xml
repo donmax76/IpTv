@@ -21,6 +21,8 @@
     <string name="playlist_name">Название плейлиста</string>
     <string name="playlist_url">URL плейлиста (M3U)</string>
     <string name="add_playlist">Добавить</string>
+    <string name="add_multiple_playlists">Добавить несколько</string>
+    <string name="add_multiple_hint">Каждая строка: «Название|URL» или только URL</string>
     <string name="remove_playlist">Удалить плейлист</string>
     <string name="remove_playlist_confirm">Удалить этот плейлист?</string>
     <string name="fill_all_fields">Заполните все поля</string>
