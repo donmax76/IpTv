@@ -22,7 +22,6 @@ import android.widget.Toast
 import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
-import android.widget.PopupMenu
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -58,7 +57,7 @@ class MainActivity : BaseActivity() {
     private lateinit var playlistSpinner: Spinner
     private lateinit var categorySpinner: Spinner
     private lateinit var btnFavorites: ImageButton
-    private lateinit var headerPanel: LinearLayout
+    private lateinit var leftSideContainer: View
     private lateinit var channelPanel: LinearLayout
     private lateinit var btnFullscreen: ImageButton
     private lateinit var btnAspectRatio: ImageButton
@@ -66,8 +65,7 @@ class MainActivity : BaseActivity() {
     private lateinit var searchChannels: EditText
 
     private var player: ExoPlayer? = null
-    private var channelsPanelVisible = true
-    private var headerPanelVisible = true
+    private var leftSideVisible = true
     private var aspectRatioMode = 0 // 0=fit, 1=16:9, 2=4:3, 3=fill
     private val autoHideHandler = Handler(Looper.getMainLooper())
     private var autoHideRunnable: Runnable? = null
@@ -92,27 +90,26 @@ class MainActivity : BaseActivity() {
             playlistSpinner = findViewById(R.id.playlistSpinner)
             categorySpinner = findViewById(R.id.categorySpinner)
             btnFavorites = findViewById(R.id.btnFavorites)
-            headerPanel = findViewById(R.id.headerPanel)
+            leftSideContainer = findViewById(R.id.leftSideContainer)
             channelPanel = findViewById(R.id.channelPanel)
             btnFullscreen = findViewById(R.id.btnFullscreen)
             btnAspectRatio = findViewById(R.id.btnAspectRatio)
             playerBottomBar = findViewById(R.id.playerBottomBar)
             searchChannels = findViewById(R.id.searchChannels)
 
-            findViewById<View>(R.id.rightEdgeZone).setOnClickListener { showHeaderPanelWithAutoHide() }
+            findViewById<View>(R.id.rightEdgeZone).setOnClickListener { hideLeftSideWithAutoHide() }
             findViewById<View>(R.id.tapOverlay).setOnClickListener {
                 if (prefs.isFullscreen) {
                     showFullscreenControlsTemporarily()
                 } else {
-                    toggleChannelsPanel()
+                    toggleLeftSide()
                 }
             }
-            findViewById<View>(R.id.leftEdgeZone).setOnClickListener { showChannelsPanelWithAutoHide() }
+            findViewById<View>(R.id.leftEdgeZone).setOnClickListener { showLeftSideWithAutoHide() }
             setupPlayer()
-            setupChannelPanelToggle()
+            setupLeftSideButtons()
             setupSearch()
             setupPlayerOverlay()
-            setupMenuButton()
             setupRecyclerView()
             setupCategorySpinner()
             setupFavoritesButton()
@@ -127,25 +124,18 @@ class MainActivity : BaseActivity() {
         }
     }
 
-    private fun setupMenuButton() {
-        findViewById<ImageButton>(R.id.btnMenu).setOnClickListener { v ->
-            PopupMenu(this, v).apply {
-                menuInflater.inflate(R.menu.main_menu, menu)
-                setOnMenuItemClickListener { item ->
-                    when (item.itemId) {
-                        R.id.action_settings -> {
-                            startActivity(Intent(this@MainActivity, SettingsActivity::class.java))
-                            true
-                        }
-                        R.id.action_tv_guide -> {
-                            showTvGuide()
-                            true
-                        }
-                        else -> false
-                    }
-                }
-                show()
-            }
+    private fun setupLeftSideButtons() {
+        findViewById<ImageButton>(R.id.btnSettings).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
+        findViewById<ImageButton>(R.id.btnTvGuide).setOnClickListener { showTvGuide() }
+        findViewById<ImageButton>(R.id.btnHideLeft).setOnClickListener {
+            cancelAutoHide()
+            hideLeftSide()
+        }
+        findViewById<ImageButton>(R.id.btnHideChannels).setOnClickListener {
+            cancelAutoHide()
+            hideLeftSide()
         }
     }
 
@@ -202,52 +192,29 @@ class MainActivity : BaseActivity() {
         )
     }
 
-    private fun setupChannelPanelToggle() {
-        findViewById<ImageButton>(R.id.btnHideChannels).setOnClickListener {
-            cancelAutoHide()
-            hideChannelsPanel()
-        }
-        findViewById<ImageButton>(R.id.btnHideHeader).setOnClickListener {
-            cancelAutoHide()
-            hideHeaderPanel()
-        }
+    private fun toggleLeftSide() {
+        leftSideVisible = !leftSideVisible
+        leftSideContainer.visibility = if (leftSideVisible) View.VISIBLE else View.GONE
     }
 
-    private fun toggleChannelsPanel() {
-        channelsPanelVisible = !channelsPanelVisible
-        channelPanel.visibility = if (channelsPanelVisible) View.VISIBLE else View.GONE
+    private fun hideLeftSide() {
+        leftSideVisible = false
+        leftSideContainer.visibility = View.GONE
     }
 
-    private fun hideChannelsPanel() {
-        channelsPanelVisible = false
-        channelPanel.visibility = View.GONE
-    }
-
-    private fun showChannelsPanel() {
+    private fun showLeftSide() {
         cancelAutoHide()
-        channelsPanelVisible = true
-        channelPanel.visibility = View.VISIBLE
+        leftSideVisible = true
+        leftSideContainer.visibility = View.VISIBLE
     }
 
-    private fun hideHeaderPanel() {
-        headerPanelVisible = false
-        headerPanel.visibility = View.GONE
+    private fun hideLeftSideWithAutoHide() {
+        hideLeftSide()
     }
 
-    private fun showHeaderPanel() {
-        cancelAutoHide()
-        headerPanelVisible = true
-        headerPanel.visibility = View.VISIBLE
-    }
-
-    private fun showHeaderPanelWithAutoHide() {
-        showHeaderPanel()
-        scheduleAutoHide { hideHeaderPanel() }
-    }
-
-    private fun showChannelsPanelWithAutoHide() {
-        showChannelsPanel()
-        scheduleAutoHide { hideChannelsPanel() }
+    private fun showLeftSideWithAutoHide() {
+        showLeftSide()
+        scheduleAutoHide { hideLeftSide() }
     }
 
     private fun scheduleAutoHide(hideAction: () -> Unit) {
@@ -264,14 +231,14 @@ class MainActivity : BaseActivity() {
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
         when (keyCode) {
             KeyEvent.KEYCODE_DPAD_LEFT -> {
-                if (!channelsPanelVisible) {
-                    showChannelsPanelWithAutoHide()
+                if (!leftSideVisible) {
+                    showLeftSideWithAutoHide()
                     return true
                 }
             }
             KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                if (!headerPanelVisible) {
-                    showHeaderPanelWithAutoHide()
+                if (leftSideVisible) {
+                    hideLeftSide()
                     return true
                 }
             }
@@ -282,8 +249,8 @@ class MainActivity : BaseActivity() {
                 }
             }
             KeyEvent.KEYCODE_MENU -> {
-                if (!headerPanelVisible) {
-                    showHeaderPanelWithAutoHide()
+                if (!leftSideVisible) {
+                    showLeftSideWithAutoHide()
                     return true
                 }
             }
@@ -340,8 +307,7 @@ class MainActivity : BaseActivity() {
 
     private fun applyFullscreen(fullscreen: Boolean) {
         if (fullscreen) {
-            headerPanel.visibility = View.GONE
-            channelPanel.visibility = View.GONE
+            leftSideContainer.visibility = View.GONE
             playerBottomBar.visibility = View.GONE
             // Remove blue status bar line: draw behind system bars, make them transparent
             window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
@@ -362,9 +328,8 @@ class MainActivity : BaseActivity() {
                     or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY)
             }
         } else {
-            headerPanel.visibility = if (headerPanelVisible) View.VISIBLE else View.GONE
             playerBottomBar.visibility = View.VISIBLE
-            channelPanel.visibility = if (channelsPanelVisible) View.VISIBLE else View.GONE
+            leftSideContainer.visibility = if (leftSideVisible) View.VISIBLE else View.GONE
             // Restore theme colors
             window.statusBarColor = 0xFF0D47A1.toInt()
             window.navigationBarColor = 0xFF121212.toInt()
@@ -435,7 +400,7 @@ class MainActivity : BaseActivity() {
             isGridMode = { prefs.listDisplayMode == "grid" },
             onChannelClick = { ch ->
                 playChannel(ch)
-                scheduleAutoHide { hideChannelsPanel() }
+                scheduleAutoHide { hideLeftSide() }
             },
             onFavoriteClick = { toggleFavorite(it) }
         )
@@ -673,16 +638,7 @@ class MainActivity : BaseActivity() {
             if (prefs.isFullscreen) R.drawable.ic_fullscreen_exit
             else R.drawable.ic_fullscreen
         )
-        if (channelsPanelVisible) {
-            channelPanel.visibility = View.VISIBLE
-        } else {
-            channelPanel.visibility = View.GONE
-        }
-        if (headerPanelVisible) {
-            headerPanel.visibility = View.VISIBLE
-        } else {
-            headerPanel.visibility = View.GONE
-        }
+        leftSideContainer.visibility = if (leftSideVisible) View.VISIBLE else View.GONE
     }
 
     private fun updatePlayerQuality() {

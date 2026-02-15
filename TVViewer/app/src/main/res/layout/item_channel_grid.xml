@@ -13,10 +13,10 @@
 
     <ImageView
         android:id="@+id/channelLogo"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
         android:layout_gravity="center_horizontal"
-        android:scaleType="centerCrop"
+        android:scaleType="fitCenter"
         android:background="#333333"
         android:contentDescription="@null" />
 
