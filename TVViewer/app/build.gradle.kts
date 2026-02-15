@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "com.tvviewer"
-        minSdk = 24
+        minSdk = 21
         targetSdk = 34
         versionCode = 16
         versionName = "4.0"
