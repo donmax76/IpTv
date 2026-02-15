@@ -30,6 +30,7 @@ class SettingsActivity : BaseActivity() {
     private lateinit var bufferSpinner: Spinner
     private lateinit var listDisplaySpinner: Spinner
     private lateinit var listAutohideSpinner: Spinner
+    private lateinit var timeDisplaySpinner: Spinner
     private lateinit var addChannelName: EditText
     private lateinit var addChannelUrl: EditText
     private lateinit var customChannelsList: ListView
@@ -55,6 +56,7 @@ class SettingsActivity : BaseActivity() {
         bufferSpinner = findViewById(R.id.bufferSpinner)
         listDisplaySpinner = findViewById(R.id.listDisplaySpinner)
         listAutohideSpinner = findViewById(R.id.listAutohideSpinner)
+        timeDisplaySpinner = findViewById(R.id.timeDisplaySpinner)
         addChannelName = findViewById(R.id.addChannelName)
         addChannelUrl = findViewById(R.id.addChannelUrl)
         customChannelsList = findViewById(R.id.customChannelsList)
@@ -64,6 +66,7 @@ class SettingsActivity : BaseActivity() {
         setupBufferSpinner()
         setupListDisplaySpinner()
         setupListAutohideSpinner()
+        setupTimeDisplaySpinner()
         setupCustomChannels()
         setupLanguageSpinner()
         setupCustomPlaylists()
@@ -179,6 +182,36 @@ class SettingsActivity : BaseActivity() {
         listAutohideSpinner.setOnItemSelectedListener(object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: android.widget.AdapterView<*>?, v: android.view.View?, pos: Int, id: Long) {
                 prefs.channelListAutoHideSeconds = pos + 2
+            }
+            override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
+        })
+    }
+
+    private fun setupTimeDisplaySpinner() {
+        val options = listOf(
+            getString(R.string.time_off),
+            getString(R.string.time_left),
+            getString(R.string.time_right),
+            getString(R.string.time_bottom)
+        )
+        val timeAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, options)
+        timeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        timeDisplaySpinner.adapter = timeAdapter
+        val idx = when (prefs.timeDisplayPosition) {
+            "left" -> 1
+            "right" -> 2
+            "bottom" -> 3
+            else -> 0
+        }
+        timeDisplaySpinner.setSelection(idx)
+        timeDisplaySpinner.setOnItemSelectedListener(object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: android.widget.AdapterView<*>?, v: android.view.View?, pos: Int, id: Long) {
+                prefs.timeDisplayPosition = when (pos) {
+                    1 -> "left"
+                    2 -> "right"
+                    3 -> "bottom"
+                    else -> "off"
+                }
             }
             override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
         })

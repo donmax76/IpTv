@@ -22,15 +22,22 @@ import android.widget.TextView
 import android.widget.Toast
 import android.os.Handler
 import android.os.Looper
+import android.view.Gravity
 import android.view.KeyEvent
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -66,8 +73,10 @@ class MainActivity : BaseActivity() {
     private lateinit var btnAspectRatio: ImageButton
     private lateinit var playerBottomBar: View
     private lateinit var searchChannels: EditText
+    private lateinit var timeDisplay: TextView
 
     private var player: ExoPlayer? = null
+    private var filteredChannels: List<Channel> = emptyList()
     private var leftSideVisible = false
     private var settingsPanelVisible = false
     private var rightPanelVisible = false
@@ -75,10 +84,12 @@ class MainActivity : BaseActivity() {
     private val autoHideHandler = Handler(Looper.getMainLooper())
     private var autoHideRunnable: Runnable? = null
     private lateinit var adapter: ChannelAdapter
+    private var trackSelector: DefaultTrackSelector? = null
     private var loadJob: Job? = null
     private var allChannels: List<Channel> = emptyList()
     private var showFavoritesOnly = false
     private var allPlaylists: List<Playlist> = emptyList()
+    private var epgData: Map<String, List<EpgRepository.Programme>> = emptyMap()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -103,6 +114,7 @@ class MainActivity : BaseActivity() {
             btnAspectRatio = findViewById(R.id.btnAspectRatio)
             playerBottomBar = findViewById(R.id.playerBottomBar)
             searchChannels = findViewById(R.id.searchChannels)
+            timeDisplay = findViewById(R.id.timeDisplay)
 
             findViewById<View>(R.id.rightEdgeZone).setOnClickListener {
                 if (rightPanelVisible) hideRightPanel()
@@ -130,6 +142,7 @@ class MainActivity : BaseActivity() {
             setupFavoritesButton()
             setupPlaylistSpinner()
             setupBackPress()
+            setupTimeDisplay()
             restoreState()
             Log.d(TAG, "onCreate completed")
         } catch (e: Exception) {
@@ -168,6 +181,100 @@ class MainActivity : BaseActivity() {
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
+        val audioSpinner = findViewById<Spinner>(R.id.audioTrackSpinner)
+        val subtitleSpinner = findViewById<Spinner>(R.id.subtitleSpinner)
+        val audioAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, mutableListOf(getString(R.string.track_auto)))
+        audioAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        audioSpinner.adapter = audioAdapter
+        val subAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, listOf(getString(R.string.track_off), getString(R.string.track_auto)))
+        subAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        subtitleSpinner.adapter = subAdapter
+        audioSpinner.setOnItemSelectedListener(object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                applyAudioTrackSelection(pos)
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        })
+        subtitleSpinner.setOnItemSelectedListener(object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                applySubtitleSelection(pos)
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        })
+        listOf(R.id.btnSpeed05, R.id.btnSpeed1, R.id.btnSpeed125, R.id.btnSpeed15, R.id.btnSpeed2)
+            .forEachIndexed { i, id ->
+                findViewById<View>(id).setOnClickListener {
+                    val speeds = floatArrayOf(0.5f, 1f, 1.25f, 1.5f, 2f)
+                    player?.setPlaybackSpeed(speeds[i])
+                    updateVideoInfo()
+                }
+            }
+    }
+
+    private fun updateVideoInfo() {
+        val infoText = findViewById<TextView>(R.id.videoInfoText)
+        val p = player ?: run { infoText.text = "—"; return }
+        val size = p.videoSize
+        val res = if (size.width > 0 && size.height > 0) "${size.width}×${size.height}" else "—"
+        val speed = String.format(Locale.US, "%.2gx", p.playbackParameters.speed)
+        infoText.text = getString(R.string.resolution) + ": $res\n" + getString(R.string.playback_speed) + ": $speed"
+    }
+
+    private fun applyAudioTrackSelection(index: Int) {
+        val ts = trackSelector ?: return
+        val builder = ts.parameters.buildUpon()
+        if (index == 0) {
+            builder.clearOverrides()
+        } else {
+            val tracks = player?.currentTracks ?: return
+            var trackIndex = 0
+            for (group in tracks.groups) {
+                if (group.type == C.TRACK_TYPE_AUDIO && group.length > 0) {
+                    if (trackIndex == index - 1) {
+                        builder.addOverride(TrackSelectionOverride(group.mediaTrackGroup, 0))
+                        break
+                    }
+                    trackIndex++
+                }
+            }
+        }
+        ts.parameters = builder.build()
+    }
+
+    private fun applySubtitleSelection(index: Int) {
+        val ts = trackSelector ?: return
+        val builder = ts.parameters.buildUpon()
+        builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, index == 0)
+        ts.parameters = builder.build()
+    }
+
+    private fun refreshTrackSpinners() {
+        try {
+            val audioSpinner = findViewById<Spinner>(R.id.audioTrackSpinner)
+            val subtitleSpinner = findViewById<Spinner>(R.id.subtitleSpinner)
+            val tracks = player?.currentTracks ?: return
+            val audioNames = mutableListOf(getString(R.string.track_auto))
+            val subNames = mutableListOf(getString(R.string.track_off), getString(R.string.track_auto))
+            for (group in tracks.groups) {
+                when (group.type) {
+                    C.TRACK_TYPE_AUDIO -> for (i in 0 until group.length) {
+                        val fmt = group.getTrackFormat(i)
+                        audioNames.add(fmt.language?.let { "Audio $it" } ?: "Audio ${audioNames.size}")
+                    }
+                    C.TRACK_TYPE_TEXT -> for (i in 0 until group.length) {
+                        val fmt = group.getTrackFormat(i)
+                        subNames.add(fmt.language?.let { "Sub $it" } ?: "Sub ${subNames.size}")
+                    }
+                    else -> {}
+                }
+            }
+            val aAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, audioNames)
+            aAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            audioSpinner.adapter = aAdapter
+            val sAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, subNames)
+            sAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            subtitleSpinner.adapter = sAdapter
+        } catch (_: Exception) {}
     }
 
     private fun setAspectRatio(mode: Int) {
@@ -179,6 +286,8 @@ class MainActivity : BaseActivity() {
         rightPanelVisible = true
         rightSettingsPanel.visibility = View.VISIBLE
         findViewById<SeekBar>(R.id.volumeSeekBar).progress = ((player?.volume ?: 1f) * 100).toInt()
+        refreshTrackSpinners()
+        updateVideoInfo()
     }
 
     private fun hideRightPanel() {
@@ -316,6 +425,18 @@ class MainActivity : BaseActivity() {
                     return true
                 }
             }
+            KeyEvent.KEYCODE_DPAD_UP -> {
+                if (!leftSideVisible && !rightPanelVisible && filteredChannels.isNotEmpty()) {
+                    switchToPrevChannel()
+                    return true
+                }
+            }
+            KeyEvent.KEYCODE_DPAD_DOWN -> {
+                if (!leftSideVisible && !rightPanelVisible && filteredChannels.isNotEmpty()) {
+                    switchToNextChannel()
+                    return true
+                }
+            }
             KeyEvent.KEYCODE_MENU -> {
                 if (!leftSideVisible) {
                     showLeftSide()
@@ -324,6 +445,18 @@ class MainActivity : BaseActivity() {
             }
         }
         return super.onKeyDown(keyCode, event)
+    }
+
+    private fun switchToPrevChannel() {
+        val idx = filteredChannels.indexOfFirst { it.url == prefs.lastChannelUrl }
+        val newIdx = if (idx <= 0) filteredChannels.size - 1 else idx - 1
+        filteredChannels.getOrNull(newIdx)?.let { playChannel(it) }
+    }
+
+    private fun switchToNextChannel() {
+        val idx = filteredChannels.indexOfFirst { it.url == prefs.lastChannelUrl }
+        val newIdx = if (idx < 0 || idx >= filteredChannels.size - 1) 0 else idx + 1
+        filteredChannels.getOrNull(newIdx)?.let { playChannel(it) }
     }
 
     private fun setupBackPress() {
@@ -370,8 +503,36 @@ class MainActivity : BaseActivity() {
         if (query.isNotEmpty()) {
             filtered = filtered.filter { it.name.lowercase().contains(query) }
         }
+        filteredChannels = filtered
         adapter.updateChannels(filtered)
         adapter.updateFavorites(prefs.favorites)
+    }
+
+    private fun setupTimeDisplay() {
+        applyTimeDisplayPosition()
+        val timeRunnable = object : Runnable {
+            override fun run() {
+                if (prefs.timeDisplayPosition != "off") {
+                    timeDisplay.text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+                    timeDisplay.visibility = View.VISIBLE
+                }
+                autoHideHandler.postDelayed(this, 1000L)
+            }
+        }
+        autoHideHandler.post(timeRunnable)
+    }
+
+    private fun applyTimeDisplayPosition() {
+        val pos = prefs.timeDisplayPosition
+        timeDisplay.visibility = if (pos == "off") View.GONE else View.VISIBLE
+        val lp = timeDisplay.layoutParams as? android.widget.FrameLayout.LayoutParams ?: return
+        lp.gravity = when (pos) {
+            "left" -> Gravity.TOP or Gravity.START
+            "right" -> Gravity.TOP or Gravity.END
+            "bottom" -> Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            else -> Gravity.TOP or Gravity.START
+        }
+        timeDisplay.layoutParams = lp
     }
 
     private fun applyFullscreen(fullscreen: Boolean) {
@@ -418,7 +579,7 @@ class MainActivity : BaseActivity() {
 
     private fun setupPlayer() {
         try {
-            val trackSelector = DefaultTrackSelector(this).apply {
+            trackSelector = DefaultTrackSelector(this).apply {
                 parameters = parameters.buildUpon().apply {
                     when (prefs.preferredQuality) {
                         "1080" -> setMaxVideoSize(1920, 1080)
@@ -435,7 +596,7 @@ class MainActivity : BaseActivity() {
                 }
             }.build()
             player = ExoPlayer.Builder(this)
-                .setTrackSelector(trackSelector)
+                .setTrackSelector(trackSelector!!)
                 .setLoadControl(loadControl)
                 .build().also {
                 playerView.player = it
@@ -446,6 +607,12 @@ class MainActivity : BaseActivity() {
                             Player.STATE_READY, Player.STATE_ENDED -> loadingIndicator.visibility = View.GONE
                             Player.STATE_IDLE -> loadingIndicator.visibility = View.GONE
                         }
+                    }
+                    override fun onTracksChanged(tracks: Tracks) {
+                        runOnUiThread { refreshTrackSpinners() }
+                    }
+                    override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                        runOnUiThread { if (rightPanelVisible) updateVideoInfo() }
                     }
                     override fun onPlayerError(error: PlaybackException) {
                         loadingIndicator.visibility = View.GONE
@@ -468,6 +635,7 @@ class MainActivity : BaseActivity() {
         adapter = ChannelAdapter(
             channels = emptyList(),
             favorites = prefs.favorites,
+            epgData = epgData,
             isGridMode = { prefs.listDisplayMode == "grid" },
             onChannelClick = { ch ->
                 playChannel(ch)
@@ -571,6 +739,8 @@ class MainActivity : BaseActivity() {
         if (url == "custom_channels" && playlist.channels.isNotEmpty()) {
             prefs.lastPlaylistUrl = url
             allChannels = playlist.channels
+            epgData = emptyMap()
+            adapter.updateEpg(epgData)
             updateCategorySpinner(allChannels)
             filterChannelsByCategory(0)
             emptyState.visibility = View.GONE
@@ -585,21 +755,25 @@ class MainActivity : BaseActivity() {
         loadingIndicator.visibility = View.VISIBLE
         loadJob = lifecycleScope.launch {
             try {
-                val channels = withContext(Dispatchers.IO) {
+                val result = withContext(Dispatchers.IO) {
                     PlaylistRepository.fetchPlaylist(url)
                 }
                 loadingIndicator.visibility = View.GONE
-                allChannels = channels
-                if (channels.isEmpty()) {
+                allChannels = result.channels
+                epgData = if (result.epgUrl != null) {
+                    EpgRepository.fetchEpg(result.epgUrl.split(",").firstOrNull()?.trim())
+                } else emptyMap()
+                adapter.updateEpg(epgData)
+                if (result.channels.isEmpty()) {
                     Toast.makeText(this@MainActivity, getString(R.string.load_failed), Toast.LENGTH_LONG).show()
                 } else {
-                    updateCategorySpinner(channels)
+                    updateCategorySpinner(result.channels)
                     val catIdx = prefs.lastCategoryIndex.coerceIn(0, categorySpinner.adapter!!.count - 1)
                     categorySpinner.setSelection(catIdx, false)
                     filterChannelsByCategory(catIdx)
                     emptyState.visibility = View.GONE
-                    prefs.lastChannelUrl?.let { url ->
-                        allChannels.find { it.url == url }?.let { playChannel(it) }
+                    prefs.lastChannelUrl?.let { lastUrl ->
+                        allChannels.find { it.url == lastUrl }?.let { playChannel(it) }
                     }
                 }
             } catch (e: CancellationException) {
@@ -637,9 +811,24 @@ class MainActivity : BaseActivity() {
     private fun playChannel(channel: Channel) {
         prefs.lastChannelUrl = channel.url
         emptyState.visibility = View.GONE
+        updateEpgOverlay(channel)
         when (prefs.playerType) {
             AppPreferences.PLAYER_EXTERNAL -> playExternal(channel)
             else -> playInternal(channel)
+        }
+    }
+
+    private fun updateEpgOverlay(channel: Channel) {
+        val overlay = findViewById<View>(R.id.epgOverlay)
+        val nowText = findViewById<TextView>(R.id.epgNowText)
+        val nextText = findViewById<TextView>(R.id.epgNextText)
+        val (now, next) = EpgRepository.getNowNext(epgData, channel.tvgId)
+        if (now != null || next != null) {
+            overlay.visibility = View.VISIBLE
+            nowText.text = if (now != null) "${getString(R.string.epg_now)}: $now" else ""
+            nextText.text = if (next != null) "${getString(R.string.epg_next)}: $next" else ""
+        } else {
+            overlay.visibility = View.GONE
         }
     }
 
@@ -713,6 +902,7 @@ class MainActivity : BaseActivity() {
         settingsPanel.visibility = if (settingsPanelVisible) View.VISIBLE else View.GONE
         rightSettingsPanel.visibility = if (rightPanelVisible) View.VISIBLE else View.GONE
         playerBottomBar.visibility = View.GONE
+        applyTimeDisplayPosition()
     }
 
     private fun updatePlayerQuality() {

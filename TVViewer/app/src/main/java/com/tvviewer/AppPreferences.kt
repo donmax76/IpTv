@@ -151,6 +151,10 @@ class AppPreferences(context: Context) {
         get() = prefs.getInt(KEY_LIST_AUTOHIDE, 5).coerceIn(2, 30)
         set(value) = prefs.edit().putInt(KEY_LIST_AUTOHIDE, value.coerceIn(2, 30)).apply()
 
+    var timeDisplayPosition: String
+        get() = prefs.getString(KEY_TIME_DISPLAY, "off") ?: "off"
+        set(value) = prefs.edit().putString(KEY_TIME_DISPLAY, value).apply()
+
     companion object {
         private const val PREFS_NAME = "tvviewer_prefs"
         private const val KEY_PLAYER = "player_type"
@@ -168,6 +172,7 @@ class AppPreferences(context: Context) {
         private const val KEY_BUFFER = "buffer_mode"
         private const val KEY_LIST_DISPLAY = "list_display"
         private const val KEY_LIST_AUTOHIDE = "list_autohide"
+        private const val KEY_TIME_DISPLAY = "time_display"
 
         const val PLAYER_INTERNAL = "internal"
         const val PLAYER_EXTERNAL = "external"

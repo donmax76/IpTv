@@ -30,6 +30,17 @@
         android:gravity="center"
         android:textColor="#FFFFFF"
         android:textSize="11sp" />
+    <TextView
+        android:id="@+id/channelEpg"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:textColor="#888888"
+        android:textSize="10sp"
+        android:visibility="gone" />
 
     <ImageButton
         android:id="@+id/btnFavorite"

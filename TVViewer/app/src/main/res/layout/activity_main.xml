@@ -18,7 +18,7 @@
             android:id="@+id/playerView"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            app:show_buffering="never"
+            app:show_buffering="when_playing"
             app:use_controller="true" />
 
         <ProgressBar
@@ -38,6 +38,44 @@
             android:clickable="true"
             android:focusable="true"
             android:background="@android:color/transparent" />
+
+        <LinearLayout
+            android:id="@+id/epgOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:layout_margin="12dp"
+            android:orientation="vertical"
+            android:background="#99000000"
+            android:padding="8dp"
+            android:visibility="gone">
+            <TextView
+                android:id="@+id/epgNowText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:maxLines="2"
+                android:ellipsize="end" />
+            <TextView
+                android:id="@+id/epgNextText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textColor="#AAAAAA"
+                android:textSize="12sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/timeDisplay"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="12dp"
+            android:textColor="#CCFFFFFF"
+            android:textSize="14sp"
+            android:visibility="gone" />
 
         <TextView
             android:id="@+id/emptyState"
@@ -184,7 +222,7 @@
             android:layout_width="wrap_content"
             android:layout_height="match_parent"
             android:orientation="vertical"
-            android:background="#33000000"
+            android:background="#26000000"
             android:padding="4dp"
             android:minWidth="200dp"
             android:maxWidth="300dp">
@@ -244,11 +282,21 @@
         android:layout_gravity="end"
         android:orientation="vertical"
         android:background="#E6000000"
-        android:padding="12dp"
-        android:minWidth="160dp"
+        android:minWidth="180dp"
         android:elevation="12dp"
-        android:visibility="gone">
+        android:visibility="gone"
+        android:focusable="true"
+        android:focusableInTouchMode="true">
 
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:fillViewport="true">
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="12dp">
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -324,5 +372,101 @@
             android:layout_marginTop="4dp"
             android:max="100"
             android:progress="100" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/video_info"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:layout_marginTop="16dp" />
+        <TextView
+            android:id="@+id/videoInfoText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="#CCFFFFFF"
+            android:textSize="12sp"
+            android:text="—" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/playback_speed"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:layout_marginTop="12dp" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="4dp">
+            <Button
+                android:id="@+id/btnSpeed05"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:text="0.5x"
+                android:layout_marginEnd="2dp" />
+            <Button
+                android:id="@+id/btnSpeed1"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:text="1x"
+                android:layout_marginEnd="2dp" />
+            <Button
+                android:id="@+id/btnSpeed125"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:text="1.25x"
+                android:layout_marginEnd="2dp" />
+            <Button
+                android:id="@+id/btnSpeed15"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:text="1.5x"
+                android:layout_marginEnd="2dp" />
+            <Button
+                android:id="@+id/btnSpeed2"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:text="2x" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/audio_track"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:layout_marginTop="16dp" />
+        <Spinner
+            android:id="@+id/audioTrackSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:layout_marginTop="4dp"
+            android:minHeight="40dp"
+            android:background="@drawable/spinner_background" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/subtitles"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:layout_marginTop="16dp" />
+        <Spinner
+            android:id="@+id/subtitleSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:layout_marginTop="4dp"
+            android:minHeight="40dp"
+            android:background="@drawable/spinner_background" />
+        </LinearLayout>
+        </ScrollView>
     </LinearLayout>
 </FrameLayout>
