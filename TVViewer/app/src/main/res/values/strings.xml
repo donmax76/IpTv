@@ -77,4 +77,5 @@
     <string name="list_display_list">Список</string>
     <string name="list_display_grid">Таблица (сетка)</string>
     <string name="list_autohide">Автоскрытие списка (сек)</string>
+    <string name="version_format">Версия %1$s (%2$d)</string>
 </resources>
