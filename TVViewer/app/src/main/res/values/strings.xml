@@ -101,5 +101,6 @@
     <string name="update_download">Скачать</string>
     <string name="update_latest">Установлена последняя версия</string>
     <string name="update_check_failed">Ошибка проверки обновлений</string>
+    <string name="update_downloading">Загрузка обновления…</string>
     <string name="stream_unavailable">Стрим недоступен (403/404). Попробуйте другой канал.</string>
 </resources>

@@ -96,4 +96,5 @@
     <string name="update_download">Download</string>
     <string name="update_latest">You have the latest version</string>
     <string name="update_check_failed">Update check failed</string>
+    <string name="update_downloading">Downloading update…</string>
 </resources>

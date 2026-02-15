@@ -96,4 +96,5 @@
     <string name="update_download">Завантажити</string>
     <string name="update_latest">Встановлено останню версію</string>
     <string name="update_check_failed">Помилка перевірки оновлень</string>
+    <string name="update_downloading">Завантаження оновлення…</string>
 </resources>

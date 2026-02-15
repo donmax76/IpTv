@@ -459,6 +459,11 @@ class MainActivity : BaseActivity() {
                     showLeftSide()
                     return true
                 }
+                if (leftSideVisible && !settingsPanelVisible) {
+                    toggleSettingsPanel()
+                    playlistSpinner.requestFocus()
+                    return true
+                }
             }
             KeyEvent.KEYCODE_DPAD_RIGHT -> {
                 if (leftSideVisible) {

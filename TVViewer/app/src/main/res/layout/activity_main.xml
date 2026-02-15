@@ -218,21 +218,21 @@
                     android:id="@+id/btnFavorites"
                     android:layout_width="40dp"
                     android:layout_height="40dp"
-                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:background="@drawable/btn_right_panel_focused"
                     android:contentDescription="@string/favorites"
                     android:src="@android:drawable/btn_star_big_off" />
                 <ImageButton
                     android:id="@+id/btnSettings"
                     android:layout_width="40dp"
                     android:layout_height="40dp"
-                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:background="@drawable/btn_right_panel_focused"
                     android:contentDescription="@string/settings"
                     android:src="@android:drawable/ic_menu_preferences" />
                 <ImageButton
                     android:id="@+id/btnTvGuide"
                     android:layout_width="40dp"
                     android:layout_height="40dp"
-                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:background="@drawable/btn_right_panel_focused"
                     android:contentDescription="@string/tv_guide"
                     android:src="@android:drawable/ic_menu_agenda" />
             </LinearLayout>
@@ -304,8 +304,8 @@
         android:layout_gravity="end"
         android:orientation="vertical"
         android:background="#E6000000"
-        android:minWidth="140dp"
-        android:maxWidth="160dp"
+        android:minWidth="110dp"
+        android:maxWidth="130dp"
         android:elevation="12dp"
         android:visibility="gone"
         android:focusable="true"

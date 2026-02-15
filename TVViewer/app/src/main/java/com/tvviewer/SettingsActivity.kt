@@ -115,11 +115,15 @@ class SettingsActivity : BaseActivity() {
                             .setMessage(getString(R.string.version_format, info.versionName, info.versionCode))
                             .setPositiveButton(R.string.update_download) { _, _ ->
                                 try {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(info.downloadUrl))
-                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    startActivity(Intent.createChooser(intent, getString(R.string.update_download)))
+                                    UpdateInstaller.downloadAndInstall(this@SettingsActivity, info.downloadUrl)
                                 } catch (e: Exception) {
-                                    Toast.makeText(this@SettingsActivity, R.string.update_check_failed, Toast.LENGTH_SHORT).show()
+                                    try {
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(info.downloadUrl))
+                                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        startActivity(Intent.createChooser(intent, getString(R.string.update_download)))
+                                    } catch (_: Exception) {
+                                        Toast.makeText(this@SettingsActivity, R.string.update_check_failed, Toast.LENGTH_SHORT).show()
+                                    }
                                 }
                             }
                             .setNegativeButton(android.R.string.cancel, null)
