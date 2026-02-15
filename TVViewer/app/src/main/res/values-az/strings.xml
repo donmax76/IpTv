@@ -95,4 +95,7 @@
     <string name="update_latest">Ən son versiya quraşdırılıb</string>
     <string name="update_check_failed">Yeniləmə yoxlaması uğursuz oldu</string>
     <string name="update_downloading">Yeniləmə yüklənir…</string>
+    <string name="update_url_hint">version.json URL (404 = repozitoriya özəldir)</string>
+    <string name="update_url_hint_placeholder">Standart URL üçün boş buraxın</string>
+    <string name="update_404_hint">gist.github.com-da version.json ilə Gist yaradın, raw URL-i yuxarıya yapışdırın</string>
 </resources>

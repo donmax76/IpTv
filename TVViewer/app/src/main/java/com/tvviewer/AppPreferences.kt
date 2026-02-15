@@ -157,8 +157,10 @@ class AppPreferences(context: Context) {
 
     var updateCheckUrl: String?
         get() = prefs.getString(KEY_UPDATE_CHECK_URL, null)
-            ?: "https://raw.githubusercontent.com/donmax76/TestApp/master/TVViewer/version.json"
+            ?: DEFAULT_UPDATE_CHECK_URL
         set(value) = prefs.edit().putString(KEY_UPDATE_CHECK_URL, value?.takeIf { it.isNotEmpty() }).apply()
+
+    fun getUpdateCheckUrlRaw(): String? = prefs.getString(KEY_UPDATE_CHECK_URL, null)
 
     companion object {
         private const val PREFS_NAME = "tvviewer_prefs"
@@ -179,6 +181,7 @@ class AppPreferences(context: Context) {
         private const val KEY_LIST_AUTOHIDE = "list_autohide"
         private const val KEY_TIME_DISPLAY = "time_display"
         private const val KEY_UPDATE_CHECK_URL = "update_check_url"
+        private const val DEFAULT_UPDATE_CHECK_URL = "https://raw.githubusercontent.com/donmax76/TestApp/master/TVViewer/version.json"
 
         const val PLAYER_INTERNAL = "internal"
         const val PLAYER_EXTERNAL = "external"

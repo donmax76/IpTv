@@ -83,22 +83,31 @@ class SettingsActivity : BaseActivity() {
     private fun setupVersionAndUpdates() {
         findViewById<TextView>(R.id.versionText).text =
             getString(R.string.version_format, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)
+        findViewById<EditText>(R.id.updateCheckUrlEdit).setText(prefs.getUpdateCheckUrlRaw() ?: "")
         findViewById<Button>(R.id.btnCheckUpdates).setOnClickListener {
             checkForUpdates()
         }
     }
 
     private fun checkForUpdates() {
+        val urlEdit = findViewById<EditText>(R.id.updateCheckUrlEdit)
+        val url = urlEdit.text.toString().trim().ifEmpty { null } ?: prefs.updateCheckUrl
+        if (url.isNullOrBlank()) {
+            Toast.makeText(this, R.string.update_check_failed, Toast.LENGTH_SHORT).show()
+            return
+        }
         findViewById<Button>(R.id.btnCheckUpdates).isEnabled = false
         lifecycleScope.launch {
-            val result = UpdateChecker.check(prefs.updateCheckUrl)
+            val result = UpdateChecker.check(url)
             runOnUiThread {
                 findViewById<Button>(R.id.btnCheckUpdates).isEnabled = true
                 when {
                     result.isFailure -> {
+                        val msg = result.exceptionOrNull()?.message ?: ""
+                        val hint = if (msg.contains("404")) getString(R.string.update_404_hint) else ""
                         Toast.makeText(
                             this@SettingsActivity,
-                            getString(R.string.update_check_failed) + ": ${result.exceptionOrNull()?.message}",
+                            getString(R.string.update_check_failed) + ": $msg" + if (hint.isNotEmpty()) "\n$hint" else "",
                             Toast.LENGTH_LONG
                         ).show()
                     }
@@ -165,6 +174,7 @@ class SettingsActivity : BaseActivity() {
         try {
             prefs.crashReportFirebaseId = crashFirebaseId.text.toString().trim().ifEmpty { null }
             prefs.crashReportUrl = crashWebhookUrl.text.toString().trim().ifEmpty { null }
+            prefs.updateCheckUrl = findViewById<EditText>(R.id.updateCheckUrlEdit).text.toString().trim().ifEmpty { null }
         } catch (_: Exception) {}
     }
 
