@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TV Online</string>
+    <string name="channels">Channels</string>
+    <string name="playlists">Playlists</string>
+    <string name="loading">Loading…</string>
+    <string name="error">Error</string>
+    <string name="retry">Retry</string>
+    <string name="settings">Settings</string>
+    <string name="select_channel">Select a channel to watch</string>
+    <string name="category">Category</string>
+    <string name="all">All</string>
+    <string name="favorites">Favorites</string>
+    <string name="favorite">Favorite</string>
+    <string name="show_all">Show all</string>
+    <string name="player">Player</string>
+    <string name="player_internal">Built-in</string>
+    <string name="player_external">External (VLC, MX Player)</string>
+    <string name="language">Language</string>
+    <string name="custom_playlists">Custom playlists</string>
+    <string name="playlist_name">Playlist name</string>
+    <string name="playlist_url">Playlist URL (M3U)</string>
+    <string name="add_playlist">Add</string>
+    <string name="remove_playlist">Remove playlist</string>
+    <string name="remove_playlist_confirm">Remove this playlist?</string>
+    <string name="fill_all_fields">Fill all fields</string>
+    <string name="invalid_url">Enter valid URL</string>
+    <string name="playlist_added">Playlist added</string>
+    <string name="no_playlist_url">No playlist URL</string>
+    <string name="load_failed">Failed to load channels. Check internet.</string>
+    <string name="error_start">Startup error</string>
+    <string name="error_playback">Playback error</string>
+    <string name="error_player">Player error</string>
+    <string name="open_with">Open with</string>
+    <string name="no_player_app">Install a video player (VLC, MX Player)</string>
+</resources>

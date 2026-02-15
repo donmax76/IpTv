@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ТБ Онлайн</string>
+    <string name="channels">Канали</string>
+    <string name="playlists">Плейлисти</string>
+    <string name="loading">Завантаження…</string>
+    <string name="error">Помилка</string>
+    <string name="retry">Повторити</string>
+    <string name="settings">Налаштування</string>
+    <string name="select_channel">Виберіть канал для перегляду</string>
+    <string name="category">Категорія</string>
+    <string name="all">Всі</string>
+    <string name="favorites">Обране</string>
+    <string name="favorite">В обране</string>
+    <string name="show_all">Показати всі</string>
+    <string name="player">Плеєр</string>
+    <string name="player_internal">Вбудований</string>
+    <string name="player_external">Зовнішній (VLC, MX Player)</string>
+    <string name="language">Мова</string>
+    <string name="custom_playlists">Власні плейлисти</string>
+    <string name="playlist_name">Назва плейлиста</string>
+    <string name="playlist_url">URL плейлиста (M3U)</string>
+    <string name="add_playlist">Додати</string>
+    <string name="remove_playlist">Видалити плейлист</string>
+    <string name="remove_playlist_confirm">Видалити цей плейлист?</string>
+    <string name="fill_all_fields">Заповніть усі поля</string>
+    <string name="invalid_url">Введіть коректний URL</string>
+    <string name="playlist_added">Плейлист додано</string>
+    <string name="no_playlist_url">Немає URL плейлиста</string>
+    <string name="load_failed">Не вдалося завантажити канали. Перевірте інтернет.</string>
+    <string name="error_start">Помилка запуску</string>
+    <string name="error_playback">Помилка відтворення</string>
+    <string name="error_player">Помилка плеєра</string>
+    <string name="open_with">Відкрити за допомогою</string>
+    <string name="no_player_app">Встановіть відеоплеєр (VLC, MX Player)</string>
+</resources>
