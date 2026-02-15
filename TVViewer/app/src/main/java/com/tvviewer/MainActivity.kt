@@ -2,26 +2,32 @@ package com.tvviewer
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.MenuItem
 import android.view.View
+import android.view.WindowManager
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.ImageButton
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.Toolbar
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -41,12 +47,15 @@ class MainActivity : BaseActivity() {
     private lateinit var playlistSpinner: Spinner
     private lateinit var categorySpinner: Spinner
     private lateinit var btnFavorites: ImageButton
+    private lateinit var headerPanel: LinearLayout
+    private lateinit var channelPanel: LinearLayout
 
     private var player: ExoPlayer? = null
     private lateinit var adapter: ChannelAdapter
     private var loadJob: Job? = null
     private var allChannels: List<Channel> = emptyList()
     private var showFavoritesOnly = false
+    private var allPlaylists: List<Playlist> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,6 +72,8 @@ class MainActivity : BaseActivity() {
             playlistSpinner = findViewById(R.id.playlistSpinner)
             categorySpinner = findViewById(R.id.categorySpinner)
             btnFavorites = findViewById(R.id.btnFavorites)
+            headerPanel = findViewById(R.id.headerPanel)
+            channelPanel = findViewById(R.id.channelPanel)
 
             try {
                 val toolbar = findViewById<Toolbar>(R.id.toolbar)
@@ -74,6 +85,7 @@ class MainActivity : BaseActivity() {
             setupCategorySpinner()
             setupFavoritesButton()
             setupPlaylistSpinner()
+            restoreState()
             Log.d(TAG, "onCreate completed")
         } catch (e: Exception) {
             Log.e(TAG, "onCreate error", e)
@@ -88,16 +100,67 @@ class MainActivity : BaseActivity() {
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        if (item.itemId == R.id.action_settings) {
-            startActivity(Intent(this, SettingsActivity::class.java))
-            return true
+        when (item.itemId) {
+            R.id.action_settings -> {
+                startActivity(Intent(this, SettingsActivity::class.java))
+                return true
+            }
+            R.id.action_fullscreen -> {
+                toggleFullscreen()
+                return true
+            }
+            R.id.action_tv_guide -> {
+                AlertDialog.Builder(this)
+                    .setTitle(R.string.tv_guide)
+                    .setMessage(R.string.tv_guide_unavailable)
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show()
+                return true
+            }
         }
         return super.onOptionsItemSelected(item)
     }
 
+    private fun toggleFullscreen() {
+        prefs.isFullscreen = !prefs.isFullscreen
+        applyFullscreen(prefs.isFullscreen)
+        invalidateOptionsMenu()
+    }
+
+    private fun applyFullscreen(fullscreen: Boolean) {
+        if (fullscreen) {
+            headerPanel.visibility = View.GONE
+            channelPanel.visibility = View.GONE
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                window.insetsController?.hide(android.view.WindowInsets.Type.statusBars())
+            } else {
+                @Suppress("DEPRECATION")
+                window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            }
+        } else {
+            headerPanel.visibility = View.VISIBLE
+            channelPanel.visibility = View.VISIBLE
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                window.insetsController?.show(android.view.WindowInsets.Type.statusBars())
+            } else {
+                @Suppress("DEPRECATION")
+                window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            }
+        }
+    }
+
     private fun setupPlayer() {
         try {
-            player = ExoPlayer.Builder(this).build().also {
+            val trackSelector = DefaultTrackSelector(this).apply {
+                parameters = parameters.buildUpon().apply {
+                    when (prefs.preferredQuality) {
+                        "1080" -> setMaxVideoSize(1920, 1080)
+                        "4k" -> setMaxVideoSize(3840, 2160)
+                        else -> {}
+                    }
+                }.build()
+            }
+            player = ExoPlayer.Builder(this).setTrackSelector(trackSelector).build().also {
                 playerView.player = it
                 it.addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
@@ -131,7 +194,7 @@ class MainActivity : BaseActivity() {
     }
 
     private fun setupPlaylistSpinner() {
-        val allPlaylists = BuiltInPlaylists.getAllPlaylists() + prefs.customPlaylists.map { Playlist(it.first, it.second) }
+        allPlaylists = BuiltInPlaylists.getAllPlaylists() + prefs.customPlaylists.map { Playlist(it.first, it.second) }
         val names = allPlaylists.map { it.name }
         val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, names)
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
@@ -139,12 +202,25 @@ class MainActivity : BaseActivity() {
 
         playlistSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                loadPlaylist(allPlaylists[position])
+                val playlist = allPlaylists.getOrNull(position) ?: return
+                if (playlist.url == prefs.lastPlaylistUrl && allChannels.isNotEmpty()) return
+                loadPlaylist(playlist)
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
+    }
 
+    private fun restoreState() {
+        val savedUrl = prefs.lastPlaylistUrl
         if (allPlaylists.isNotEmpty()) {
+            if (savedUrl != null) {
+                val idx = allPlaylists.indexOfFirst { it.url == savedUrl }
+                if (idx >= 0) {
+                    playlistSpinner.setSelection(idx, false)
+                    loadPlaylist(allPlaylists[idx])
+                    return
+                }
+            }
             playlistSpinner.post { loadPlaylist(allPlaylists[0]) }
         } else {
             emptyState.visibility = View.VISIBLE
@@ -157,6 +233,7 @@ class MainActivity : BaseActivity() {
         categorySpinner.adapter = adapter
         categorySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                prefs.lastCategoryIndex = position
                 filterChannelsByCategory(position)
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
@@ -194,6 +271,7 @@ class MainActivity : BaseActivity() {
             return
         }
 
+        prefs.lastPlaylistUrl = url
         loadingIndicator.visibility = View.VISIBLE
         loadJob = lifecycleScope.launch {
             try {
@@ -206,10 +284,15 @@ class MainActivity : BaseActivity() {
                     Toast.makeText(this@MainActivity, getString(R.string.load_failed), Toast.LENGTH_LONG).show()
                 } else {
                     updateCategorySpinner(channels)
-                    filterChannelsByCategory(0)
+                    val catIdx = prefs.lastCategoryIndex.coerceIn(0, categorySpinner.adapter!!.count - 1)
+                    categorySpinner.setSelection(catIdx, false)
+                    filterChannelsByCategory(catIdx)
                     emptyState.visibility = View.GONE
+                    prefs.lastChannelUrl?.let { url ->
+                        allChannels.find { it.url == url }?.let { playChannel(it) }
+                    }
                 }
-            } catch (e: kotlinx.coroutines.CancellationException) {
+            } catch (e: CancellationException) {
                 return@launch
             } catch (e: Exception) {
                 Log.e(TAG, "Load playlist error", e)
@@ -223,8 +306,9 @@ class MainActivity : BaseActivity() {
     private fun updateCategorySpinner(channels: List<Channel>) {
         val groups = channels.mapNotNull { it.group }.distinct().sorted()
         val categories = listOf(getString(R.string.all)) + groups
-        categorySpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, categories)
-        categorySpinner.setSelection(0)
+        val catAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, categories)
+        catAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        categorySpinner.adapter = catAdapter
     }
 
     private fun filterChannelsByCategory(categoryIndex: Int) {
@@ -251,6 +335,7 @@ class MainActivity : BaseActivity() {
     }
 
     private fun playChannel(channel: Channel) {
+        prefs.lastChannelUrl = channel.url
         emptyState.visibility = View.GONE
         when (prefs.playerType) {
             AppPreferences.PLAYER_EXTERNAL -> playExternal(channel)
@@ -289,12 +374,44 @@ class MainActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Refresh playlist list when returning from settings (custom playlists may have changed)
-        val allPlaylists = BuiltInPlaylists.getAllPlaylists() + prefs.customPlaylists.map { Playlist(it.first, it.second) }
+        // Refresh playlists (custom may have changed), restore selection
+        allPlaylists = BuiltInPlaylists.getAllPlaylists() + prefs.customPlaylists.map { Playlist(it.first, it.second) }
         val names = allPlaylists.map { it.name }
-        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, names)
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        playlistSpinner.adapter = adapter
+        val plAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, names)
+        plAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        playlistSpinner.adapter = plAdapter
+        // Restore playlist selection
+        prefs.lastPlaylistUrl?.let { url ->
+            val idx = allPlaylists.indexOfFirst { it.url == url }
+            if (idx >= 0 && allChannels.isNotEmpty()) {
+                playlistSpinner.setSelection(idx, false)
+                val adapter = categorySpinner.adapter
+                val catIdx = if (adapter != null) prefs.lastCategoryIndex.coerceIn(0, adapter.count - 1) else 0
+                filterChannelsByCategory(catIdx)
+            }
+        }
+        applyFullscreen(prefs.isFullscreen)
+        updatePlayerQuality()
+        invalidateOptionsMenu()
+    }
+
+    private fun updatePlayerQuality() {
+        (player?.trackSelector as? DefaultTrackSelector)?.let { selector ->
+            selector.parameters = selector.parameters.buildUpon().apply {
+                when (prefs.preferredQuality) {
+                    "1080" -> setMaxVideoSize(1920, 1080)
+                    "4k" -> setMaxVideoSize(3840, 2160)
+                    else -> {}
+                }
+            }.build()
+        }
+    }
+
+    override fun onPrepareOptionsMenu(menu: android.view.Menu): Boolean {
+        menu.findItem(R.id.action_fullscreen)?.setTitle(
+            if (prefs.isFullscreen) getString(R.string.exit_fullscreen) else getString(R.string.fullscreen)
+        )
+        return true
     }
 
     override fun onDestroy() {

@@ -44,4 +44,12 @@
     <string name="share_errors">Отправить</string>
     <string name="no_errors_saved">Нет сохранённых ошибок</string>
     <string name="copied_send_to_dev">Скопировано! Вставьте в чат и отправьте разработчику.</string>
+    <string name="fullscreen">На весь экран</string>
+    <string name="exit_fullscreen">Выход</string>
+    <string name="tv_guide">ТВ-гид</string>
+    <string name="tv_guide_unavailable">Программа передач недоступна для бесплатных каналов</string>
+    <string name="quality">Качество</string>
+    <string name="quality_auto">Авто</string>
+    <string name="quality_1080">1080p</string>
+    <string name="quality_4k">4K</string>
 </resources>

@@ -38,4 +38,12 @@
     <string name="firebase_project_id">Firebase Project ID</string>
     <string name="webhook_url">Webhook URL (optional)</string>
     <string name="test_crash">Test: trigger error</string>
+    <string name="fullscreen">Fullscreen</string>
+    <string name="exit_fullscreen">Exit</string>
+    <string name="tv_guide">TV Guide</string>
+    <string name="tv_guide_unavailable">Program guide not available for free channels</string>
+    <string name="quality">Quality</string>
+    <string name="quality_auto">Auto</string>
+    <string name="quality_1080">1080p</string>
+    <string name="quality_4k">4K</string>
 </resources>

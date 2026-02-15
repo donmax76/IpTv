@@ -76,6 +76,26 @@ class AppPreferences(context: Context) {
         get() = prefs.getString(KEY_CRASH_FIREBASE, null)
         set(value) = prefs.edit().putString(KEY_CRASH_FIREBASE, value).apply()
 
+    var lastPlaylistUrl: String?
+        get() = prefs.getString(KEY_LAST_PLAYLIST, null)
+        set(value) = prefs.edit().putString(KEY_LAST_PLAYLIST, value).apply()
+
+    var lastCategoryIndex: Int
+        get() = prefs.getInt(KEY_LAST_CATEGORY, 0)
+        set(value) = prefs.edit().putInt(KEY_LAST_CATEGORY, value).apply()
+
+    var lastChannelUrl: String?
+        get() = prefs.getString(KEY_LAST_CHANNEL, null)
+        set(value) = prefs.edit().putString(KEY_LAST_CHANNEL, value).apply()
+
+    var isFullscreen: Boolean
+        get() = prefs.getBoolean(KEY_FULLSCREEN, false)
+        set(value) = prefs.edit().putBoolean(KEY_FULLSCREEN, value).apply()
+
+    var preferredQuality: String
+        get() = prefs.getString(KEY_QUALITY, "auto") ?: "auto"
+        set(value) = prefs.edit().putString(KEY_QUALITY, value).apply()
+
     companion object {
         private const val PREFS_NAME = "tvviewer_prefs"
         private const val KEY_PLAYER = "player_type"
@@ -84,6 +104,11 @@ class AppPreferences(context: Context) {
         private const val KEY_FAVORITES = "favorites"
         private const val KEY_CRASH_URL = "crash_report_url"
         private const val KEY_CRASH_FIREBASE = "crash_report_firebase"
+        private const val KEY_LAST_PLAYLIST = "last_playlist_url"
+        private const val KEY_LAST_CATEGORY = "last_category"
+        private const val KEY_LAST_CHANNEL = "last_channel_url"
+        private const val KEY_FULLSCREEN = "fullscreen"
+        private const val KEY_QUALITY = "preferred_quality"
 
         const val PLAYER_INTERNAL = "internal"
         const val PLAYER_EXTERNAL = "external"

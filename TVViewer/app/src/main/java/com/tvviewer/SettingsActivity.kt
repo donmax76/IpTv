@@ -25,6 +25,7 @@ class SettingsActivity : BaseActivity() {
     private lateinit var addPlaylistUrl: EditText
     private lateinit var crashFirebaseId: EditText
     private lateinit var crashWebhookUrl: EditText
+    private lateinit var qualitySpinner: Spinner
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,8 +44,10 @@ class SettingsActivity : BaseActivity() {
         addPlaylistUrl = findViewById(R.id.addPlaylistUrl)
         crashFirebaseId = findViewById(R.id.crashFirebaseId)
         crashWebhookUrl = findViewById(R.id.crashWebhookUrl)
+        qualitySpinner = findViewById(R.id.qualitySpinner)
 
         setupPlayerSpinner()
+        setupQualitySpinner()
         setupLanguageSpinner()
         setupCustomPlaylists()
         setupAddPlaylist()
@@ -108,6 +111,31 @@ class SettingsActivity : BaseActivity() {
         playerSpinner.setOnItemSelectedListener(object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: android.widget.AdapterView<*>?, v: android.view.View?, pos: Int, id: Long) {
                 prefs.playerType = if (pos == 1) AppPreferences.PLAYER_EXTERNAL else AppPreferences.PLAYER_INTERNAL
+            }
+            override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
+        })
+    }
+
+    private fun setupQualitySpinner() {
+        val qualities = listOf(
+            getString(R.string.quality_auto),
+            getString(R.string.quality_1080),
+            getString(R.string.quality_4k)
+        )
+        qualitySpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, qualities)
+        val idx = when (prefs.preferredQuality) {
+            "1080" -> 1
+            "4k" -> 2
+            else -> 0
+        }
+        qualitySpinner.setSelection(idx)
+        qualitySpinner.setOnItemSelectedListener(object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: android.widget.AdapterView<*>?, v: android.view.View?, pos: Int, id: Long) {
+                prefs.preferredQuality = when (pos) {
+                    1 -> "1080"
+                    2 -> "4k"
+                    else -> "auto"
+                }
             }
             override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
         })
