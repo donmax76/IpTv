@@ -124,12 +124,10 @@ class MainActivity : BaseActivity() {
             }
             findViewById<View>(R.id.leftEdgeZone).setOnClickListener { showLeftSide() }
             findViewById<View>(R.id.tapOverlay).setOnClickListener {
-                if (prefs.isFullscreen) {
-                    showFullscreenControlsTemporarily()
-                } else if (leftSideVisible) {
-                    // Tap does nothing when list is open - close only via right/back
+                if (leftSideVisible) {
+                    // OTT style: close only via right/back
                 } else {
-                    showBottomBarTemporarily()
+                    showLeftSide()
                 }
             }
             findViewById<ImageButton>(R.id.btnMenuArrow).setOnClickListener { toggleSettingsPanel() }
@@ -321,6 +319,12 @@ class MainActivity : BaseActivity() {
             else R.drawable.ic_fullscreen
         )
         btnAspectRatio.setOnClickListener { cycleAspectRatio() }
+        findViewById<ImageButton>(R.id.btnPlayPause).setOnClickListener {
+            player?.let { p ->
+                p.playWhenReady = !p.playWhenReady
+                updatePlayPauseButton()
+            }
+        }
     }
 
     private fun cycleAspectRatio() {
@@ -387,17 +391,10 @@ class MainActivity : BaseActivity() {
         settingsPanel.visibility = View.GONE
     }
 
-    private fun showBottomBarTemporarily() {
-        cancelAutoHide()
-        updateBottomBarChannelInfo()
-        playerBottomBar.visibility = View.VISIBLE
-        autoHideRunnable = Runnable { playerBottomBar.visibility = View.GONE }
-        autoHideHandler.postDelayed(autoHideRunnable!!, 3000L)
-    }
-
     private fun updateBottomBarChannelInfo() {
         val logoView = findViewById<android.widget.ImageView>(R.id.bottomBarChannelLogo)
         val nameView = findViewById<TextView>(R.id.bottomBarChannelName)
+        val epgView = findViewById<TextView>(R.id.bottomBarEpgInfo)
         val infoView = findViewById<TextView>(R.id.bottomBarVideoInfo)
         val channel = prefs.lastChannelUrl?.let { url -> allChannels.find { it.url == url } }
         if (channel != null) {
@@ -409,16 +406,35 @@ class MainActivity : BaseActivity() {
                 placeholder(android.R.drawable.ic_menu_gallery)
             }
             logoView.visibility = View.VISIBLE
+            val (now, next) = EpgRepository.getNowNext(epgData, channel.tvgId)
+            epgView.text = when {
+                now != null && next != null -> "• $now → $next"
+                now != null -> "• $now"
+                next != null -> "→ $next"
+                else -> ""
+            }
+            epgView.visibility = if (epgView.text.isNotEmpty()) View.VISIBLE else View.GONE
         } else {
             nameView.visibility = View.GONE
             logoView.visibility = View.GONE
+            epgView.visibility = View.GONE
         }
         val p = player
         val res = if (p != null && p.videoSize.width > 0 && p.videoSize.height > 0) {
             "${p.videoSize.width}×${p.videoSize.height}"
         } else "—"
         val speed = String.format(Locale.US, "%.2gx", p?.playbackParameters?.speed ?: 1f)
-        infoView.text = "$res  •  $speed"
+        infoView.text = "$res  $speed"
+    }
+
+    private fun updatePlayPauseButton() {
+        val btn = findViewById<ImageButton>(R.id.btnPlayPause)
+        val p = player
+        val isPlaying = p != null && p.playWhenReady
+        btn.setImageResource(
+            if (isPlaying) android.R.drawable.ic_media_pause
+            else android.R.drawable.ic_media_play
+        )
     }
 
     private fun scheduleAutoHide(hideAction: () -> Unit) {
@@ -470,25 +486,15 @@ class MainActivity : BaseActivity() {
             }
             KeyEvent.KEYCODE_DPAD_UP -> {
                 if (!leftSideVisible && !rightPanelVisible && filteredChannels.isNotEmpty()) {
-                    if (playerBottomBar.visibility == View.VISIBLE) {
-                        switchToPrevChannel()
-                        updateBottomBarChannelInfo()
-                    } else {
-                        switchToPrevChannel()
-                    }
+                    switchToPrevChannel()
+                    updateBottomBarChannelInfo()
                     return true
                 }
             }
             KeyEvent.KEYCODE_DPAD_DOWN -> {
-                if (!leftSideVisible && !rightPanelVisible) {
-                    if (playerBottomBar.visibility == View.VISIBLE) {
-                        if (filteredChannels.isNotEmpty()) {
-                            switchToNextChannel()
-                            updateBottomBarChannelInfo()
-                        }
-                    } else {
-                        showBottomBarTemporarily()
-                    }
+                if (!leftSideVisible && !rightPanelVisible && filteredChannels.isNotEmpty()) {
+                    switchToNextChannel()
+                    updateBottomBarChannelInfo()
                     return true
                 }
             }
@@ -532,7 +538,7 @@ class MainActivity : BaseActivity() {
     }
 
     private fun showFullscreenControlsTemporarily() {
-        showBottomBarTemporarily()
+        showLeftSide()
     }
 
     private fun setupSearch() {
@@ -595,7 +601,7 @@ class MainActivity : BaseActivity() {
             leftSideContainer.visibility = View.GONE
             rightSettingsPanel.visibility = View.GONE
             rightPanelVisible = false
-            playerBottomBar.visibility = View.GONE
+            // OTT style: keep bottom bar visible when playing
             // Remove blue status bar line: draw behind system bars, make them transparent
             window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
             window.statusBarColor = Color.TRANSPARENT
@@ -616,7 +622,13 @@ class MainActivity : BaseActivity() {
             }
         } else {
             leftSideContainer.visibility = if (leftSideVisible) View.VISIBLE else View.GONE
-            playerBottomBar.visibility = View.GONE
+            // Restore bottom bar based on player state
+            val p = player
+            if (prefs.playerType != AppPreferences.PLAYER_EXTERNAL && p != null &&
+                (p.playbackState == Player.STATE_READY || p.playbackState == Player.STATE_BUFFERING)) {
+                playerBottomBar.visibility = View.VISIBLE
+                updateBottomBarChannelInfo()
+            }
             // Restore theme colors
             window.statusBarColor = 0xFF0D47A1.toInt()
             window.navigationBarColor = 0xFF121212.toInt()
@@ -662,10 +674,20 @@ class MainActivity : BaseActivity() {
                             Player.STATE_READY, Player.STATE_ENDED -> loadingIndicator.visibility = View.GONE
                             Player.STATE_IDLE -> loadingIndicator.visibility = View.GONE
                         }
-                        updateKeepScreenOn()
+                        runOnUiThread {
+                            updateKeepScreenOn()
+                            if (prefs.playerType != AppPreferences.PLAYER_EXTERNAL) {
+                                playerBottomBar.visibility = when (playbackState) {
+                                    Player.STATE_READY, Player.STATE_BUFFERING -> View.VISIBLE
+                                    else -> View.GONE
+                                }
+                                if (playbackState == Player.STATE_READY) updateBottomBarChannelInfo()
+                            }
+                        }
                     }
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
                         updateKeepScreenOn()
+                        runOnUiThread { updatePlayPauseButton() }
                     }
                     override fun onTracksChanged(tracks: Tracks) {
                         runOnUiThread { refreshTrackSpinners() }
@@ -873,24 +895,16 @@ class MainActivity : BaseActivity() {
     private fun playChannel(channel: Channel) {
         prefs.lastChannelUrl = channel.url
         emptyState.visibility = View.GONE
-        updateEpgOverlay(channel)
         when (prefs.playerType) {
-            AppPreferences.PLAYER_EXTERNAL -> playExternal(channel)
-            else -> playInternal(channel)
-        }
-    }
-
-    private fun updateEpgOverlay(channel: Channel) {
-        val overlay = findViewById<View>(R.id.epgOverlay)
-        val nowText = findViewById<TextView>(R.id.epgNowText)
-        val nextText = findViewById<TextView>(R.id.epgNextText)
-        val (now, next) = EpgRepository.getNowNext(epgData, channel.tvgId)
-        if (now != null || next != null) {
-            overlay.visibility = View.VISIBLE
-            nowText.text = if (now != null) "${getString(R.string.epg_now)}: $now" else ""
-            nextText.text = if (next != null) "${getString(R.string.epg_next)}: $next" else ""
-        } else {
-            overlay.visibility = View.GONE
+            AppPreferences.PLAYER_EXTERNAL -> {
+                playerBottomBar.visibility = View.GONE
+                playExternal(channel)
+            }
+            else -> {
+                updateBottomBarChannelInfo()
+                playerBottomBar.visibility = View.VISIBLE
+                playInternal(channel)
+            }
         }
     }
 
@@ -963,7 +977,16 @@ class MainActivity : BaseActivity() {
         leftSideContainer.visibility = if (leftSideVisible) View.VISIBLE else View.GONE
         settingsPanel.visibility = if (settingsPanelVisible) View.VISIBLE else View.GONE
         rightSettingsPanel.visibility = if (rightPanelVisible) View.VISIBLE else View.GONE
-        playerBottomBar.visibility = View.GONE
+        if (prefs.playerType == AppPreferences.PLAYER_EXTERNAL) {
+            playerBottomBar.visibility = View.GONE
+        } else {
+            val p = player
+            playerBottomBar.visibility = if (p != null && (p.playbackState == Player.STATE_READY || p.playbackState == Player.STATE_BUFFERING)) {
+                updateBottomBarChannelInfo()
+                updatePlayPauseButton()
+                View.VISIBLE
+            } else View.GONE
+        }
         applyTimeDisplayPosition()
         // Reattach player after wake - fixes video freeze when screen was off
         player?.let { p ->

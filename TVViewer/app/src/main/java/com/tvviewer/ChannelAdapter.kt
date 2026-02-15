@@ -19,6 +19,7 @@ class ChannelAdapter(
 ) : RecyclerView.Adapter<ChannelAdapter.ViewHolder>() {
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val channelNumber: TextView? = view.findViewById(R.id.channelNumber)
         val channelName: TextView = view.findViewById(R.id.channelName)
         val channelLogo: ImageView = view.findViewById(R.id.channelLogo)
         val channelEpg: TextView? = view.findViewById(R.id.channelEpg)
@@ -35,6 +36,7 @@ class ChannelAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val channel = channels[position]
+        holder.channelNumber?.text = "${position + 1}"
         holder.channelName.text = channel.name
         holder.channelLogo.load(channel.logoUrl) {
             crossfade(true)
