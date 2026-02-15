@@ -69,6 +69,8 @@
     <string name="aspect_16_9">16:9</string>
     <string name="aspect_4_3">4:3</string>
     <string name="aspect_fill">Растянуть</string>
+    <string name="image_sound_settings">Изображение и звук</string>
+    <string name="volume">Громкость</string>
     <string name="play_pause">Воспроизведение</string>
     <string name="tv_guide_now">Сейчас</string>
     <string name="tv_guide_channel">Канал</string>

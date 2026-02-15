@@ -61,6 +61,8 @@
     <string name="aspect_16_9">16:9</string>
     <string name="aspect_4_3">4:3</string>
     <string name="aspect_fill">Uzat</string>
+    <string name="image_sound_settings">Şəkil və səs</string>
+    <string name="volume">Səs</string>
     <string name="play_pause">Oynat</string>
     <string name="tv_guide_now">İndi</string>
     <string name="tv_guide_channel">Kanal</string>

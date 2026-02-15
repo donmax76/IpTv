@@ -16,6 +16,7 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.widget.EditText
 import android.widget.ProgressBar
+import android.widget.SeekBar
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
@@ -59,6 +60,7 @@ class MainActivity : BaseActivity() {
     private lateinit var btnFavorites: ImageButton
     private lateinit var leftSideContainer: View
     private lateinit var settingsPanel: View
+    private lateinit var rightSettingsPanel: View
     private lateinit var channelPanel: LinearLayout
     private lateinit var btnFullscreen: ImageButton
     private lateinit var btnAspectRatio: ImageButton
@@ -68,6 +70,7 @@ class MainActivity : BaseActivity() {
     private var player: ExoPlayer? = null
     private var leftSideVisible = false
     private var settingsPanelVisible = false
+    private var rightPanelVisible = false
     private var aspectRatioMode = 0 // 0=fit, 1=16:9, 2=4:3, 3=fill
     private val autoHideHandler = Handler(Looper.getMainLooper())
     private var autoHideRunnable: Runnable? = null
@@ -94,13 +97,18 @@ class MainActivity : BaseActivity() {
             btnFavorites = findViewById(R.id.btnFavorites)
             leftSideContainer = findViewById(R.id.leftSideContainer)
             settingsPanel = findViewById(R.id.settingsPanel)
+            rightSettingsPanel = findViewById(R.id.rightSettingsPanel)
             channelPanel = findViewById(R.id.channelPanel)
             btnFullscreen = findViewById(R.id.btnFullscreen)
             btnAspectRatio = findViewById(R.id.btnAspectRatio)
             playerBottomBar = findViewById(R.id.playerBottomBar)
             searchChannels = findViewById(R.id.searchChannels)
 
-            findViewById<View>(R.id.rightEdgeZone).setOnClickListener { hideLeftSide() }
+            findViewById<View>(R.id.rightEdgeZone).setOnClickListener {
+                if (rightPanelVisible) hideRightPanel()
+                else if (leftSideVisible) hideLeftSide()
+                else showRightPanel()
+            }
             findViewById<View>(R.id.leftEdgeZone).setOnClickListener { showLeftSide() }
             findViewById<View>(R.id.tapOverlay).setOnClickListener {
                 if (prefs.isFullscreen) {
@@ -114,6 +122,7 @@ class MainActivity : BaseActivity() {
             findViewById<ImageButton>(R.id.btnMenuArrow).setOnClickListener { toggleSettingsPanel() }
             setupPlayer()
             setupLeftSideButtons()
+            setupRightPanel()
             setupSearch()
             setupPlayerOverlay()
             setupRecyclerView()
@@ -142,6 +151,39 @@ class MainActivity : BaseActivity() {
     private fun toggleSettingsPanel() {
         settingsPanelVisible = !settingsPanelVisible
         settingsPanel.visibility = if (settingsPanelVisible) View.VISIBLE else View.GONE
+    }
+
+    private fun setupRightPanel() {
+        findViewById<View>(R.id.btnHideRightPanel).setOnClickListener { hideRightPanel() }
+        findViewById<View>(R.id.btnAspectFit).setOnClickListener { setAspectRatio(0) }
+        findViewById<View>(R.id.btnAspect169).setOnClickListener { setAspectRatio(1) }
+        findViewById<View>(R.id.btnAspect43).setOnClickListener { setAspectRatio(2) }
+        findViewById<View>(R.id.btnAspectFill).setOnClickListener { setAspectRatio(3) }
+        val volumeBar = findViewById<SeekBar>(R.id.volumeSeekBar)
+        volumeBar.progress = 100
+        volumeBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) player?.volume = progress / 100f
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+    }
+
+    private fun setAspectRatio(mode: Int) {
+        aspectRatioMode = mode
+        applyAspectRatio()
+    }
+
+    private fun showRightPanel() {
+        rightPanelVisible = true
+        rightSettingsPanel.visibility = View.VISIBLE
+        findViewById<SeekBar>(R.id.volumeSeekBar).progress = ((player?.volume ?: 1f) * 100).toInt()
+    }
+
+    private fun hideRightPanel() {
+        rightPanelVisible = false
+        rightSettingsPanel.visibility = View.GONE
     }
 
     private val tvGuideLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -241,6 +283,10 @@ class MainActivity : BaseActivity() {
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
         when (keyCode) {
             KeyEvent.KEYCODE_DPAD_LEFT -> {
+                if (rightPanelVisible) {
+                    hideRightPanel()
+                    return true
+                }
                 if (!leftSideVisible) {
                     showLeftSide()
                     return true
@@ -251,8 +297,16 @@ class MainActivity : BaseActivity() {
                     hideLeftSide()
                     return true
                 }
+                if (!rightPanelVisible) {
+                    showRightPanel()
+                    return true
+                }
             }
             KeyEvent.KEYCODE_BACK -> {
+                if (rightPanelVisible) {
+                    hideRightPanel()
+                    return true
+                }
                 if (leftSideVisible) {
                     hideLeftSide()
                     return true
@@ -275,7 +329,9 @@ class MainActivity : BaseActivity() {
     private fun setupBackPress() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (leftSideVisible) {
+                if (rightPanelVisible) {
+                    hideRightPanel()
+                } else if (leftSideVisible) {
                     hideLeftSide()
                 } else if (prefs.isFullscreen) {
                     toggleFullscreen()
@@ -321,6 +377,8 @@ class MainActivity : BaseActivity() {
     private fun applyFullscreen(fullscreen: Boolean) {
         if (fullscreen) {
             leftSideContainer.visibility = View.GONE
+            rightSettingsPanel.visibility = View.GONE
+            rightPanelVisible = false
             playerBottomBar.visibility = View.GONE
             // Remove blue status bar line: draw behind system bars, make them transparent
             window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
@@ -653,6 +711,7 @@ class MainActivity : BaseActivity() {
         )
         leftSideContainer.visibility = if (leftSideVisible) View.VISIBLE else View.GONE
         settingsPanel.visibility = if (settingsPanelVisible) View.VISIBLE else View.GONE
+        rightSettingsPanel.visibility = if (rightPanelVisible) View.VISIBLE else View.GONE
         playerBottomBar.visibility = View.GONE
     }
 
