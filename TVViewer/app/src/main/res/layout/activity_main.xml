@@ -222,7 +222,7 @@
             android:layout_width="wrap_content"
             android:layout_height="match_parent"
             android:orientation="vertical"
-            android:background="#26000000"
+            android:background="#15000000"
             android:padding="4dp"
             android:minWidth="200dp"
             android:maxWidth="300dp">
@@ -335,26 +335,34 @@
             <Button
                 android:id="@+id/btnAspectFit"
                 android:layout_width="match_parent"
-                android:layout_height="40dp"
+                android:layout_height="44dp"
+                android:minHeight="44dp"
                 android:text="@string/aspect_fit"
+                android:focusable="true"
                 android:layout_marginBottom="4dp" />
             <Button
                 android:id="@+id/btnAspect169"
                 android:layout_width="match_parent"
-                android:layout_height="40dp"
+                android:layout_height="44dp"
+                android:minHeight="44dp"
                 android:text="@string/aspect_16_9"
+                android:focusable="true"
                 android:layout_marginBottom="4dp" />
             <Button
                 android:id="@+id/btnAspect43"
                 android:layout_width="match_parent"
-                android:layout_height="40dp"
+                android:layout_height="44dp"
+                android:minHeight="44dp"
                 android:text="@string/aspect_4_3"
+                android:focusable="true"
                 android:layout_marginBottom="4dp" />
             <Button
                 android:id="@+id/btnAspectFill"
                 android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:text="@string/aspect_fill" />
+                android:layout_height="44dp"
+                android:minHeight="44dp"
+                android:text="@string/aspect_fill"
+                android:focusable="true" />
         </LinearLayout>
 
         <TextView
@@ -404,37 +412,47 @@
             <Button
                 android:id="@+id/btnSpeed05"
                 android:layout_width="0dp"
-                android:layout_height="36dp"
+                android:layout_height="44dp"
                 android:layout_weight="1"
+                android:minHeight="44dp"
                 android:text="0.5x"
+                android:focusable="true"
                 android:layout_marginEnd="2dp" />
             <Button
                 android:id="@+id/btnSpeed1"
                 android:layout_width="0dp"
-                android:layout_height="36dp"
+                android:layout_height="44dp"
                 android:layout_weight="1"
+                android:minHeight="44dp"
                 android:text="1x"
+                android:focusable="true"
                 android:layout_marginEnd="2dp" />
             <Button
                 android:id="@+id/btnSpeed125"
                 android:layout_width="0dp"
-                android:layout_height="36dp"
+                android:layout_height="44dp"
                 android:layout_weight="1"
+                android:minHeight="44dp"
                 android:text="1.25x"
+                android:focusable="true"
                 android:layout_marginEnd="2dp" />
             <Button
                 android:id="@+id/btnSpeed15"
                 android:layout_width="0dp"
-                android:layout_height="36dp"
+                android:layout_height="44dp"
                 android:layout_weight="1"
+                android:minHeight="44dp"
                 android:text="1.5x"
+                android:focusable="true"
                 android:layout_marginEnd="2dp" />
             <Button
                 android:id="@+id/btnSpeed2"
                 android:layout_width="0dp"
-                android:layout_height="36dp"
+                android:layout_height="44dp"
                 android:layout_weight="1"
-                android:text="2x" />
+                android:minHeight="44dp"
+                android:text="2x"
+                android:focusable="true" />
         </LinearLayout>
 
         <TextView
@@ -447,9 +465,11 @@
         <Spinner
             android:id="@+id/audioTrackSpinner"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="48dp"
             android:layout_marginTop="4dp"
-            android:minHeight="40dp"
+            android:minHeight="48dp"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
             android:background="@drawable/spinner_background" />
 
         <TextView
@@ -462,9 +482,11 @@
         <Spinner
             android:id="@+id/subtitleSpinner"
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="48dp"
             android:layout_marginTop="4dp"
-            android:minHeight="40dp"
+            android:minHeight="48dp"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
             android:background="@drawable/spinner_background" />
         </LinearLayout>
         </ScrollView>

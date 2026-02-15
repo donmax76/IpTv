@@ -329,6 +329,21 @@ class MainActivity : BaseActivity() {
         Toast.makeText(this, getString(modes[aspectRatioMode]), Toast.LENGTH_SHORT).show()
     }
 
+    private fun updateKeepScreenOn() {
+        val p = player ?: run {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            return
+        }
+        val shouldKeepOn = p.playbackState != Player.STATE_IDLE &&
+            p.playbackState != Player.STATE_ENDED &&
+            p.playWhenReady
+        if (shouldKeepOn) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     private fun applyAspectRatio() {
         val mode = when (aspectRatioMode) {
             1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
@@ -607,6 +622,10 @@ class MainActivity : BaseActivity() {
                             Player.STATE_READY, Player.STATE_ENDED -> loadingIndicator.visibility = View.GONE
                             Player.STATE_IDLE -> loadingIndicator.visibility = View.GONE
                         }
+                        updateKeepScreenOn()
+                    }
+                    override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        updateKeepScreenOn()
                     }
                     override fun onTracksChanged(tracks: Tracks) {
                         runOnUiThread { refreshTrackSpinners() }
@@ -903,6 +922,14 @@ class MainActivity : BaseActivity() {
         rightSettingsPanel.visibility = if (rightPanelVisible) View.VISIBLE else View.GONE
         playerBottomBar.visibility = View.GONE
         applyTimeDisplayPosition()
+        // Reattach player after wake - fixes video freeze when screen was off
+        player?.let { p ->
+            playerView.player = p
+            if (p.playWhenReady) {
+                p.play()
+            }
+            updateKeepScreenOn()
+        }
     }
 
     private fun updatePlayerQuality() {
