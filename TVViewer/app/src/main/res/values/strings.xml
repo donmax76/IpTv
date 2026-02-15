@@ -62,4 +62,12 @@
     <string name="buffer_normal">Обычный</string>
     <string name="buffer_high">Больше (без обрывов)</string>
     <string name="medeniyyet_url_hint">Вставьте URL потока Mədəniyyət TV (найдите в интернете)</string>
+    <string name="aspect_ratio">Соотношение сторон</string>
+    <string name="aspect_fit">По размеру</string>
+    <string name="aspect_16_9">16:9</string>
+    <string name="aspect_4_3">4:3</string>
+    <string name="aspect_fill">Растянуть</string>
+    <string name="play_pause">Воспроизведение</string>
+    <string name="tv_guide_now">Сейчас</string>
+    <string name="tv_guide_channel">Канал</string>
 </resources>

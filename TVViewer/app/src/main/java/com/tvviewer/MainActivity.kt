@@ -5,7 +5,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.view.MenuItem
 import android.view.View
 import android.view.WindowManager
 import android.widget.AdapterView
@@ -16,8 +15,8 @@ import android.widget.ProgressBar
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import android.widget.PopupMenu
 import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.widget.Toolbar
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -25,6 +24,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -50,8 +50,11 @@ class MainActivity : BaseActivity() {
     private lateinit var btnFavorites: ImageButton
     private lateinit var headerPanel: LinearLayout
     private lateinit var channelPanel: LinearLayout
+    private lateinit var btnFullscreen: ImageButton
+    private lateinit var btnAspectRatio: ImageButton
 
     private var player: ExoPlayer? = null
+    private var aspectRatioMode = 0 // 0=fit, 1=16:9, 2=4:3, 3=fill
     private lateinit var adapter: ChannelAdapter
     private var loadJob: Job? = null
     private var allChannels: List<Channel> = emptyList()
@@ -75,13 +78,12 @@ class MainActivity : BaseActivity() {
             btnFavorites = findViewById(R.id.btnFavorites)
             headerPanel = findViewById(R.id.headerPanel)
             channelPanel = findViewById(R.id.channelPanel)
-
-            try {
-                val toolbar = findViewById<Toolbar>(R.id.toolbar)
-                setSupportActionBar(toolbar)
-            } catch (e: Exception) { Log.e(TAG, "Toolbar error", e) }
+            btnFullscreen = findViewById(R.id.btnFullscreen)
+            btnAspectRatio = findViewById(R.id.btnAspectRatio)
 
             setupPlayer()
+            setupPlayerOverlay()
+            setupMenuButton()
             setupRecyclerView()
             setupCategorySpinner()
             setupFavoritesButton()
@@ -95,37 +97,75 @@ class MainActivity : BaseActivity() {
         }
     }
 
-    override fun onCreateOptionsMenu(menu: android.view.Menu): Boolean {
-        menuInflater.inflate(R.menu.main_menu, menu)
-        return true
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        when (item.itemId) {
-            R.id.action_settings -> {
-                startActivity(Intent(this, SettingsActivity::class.java))
-                return true
-            }
-            R.id.action_fullscreen -> {
-                toggleFullscreen()
-                return true
-            }
-            R.id.action_tv_guide -> {
-                AlertDialog.Builder(this)
-                    .setTitle(R.string.tv_guide)
-                    .setMessage(R.string.tv_guide_unavailable)
-                    .setPositiveButton(android.R.string.ok, null)
-                    .show()
-                return true
+    private fun setupMenuButton() {
+        findViewById<ImageButton>(R.id.btnMenu).setOnClickListener { v ->
+            PopupMenu(this, v).apply {
+                menuInflater.inflate(R.menu.main_menu, menu)
+                setOnMenuItemClickListener { item ->
+                    when (item.itemId) {
+                        R.id.action_settings -> {
+                            startActivity(Intent(this@MainActivity, SettingsActivity::class.java))
+                            true
+                        }
+                        R.id.action_tv_guide -> {
+                            showTvGuide()
+                            true
+                        }
+                        else -> false
+                    }
+                }
+                show()
             }
         }
-        return super.onOptionsItemSelected(item)
+    }
+
+    private fun showTvGuide() {
+        val current = allChannels.find { it.url == prefs.lastChannelUrl }
+        val msg = if (current != null) {
+            "${getString(R.string.tv_guide_channel)}: ${current.name}\n\n${getString(R.string.tv_guide_now)}: ${current.name}\n\n${getString(R.string.tv_guide_unavailable)}"
+        } else {
+            getString(R.string.tv_guide_unavailable)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.tv_guide)
+            .setMessage(msg)
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+    }
+
+    private fun setupPlayerOverlay() {
+        btnFullscreen.setOnClickListener { toggleFullscreen() }
+        btnFullscreen.setImageResource(
+            if (prefs.isFullscreen) R.drawable.ic_fullscreen_exit
+            else R.drawable.ic_fullscreen
+        )
+        btnAspectRatio.setOnClickListener { cycleAspectRatio() }
+    }
+
+    private fun cycleAspectRatio() {
+        aspectRatioMode = (aspectRatioMode + 1) % 4
+        applyAspectRatio()
+        val modes = listOf(R.string.aspect_fit, R.string.aspect_16_9, R.string.aspect_4_3, R.string.aspect_fill)
+        Toast.makeText(this, getString(modes[aspectRatioMode]), Toast.LENGTH_SHORT).show()
+    }
+
+    private fun applyAspectRatio() {
+        val mode = when (aspectRatioMode) {
+            1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            2 -> AspectRatioFrameLayout.RESIZE_MODE_FIXED_HEIGHT
+            3 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+        }
+        playerView.resizeMode = mode
     }
 
     private fun toggleFullscreen() {
         prefs.isFullscreen = !prefs.isFullscreen
         applyFullscreen(prefs.isFullscreen)
-        invalidateOptionsMenu()
+        btnFullscreen.setImageResource(
+            if (prefs.isFullscreen) R.drawable.ic_fullscreen_exit
+            else R.drawable.ic_fullscreen
+        )
     }
 
     private fun applyFullscreen(fullscreen: Boolean) {
@@ -200,7 +240,7 @@ class MainActivity : BaseActivity() {
             onChannelClick = { playChannel(it) },
             onFavoriteClick = { toggleFavorite(it) }
         )
-        recyclerView.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+        recyclerView.layoutManager = LinearLayoutManager(this, LinearLayoutManager.VERTICAL, false)
         recyclerView.adapter = adapter
     }
 
@@ -422,7 +462,10 @@ class MainActivity : BaseActivity() {
         }
         applyFullscreen(prefs.isFullscreen)
         updatePlayerQuality()
-        invalidateOptionsMenu()
+        btnFullscreen.setImageResource(
+            if (prefs.isFullscreen) R.drawable.ic_fullscreen_exit
+            else R.drawable.ic_fullscreen
+        )
     }
 
     private fun updatePlayerQuality() {
@@ -435,13 +478,6 @@ class MainActivity : BaseActivity() {
                 }
             }.build()
         }
-    }
-
-    override fun onPrepareOptionsMenu(menu: android.view.Menu): Boolean {
-        menu.findItem(R.id.action_fullscreen)?.setTitle(
-            if (prefs.isFullscreen) getString(R.string.exit_fullscreen) else getString(R.string.fullscreen)
-        )
-        return true
     }
 
     override fun onDestroy() {
