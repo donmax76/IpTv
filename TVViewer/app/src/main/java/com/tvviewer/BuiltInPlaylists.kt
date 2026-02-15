@@ -7,9 +7,12 @@ object BuiltInPlaylists {
 
     private const val B = "https://iptv-org.github.io/iptv"
 
+    private const val FREE_TV = "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8"
+
     val categories: List<PlaylistCategory> = listOf(
         PlaylistCategory("general", listOf(
             Playlist("Все каналы", "$B/index.m3u"),
+            Playlist("Free-TV (все страны)", FREE_TV),
             Playlist("Спорт", "$B/categories/sports.m3u"),
             Playlist("Новости", "$B/categories/news.m3u"),
             Playlist("Музыка", "$B/categories/music.m3u"),

@@ -1,5 +1,6 @@
 package com.tvviewer
 
+import android.graphics.Color
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -342,6 +343,10 @@ class MainActivity : BaseActivity() {
             headerPanel.visibility = View.GONE
             channelPanel.visibility = View.GONE
             playerBottomBar.visibility = View.GONE
+            // Remove blue status bar line: draw behind system bars, make them transparent
+            window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+            window.statusBarColor = Color.TRANSPARENT
+            window.navigationBarColor = Color.TRANSPARENT
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 window.insetsController?.let { ctrl ->
                     ctrl.hide(android.view.WindowInsets.Type.statusBars())
@@ -360,6 +365,9 @@ class MainActivity : BaseActivity() {
             headerPanel.visibility = if (headerPanelVisible) View.VISIBLE else View.GONE
             playerBottomBar.visibility = View.VISIBLE
             channelPanel.visibility = if (channelsPanelVisible) View.VISIBLE else View.GONE
+            // Restore theme colors
+            window.statusBarColor = 0xFF0D47A1.toInt()
+            window.navigationBarColor = 0xFF121212.toInt()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 window.insetsController?.show(android.view.WindowInsets.Type.statusBars())
                 window.insetsController?.show(android.view.WindowInsets.Type.navigationBars())
