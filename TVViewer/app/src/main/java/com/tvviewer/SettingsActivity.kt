@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.Spinner
 import android.widget.Toast
@@ -29,6 +30,7 @@ class SettingsActivity : BaseActivity() {
     private lateinit var bufferSpinner: Spinner
     private lateinit var listDisplaySpinner: Spinner
     private lateinit var listAutohideSpinner: Spinner
+    private lateinit var timeDisplaySpinner: Spinner
     private lateinit var addChannelName: EditText
     private lateinit var addChannelUrl: EditText
     private lateinit var customChannelsList: ListView
@@ -54,6 +56,7 @@ class SettingsActivity : BaseActivity() {
         bufferSpinner = findViewById(R.id.bufferSpinner)
         listDisplaySpinner = findViewById(R.id.listDisplaySpinner)
         listAutohideSpinner = findViewById(R.id.listAutohideSpinner)
+        timeDisplaySpinner = findViewById(R.id.timeDisplaySpinner)
         addChannelName = findViewById(R.id.addChannelName)
         addChannelUrl = findViewById(R.id.addChannelUrl)
         customChannelsList = findViewById(R.id.customChannelsList)
@@ -63,10 +66,12 @@ class SettingsActivity : BaseActivity() {
         setupBufferSpinner()
         setupListDisplaySpinner()
         setupListAutohideSpinner()
+        setupTimeDisplaySpinner()
         setupCustomChannels()
         setupLanguageSpinner()
         setupCustomPlaylists()
         setupAddPlaylist()
+        setupAddMultiplePlaylists()
         setupErrorLog()
         setupCrashReporting()
     }
@@ -177,6 +182,36 @@ class SettingsActivity : BaseActivity() {
         listAutohideSpinner.setOnItemSelectedListener(object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: android.widget.AdapterView<*>?, v: android.view.View?, pos: Int, id: Long) {
                 prefs.channelListAutoHideSeconds = pos + 2
+            }
+            override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
+        })
+    }
+
+    private fun setupTimeDisplaySpinner() {
+        val options = listOf(
+            getString(R.string.time_off),
+            getString(R.string.time_left),
+            getString(R.string.time_right),
+            getString(R.string.time_bottom)
+        )
+        val timeAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, options)
+        timeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        timeDisplaySpinner.adapter = timeAdapter
+        val idx = when (prefs.timeDisplayPosition) {
+            "left" -> 1
+            "right" -> 2
+            "bottom" -> 3
+            else -> 0
+        }
+        timeDisplaySpinner.setSelection(idx)
+        timeDisplaySpinner.setOnItemSelectedListener(object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: android.widget.AdapterView<*>?, v: android.view.View?, pos: Int, id: Long) {
+                prefs.timeDisplayPosition = when (pos) {
+                    1 -> "left"
+                    2 -> "right"
+                    3 -> "bottom"
+                    else -> "off"
+                }
             }
             override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
         })
@@ -305,5 +340,67 @@ class SettingsActivity : BaseActivity() {
             refreshCustomList()
             Toast.makeText(this, R.string.playlist_added, Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun setupAddMultiplePlaylists() {
+        findViewById<Button>(R.id.btnAddMultiplePlaylists).setOnClickListener {
+            val input = EditText(this).apply {
+                setHint(R.string.add_multiple_hint)
+                minLines = 6
+                setPadding(48, 32, 48, 32)
+                setBackgroundResource(R.drawable.spinner_background)
+                setTextColor(0xFFFFFFFF.toInt())
+                setHintTextColor(0xFF888888.toInt())
+            }
+            val container = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(input)
+            }
+            AlertDialog.Builder(this)
+                .setTitle(R.string.add_multiple_playlists)
+                .setView(container)
+                .setPositiveButton(android.R.string.ok) { _, _ ->
+                    val text = input.text.toString()
+                    val items = parseMultiplePlaylists(text)
+                    if (items.isEmpty()) {
+                        Toast.makeText(this, R.string.fill_all_fields, Toast.LENGTH_SHORT).show()
+                    } else {
+                        prefs.addCustomPlaylists(items)
+                        refreshCustomList()
+                        Toast.makeText(this, getString(R.string.playlist_added) + " x${items.size}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+    }
+
+    private fun parseMultiplePlaylists(text: String): List<Pair<String, String>> {
+        val result = mutableListOf<Pair<String, String>>()
+        text.lines().forEachIndexed { index, line ->
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) return@forEachIndexed
+            val (name, url) = when {
+                trimmed.contains("|") -> {
+                    val parts = trimmed.split("|", limit = 2)
+                    parts[0].trim() to parts[1].trim()
+                }
+                trimmed.contains(" - ") -> {
+                    val parts = trimmed.split(" - ", limit = 2)
+                    parts[0].trim() to parts[1].trim()
+                }
+                trimmed.startsWith("http") -> {
+                    val nameFromUrl = try {
+                        java.net.URL(trimmed).host?.replace("www.", "")?.substringBefore(".") ?: "Playlist ${index + 1}"
+                    } catch (_: Exception) { "Playlist ${index + 1}" }
+                    nameFromUrl to trimmed
+                }
+                else -> return@forEachIndexed
+            }
+            if (url.startsWith("http")) {
+                result.add(name.ifEmpty { "Playlist ${index + 1}" } to url)
+            }
+        }
+        return result
     }
 }

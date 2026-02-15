@@ -1,5 +1,6 @@
 package com.tvviewer
 
+import android.graphics.Color
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -15,21 +16,28 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.widget.EditText
 import android.widget.ProgressBar
+import android.widget.SeekBar
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import android.os.Handler
 import android.os.Looper
+import android.view.Gravity
 import android.view.KeyEvent
-import android.widget.PopupMenu
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -37,6 +45,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import coil.load
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -57,24 +66,31 @@ class MainActivity : BaseActivity() {
     private lateinit var playlistSpinner: Spinner
     private lateinit var categorySpinner: Spinner
     private lateinit var btnFavorites: ImageButton
-    private lateinit var headerPanel: LinearLayout
+    private lateinit var leftSideContainer: View
+    private lateinit var settingsPanel: View
+    private lateinit var rightSettingsPanel: View
     private lateinit var channelPanel: LinearLayout
     private lateinit var btnFullscreen: ImageButton
     private lateinit var btnAspectRatio: ImageButton
     private lateinit var playerBottomBar: View
     private lateinit var searchChannels: EditText
+    private lateinit var timeDisplay: TextView
 
     private var player: ExoPlayer? = null
-    private var channelsPanelVisible = true
-    private var headerPanelVisible = true
+    private var filteredChannels: List<Channel> = emptyList()
+    private var leftSideVisible = false
+    private var settingsPanelVisible = false
+    private var rightPanelVisible = false
     private var aspectRatioMode = 0 // 0=fit, 1=16:9, 2=4:3, 3=fill
     private val autoHideHandler = Handler(Looper.getMainLooper())
     private var autoHideRunnable: Runnable? = null
     private lateinit var adapter: ChannelAdapter
+    private var trackSelector: DefaultTrackSelector? = null
     private var loadJob: Job? = null
     private var allChannels: List<Channel> = emptyList()
     private var showFavoritesOnly = false
     private var allPlaylists: List<Playlist> = emptyList()
+    private var epgData: Map<String, List<EpgRepository.Programme>> = emptyMap()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,32 +107,43 @@ class MainActivity : BaseActivity() {
             playlistSpinner = findViewById(R.id.playlistSpinner)
             categorySpinner = findViewById(R.id.categorySpinner)
             btnFavorites = findViewById(R.id.btnFavorites)
-            headerPanel = findViewById(R.id.headerPanel)
+            leftSideContainer = findViewById(R.id.leftSideContainer)
+            settingsPanel = findViewById(R.id.settingsPanel)
+            rightSettingsPanel = findViewById(R.id.rightSettingsPanel)
             channelPanel = findViewById(R.id.channelPanel)
             btnFullscreen = findViewById(R.id.btnFullscreen)
             btnAspectRatio = findViewById(R.id.btnAspectRatio)
             playerBottomBar = findViewById(R.id.playerBottomBar)
             searchChannels = findViewById(R.id.searchChannels)
+            timeDisplay = findViewById(R.id.timeDisplay)
 
-            findViewById<View>(R.id.rightEdgeZone).setOnClickListener { showHeaderPanelWithAutoHide() }
+            findViewById<View>(R.id.rightEdgeZone).setOnClickListener {
+                if (rightPanelVisible) hideRightPanel()
+                else if (leftSideVisible) hideLeftSide()
+                else showRightPanel()
+            }
+            findViewById<View>(R.id.leftEdgeZone).setOnClickListener { showLeftSide() }
             findViewById<View>(R.id.tapOverlay).setOnClickListener {
                 if (prefs.isFullscreen) {
                     showFullscreenControlsTemporarily()
+                } else if (leftSideVisible) {
+                    // Tap does nothing when list is open - close only via right/back
                 } else {
-                    toggleChannelsPanel()
+                    showBottomBarTemporarily()
                 }
             }
-            findViewById<View>(R.id.leftEdgeZone).setOnClickListener { showChannelsPanelWithAutoHide() }
+            findViewById<ImageButton>(R.id.btnMenuArrow).setOnClickListener { toggleSettingsPanel() }
             setupPlayer()
-            setupChannelPanelToggle()
+            setupLeftSideButtons()
+            setupRightPanel()
             setupSearch()
             setupPlayerOverlay()
-            setupMenuButton()
             setupRecyclerView()
             setupCategorySpinner()
             setupFavoritesButton()
             setupPlaylistSpinner()
             setupBackPress()
+            setupTimeDisplay()
             restoreState()
             Log.d(TAG, "onCreate completed")
         } catch (e: Exception) {
@@ -126,26 +153,147 @@ class MainActivity : BaseActivity() {
         }
     }
 
-    private fun setupMenuButton() {
-        findViewById<ImageButton>(R.id.btnMenu).setOnClickListener { v ->
-            PopupMenu(this, v).apply {
-                menuInflater.inflate(R.menu.main_menu, menu)
-                setOnMenuItemClickListener { item ->
-                    when (item.itemId) {
-                        R.id.action_settings -> {
-                            startActivity(Intent(this@MainActivity, SettingsActivity::class.java))
-                            true
-                        }
-                        R.id.action_tv_guide -> {
-                            showTvGuide()
-                            true
-                        }
-                        else -> false
-                    }
+    private fun setupLeftSideButtons() {
+        findViewById<ImageButton>(R.id.btnSettings).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
+        findViewById<ImageButton>(R.id.btnTvGuide).setOnClickListener { showTvGuide() }
+        findViewById<ImageButton>(R.id.btnHideLeft).setOnClickListener { hideLeftSide() }
+        findViewById<ImageButton>(R.id.btnHideChannels).setOnClickListener { hideLeftSide() }
+    }
+
+    private fun toggleSettingsPanel() {
+        settingsPanelVisible = !settingsPanelVisible
+        settingsPanel.visibility = if (settingsPanelVisible) View.VISIBLE else View.GONE
+    }
+
+    private fun setupRightPanel() {
+        findViewById<View>(R.id.btnHideRightPanel).setOnClickListener { hideRightPanel() }
+        findViewById<View>(R.id.btnAspectFit).setOnClickListener { setAspectRatio(0) }
+        findViewById<View>(R.id.btnAspect169).setOnClickListener { setAspectRatio(1) }
+        findViewById<View>(R.id.btnAspect43).setOnClickListener { setAspectRatio(2) }
+        findViewById<View>(R.id.btnAspectFill).setOnClickListener { setAspectRatio(3) }
+        val volumeBar = findViewById<SeekBar>(R.id.volumeSeekBar)
+        volumeBar.progress = 100
+        volumeBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) player?.volume = progress / 100f
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+        val audioSpinner = findViewById<Spinner>(R.id.audioTrackSpinner)
+        val subtitleSpinner = findViewById<Spinner>(R.id.subtitleSpinner)
+        val audioAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, mutableListOf(getString(R.string.track_auto)))
+        audioAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        audioSpinner.adapter = audioAdapter
+        val subAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, listOf(getString(R.string.track_off), getString(R.string.track_auto)))
+        subAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        subtitleSpinner.adapter = subAdapter
+        audioSpinner.setOnItemSelectedListener(object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                applyAudioTrackSelection(pos)
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        })
+        subtitleSpinner.setOnItemSelectedListener(object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                applySubtitleSelection(pos)
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        })
+        listOf(R.id.btnSpeed05, R.id.btnSpeed1, R.id.btnSpeed125, R.id.btnSpeed15, R.id.btnSpeed2)
+            .forEachIndexed { i, id ->
+                findViewById<View>(id).setOnClickListener {
+                    val speeds = floatArrayOf(0.5f, 1f, 1.25f, 1.5f, 2f)
+                    player?.setPlaybackSpeed(speeds[i])
+                    updateVideoInfo()
                 }
-                show()
+            }
+    }
+
+    private fun updateVideoInfo() {
+        val infoText = findViewById<TextView>(R.id.videoInfoText)
+        val p = player ?: run { infoText.text = "—"; return }
+        val size = p.videoSize
+        val res = if (size.width > 0 && size.height > 0) "${size.width}×${size.height}" else "—"
+        val speed = String.format(Locale.US, "%.2gx", p.playbackParameters.speed)
+        infoText.text = getString(R.string.resolution) + ": $res\n" + getString(R.string.playback_speed) + ": $speed"
+    }
+
+    private fun applyAudioTrackSelection(index: Int) {
+        val ts = trackSelector ?: return
+        val builder = ts.parameters.buildUpon()
+        if (index == 0) {
+            builder.clearOverrides()
+        } else {
+            val tracks = player?.currentTracks ?: return
+            var trackIndex = 0
+            for (group in tracks.groups) {
+                if (group.type == C.TRACK_TYPE_AUDIO && group.length > 0) {
+                    if (trackIndex == index - 1) {
+                        builder.addOverride(TrackSelectionOverride(group.mediaTrackGroup, 0))
+                        break
+                    }
+                    trackIndex++
+                }
             }
         }
+        ts.parameters = builder.build()
+    }
+
+    private fun applySubtitleSelection(index: Int) {
+        val ts = trackSelector ?: return
+        val builder = ts.parameters.buildUpon()
+        builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, index == 0)
+        ts.parameters = builder.build()
+    }
+
+    private fun refreshTrackSpinners() {
+        try {
+            val audioSpinner = findViewById<Spinner>(R.id.audioTrackSpinner)
+            val subtitleSpinner = findViewById<Spinner>(R.id.subtitleSpinner)
+            val tracks = player?.currentTracks ?: return
+            val audioNames = mutableListOf(getString(R.string.track_auto))
+            val subNames = mutableListOf(getString(R.string.track_off), getString(R.string.track_auto))
+            for (group in tracks.groups) {
+                when (group.type) {
+                    C.TRACK_TYPE_AUDIO -> for (i in 0 until group.length) {
+                        val fmt = group.getTrackFormat(i)
+                        audioNames.add(fmt.language?.let { "Audio $it" } ?: "Audio ${audioNames.size}")
+                    }
+                    C.TRACK_TYPE_TEXT -> for (i in 0 until group.length) {
+                        val fmt = group.getTrackFormat(i)
+                        subNames.add(fmt.language?.let { "Sub $it" } ?: "Sub ${subNames.size}")
+                    }
+                    else -> {}
+                }
+            }
+            val aAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, audioNames)
+            aAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            audioSpinner.adapter = aAdapter
+            val sAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, subNames)
+            sAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            subtitleSpinner.adapter = sAdapter
+        } catch (_: Exception) {}
+    }
+
+    private fun setAspectRatio(mode: Int) {
+        aspectRatioMode = mode
+        applyAspectRatio()
+    }
+
+    private fun showRightPanel() {
+        rightPanelVisible = true
+        rightSettingsPanel.visibility = View.VISIBLE
+        findViewById<SeekBar>(R.id.volumeSeekBar).progress = ((player?.volume ?: 1f) * 100).toInt()
+        refreshTrackSpinners()
+        updateVideoInfo()
+    }
+
+    private fun hideRightPanel() {
+        rightPanelVisible = false
+        rightSettingsPanel.visibility = View.GONE
     }
 
     private val tvGuideLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -182,6 +330,21 @@ class MainActivity : BaseActivity() {
         Toast.makeText(this, getString(modes[aspectRatioMode]), Toast.LENGTH_SHORT).show()
     }
 
+    private fun updateKeepScreenOn() {
+        val p = player ?: run {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            return
+        }
+        val shouldKeepOn = p.playbackState != Player.STATE_IDLE &&
+            p.playbackState != Player.STATE_ENDED &&
+            p.playWhenReady
+        if (shouldKeepOn) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     private fun applyAspectRatio() {
         val mode = when (aspectRatioMode) {
             1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
@@ -201,52 +364,61 @@ class MainActivity : BaseActivity() {
         )
     }
 
-    private fun setupChannelPanelToggle() {
-        findViewById<ImageButton>(R.id.btnHideChannels).setOnClickListener {
-            cancelAutoHide()
-            hideChannelsPanel()
-        }
-        findViewById<ImageButton>(R.id.btnHideHeader).setOnClickListener {
-            cancelAutoHide()
-            hideHeaderPanel()
+    private fun toggleLeftSide() {
+        leftSideVisible = !leftSideVisible
+        leftSideContainer.visibility = if (leftSideVisible) View.VISIBLE else View.GONE
+        if (!leftSideVisible) {
+            settingsPanelVisible = false
+            settingsPanel.visibility = View.GONE
         }
     }
 
-    private fun toggleChannelsPanel() {
-        channelsPanelVisible = !channelsPanelVisible
-        channelPanel.visibility = if (channelsPanelVisible) View.VISIBLE else View.GONE
+    private fun hideLeftSide() {
+        leftSideVisible = false
+        settingsPanelVisible = false
+        leftSideContainer.visibility = View.GONE
+        settingsPanel.visibility = View.GONE
     }
 
-    private fun hideChannelsPanel() {
-        channelsPanelVisible = false
-        channelPanel.visibility = View.GONE
+    private fun showLeftSide() {
+        leftSideVisible = true
+        leftSideContainer.visibility = View.VISIBLE
+        settingsPanelVisible = false
+        settingsPanel.visibility = View.GONE
     }
 
-    private fun showChannelsPanel() {
+    private fun showBottomBarTemporarily() {
         cancelAutoHide()
-        channelsPanelVisible = true
-        channelPanel.visibility = View.VISIBLE
+        updateBottomBarChannelInfo()
+        playerBottomBar.visibility = View.VISIBLE
+        autoHideRunnable = Runnable { playerBottomBar.visibility = View.GONE }
+        autoHideHandler.postDelayed(autoHideRunnable!!, 3000L)
     }
 
-    private fun hideHeaderPanel() {
-        headerPanelVisible = false
-        headerPanel.visibility = View.GONE
-    }
-
-    private fun showHeaderPanel() {
-        cancelAutoHide()
-        headerPanelVisible = true
-        headerPanel.visibility = View.VISIBLE
-    }
-
-    private fun showHeaderPanelWithAutoHide() {
-        showHeaderPanel()
-        scheduleAutoHide { hideHeaderPanel() }
-    }
-
-    private fun showChannelsPanelWithAutoHide() {
-        showChannelsPanel()
-        scheduleAutoHide { hideChannelsPanel() }
+    private fun updateBottomBarChannelInfo() {
+        val logoView = findViewById<android.widget.ImageView>(R.id.bottomBarChannelLogo)
+        val nameView = findViewById<TextView>(R.id.bottomBarChannelName)
+        val infoView = findViewById<TextView>(R.id.bottomBarVideoInfo)
+        val channel = prefs.lastChannelUrl?.let { url -> allChannels.find { it.url == url } }
+        if (channel != null) {
+            nameView.text = channel.name
+            nameView.visibility = View.VISIBLE
+            logoView.load(channel.logoUrl) {
+                crossfade(true)
+                error(android.R.drawable.ic_menu_gallery)
+                placeholder(android.R.drawable.ic_menu_gallery)
+            }
+            logoView.visibility = View.VISIBLE
+        } else {
+            nameView.visibility = View.GONE
+            logoView.visibility = View.GONE
+        }
+        val p = player
+        val res = if (p != null && p.videoSize.width > 0 && p.videoSize.height > 0) {
+            "${p.videoSize.width}×${p.videoSize.height}"
+        } else "—"
+        val speed = String.format(Locale.US, "%.2gx", p?.playbackParameters?.speed ?: 1f)
+        infoView.text = "$res  •  $speed"
     }
 
     private fun scheduleAutoHide(hideAction: () -> Unit) {
@@ -263,26 +435,66 @@ class MainActivity : BaseActivity() {
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
         when (keyCode) {
             KeyEvent.KEYCODE_DPAD_LEFT -> {
-                if (!channelsPanelVisible) {
-                    showChannelsPanelWithAutoHide()
+                if (rightPanelVisible) {
+                    hideRightPanel()
+                    return true
+                }
+                if (!leftSideVisible) {
+                    showLeftSide()
                     return true
                 }
             }
             KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                if (!headerPanelVisible) {
-                    showHeaderPanelWithAutoHide()
+                if (leftSideVisible) {
+                    hideLeftSide()
+                    return true
+                }
+                if (!rightPanelVisible) {
+                    showRightPanel()
                     return true
                 }
             }
             KeyEvent.KEYCODE_BACK -> {
+                if (rightPanelVisible) {
+                    hideRightPanel()
+                    return true
+                }
+                if (leftSideVisible) {
+                    hideLeftSide()
+                    return true
+                }
                 if (prefs.isFullscreen) {
                     toggleFullscreen()
                     return true
                 }
             }
+            KeyEvent.KEYCODE_DPAD_UP -> {
+                if (!leftSideVisible && !rightPanelVisible && filteredChannels.isNotEmpty()) {
+                    if (playerBottomBar.visibility == View.VISIBLE) {
+                        switchToPrevChannel()
+                        updateBottomBarChannelInfo()
+                    } else {
+                        switchToPrevChannel()
+                    }
+                    return true
+                }
+            }
+            KeyEvent.KEYCODE_DPAD_DOWN -> {
+                if (!leftSideVisible && !rightPanelVisible) {
+                    if (playerBottomBar.visibility == View.VISIBLE) {
+                        if (filteredChannels.isNotEmpty()) {
+                            switchToNextChannel()
+                            updateBottomBarChannelInfo()
+                        }
+                    } else {
+                        showBottomBarTemporarily()
+                    }
+                    return true
+                }
+            }
             KeyEvent.KEYCODE_MENU -> {
-                if (!headerPanelVisible) {
-                    showHeaderPanelWithAutoHide()
+                if (!leftSideVisible) {
+                    showLeftSide()
                     return true
                 }
             }
@@ -290,10 +502,26 @@ class MainActivity : BaseActivity() {
         return super.onKeyDown(keyCode, event)
     }
 
+    private fun switchToPrevChannel() {
+        val idx = filteredChannels.indexOfFirst { it.url == prefs.lastChannelUrl }
+        val newIdx = if (idx <= 0) filteredChannels.size - 1 else idx - 1
+        filteredChannels.getOrNull(newIdx)?.let { playChannel(it) }
+    }
+
+    private fun switchToNextChannel() {
+        val idx = filteredChannels.indexOfFirst { it.url == prefs.lastChannelUrl }
+        val newIdx = if (idx < 0 || idx >= filteredChannels.size - 1) 0 else idx + 1
+        filteredChannels.getOrNull(newIdx)?.let { playChannel(it) }
+    }
+
     private fun setupBackPress() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (prefs.isFullscreen) {
+                if (rightPanelVisible) {
+                    hideRightPanel()
+                } else if (leftSideVisible) {
+                    hideLeftSide()
+                } else if (prefs.isFullscreen) {
                     toggleFullscreen()
                 } else {
                     isEnabled = false
@@ -304,10 +532,7 @@ class MainActivity : BaseActivity() {
     }
 
     private fun showFullscreenControlsTemporarily() {
-        cancelAutoHide()
-        playerBottomBar.visibility = View.VISIBLE
-        autoHideRunnable = Runnable { playerBottomBar.visibility = View.GONE }
-        autoHideHandler.postDelayed(autoHideRunnable!!, 3000L)
+        showBottomBarTemporarily()
     }
 
     private fun setupSearch() {
@@ -333,15 +558,48 @@ class MainActivity : BaseActivity() {
         if (query.isNotEmpty()) {
             filtered = filtered.filter { it.name.lowercase().contains(query) }
         }
+        filteredChannels = filtered
         adapter.updateChannels(filtered)
         adapter.updateFavorites(prefs.favorites)
     }
 
+    private fun setupTimeDisplay() {
+        applyTimeDisplayPosition()
+        val timeRunnable = object : Runnable {
+            override fun run() {
+                if (prefs.timeDisplayPosition != "off") {
+                    timeDisplay.text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+                    timeDisplay.visibility = View.VISIBLE
+                }
+                autoHideHandler.postDelayed(this, 1000L)
+            }
+        }
+        autoHideHandler.post(timeRunnable)
+    }
+
+    private fun applyTimeDisplayPosition() {
+        val pos = prefs.timeDisplayPosition
+        timeDisplay.visibility = if (pos == "off") View.GONE else View.VISIBLE
+        val lp = timeDisplay.layoutParams as? android.widget.FrameLayout.LayoutParams ?: return
+        lp.gravity = when (pos) {
+            "left" -> Gravity.TOP or Gravity.START
+            "right" -> Gravity.TOP or Gravity.END
+            "bottom" -> Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            else -> Gravity.TOP or Gravity.START
+        }
+        timeDisplay.layoutParams = lp
+    }
+
     private fun applyFullscreen(fullscreen: Boolean) {
         if (fullscreen) {
-            headerPanel.visibility = View.GONE
-            channelPanel.visibility = View.GONE
+            leftSideContainer.visibility = View.GONE
+            rightSettingsPanel.visibility = View.GONE
+            rightPanelVisible = false
             playerBottomBar.visibility = View.GONE
+            // Remove blue status bar line: draw behind system bars, make them transparent
+            window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+            window.statusBarColor = Color.TRANSPARENT
+            window.navigationBarColor = Color.TRANSPARENT
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 window.insetsController?.let { ctrl ->
                     ctrl.hide(android.view.WindowInsets.Type.statusBars())
@@ -357,9 +615,11 @@ class MainActivity : BaseActivity() {
                     or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY)
             }
         } else {
-            headerPanel.visibility = if (headerPanelVisible) View.VISIBLE else View.GONE
-            playerBottomBar.visibility = View.VISIBLE
-            channelPanel.visibility = if (channelsPanelVisible) View.VISIBLE else View.GONE
+            leftSideContainer.visibility = if (leftSideVisible) View.VISIBLE else View.GONE
+            playerBottomBar.visibility = View.GONE
+            // Restore theme colors
+            window.statusBarColor = 0xFF0D47A1.toInt()
+            window.navigationBarColor = 0xFF121212.toInt()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 window.insetsController?.show(android.view.WindowInsets.Type.statusBars())
                 window.insetsController?.show(android.view.WindowInsets.Type.navigationBars())
@@ -374,7 +634,7 @@ class MainActivity : BaseActivity() {
 
     private fun setupPlayer() {
         try {
-            val trackSelector = DefaultTrackSelector(this).apply {
+            trackSelector = DefaultTrackSelector(this).apply {
                 parameters = parameters.buildUpon().apply {
                     when (prefs.preferredQuality) {
                         "1080" -> setMaxVideoSize(1920, 1080)
@@ -391,7 +651,7 @@ class MainActivity : BaseActivity() {
                 }
             }.build()
             player = ExoPlayer.Builder(this)
-                .setTrackSelector(trackSelector)
+                .setTrackSelector(trackSelector!!)
                 .setLoadControl(loadControl)
                 .build().also {
                 playerView.player = it
@@ -401,6 +661,19 @@ class MainActivity : BaseActivity() {
                             Player.STATE_BUFFERING -> loadingIndicator.visibility = View.VISIBLE
                             Player.STATE_READY, Player.STATE_ENDED -> loadingIndicator.visibility = View.GONE
                             Player.STATE_IDLE -> loadingIndicator.visibility = View.GONE
+                        }
+                        updateKeepScreenOn()
+                    }
+                    override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        updateKeepScreenOn()
+                    }
+                    override fun onTracksChanged(tracks: Tracks) {
+                        runOnUiThread { refreshTrackSpinners() }
+                    }
+                    override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                        runOnUiThread {
+                            if (rightPanelVisible) updateVideoInfo()
+                            if (playerBottomBar.visibility == View.VISIBLE) updateBottomBarChannelInfo()
                         }
                     }
                     override fun onPlayerError(error: PlaybackException) {
@@ -424,10 +697,11 @@ class MainActivity : BaseActivity() {
         adapter = ChannelAdapter(
             channels = emptyList(),
             favorites = prefs.favorites,
+            epgData = epgData,
             isGridMode = { prefs.listDisplayMode == "grid" },
             onChannelClick = { ch ->
                 playChannel(ch)
-                scheduleAutoHide { hideChannelsPanel() }
+                // List stays open - close only via right/back
             },
             onFavoriteClick = { toggleFavorite(it) }
         )
@@ -527,6 +801,8 @@ class MainActivity : BaseActivity() {
         if (url == "custom_channels" && playlist.channels.isNotEmpty()) {
             prefs.lastPlaylistUrl = url
             allChannels = playlist.channels
+            epgData = emptyMap()
+            adapter.updateEpg(epgData)
             updateCategorySpinner(allChannels)
             filterChannelsByCategory(0)
             emptyState.visibility = View.GONE
@@ -541,21 +817,25 @@ class MainActivity : BaseActivity() {
         loadingIndicator.visibility = View.VISIBLE
         loadJob = lifecycleScope.launch {
             try {
-                val channels = withContext(Dispatchers.IO) {
+                val result = withContext(Dispatchers.IO) {
                     PlaylistRepository.fetchPlaylist(url)
                 }
                 loadingIndicator.visibility = View.GONE
-                allChannels = channels
-                if (channels.isEmpty()) {
+                allChannels = result.channels
+                epgData = if (result.epgUrl != null) {
+                    EpgRepository.fetchEpg(result.epgUrl.split(",").firstOrNull()?.trim())
+                } else emptyMap()
+                adapter.updateEpg(epgData)
+                if (result.channels.isEmpty()) {
                     Toast.makeText(this@MainActivity, getString(R.string.load_failed), Toast.LENGTH_LONG).show()
                 } else {
-                    updateCategorySpinner(channels)
+                    updateCategorySpinner(result.channels)
                     val catIdx = prefs.lastCategoryIndex.coerceIn(0, categorySpinner.adapter!!.count - 1)
                     categorySpinner.setSelection(catIdx, false)
                     filterChannelsByCategory(catIdx)
                     emptyState.visibility = View.GONE
-                    prefs.lastChannelUrl?.let { url ->
-                        allChannels.find { it.url == url }?.let { playChannel(it) }
+                    prefs.lastChannelUrl?.let { lastUrl ->
+                        allChannels.find { it.url == lastUrl }?.let { playChannel(it) }
                     }
                 }
             } catch (e: CancellationException) {
@@ -593,9 +873,24 @@ class MainActivity : BaseActivity() {
     private fun playChannel(channel: Channel) {
         prefs.lastChannelUrl = channel.url
         emptyState.visibility = View.GONE
+        updateEpgOverlay(channel)
         when (prefs.playerType) {
             AppPreferences.PLAYER_EXTERNAL -> playExternal(channel)
             else -> playInternal(channel)
+        }
+    }
+
+    private fun updateEpgOverlay(channel: Channel) {
+        val overlay = findViewById<View>(R.id.epgOverlay)
+        val nowText = findViewById<TextView>(R.id.epgNowText)
+        val nextText = findViewById<TextView>(R.id.epgNextText)
+        val (now, next) = EpgRepository.getNowNext(epgData, channel.tvgId)
+        if (now != null || next != null) {
+            overlay.visibility = View.VISIBLE
+            nowText.text = if (now != null) "${getString(R.string.epg_now)}: $now" else ""
+            nextText.text = if (next != null) "${getString(R.string.epg_next)}: $next" else ""
+        } else {
+            overlay.visibility = View.GONE
         }
     }
 
@@ -665,15 +960,18 @@ class MainActivity : BaseActivity() {
             if (prefs.isFullscreen) R.drawable.ic_fullscreen_exit
             else R.drawable.ic_fullscreen
         )
-        if (channelsPanelVisible) {
-            channelPanel.visibility = View.VISIBLE
-        } else {
-            channelPanel.visibility = View.GONE
-        }
-        if (headerPanelVisible) {
-            headerPanel.visibility = View.VISIBLE
-        } else {
-            headerPanel.visibility = View.GONE
+        leftSideContainer.visibility = if (leftSideVisible) View.VISIBLE else View.GONE
+        settingsPanel.visibility = if (settingsPanelVisible) View.VISIBLE else View.GONE
+        rightSettingsPanel.visibility = if (rightPanelVisible) View.VISIBLE else View.GONE
+        playerBottomBar.visibility = View.GONE
+        applyTimeDisplayPosition()
+        // Reattach player after wake - fixes video freeze when screen was off
+        player?.let { p ->
+            playerView.player = p
+            if (p.playWhenReady) {
+                p.play()
+            }
+            updateKeepScreenOn()
         }
     }
 

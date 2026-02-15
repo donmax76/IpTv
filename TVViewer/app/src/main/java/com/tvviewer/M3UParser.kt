@@ -11,6 +11,16 @@ object M3UParser {
 
     private const val TAG = "TVViewer"
 
+    data class ParseResult(val channels: List<Channel>, val epgUrl: String?)
+
+    /**
+     * Parse M3U playlist from string content, including EPG URL from header.
+     */
+    fun parseWithEpg(content: String, baseUrl: String? = null): ParseResult {
+        val epgUrl = Regex("""x-tvg-url="([^"]+)"""").find(content)?.groupValues?.get(1)
+        return ParseResult(parse(content, baseUrl), epgUrl)
+    }
+
     /**
      * Parse M3U playlist from string content.
      * Format:
@@ -44,7 +54,8 @@ object M3UParser {
                                 name = extInf.name,
                                 url = url,
                                 logoUrl = logoUrl,
-                                group = extInf.group
+                                group = extInf.group,
+                                tvgId = extInf.tvgId
                             )
                         )
                     }
@@ -59,13 +70,15 @@ object M3UParser {
     private data class ExtInf(
         val name: String,
         val logo: String?,
-        val group: String?
+        val group: String?,
+        val tvgId: String?
     )
 
     private fun parseExtInf(line: String): ExtInf {
         var name = "Unknown"
         var logo: String? = null
         var group: String? = null
+        var tvgId: String? = null
 
         val commaIndex = line.indexOf(',')
         val attrs = if (commaIndex >= 0) {
@@ -81,12 +94,15 @@ object M3UParser {
         val groupRegex = """group-title="([^"]*)"""".toRegex()
         groupRegex.find(attrs)?.groupValues?.get(1)?.let { group = it.ifEmpty { null } }
 
+        val tvgIdRegex = """tvg-id="([^"]*)"""".toRegex()
+        tvgIdRegex.find(attrs)?.groupValues?.get(1)?.let { tvgId = it.ifEmpty { null } }
+
         val tvgNameRegex = """tvg-name="([^"]*)"""".toRegex()
         tvgNameRegex.find(attrs)?.groupValues?.get(1)?.let {
             if (name == "Unknown") name = it
         }
 
-        return ExtInf(name = name, logo = logo, group = group)
+        return ExtInf(name = name, logo = logo, group = group, tvgId = tvgId)
     }
 
     private fun resolveUrl(baseUrl: String, relativePath: String): String {

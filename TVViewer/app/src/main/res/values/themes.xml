@@ -11,4 +11,9 @@
         <item name="android:navigationBarColor">#121212</item>
         <item name="android:windowBackground">#121212</item>
     </style>
+    <!-- NoActionBar theme for activities that use custom Toolbar -->
+    <style name="Theme.TVViewer.NoActionBar" parent="Theme.TVViewer">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+    </style>
 </resources>
