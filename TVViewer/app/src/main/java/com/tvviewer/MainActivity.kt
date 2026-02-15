@@ -58,6 +58,7 @@ class MainActivity : BaseActivity() {
     private lateinit var categorySpinner: Spinner
     private lateinit var btnFavorites: ImageButton
     private lateinit var leftSideContainer: View
+    private lateinit var btnShowLeft: ImageButton
     private lateinit var channelPanel: LinearLayout
     private lateinit var btnFullscreen: ImageButton
     private lateinit var btnAspectRatio: ImageButton
@@ -65,7 +66,7 @@ class MainActivity : BaseActivity() {
     private lateinit var searchChannels: EditText
 
     private var player: ExoPlayer? = null
-    private var leftSideVisible = true
+    private var leftSideVisible = false
     private var aspectRatioMode = 0 // 0=fit, 1=16:9, 2=4:3, 3=fill
     private val autoHideHandler = Handler(Looper.getMainLooper())
     private var autoHideRunnable: Runnable? = null
@@ -91,13 +92,14 @@ class MainActivity : BaseActivity() {
             categorySpinner = findViewById(R.id.categorySpinner)
             btnFavorites = findViewById(R.id.btnFavorites)
             leftSideContainer = findViewById(R.id.leftSideContainer)
+            btnShowLeft = findViewById(R.id.btnShowLeft)
             channelPanel = findViewById(R.id.channelPanel)
             btnFullscreen = findViewById(R.id.btnFullscreen)
             btnAspectRatio = findViewById(R.id.btnAspectRatio)
             playerBottomBar = findViewById(R.id.playerBottomBar)
             searchChannels = findViewById(R.id.searchChannels)
 
-            findViewById<View>(R.id.rightEdgeZone).setOnClickListener { hideLeftSideWithAutoHide() }
+            findViewById<View>(R.id.rightEdgeZone).setOnClickListener { hideLeftSide() }
             findViewById<View>(R.id.tapOverlay).setOnClickListener {
                 if (prefs.isFullscreen) {
                     showFullscreenControlsTemporarily()
@@ -105,7 +107,7 @@ class MainActivity : BaseActivity() {
                     toggleLeftSide()
                 }
             }
-            findViewById<View>(R.id.leftEdgeZone).setOnClickListener { showLeftSideWithAutoHide() }
+            findViewById<ImageButton>(R.id.btnShowLeft).setOnClickListener { showLeftSideWithAutoHide() }
             setupPlayer()
             setupLeftSideButtons()
             setupSearch()
@@ -195,17 +197,20 @@ class MainActivity : BaseActivity() {
     private fun toggleLeftSide() {
         leftSideVisible = !leftSideVisible
         leftSideContainer.visibility = if (leftSideVisible) View.VISIBLE else View.GONE
+        btnShowLeft.visibility = if (leftSideVisible) View.GONE else View.VISIBLE
     }
 
     private fun hideLeftSide() {
         leftSideVisible = false
         leftSideContainer.visibility = View.GONE
+        if (!prefs.isFullscreen) btnShowLeft.visibility = View.VISIBLE
     }
 
     private fun showLeftSide() {
         cancelAutoHide()
         leftSideVisible = true
         leftSideContainer.visibility = View.VISIBLE
+        btnShowLeft.visibility = View.GONE
     }
 
     private fun hideLeftSideWithAutoHide() {
@@ -308,6 +313,7 @@ class MainActivity : BaseActivity() {
     private fun applyFullscreen(fullscreen: Boolean) {
         if (fullscreen) {
             leftSideContainer.visibility = View.GONE
+            btnShowLeft.visibility = View.GONE
             playerBottomBar.visibility = View.GONE
             // Remove blue status bar line: draw behind system bars, make them transparent
             window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
@@ -330,6 +336,7 @@ class MainActivity : BaseActivity() {
         } else {
             playerBottomBar.visibility = View.VISIBLE
             leftSideContainer.visibility = if (leftSideVisible) View.VISIBLE else View.GONE
+            btnShowLeft.visibility = if (leftSideVisible) View.GONE else View.VISIBLE
             // Restore theme colors
             window.statusBarColor = 0xFF0D47A1.toInt()
             window.navigationBarColor = 0xFF121212.toInt()
@@ -639,6 +646,7 @@ class MainActivity : BaseActivity() {
             else R.drawable.ic_fullscreen
         )
         leftSideContainer.visibility = if (leftSideVisible) View.VISIBLE else View.GONE
+        btnShowLeft.visibility = if (leftSideVisible) View.GONE else View.VISIBLE
     }
 
     private fun updatePlayerQuality() {

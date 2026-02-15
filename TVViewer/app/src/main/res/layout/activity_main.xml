@@ -49,15 +49,17 @@
             android:textSize="18sp"
             android:visibility="visible" />
 
-        <!-- Left edge: touch to open settings panel + channel list -->
-        <View
-            android:id="@+id/leftEdgeZone"
-            android:layout_width="56dp"
-            android:layout_height="match_parent"
-            android:layout_gravity="start"
-            android:clickable="true"
-            android:focusable="true"
-            android:background="@android:color/transparent" />
+        <!-- Top-left: arrow button to open settings + channel list -->
+        <ImageButton
+            android:id="@+id/btnShowLeft"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="top|start"
+            android:layout_margin="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/settings"
+            android:src="@drawable/ic_arrow_left"
+            android:visibility="visible" />
 
         <!-- Right edge: hide panels -->
         <View
@@ -101,14 +103,15 @@
         </LinearLayout>
     </FrameLayout>
 
-    <!-- Left side: settings panel (left) + channel list (right), tap left edge to show -->
+    <!-- Left side: settings panel (left) + channel list (right), tap arrow to show -->
     <LinearLayout
         android:id="@+id/leftSideContainer"
         android:layout_width="wrap_content"
         android:layout_height="match_parent"
         android:layout_gravity="start"
         android:orientation="horizontal"
-        android:elevation="12dp">
+        android:elevation="12dp"
+        android:visibility="gone">
 
         <!-- Settings panel: playlists, category, settings, TV guide, favorites -->
         <LinearLayout
@@ -181,7 +184,7 @@
             android:layout_width="wrap_content"
             android:layout_height="match_parent"
             android:orientation="vertical"
-            android:background="#80000000"
+            android:background="#33000000"
             android:padding="4dp"
             android:minWidth="200dp"
             android:maxWidth="300dp">
