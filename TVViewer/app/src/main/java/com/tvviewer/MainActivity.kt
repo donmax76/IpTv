@@ -62,11 +62,11 @@ class MainActivity : BaseActivity() {
     private lateinit var btnFullscreen: ImageButton
     private lateinit var btnAspectRatio: ImageButton
     private lateinit var playerBottomBar: View
-    private lateinit var btnShowChannels: ImageButton
     private lateinit var searchChannels: EditText
 
     private var player: ExoPlayer? = null
     private var channelsPanelVisible = true
+    private var headerPanelVisible = true
     private var aspectRatioMode = 0 // 0=fit, 1=16:9, 2=4:3, 3=fill
     private val autoHideHandler = Handler(Looper.getMainLooper())
     private var autoHideRunnable: Runnable? = null
@@ -96,9 +96,9 @@ class MainActivity : BaseActivity() {
             btnFullscreen = findViewById(R.id.btnFullscreen)
             btnAspectRatio = findViewById(R.id.btnAspectRatio)
             playerBottomBar = findViewById(R.id.playerBottomBar)
-            btnShowChannels = findViewById(R.id.btnShowChannels)
             searchChannels = findViewById(R.id.searchChannels)
 
+            findViewById<View>(R.id.rightEdgeZone).setOnClickListener { showHeaderPanelWithAutoHide() }
             findViewById<View>(R.id.tapOverlay).setOnClickListener {
                 if (prefs.isFullscreen) {
                     showFullscreenControlsTemporarily()
@@ -208,40 +208,52 @@ class MainActivity : BaseActivity() {
             cancelAutoHide()
             hideChannelsPanel()
         }
-        btnShowChannels.setOnClickListener { showChannelsPanelWithAutoHide() }
+        findViewById<ImageButton>(R.id.btnHideHeader).setOnClickListener {
+            cancelAutoHide()
+            hideHeaderPanel()
+        }
     }
 
     private fun toggleChannelsPanel() {
         channelsPanelVisible = !channelsPanelVisible
         channelPanel.visibility = if (channelsPanelVisible) View.VISIBLE else View.GONE
-        btnShowChannels.visibility = if (channelsPanelVisible) View.GONE else View.VISIBLE
     }
 
     private fun hideChannelsPanel() {
         channelsPanelVisible = false
         channelPanel.visibility = View.GONE
-        btnShowChannels.visibility = View.VISIBLE
     }
 
     private fun showChannelsPanel() {
         cancelAutoHide()
         channelsPanelVisible = true
         channelPanel.visibility = View.VISIBLE
-        btnShowChannels.visibility = View.GONE
+    }
+
+    private fun hideHeaderPanel() {
+        headerPanelVisible = false
+        headerPanel.visibility = View.GONE
+    }
+
+    private fun showHeaderPanel() {
+        cancelAutoHide()
+        headerPanelVisible = true
+        headerPanel.visibility = View.VISIBLE
+    }
+
+    private fun showHeaderPanelWithAutoHide() {
+        showHeaderPanel()
+        scheduleAutoHide { hideHeaderPanel() }
     }
 
     private fun showChannelsPanelWithAutoHide() {
         showChannelsPanel()
-        scheduleAutoHide()
+        scheduleAutoHide { hideChannelsPanel() }
     }
 
-    private fun scheduleAutoHide() {
+    private fun scheduleAutoHide(hideAction: () -> Unit) {
         cancelAutoHide()
-        autoHideRunnable = Runnable {
-            if (channelsPanelVisible) {
-                hideChannelsPanel()
-            }
-        }
+        autoHideRunnable = Runnable { hideAction() }
         autoHideHandler.postDelayed(autoHideRunnable!!, prefs.channelListAutoHideSeconds * 1000L)
     }
 
@@ -314,7 +326,6 @@ class MainActivity : BaseActivity() {
             headerPanel.visibility = View.GONE
             channelPanel.visibility = View.GONE
             playerBottomBar.visibility = View.GONE
-            btnShowChannels.visibility = View.VISIBLE
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 window.insetsController?.let { ctrl ->
                     ctrl.hide(android.view.WindowInsets.Type.statusBars())
@@ -330,10 +341,9 @@ class MainActivity : BaseActivity() {
                     or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY)
             }
         } else {
-            headerPanel.visibility = View.VISIBLE
+            headerPanel.visibility = if (headerPanelVisible) View.VISIBLE else View.GONE
             playerBottomBar.visibility = View.VISIBLE
             channelPanel.visibility = if (channelsPanelVisible) View.VISIBLE else View.GONE
-            btnShowChannels.visibility = if (channelsPanelVisible) View.GONE else View.VISIBLE
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 window.insetsController?.show(android.view.WindowInsets.Type.statusBars())
                 window.insetsController?.show(android.view.WindowInsets.Type.navigationBars())
@@ -396,7 +406,7 @@ class MainActivity : BaseActivity() {
             isGridMode = { prefs.listDisplayMode == "grid" },
             onChannelClick = { ch ->
                 playChannel(ch)
-                scheduleAutoHide()
+                scheduleAutoHide { hideChannelsPanel() }
             },
             onFavoriteClick = { toggleFavorite(it) }
         )
@@ -628,10 +638,13 @@ class MainActivity : BaseActivity() {
         )
         if (channelsPanelVisible) {
             channelPanel.visibility = View.VISIBLE
-            btnShowChannels.visibility = View.GONE
         } else {
             channelPanel.visibility = View.GONE
-            btnShowChannels.visibility = View.VISIBLE
+        }
+        if (headerPanelVisible) {
+            headerPanel.visibility = View.VISIBLE
+        } else {
+            headerPanel.visibility = View.GONE
         }
     }
 
