@@ -226,24 +226,33 @@ class MainActivity : BaseActivity() {
     }
 
     private fun applyAudioTrackSelection(index: Int) {
-        val ts = trackSelector ?: return
-        val builder = ts.parameters.buildUpon()
-        if (index == 0) {
-            builder.clearOverrides()
-        } else {
-            val tracks = player?.currentTracks ?: return
-            var trackIndex = 0
-            for (group in tracks.groups) {
-                if (group.type == C.TRACK_TYPE_AUDIO && group.length > 0) {
-                    if (trackIndex == index - 1) {
-                        builder.addOverride(TrackSelectionOverride(group.mediaTrackGroup, 0))
-                        break
+        try {
+            val ts = trackSelector ?: return
+            val builder = ts.parameters.buildUpon()
+            if (index == 0) {
+                builder.clearOverrides()
+            } else {
+                val tracks = player?.currentTracks ?: return
+                var globalIndex = 0
+                for (group in tracks.groups) {
+                    if (group.type == C.TRACK_TYPE_AUDIO && group.length > 0) {
+                        for (trackInGroup in 0 until group.length) {
+                            if (globalIndex == index - 1) {
+                                builder.addOverride(TrackSelectionOverride(group.mediaTrackGroup, trackInGroup))
+                                ts.parameters = builder.build()
+                                return
+                            }
+                            globalIndex++
+                        }
                     }
-                    trackIndex++
                 }
             }
+            ts.parameters = builder.build()
+        } catch (e: Exception) {
+            Log.e(TAG, "applyAudioTrackSelection error", e)
+            ErrorLogger.logException(this, e)
+            Toast.makeText(this, getString(R.string.error) + ": ${e.message}", Toast.LENGTH_SHORT).show()
         }
-        ts.parameters = builder.build()
     }
 
     private fun applySubtitleSelection(index: Int) {
