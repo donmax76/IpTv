@@ -12,7 +12,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
 
-class SettingsActivity : BaseActivity() {
+class SettingsActivity : androidx.appcompat.app.AppCompatActivity() {
 
     private lateinit var prefs: AppPreferences
     private lateinit var playerSpinner: Spinner
@@ -50,15 +50,21 @@ class SettingsActivity : BaseActivity() {
 
     override fun onPause() {
         super.onPause()
-        prefs.crashReportFirebaseId = crashFirebaseId.text.toString().trim().ifEmpty { null }
-        prefs.crashReportUrl = crashWebhookUrl.text.toString().trim().ifEmpty { null }
+        try {
+            prefs.crashReportFirebaseId = crashFirebaseId.text.toString().trim().ifEmpty { null }
+            prefs.crashReportUrl = crashWebhookUrl.text.toString().trim().ifEmpty { null }
+        } catch (_: Exception) {}
     }
 
     private fun setupCrashReporting() {
-        crashFirebaseId.setText(prefs.crashReportFirebaseId ?: "")
-        crashWebhookUrl.setText(prefs.crashReportUrl ?: "")
-        findViewById<Button>(R.id.btnTestCrash).setOnClickListener {
-            throw RuntimeException("Тестовая ошибка - проверка отправки")
+        try {
+            crashFirebaseId.setText(prefs.crashReportFirebaseId ?: "")
+            crashWebhookUrl.setText(prefs.crashReportUrl ?: "")
+            findViewById<Button>(R.id.btnTestCrash).setOnClickListener {
+                throw RuntimeException("Тестовая ошибка - проверка отправки")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("TVViewer", "setupCrashReporting error", e)
         }
     }
 

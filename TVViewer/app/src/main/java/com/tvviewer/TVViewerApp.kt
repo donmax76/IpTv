@@ -11,18 +11,22 @@ class TVViewerApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Thread.setDefaultUncaughtExceptionHandler { _, throwable ->
-            Log.e("TVViewer", "Uncaught exception", throwable)
-            val errorText = getFullStackTrace(throwable)
-            CrashReporter.send(applicationContext, errorText)
-            val intent = Intent(applicationContext, CrashReportActivity::class.java).apply {
+            try {
+                Log.e("TVViewer", "Uncaught exception", throwable)
+                val errorText = getFullStackTrace(throwable)
+                try { CrashReporter.send(applicationContext, errorText) } catch (_: Exception) {}
+                val intent = Intent(applicationContext, CrashReportActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 putExtra(CrashReportActivity.EXTRA_ERROR, errorText)
             }
-            try {
-                startActivity(intent)
+                try {
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    Log.e("TVViewer", "Cannot show crash activity", e)
+                }
             } catch (e: Exception) {
-                Log.e("TVViewer", "Cannot show crash activity", e)
+                Log.e("TVViewer", "Crash handler failed", e)
             }
         }
     }

@@ -3,9 +3,6 @@ package com.tvviewer
 import android.content.Context
 import android.os.Build
 import android.util.Log
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -18,7 +15,7 @@ object CrashReporter {
     private const val TAG = "CrashReporter"
 
     fun send(context: Context, errorText: String) {
-        CoroutineScope(Dispatchers.IO).launch {
+        Thread {
             try {
                 val prefs = AppPreferences(context)
                 val json = JSONObject().apply {
@@ -33,7 +30,7 @@ object CrashReporter {
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send crash report", e)
             }
-        }
+        }.start()
     }
 
     private fun sendToUrl(urlString: String, json: String) {

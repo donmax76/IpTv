@@ -27,7 +27,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class MainActivity : BaseActivity() {
+class MainActivity : androidx.appcompat.app.AppCompatActivity() {
 
     companion object {
         private const val TAG = "TVViewer"
@@ -56,9 +56,6 @@ class MainActivity : BaseActivity() {
         try {
             setContentView(R.layout.activity_main)
 
-            val toolbar = findViewById<Toolbar>(R.id.toolbar)
-            setSupportActionBar(toolbar)
-
             playerView = findViewById(R.id.playerView)
             loadingIndicator = findViewById(R.id.loadingIndicator)
             emptyState = findViewById(R.id.emptyState)
@@ -67,16 +64,21 @@ class MainActivity : BaseActivity() {
             categorySpinner = findViewById(R.id.categorySpinner)
             btnFavorites = findViewById(R.id.btnFavorites)
 
+            try {
+                val toolbar = findViewById<Toolbar>(R.id.toolbar)
+                setSupportActionBar(toolbar)
+            } catch (e: Exception) { Log.e(TAG, "Toolbar error", e) }
+
             setupPlayer()
             setupRecyclerView()
-            setupPlaylistSpinner()
             setupCategorySpinner()
             setupFavoritesButton()
+            setupPlaylistSpinner()
             Log.d(TAG, "onCreate completed")
         } catch (e: Exception) {
             Log.e(TAG, "onCreate error", e)
             Toast.makeText(this, getString(R.string.error_start) + ": ${e.message}", Toast.LENGTH_LONG).show()
-            throw e
+            e.printStackTrace()
         }
     }
 
@@ -142,10 +144,9 @@ class MainActivity : BaseActivity() {
         }
 
         if (allPlaylists.isNotEmpty()) {
-            loadPlaylist(allPlaylists[0])
+            playlistSpinner.post { loadPlaylist(allPlaylists[0]) }
         } else {
             emptyState.visibility = View.VISIBLE
-            emptyState.text = getString(R.string.no_playlist_url)
         }
     }
 
