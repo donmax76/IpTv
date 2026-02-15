@@ -45,6 +45,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import coil.load
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -388,9 +389,36 @@ class MainActivity : BaseActivity() {
 
     private fun showBottomBarTemporarily() {
         cancelAutoHide()
+        updateBottomBarChannelInfo()
         playerBottomBar.visibility = View.VISIBLE
         autoHideRunnable = Runnable { playerBottomBar.visibility = View.GONE }
         autoHideHandler.postDelayed(autoHideRunnable!!, 3000L)
+    }
+
+    private fun updateBottomBarChannelInfo() {
+        val logoView = findViewById<android.widget.ImageView>(R.id.bottomBarChannelLogo)
+        val nameView = findViewById<TextView>(R.id.bottomBarChannelName)
+        val infoView = findViewById<TextView>(R.id.bottomBarVideoInfo)
+        val channel = prefs.lastChannelUrl?.let { url -> allChannels.find { it.url == url } }
+        if (channel != null) {
+            nameView.text = channel.name
+            nameView.visibility = View.VISIBLE
+            logoView.load(channel.logoUrl) {
+                crossfade(true)
+                error(android.R.drawable.ic_menu_gallery)
+                placeholder(android.R.drawable.ic_menu_gallery)
+            }
+            logoView.visibility = View.VISIBLE
+        } else {
+            nameView.visibility = View.GONE
+            logoView.visibility = View.GONE
+        }
+        val p = player
+        val res = if (p != null && p.videoSize.width > 0 && p.videoSize.height > 0) {
+            "${p.videoSize.width}×${p.videoSize.height}"
+        } else "—"
+        val speed = String.format(Locale.US, "%.2gx", p?.playbackParameters?.speed ?: 1f)
+        infoView.text = "$res  •  $speed"
     }
 
     private fun scheduleAutoHide(hideAction: () -> Unit) {
@@ -442,13 +470,25 @@ class MainActivity : BaseActivity() {
             }
             KeyEvent.KEYCODE_DPAD_UP -> {
                 if (!leftSideVisible && !rightPanelVisible && filteredChannels.isNotEmpty()) {
-                    switchToPrevChannel()
+                    if (playerBottomBar.visibility == View.VISIBLE) {
+                        switchToPrevChannel()
+                        updateBottomBarChannelInfo()
+                    } else {
+                        switchToPrevChannel()
+                    }
                     return true
                 }
             }
             KeyEvent.KEYCODE_DPAD_DOWN -> {
-                if (!leftSideVisible && !rightPanelVisible && filteredChannels.isNotEmpty()) {
-                    switchToNextChannel()
+                if (!leftSideVisible && !rightPanelVisible) {
+                    if (playerBottomBar.visibility == View.VISIBLE) {
+                        if (filteredChannels.isNotEmpty()) {
+                            switchToNextChannel()
+                            updateBottomBarChannelInfo()
+                        }
+                    } else {
+                        showBottomBarTemporarily()
+                    }
                     return true
                 }
             }
@@ -631,7 +671,10 @@ class MainActivity : BaseActivity() {
                         runOnUiThread { refreshTrackSpinners() }
                     }
                     override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
-                        runOnUiThread { if (rightPanelVisible) updateVideoInfo() }
+                        runOnUiThread {
+                            if (rightPanelVisible) updateVideoInfo()
+                            if (playerBottomBar.visibility == View.VISIBLE) updateBottomBarChannelInfo()
+                        }
                     }
                     override fun onPlayerError(error: PlaybackException) {
                         loadingIndicator.visibility = View.GONE

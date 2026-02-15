@@ -114,27 +114,58 @@
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
             android:orientation="horizontal"
-            android:gravity="end"
-            android:padding="12dp"
+            android:gravity="center_vertical"
+            android:padding="8dp"
             android:background="#E6000000"
             android:elevation="15dp"
             android:clickable="true"
             android:focusable="true"
             android:visibility="gone">
 
+            <ImageView
+                android:id="@+id/bottomBarChannelLogo"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginEnd="8dp"
+                android:scaleType="fitCenter"
+                android:background="#33000000"
+                android:contentDescription="@null" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:minWidth="0dp">
+                <TextView
+                    android:id="@+id/bottomBarChannelName"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp" />
+                <TextView
+                    android:id="@+id/bottomBarVideoInfo"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="#AAAAAA"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
             <ImageButton
                 android:id="@+id/btnAspectRatio"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_marginEnd="8dp"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginEnd="6dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/aspect_ratio"
                 android:src="@android:drawable/ic_menu_crop" />
 
             <ImageButton
                 android:id="@+id/btnFullscreen"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/fullscreen"
                 android:src="@drawable/ic_fullscreen" />
@@ -275,7 +306,7 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Right side: image and sound settings (DPAD_RIGHT) -->
+    <!-- Right side: image and sound settings (DPAD_RIGHT) - compact, visible focus -->
     <LinearLayout
         android:id="@+id/rightSettingsPanel"
         android:layout_width="wrap_content"
@@ -283,7 +314,8 @@
         android:layout_gravity="end"
         android:orientation="vertical"
         android:background="#E6000000"
-        android:minWidth="180dp"
+        android:minWidth="140dp"
+        android:maxWidth="160dp"
         android:elevation="12dp"
         android:visibility="gone"
         android:focusable="true"
@@ -297,7 +329,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="12dp">
+            android:padding="8dp">
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -309,13 +341,13 @@
                 android:layout_weight="1"
                 android:text="@string/image_sound_settings"
                 android:textColor="#FFFFFF"
-                android:textSize="16sp"
+                android:textSize="13sp"
                 android:gravity="center" />
             <ImageButton
                 android:id="@+id/btnHideRightPanel"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="@drawable/btn_right_panel_focused"
                 android:contentDescription="@string/hide_channels"
                 android:src="@android:drawable/ic_menu_close_clear_cancel" />
         </LinearLayout>
@@ -325,44 +357,52 @@
             android:layout_height="wrap_content"
             android:text="@string/aspect_ratio"
             android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:layout_marginTop="16dp" />
+            android:textSize="12sp"
+            android:layout_marginTop="10dp" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:layout_marginTop="4dp">
+            android:layout_marginTop="2dp">
             <Button
                 android:id="@+id/btnAspectFit"
                 android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:minHeight="44dp"
+                android:layout_height="40dp"
+                android:minHeight="40dp"
                 android:text="@string/aspect_fit"
+                android:textSize="12sp"
+                android:background="@drawable/btn_right_panel_focused"
                 android:focusable="true"
-                android:layout_marginBottom="4dp" />
+                android:layout_marginBottom="2dp" />
             <Button
                 android:id="@+id/btnAspect169"
                 android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:minHeight="44dp"
+                android:layout_height="40dp"
+                android:minHeight="40dp"
                 android:text="@string/aspect_16_9"
+                android:textSize="12sp"
+                android:background="@drawable/btn_right_panel_focused"
                 android:focusable="true"
-                android:layout_marginBottom="4dp" />
+                android:layout_marginBottom="2dp" />
             <Button
                 android:id="@+id/btnAspect43"
                 android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:minHeight="44dp"
+                android:layout_height="40dp"
+                android:minHeight="40dp"
                 android:text="@string/aspect_4_3"
+                android:textSize="12sp"
+                android:background="@drawable/btn_right_panel_focused"
                 android:focusable="true"
-                android:layout_marginBottom="4dp" />
+                android:layout_marginBottom="2dp" />
             <Button
                 android:id="@+id/btnAspectFill"
                 android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:minHeight="44dp"
+                android:layout_height="40dp"
+                android:minHeight="40dp"
                 android:text="@string/aspect_fill"
+                android:textSize="12sp"
+                android:background="@drawable/btn_right_panel_focused"
                 android:focusable="true" />
         </LinearLayout>
 
@@ -371,14 +411,14 @@
             android:layout_height="wrap_content"
             android:text="@string/volume"
             android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:layout_marginTop="16dp" />
+            android:textSize="12sp"
+            android:layout_marginTop="10dp" />
 
         <SeekBar
             android:id="@+id/volumeSeekBar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="2dp"
             android:max="100"
             android:progress="100" />
 
@@ -387,15 +427,15 @@
             android:layout_height="wrap_content"
             android:text="@string/video_info"
             android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:layout_marginTop="16dp" />
+            android:textSize="12sp"
+            android:layout_marginTop="8dp" />
         <TextView
             android:id="@+id/videoInfoText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="2dp"
             android:textColor="#CCFFFFFF"
-            android:textSize="12sp"
+            android:textSize="11sp"
             android:text="—" />
 
         <TextView
@@ -403,56 +443,66 @@
             android:layout_height="wrap_content"
             android:text="@string/playback_speed"
             android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:layout_marginTop="12dp" />
+            android:textSize="12sp"
+            android:layout_marginTop="8dp" />
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginTop="4dp">
+            android:layout_marginTop="2dp">
             <Button
                 android:id="@+id/btnSpeed05"
                 android:layout_width="0dp"
-                android:layout_height="44dp"
+                android:layout_height="36dp"
                 android:layout_weight="1"
-                android:minHeight="44dp"
+                android:minHeight="36dp"
+                android:textSize="11sp"
                 android:text="0.5x"
+                android:background="@drawable/btn_right_panel_focused"
                 android:focusable="true"
                 android:layout_marginEnd="2dp" />
             <Button
                 android:id="@+id/btnSpeed1"
                 android:layout_width="0dp"
-                android:layout_height="44dp"
+                android:layout_height="36dp"
                 android:layout_weight="1"
-                android:minHeight="44dp"
+                android:minHeight="36dp"
+                android:textSize="11sp"
                 android:text="1x"
+                android:background="@drawable/btn_right_panel_focused"
                 android:focusable="true"
                 android:layout_marginEnd="2dp" />
             <Button
                 android:id="@+id/btnSpeed125"
                 android:layout_width="0dp"
-                android:layout_height="44dp"
+                android:layout_height="36dp"
                 android:layout_weight="1"
-                android:minHeight="44dp"
+                android:minHeight="36dp"
+                android:textSize="11sp"
                 android:text="1.25x"
+                android:background="@drawable/btn_right_panel_focused"
                 android:focusable="true"
                 android:layout_marginEnd="2dp" />
             <Button
                 android:id="@+id/btnSpeed15"
                 android:layout_width="0dp"
-                android:layout_height="44dp"
+                android:layout_height="36dp"
                 android:layout_weight="1"
-                android:minHeight="44dp"
+                android:minHeight="36dp"
+                android:textSize="11sp"
                 android:text="1.5x"
+                android:background="@drawable/btn_right_panel_focused"
                 android:focusable="true"
                 android:layout_marginEnd="2dp" />
             <Button
                 android:id="@+id/btnSpeed2"
                 android:layout_width="0dp"
-                android:layout_height="44dp"
+                android:layout_height="36dp"
                 android:layout_weight="1"
-                android:minHeight="44dp"
+                android:minHeight="36dp"
+                android:textSize="11sp"
                 android:text="2x"
+                android:background="@drawable/btn_right_panel_focused"
                 android:focusable="true" />
         </LinearLayout>
 
@@ -461,34 +511,34 @@
             android:layout_height="wrap_content"
             android:text="@string/audio_track"
             android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:layout_marginTop="16dp" />
+            android:textSize="12sp"
+            android:layout_marginTop="8dp" />
         <Spinner
             android:id="@+id/audioTrackSpinner"
             android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:layout_marginTop="4dp"
-            android:minHeight="48dp"
+            android:layout_height="40dp"
+            android:layout_marginTop="2dp"
+            android:minHeight="40dp"
             android:focusable="true"
             android:focusableInTouchMode="true"
-            android:background="@drawable/spinner_background" />
+            android:background="@drawable/btn_right_panel_focused" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/subtitles"
             android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:layout_marginTop="16dp" />
+            android:textSize="12sp"
+            android:layout_marginTop="8dp" />
         <Spinner
             android:id="@+id/subtitleSpinner"
             android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:layout_marginTop="4dp"
-            android:minHeight="48dp"
+            android:layout_height="40dp"
+            android:layout_marginTop="2dp"
+            android:minHeight="40dp"
             android:focusable="true"
             android:focusableInTouchMode="true"
-            android:background="@drawable/spinner_background" />
+            android:background="@drawable/btn_right_panel_focused" />
         </LinearLayout>
         </ScrollView>
     </LinearLayout>
