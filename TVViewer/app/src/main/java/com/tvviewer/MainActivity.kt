@@ -263,13 +263,31 @@ class MainActivity : BaseActivity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT && !channelsPanelVisible) {
-            showChannelsPanelWithAutoHide()
-            return true
-        }
-        if (keyCode == KeyEvent.KEYCODE_BACK && prefs.isFullscreen) {
-            toggleFullscreen()
-            return true
+        when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                if (!channelsPanelVisible) {
+                    showChannelsPanelWithAutoHide()
+                    return true
+                }
+            }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                if (!headerPanelVisible) {
+                    showHeaderPanelWithAutoHide()
+                    return true
+                }
+            }
+            KeyEvent.KEYCODE_BACK -> {
+                if (prefs.isFullscreen) {
+                    toggleFullscreen()
+                    return true
+                }
+            }
+            KeyEvent.KEYCODE_MENU -> {
+                if (!headerPanelVisible) {
+                    showHeaderPanelWithAutoHide()
+                    return true
+                }
+            }
         }
         return super.onKeyDown(keyCode, event)
     }
