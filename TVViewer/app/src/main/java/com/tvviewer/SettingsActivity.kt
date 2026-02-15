@@ -1,5 +1,8 @@
 package com.tvviewer
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.widget.ArrayAdapter
@@ -12,7 +15,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
 
-class SettingsActivity : androidx.appcompat.app.AppCompatActivity() {
+class SettingsActivity : BaseActivity() {
 
     private lateinit var prefs: AppPreferences
     private lateinit var playerSpinner: Spinner
@@ -45,7 +48,34 @@ class SettingsActivity : androidx.appcompat.app.AppCompatActivity() {
         setupLanguageSpinner()
         setupCustomPlaylists()
         setupAddPlaylist()
+        setupErrorLog()
         setupCrashReporting()
+    }
+
+    private fun setupErrorLog() {
+        findViewById<android.widget.Button>(R.id.btnCopyErrors).setOnClickListener {
+            val text = ErrorLogger.getErrorContent(this)
+            if (text.isEmpty()) {
+                Toast.makeText(this, R.string.no_errors_saved, Toast.LENGTH_SHORT).show()
+            } else {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("TVViewer Errors", text))
+                Toast.makeText(this, R.string.copied_send_to_dev, Toast.LENGTH_LONG).show()
+            }
+        }
+        findViewById<android.widget.Button>(R.id.btnShareErrors).setOnClickListener {
+            val text = ErrorLogger.getErrorContent(this)
+            if (text.isEmpty()) {
+                Toast.makeText(this, R.string.no_errors_saved, Toast.LENGTH_SHORT).show()
+            } else {
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, text)
+                    putExtra(Intent.EXTRA_SUBJECT, "TVViewer ошибки")
+                }
+                startActivity(Intent.createChooser(intent, getString(R.string.share_errors)))
+            }
+        }
     }
 
     override fun onPause() {

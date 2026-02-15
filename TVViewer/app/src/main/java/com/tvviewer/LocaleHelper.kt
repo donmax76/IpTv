@@ -49,5 +49,6 @@ object LocaleHelper {
         "zh" to "中文",
         "ar" to "العربية",
         "pt" to "Português",
+        "az" to "Azərbaycan",
     )
 }

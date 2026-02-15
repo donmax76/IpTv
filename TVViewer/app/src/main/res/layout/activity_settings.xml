@@ -94,6 +94,40 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:text="@string/error_log"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:layout_marginTop="24dp" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/error_log_hint"
+            android:textColor="#888888"
+            android:textSize="12sp"
+            android:layout_marginTop="4dp" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="8dp">
+            <Button
+                android:id="@+id/btnCopyErrors"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="@string/copy_errors"
+                android:layout_marginEnd="4dp" />
+            <Button
+                android:id="@+id/btnShareErrors"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:text="@string/share_errors"
+                android:layout_marginStart="4dp" />
+        </LinearLayout>
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:text="@string/crash_reports"
             android:textColor="#FFFFFF"
             android:textSize="16sp"

@@ -27,7 +27,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class MainActivity : androidx.appcompat.app.AppCompatActivity() {
+class MainActivity : BaseActivity() {
 
     companion object {
         private const val TAG = "TVViewer"
@@ -77,8 +77,8 @@ class MainActivity : androidx.appcompat.app.AppCompatActivity() {
             Log.d(TAG, "onCreate completed")
         } catch (e: Exception) {
             Log.e(TAG, "onCreate error", e)
+            ErrorLogger.logException(this, e)
             Toast.makeText(this, getString(R.string.error_start) + ": ${e.message}", Toast.LENGTH_LONG).show()
-            e.printStackTrace()
         }
     }
 
@@ -108,6 +108,7 @@ class MainActivity : androidx.appcompat.app.AppCompatActivity() {
                         }
                     }
                     override fun onPlayerError(error: PlaybackException) {
+                        ErrorLogger.logException(this@MainActivity, error)
                         loadingIndicator.visibility = View.GONE
                         Toast.makeText(this@MainActivity, getString(R.string.error_playback) + ": ${error.message}", Toast.LENGTH_LONG).show()
                     }
@@ -210,6 +211,7 @@ class MainActivity : androidx.appcompat.app.AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Load playlist error", e)
+                ErrorLogger.logException(this@MainActivity, e)
                 loadingIndicator.visibility = View.GONE
                 Toast.makeText(this@MainActivity, getString(R.string.error) + ": ${e.message}", Toast.LENGTH_LONG).show()
             }

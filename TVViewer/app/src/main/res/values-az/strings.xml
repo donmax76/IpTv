@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TV Onlayn</string>
+    <string name="channels">Kanallar</string>
+    <string name="playlists">Pleylistlər</string>
+    <string name="loading">Yüklənir…</string>
+    <string name="error">Xəta</string>
+    <string name="retry">Yenidən</string>
+    <string name="settings">Parametrlər</string>
+    <string name="select_channel">Baxmaq üçün kanal seçin</string>
+    <string name="category">Kateqoriya</string>
+    <string name="all">Hamısı</string>
+    <string name="favorites">Sevimlilər</string>
+    <string name="favorite">Sevimlilərə əlavə et</string>
+    <string name="show_all">Hamısını göstər</string>
+    <string name="player">Pleyer</string>
+    <string name="player_internal">Daxili</string>
+    <string name="player_external">Xarici (VLC, MX Player)</string>
+    <string name="language">Dil</string>
+    <string name="custom_playlists">Öz pleylistləriniz</string>
+    <string name="playlist_name">Pleylist adı</string>
+    <string name="playlist_url">Pleylist URL (M3U)</string>
+    <string name="add_playlist">Əlavə et</string>
+    <string name="remove_playlist">Pleylisti sil</string>
+    <string name="remove_playlist_confirm">Bu pleylisti silmək istəyirsiniz?</string>
+    <string name="fill_all_fields">Bütün sahələri doldurun</string>
+    <string name="invalid_url">Düzgün URL daxil edin</string>
+    <string name="playlist_added">Pleylist əlavə edildi</string>
+    <string name="no_playlist_url">Pleylist URL yoxdur</string>
+    <string name="load_failed">Kanallar yüklənə bilmədi. İnterneti yoxlayın.</string>
+    <string name="error_start">Başlatma xətası</string>
+    <string name="error_playback">Oxutma xətası</string>
+    <string name="error_player">Pleyer xətası</string>
+    <string name="open_with">Açmaq üçün</string>
+    <string name="no_player_app">Video pleyer quraşdırın (VLC, MX Player)</string>
+    <string name="crash_reports">Tərtibatçıya xəta göndərmək</string>
+    <string name="crash_reports_hint">Firebase: console.firebase.google.com-da layihə yaradın, Realtime Database aktivləşdirin.</string>
+    <string name="firebase_project_id">Firebase Project ID</string>
+    <string name="webhook_url">Webhook URL</string>
+    <string name="test_crash">Test: xəta yarat</string>
+    <string name="error_log">Xəta jurnalı</string>
+    <string name="error_log_hint">Bütün xətalar saxlanılır. «Kopyala» düyməsinə basın və çata yapışdırın.</string>
+    <string name="copy_errors">Kopyala</string>
+    <string name="share_errors">Göndər</string>
+    <string name="no_errors_saved">Saxlanılmış xəta yoxdur</string>
+    <string name="copied_send_to_dev">Kopyalandı! Çata yapışdırın və tərtibatçıya göndərin.</string>
+</resources>

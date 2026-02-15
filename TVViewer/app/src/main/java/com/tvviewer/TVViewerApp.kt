@@ -14,12 +14,13 @@ class TVViewerApp : Application() {
             try {
                 Log.e("TVViewer", "Uncaught exception", throwable)
                 val errorText = getFullStackTrace(throwable)
+                ErrorLogger.logException(applicationContext, throwable)
                 try { CrashReporter.send(applicationContext, errorText) } catch (_: Exception) {}
                 val intent = Intent(applicationContext, CrashReportActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                putExtra(CrashReportActivity.EXTRA_ERROR, errorText)
-            }
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    putExtra(CrashReportActivity.EXTRA_ERROR, errorText)
+                }
                 try {
                     startActivity(intent)
                 } catch (e: Exception) {
