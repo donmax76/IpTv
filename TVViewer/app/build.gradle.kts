@@ -55,4 +55,7 @@ dependencies {
     
     // OkHttp for fetching playlists
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    
+    // Coil for channel logos
+    implementation("io.coil-kt:coil:2.5.0")
 }

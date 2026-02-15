@@ -72,4 +72,9 @@
     <string name="tv_guide_channel">Канал</string>
     <string name="search_channels">Поиск канала</string>
     <string name="hide_channels">Скрыть список</string>
+    <string name="tv_guide_hint">Нажмите на канал для переключения. Программа передач для бесплатных каналов часто недоступна.</string>
+    <string name="list_display">Отображение списка</string>
+    <string name="list_display_list">Список</string>
+    <string name="list_display_grid">Таблица (сетка)</string>
+    <string name="list_autohide">Автоскрытие списка (сек)</string>
 </resources>

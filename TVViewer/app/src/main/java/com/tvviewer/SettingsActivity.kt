@@ -27,6 +27,8 @@ class SettingsActivity : BaseActivity() {
     private lateinit var crashWebhookUrl: EditText
     private lateinit var qualitySpinner: Spinner
     private lateinit var bufferSpinner: Spinner
+    private lateinit var listDisplaySpinner: Spinner
+    private lateinit var listAutohideSpinner: Spinner
     private lateinit var addChannelName: EditText
     private lateinit var addChannelUrl: EditText
     private lateinit var customChannelsList: ListView
@@ -50,6 +52,8 @@ class SettingsActivity : BaseActivity() {
         crashWebhookUrl = findViewById(R.id.crashWebhookUrl)
         qualitySpinner = findViewById(R.id.qualitySpinner)
         bufferSpinner = findViewById(R.id.bufferSpinner)
+        listDisplaySpinner = findViewById(R.id.listDisplaySpinner)
+        listAutohideSpinner = findViewById(R.id.listAutohideSpinner)
         addChannelName = findViewById(R.id.addChannelName)
         addChannelUrl = findViewById(R.id.addChannelUrl)
         customChannelsList = findViewById(R.id.customChannelsList)
@@ -57,6 +61,8 @@ class SettingsActivity : BaseActivity() {
         setupPlayerSpinner()
         setupQualitySpinner()
         setupBufferSpinner()
+        setupListDisplaySpinner()
+        setupListAutohideSpinner()
         setupCustomChannels()
         setupLanguageSpinner()
         setupCustomPlaylists()
@@ -146,6 +152,31 @@ class SettingsActivity : BaseActivity() {
                     2 -> "4k"
                     else -> "auto"
                 }
+            }
+            override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
+        })
+    }
+
+    private fun setupListDisplaySpinner() {
+        val modes = listOf(getString(R.string.list_display_list), getString(R.string.list_display_grid))
+        listDisplaySpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, modes)
+        listDisplaySpinner.setSelection(if (prefs.listDisplayMode == "grid") 1 else 0)
+        listDisplaySpinner.setOnItemSelectedListener(object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: android.widget.AdapterView<*>?, v: android.view.View?, pos: Int, id: Long) {
+                prefs.listDisplayMode = if (pos == 1) "grid" else "list"
+            }
+            override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
+        })
+    }
+
+    private fun setupListAutohideSpinner() {
+        val seconds = (2..30).map { "$it" }
+        listAutohideSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, seconds)
+        val current = prefs.channelListAutoHideSeconds
+        listAutohideSpinner.setSelection((current - 2).coerceIn(0, seconds.size - 1))
+        listAutohideSpinner.setOnItemSelectedListener(object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: android.widget.AdapterView<*>?, v: android.view.View?, pos: Int, id: Long) {
+                prefs.channelListAutoHideSeconds = pos + 2
             }
             override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
         })

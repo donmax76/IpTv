@@ -64,4 +64,9 @@
     <string name="tv_guide_channel">Kanal</string>
     <string name="search_channels">Kanal axtarışı</string>
     <string name="hide_channels">Siyahını gizlət</string>
+    <string name="tv_guide_hint">Keçid üçün kanala toxunun.</string>
+    <string name="list_display">Siyahı görünüşü</string>
+    <string name="list_display_list">Siyahı</string>
+    <string name="list_display_grid">Cədvəl (şəbəkə)</string>
+    <string name="list_autohide">Avtomatik gizlətmə (san)</string>
 </resources>

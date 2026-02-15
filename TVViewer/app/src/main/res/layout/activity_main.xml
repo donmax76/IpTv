@@ -50,38 +50,49 @@
             android:textSize="18sp"
             android:visibility="visible" />
 
-        <!-- Player controls: fullscreen + aspect (always on top) -->
+        <!-- Left edge: touch to open channel list -->
+        <View
+            android:id="@+id/leftEdgeZone"
+            android:layout_width="56dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="start"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="@android:color/transparent" />
+
+        <!-- Show channels button (when panel hidden) -->
+        <!-- Bottom bar: fullscreen + aspect ratio (always visible in player) -->
         <LinearLayout
-            android:id="@+id/playerOverlay"
-            android:layout_width="wrap_content"
+            android:id="@+id/playerBottomBar"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="top|end"
+            android:layout_gravity="bottom"
             android:orientation="horizontal"
-            android:padding="8dp"
-            android:background="#CC000000"
-            android:elevation="10dp"
+            android:gravity="end"
+            android:padding="12dp"
+            android:background="#E6000000"
+            android:elevation="15dp"
             android:clickable="true"
             android:focusable="true">
 
             <ImageButton
                 android:id="@+id/btnAspectRatio"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
-                android:layout_marginEnd="4dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginEnd="8dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/aspect_ratio"
                 android:src="@android:drawable/ic_menu_crop" />
 
             <ImageButton
                 android:id="@+id/btnFullscreen"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/fullscreen"
                 android:src="@drawable/ic_fullscreen" />
         </LinearLayout>
 
-        <!-- Show channels button (when panel hidden) -->
         <ImageButton
             android:id="@+id/btnShowChannels"
             android:layout_width="48dp"

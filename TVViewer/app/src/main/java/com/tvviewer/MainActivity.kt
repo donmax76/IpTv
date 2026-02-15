@@ -18,8 +18,13 @@ import android.widget.ProgressBar
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import android.os.Handler
+import android.os.Looper
+import android.view.KeyEvent
 import android.widget.PopupMenu
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -61,6 +66,8 @@ class MainActivity : BaseActivity() {
     private var player: ExoPlayer? = null
     private var channelsPanelVisible = true
     private var aspectRatioMode = 0 // 0=fit, 1=16:9, 2=4:3, 3=fill
+    private val autoHideHandler = Handler(Looper.getMainLooper())
+    private var autoHideRunnable: Runnable? = null
     private lateinit var adapter: ChannelAdapter
     private var loadJob: Job? = null
     private var allChannels: List<Channel> = emptyList()
@@ -90,6 +97,7 @@ class MainActivity : BaseActivity() {
             searchChannels = findViewById(R.id.searchChannels)
 
             findViewById<View>(R.id.tapOverlay).setOnClickListener { toggleChannelsPanel() }
+            findViewById<View>(R.id.leftEdgeZone).setOnClickListener { showChannelsPanelWithAutoHide() }
             setupPlayer()
             setupChannelPanelToggle()
             setupSearch()
@@ -130,18 +138,24 @@ class MainActivity : BaseActivity() {
         }
     }
 
-    private fun showTvGuide() {
-        val current = allChannels.find { it.url == prefs.lastChannelUrl }
-        val msg = if (current != null) {
-            "${getString(R.string.tv_guide_channel)}: ${current.name}\n\n${getString(R.string.tv_guide_now)}: ${current.name}\n\n${getString(R.string.tv_guide_unavailable)}"
-        } else {
-            getString(R.string.tv_guide_unavailable)
+    private val tvGuideLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) {
+            result.data?.getStringExtra(TvGuideActivity.EXTRA_CHANNEL_URL)?.let { url ->
+                allChannels.find { it.url == url }?.let { playChannel(it) }
+            }
         }
-        AlertDialog.Builder(this)
-            .setTitle(R.string.tv_guide)
-            .setMessage(msg)
-            .setPositiveButton(android.R.string.ok, null)
-            .show()
+    }
+
+    private fun showTvGuide() {
+        if (allChannels.isEmpty()) {
+            Toast.makeText(this, R.string.select_channel, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = Intent(this, TvGuideActivity::class.java).apply {
+            putExtra(TvGuideActivity.EXTRA_CHANNELS, ArrayList(allChannels))
+            putExtra(TvGuideActivity.EXTRA_CURRENT_URL, prefs.lastChannelUrl)
+        }
+        tvGuideLauncher.launch(intent)
     }
 
     private fun setupPlayerOverlay() {
@@ -180,8 +194,11 @@ class MainActivity : BaseActivity() {
     }
 
     private fun setupChannelPanelToggle() {
-        findViewById<ImageButton>(R.id.btnHideChannels).setOnClickListener { hideChannelsPanel() }
-        btnShowChannels.setOnClickListener { showChannelsPanel() }
+        findViewById<ImageButton>(R.id.btnHideChannels).setOnClickListener {
+            cancelAutoHide()
+            hideChannelsPanel()
+        }
+        btnShowChannels.setOnClickListener { showChannelsPanelWithAutoHide() }
     }
 
     private fun toggleChannelsPanel() {
@@ -197,9 +214,38 @@ class MainActivity : BaseActivity() {
     }
 
     private fun showChannelsPanel() {
+        cancelAutoHide()
         channelsPanelVisible = true
         channelPanel.visibility = View.VISIBLE
         btnShowChannels.visibility = View.GONE
+    }
+
+    private fun showChannelsPanelWithAutoHide() {
+        showChannelsPanel()
+        scheduleAutoHide()
+    }
+
+    private fun scheduleAutoHide() {
+        cancelAutoHide()
+        autoHideRunnable = Runnable {
+            if (channelsPanelVisible) {
+                hideChannelsPanel()
+            }
+        }
+        autoHideHandler.postDelayed(autoHideRunnable!!, prefs.channelListAutoHideSeconds * 1000L)
+    }
+
+    private fun cancelAutoHide() {
+        autoHideRunnable?.let { autoHideHandler.removeCallbacks(it) }
+        autoHideRunnable = null
+    }
+
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT && !channelsPanelVisible) {
+            showChannelsPanelWithAutoHide()
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
     }
 
     private fun setupSearch() {
@@ -311,11 +357,24 @@ class MainActivity : BaseActivity() {
         adapter = ChannelAdapter(
             channels = emptyList(),
             favorites = prefs.favorites,
-            onChannelClick = { playChannel(it) },
+            isGridMode = { prefs.listDisplayMode == "grid" },
+            onChannelClick = { ch ->
+                playChannel(ch)
+                scheduleAutoHide()
+            },
             onFavoriteClick = { toggleFavorite(it) }
         )
-        recyclerView.layoutManager = LinearLayoutManager(this, LinearLayoutManager.VERTICAL, false)
+        applyListLayoutManager()
         recyclerView.adapter = adapter
+    }
+
+    private fun applyListLayoutManager() {
+        recyclerView.layoutManager = if (prefs.listDisplayMode == "grid") {
+            GridLayoutManager(this, 3)
+        } else {
+            LinearLayoutManager(this, LinearLayoutManager.VERTICAL, false)
+        }
+        adapter.refreshDisplayMode()
     }
 
     private fun setupPlaylistSpinner() {
@@ -526,6 +585,7 @@ class MainActivity : BaseActivity() {
         }
         applyFullscreen(prefs.isFullscreen)
         updatePlayerQuality()
+        applyListLayoutManager()
         btnFullscreen.setImageResource(
             if (prefs.isFullscreen) R.drawable.ic_fullscreen_exit
             else R.drawable.ic_fullscreen
@@ -553,6 +613,7 @@ class MainActivity : BaseActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        cancelAutoHide()
         loadJob?.cancel()
         player?.release()
         player = null

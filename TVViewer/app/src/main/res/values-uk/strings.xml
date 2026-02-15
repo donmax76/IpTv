@@ -66,4 +66,9 @@
     <string name="tv_guide_channel">Канал</string>
     <string name="search_channels">Пошук каналу</string>
     <string name="hide_channels">Сховати список</string>
+    <string name="tv_guide_hint">Натисніть на канал для перемикання.</string>
+    <string name="list_display">Відображення списку</string>
+    <string name="list_display_list">Список</string>
+    <string name="list_display_grid">Таблиця (сітка)</string>
+    <string name="list_autohide">Автоскриття списку (сек)</string>
 </resources>
