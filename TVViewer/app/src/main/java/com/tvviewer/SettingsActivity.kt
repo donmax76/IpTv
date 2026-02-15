@@ -1,6 +1,5 @@
 package com.tvviewer
 
-import com.tvviewer.BuildConfig
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -59,8 +58,6 @@ class SettingsActivity : BaseActivity() {
         addChannelUrl = findViewById(R.id.addChannelUrl)
         customChannelsList = findViewById(R.id.customChannelsList)
 
-        findViewById<android.widget.TextView>(R.id.versionText).text =
-            getString(R.string.version_format, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)
         setupPlayerSpinner()
         setupQualitySpinner()
         setupBufferSpinner()

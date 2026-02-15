@@ -17,16 +17,7 @@
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
             android:background="?attr/colorPrimary"
-            app:navigationIcon="?attr/homeAsUpIndicator"
-            app:title="@string/settings" />
-
-        <TextView
-            android:id="@+id/versionText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:textColor="#888888"
-            android:textSize="14sp" />
+            app:navigationIcon="?attr/homeAsUpIndicator" />
 
         <TextView
             android:layout_width="wrap_content"

@@ -16,8 +16,8 @@ class TvGuideActivity : BaseActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_tv_guide)
 
-        val channels = intent.getSerializableExtra(EXTRA_CHANNELS) as? ArrayList<Channel> ?: arrayListOf()
-        val currentUrl = intent.getStringExtra(EXTRA_CURRENT_URL)
+        val channels = TvGuideChannels.channels
+        val currentUrl = TvGuideChannels.currentUrl
 
         findViewById<Toolbar>(R.id.toolbar)?.apply {
             setSupportActionBar(this)
@@ -39,8 +39,6 @@ class TvGuideActivity : BaseActivity() {
     }
 
     companion object {
-        const val EXTRA_CHANNELS = "channels"
-        const val EXTRA_CURRENT_URL = "current_url"
         const val EXTRA_CHANNEL_URL = "channel_url"
     }
 }

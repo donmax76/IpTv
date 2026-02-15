@@ -161,11 +161,9 @@ class MainActivity : BaseActivity() {
             Toast.makeText(this, R.string.select_channel, Toast.LENGTH_SHORT).show()
             return
         }
-        val intent = Intent(this, TvGuideActivity::class.java).apply {
-            putExtra(TvGuideActivity.EXTRA_CHANNELS, ArrayList(allChannels))
-            putExtra(TvGuideActivity.EXTRA_CURRENT_URL, prefs.lastChannelUrl)
-        }
-        tvGuideLauncher.launch(intent)
+        TvGuideChannels.channels = allChannels
+        TvGuideChannels.currentUrl = prefs.lastChannelUrl
+        tvGuideLauncher.launch(Intent(this, TvGuideActivity::class.java))
     }
 
     private fun setupPlayerOverlay() {
@@ -406,9 +404,14 @@ class MainActivity : BaseActivity() {
                         }
                     }
                     override fun onPlayerError(error: PlaybackException) {
-                        ErrorLogger.logException(this@MainActivity, error)
                         loadingIndicator.visibility = View.GONE
-                        Toast.makeText(this@MainActivity, getString(R.string.error_playback) + ": ${error.message}", Toast.LENGTH_LONG).show()
+                        val msg = error.cause?.message ?: error.message ?: ""
+                        val friendly = if (msg.contains("403") || msg.contains("404")) {
+                            getString(R.string.stream_unavailable)
+                        } else {
+                            getString(R.string.error_playback) + ": $msg"
+                        }
+                        Toast.makeText(this@MainActivity, friendly, Toast.LENGTH_LONG).show()
                     }
                 })
             }
@@ -627,7 +630,6 @@ class MainActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Refresh playlists (custom may have changed), restore selection
         val customChannelsPlaylist = if (prefs.customChannels.isNotEmpty()) {
             listOf(Playlist(getString(R.string.my_channels), "custom_channels",
                 prefs.customChannels.map { Channel(it.first, it.second, null, null) }))
@@ -636,16 +638,25 @@ class MainActivity : BaseActivity() {
         val names = allPlaylists.map { it.name }
         val plAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, names)
         plAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        playlistSpinner.onItemSelectedListener = null
         playlistSpinner.adapter = plAdapter
-        // Restore playlist selection
-        prefs.lastPlaylistUrl?.let { url ->
-            val idx = allPlaylists.indexOfFirst { it.url == url }
-            if (idx >= 0 && allChannels.isNotEmpty()) {
-                playlistSpinner.setSelection(idx, false)
+        val savedUrl = prefs.lastPlaylistUrl
+        val idx = if (savedUrl != null) allPlaylists.indexOfFirst { it.url == savedUrl } else -1
+        if (idx >= 0) {
+            playlistSpinner.setSelection(idx, false)
+            if (allChannels.isNotEmpty()) {
                 val adapter = categorySpinner.adapter
                 val catIdx = if (adapter != null) prefs.lastCategoryIndex.coerceIn(0, adapter.count - 1) else 0
                 filterChannelsByCategory(catIdx)
             }
+        }
+        playlistSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val playlist = allPlaylists.getOrNull(position) ?: return
+                if (playlist.url == prefs.lastPlaylistUrl && allChannels.isNotEmpty()) return
+                loadPlaylist(playlist)
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
         applyFullscreen(prefs.isFullscreen)
         updatePlayerQuality()
