@@ -1,0 +1,1260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Lost Child - A Horror Game</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:#000;overflow:hidden;font-family:'Courier New',monospace;cursor:default;}
+canvas{display:block;position:absolute;top:0;left:0;}
+#ui{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10;}
+#ui *{pointer-events:auto;}
+.vignette{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;
+  background:radial-gradient(ellipse at center,transparent 50%,rgba(0,0,0,0.7) 100%);}
+#fade{position:fixed;top:0;left:0;width:100%;height:100%;background:#000;z-index:50;
+  opacity:0;pointer-events:none;transition:opacity 0.8s;}
+#fade.active{opacity:1;pointer-events:all;}
+#screamer{position:fixed;top:0;left:0;width:100%;height:100%;z-index:100;display:none;
+  justify-content:center;align-items:center;background:rgba(0,0,0,0.9);}
+#screamer canvas{position:relative;}
+.btn{background:rgba(139,0,0,0.8);color:#ddd;border:2px solid #8b0000;padding:12px 32px;
+  font-family:'Courier New',monospace;font-size:18px;cursor:pointer;margin:8px;
+  transition:all 0.3s;text-transform:uppercase;letter-spacing:2px;}
+.btn:hover{background:rgba(200,0,0,0.9);color:#fff;transform:scale(1.05);}
+#choices{position:absolute;bottom:20%;left:50%;transform:translateX(-50%);display:none;
+  flex-direction:column;align-items:center;z-index:20;}
+#dialogue{position:absolute;bottom:10%;left:50%;transform:translateX(-50%);
+  background:rgba(0,0,0,0.85);color:#ccc;padding:16px 28px;border:1px solid #555;
+  font-size:16px;max-width:600px;text-align:center;display:none;z-index:15;
+  border-radius:4px;line-height:1.5;}
+#prompt{position:absolute;bottom:5%;left:50%;transform:translateX(-50%);
+  color:rgba(200,200,200,0.6);font-size:14px;display:none;z-index:15;}
+#hud{position:absolute;top:10px;right:15px;color:rgba(200,200,200,0.5);font-size:12px;z-index:15;}
+#inventory{position:absolute;top:10px;left:15px;color:#aaa;font-size:14px;display:none;z-index:15;}
+#titleScreen{position:fixed;top:0;left:0;width:100%;height:100%;z-index:200;
+  background:#0a0a0a;display:flex;flex-direction:column;justify-content:center;align-items:center;}
+#titleScreen h1{color:#8b0000;font-size:48px;letter-spacing:8px;margin-bottom:20px;
+  text-shadow:0 0 20px rgba(139,0,0,0.5);}
+#titleScreen p{color:#666;font-size:16px;margin-bottom:40px;}
+#endScreen{position:fixed;top:0;left:0;width:100%;height:100%;z-index:200;
+  background:rgba(0,0,0,0.95);display:none;flex-direction:column;justify-content:center;
+  align-items:center;}
+#endScreen h1{color:#8b0000;font-size:42px;letter-spacing:6px;margin-bottom:15px;}
+#endScreen p{color:#888;font-size:18px;margin-bottom:30px;max-width:500px;text-align:center;line-height:1.6;}
+#speechBubble{position:absolute;background:rgba(40,20,30,0.9);color:#d4a;border:1px solid #a36;
+  padding:10px 18px;border-radius:12px;font-size:14px;display:none;z-index:15;
+  max-width:280px;text-align:center;font-style:italic;}
+#speechBubble::after{content:'';position:absolute;bottom:-10px;left:50%;transform:translateX(-50%);
+  border-left:10px solid transparent;border-right:10px solid transparent;
+  border-top:10px solid rgba(40,20,30,0.9);}
+</style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<div class="vignette"></div>
+<div id="fade"></div>
+<div id="ui">
+  <div id="hud"></div>
+  <div id="inventory"></div>
+  <div id="prompt"></div>
+  <div id="dialogue"></div>
+  <div id="choices"></div>
+  <div id="speechBubble"></div>
+</div>
+<div id="screamer"><canvas id="screamerCanvas" width="800" height="600"></canvas></div>
+<div id="titleScreen">
+  <h1>THE LOST CHILD</h1>
+  <p>A tale of choices and consequences</p>
+  <button class="btn" id="startBtn">Begin</button>
+  <p style="color:#444;font-size:11px;margin-top:30px;">WASD/Arrows to move | E to interact | Space to jump | Mouse to click</p>
+</div>
+<div id="endScreen">
+  <h1 id="endTitle">THE END</h1>
+  <p id="endText"></p>
+  <button class="btn" id="restartBtn">Play Again</button>
+</div>
+
+<script>
+// ========== GLOBALS ==========
+const C = document.getElementById('gameCanvas');
+const ctx = C.getContext('2d');
+const SC = document.getElementById('screamerCanvas');
+const sctx = SC.getContext('2d');
+let W, H;
+function resize(){W=C.width=window.innerWidth;H=C.height=window.innerHeight;
+  SC.width=800;SC.height=600;}
+resize(); window.addEventListener('resize',resize);
+
+const keys={};
+window.addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true;keys[e.code]=true;});
+window.addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;keys[e.code]=false;});
+let mouseX=0,mouseY=0,mouseClicked=false;
+window.addEventListener('mousemove',e=>{mouseX=e.clientX;mouseY=e.clientY;});
+window.addEventListener('click',e=>{mouseClicked=true;mouseX=e.clientX;mouseY=e.clientY;});
+
+// UI refs
+const fadeEl=document.getElementById('fade');
+const dialogueEl=document.getElementById('dialogue');
+const promptEl=document.getElementById('prompt');
+const choicesEl=document.getElementById('choices');
+const hudEl=document.getElementById('hud');
+const inventoryEl=document.getElementById('inventory');
+const screamerEl=document.getElementById('screamer');
+const speechEl=document.getElementById('speechBubble');
+const endScreen=document.getElementById('endScreen');
+const titleScreen=document.getElementById('titleScreen');
+
+// ========== AUDIO ENGINE ==========
+let audioCtx=null;
+function initAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();}
+
+function playTone(freq,dur,type='sine',vol=0.15,detune=0){
+  if(!audioCtx)return;
+  const o=audioCtx.createOscillator();const g=audioCtx.createGain();
+  o.type=type;o.frequency.value=freq;o.detune.value=detune;
+  g.gain.setValueAtTime(vol,audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+dur);
+  o.connect(g);g.connect(audioCtx.destination);o.start();o.stop(audioCtx.currentTime+dur);
+}
+
+function playNoise(dur,vol=0.1){
+  if(!audioCtx)return;
+  const buf=audioCtx.createBuffer(1,audioCtx.sampleRate*dur,audioCtx.sampleRate);
+  const d=buf.getChannelData(0);
+  for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1);
+  const s=audioCtx.createBufferSource();s.buffer=buf;
+  const g=audioCtx.createGain();g.gain.setValueAtTime(vol,audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+dur);
+  s.connect(g);g.connect(audioCtx.destination);s.start();
+}
+
+let ambientOsc=null,ambientGain=null;
+function startAmbient(freq=55,vol=0.06){
+  stopAmbient();if(!audioCtx)return;
+  ambientOsc=audioCtx.createOscillator();ambientGain=audioCtx.createGain();
+  ambientOsc.type='sawtooth';ambientOsc.frequency.value=freq;
+  ambientGain.gain.value=vol;
+  const f=audioCtx.createBiquadFilter();f.type='lowpass';f.frequency.value=200;
+  ambientOsc.connect(f);f.connect(ambientGain);ambientGain.connect(audioCtx.destination);
+  ambientOsc.start();
+}
+function stopAmbient(){
+  if(ambientOsc){try{ambientOsc.stop();}catch(e){}ambientOsc=null;}
+}
+
+let heartbeatInterval=null;
+function startHeartbeat(){
+  stopHeartbeat();
+  heartbeatInterval=setInterval(()=>{
+    playTone(40,0.15,'sine',0.25);
+    setTimeout(()=>playTone(50,0.12,'sine',0.2),180);
+  },700);
+}
+function stopHeartbeat(){if(heartbeatInterval){clearInterval(heartbeatInterval);heartbeatInterval=null;}}
+
+function playAlarm(){
+  for(let i=0;i<6;i++){
+    setTimeout(()=>{playTone(800,0.15,'square',0.12);},i*300);
+    setTimeout(()=>{playTone(600,0.15,'square',0.12);},i*300+150);
+  }
+}
+
+function playScreamer(){
+  playNoise(0.8,0.5);
+  playTone(200,0.6,'sawtooth',0.4,50);
+  playTone(350,0.5,'square',0.3,-30);
+  playTone(80,0.7,'sawtooth',0.35);
+}
+
+function playFootstep(){playNoise(0.05,0.04);}
+function playCrumble(){playNoise(0.4,0.2);playTone(60,0.3,'sawtooth',0.1);}
+function playBell(){playTone(880,1.5,'sine',0.1);playTone(1320,1,'sine',0.06);}
+function playSob(){playTone(300,0.3,'sine',0.06);playTone(280,0.4,'sine',0.05);}
+function playChildCry(){playTone(500,0.2,'sine',0.08);playTone(450,0.3,'sine',0.06);}
+function playStoneThrow(){playNoise(0.1,0.08);playTone(200,0.15,'sine',0.05);}
+function playTileFall(){playCrumble();setTimeout(()=>playTone(40,0.5,'sine',0.15),200);}
+function playDoorOpen(){playNoise(0.15,0.06);playTone(150,0.3,'sawtooth',0.04);}
+
+// ========== GAME STATE ==========
+let scene='title';
+let player={x:0,y:0,speed:3,dir:0};
+let gameTime=0;
+let shakeTimer=0,shakeIntensity=0;
+let fadeState=0; // 0=none,1=fading out,2=black,3=fading in
+let fadeCallback=null;
+let sceneData={};
+let stones=0;
+let safeTiles=[];
+let dangerTiles=[];
+let tileGrid=[];
+let womanAlive=true;
+let oldManChasing=false;
+let chaseProgress=0;
+let frameCount=0;
+let particles=[];
+let interactCooldown=0;
+
+// ========== SCENE TRANSITIONS ==========
+function fadeToScene(newScene,cb){
+  fadeEl.classList.add('active');
+  setTimeout(()=>{
+    scene=newScene;initScene(newScene);
+    if(cb)cb();
+    setTimeout(()=>{fadeEl.classList.remove('active');},100);
+  },900);
+}
+
+// ========== PARTICLES ==========
+function addParticle(x,y,col='#888'){
+  for(let i=0;i<8;i++){
+    particles.push({x,y,vx:(Math.random()-0.5)*4,vy:-Math.random()*3-1,
+      life:1,col,size:Math.random()*3+1});
+  }
+}
+function updateParticles(){
+  for(let i=particles.length-1;i>=0;i--){
+    let p=particles[i];p.x+=p.vx;p.y+=p.vy;p.vy+=0.1;p.life-=0.02;
+    if(p.life<=0)particles.splice(i,1);
+  }
+}
+function drawParticles(){
+  particles.forEach(p=>{
+    ctx.globalAlpha=p.life;ctx.fillStyle=p.col;
+    ctx.fillRect(p.x,p.y,p.size,p.size);
+  });
+  ctx.globalAlpha=1;
+}
+
+// ========== SCREEN SHAKE ==========
+function shake(dur,intensity){shakeTimer=dur;shakeIntensity=intensity;}
+
+// ========== DRAWING HELPERS ==========
+function drawRect(x,y,w,h,col){ctx.fillStyle=col;ctx.fillRect(x,y,w,h);}
+function drawText(txt,x,y,col='#fff',size=16,align='center'){
+  ctx.fillStyle=col;ctx.font=size+'px Courier New';ctx.textAlign=align;ctx.fillText(txt,x,y);
+}
+function drawCircle(x,y,r,col){ctx.fillStyle=col;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();}
+
+// Person drawing
+function drawPerson(x,y,h,headCol,bodyCol,legCol,eyeCol,features){
+  const s=h/60;
+  // Legs
+  ctx.fillStyle=legCol;
+  ctx.fillRect(x-8*s,y-18*s,6*s,18*s);
+  ctx.fillRect(x+2*s,y-18*s,6*s,18*s);
+  // Body
+  ctx.fillStyle=bodyCol;
+  ctx.fillRect(x-10*s,y-42*s,20*s,24*s);
+  // Arms
+  ctx.fillRect(x-16*s,y-40*s,6*s,18*s);
+  ctx.fillRect(x+10*s,y-40*s,6*s,18*s);
+  // Head
+  ctx.fillStyle=headCol;
+  drawCircle(x,y-52*s,10*s,headCol);
+  // Eyes
+  ctx.fillStyle=eyeCol||'#fff';
+  drawCircle(x-4*s,y-54*s,2*s,eyeCol||'#fff');
+  drawCircle(x+4*s,y-54*s,2*s,eyeCol||'#fff');
+  if(features==='woman'){
+    // Dark hair
+    ctx.fillStyle='#1a0a0a';
+    ctx.fillRect(x-12*s,y-64*s,24*s,10*s);
+    ctx.fillRect(x-13*s,y-58*s,4*s,16*s);
+    ctx.fillRect(x+9*s,y-58*s,4*s,16*s);
+    // Tears
+    ctx.fillStyle='rgba(100,150,255,0.7)';
+    drawCircle(x-4*s,y-50*s,1.5*s,'rgba(100,150,255,0.7)');
+    drawCircle(x+5*s,y-49*s,1.5*s,'rgba(100,150,255,0.7)');
+  }
+  if(features==='oldman'){
+    ctx.fillStyle='#444';
+    // Hunched posture overlay
+    ctx.fillRect(x-12*s,y-48*s,24*s,8*s);
+    // White eyes
+    ctx.fillStyle='#eee';
+    drawCircle(x-4*s,y-54*s,3*s,'#eee');
+    drawCircle(x+4*s,y-54*s,3*s,'#eee');
+    // Wrinkles
+    ctx.strokeStyle='#555';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(x-6*s,y-56*s);ctx.lineTo(x-2*s,y-55*s);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(x+2*s,y-55*s);ctx.lineTo(x+6*s,y-56*s);ctx.stroke();
+  }
+  if(features==='child'){
+    // Dirty marks
+    ctx.fillStyle='rgba(80,60,40,0.4)';
+    drawCircle(x-3*s,y-50*s,2*s,'rgba(80,60,40,0.4)');
+    drawCircle(x+5*s,y-46*s,1.5*s,'rgba(80,60,40,0.4)');
+    // Tears
+    ctx.fillStyle='rgba(100,150,255,0.7)';
+    drawCircle(x-3*s,y-49*s,1*s,'rgba(100,150,255,0.7)');
+  }
+}
+
+// Player character
+function drawPlayer(x,y){
+  const bobY=Math.sin(gameTime*8)*2*(Math.abs(player.vx||0)+Math.abs(player.vy||0)>0?1:0);
+  drawPerson(x,y+bobY,50,'#d4a574','#3a5a8c','#2a3a5c','#333');
+}
+
+// ========== SCENE: HOME ==========
+function initHome(){
+  player.x=W/2;player.y=H*0.65;
+  sceneData={tvFrame:0,alarmPlayed:false,alarmTime:180,canLeave:false,tvText:0};
+  startAmbient(50,0.04);
+}
+function updateHome(){
+  sceneData.tvFrame++;
+  if(sceneData.tvFrame>sceneData.alarmTime&&!sceneData.alarmPlayed){
+    sceneData.alarmPlayed=true;sceneData.canLeave=true;
+    playAlarm();
+    showDialogue("*RING RING* Time for school! Better get going...",3000);
+  }
+  if(sceneData.canLeave){
+    promptEl.style.display='block';
+    promptEl.textContent='Press E or click here to leave for school';
+    if(keys['e']||keys['E']){keys['e']=false;keys['E']=false;
+      promptEl.style.display='none';dialogueEl.style.display='none';
+      stopAmbient();playDoorOpen();fadeToScene('schoolyard');}
+  }
+  promptEl.onclick=()=>{if(sceneData.canLeave){
+    promptEl.style.display='none';dialogueEl.style.display='none';
+    stopAmbient();playDoorOpen();fadeToScene('schoolyard');}};
+}
+function drawHome(){
+  // Floor
+  drawRect(0,H*0.7,W,H*0.3,'#5a3a2a');
+  // Walls
+  drawRect(0,0,W,H*0.7,'#8b7355');
+  // Wallpaper pattern
+  for(let i=0;i<W;i+=40){
+    ctx.fillStyle='rgba(139,115,85,0.3)';
+    ctx.fillRect(i,0,2,H*0.7);
+  }
+  // Window with light
+  drawRect(W*0.7,H*0.15,W*0.2,H*0.25,'#87CEEB');
+  drawRect(W*0.7,H*0.15,W*0.2,4,'#5a3a2a');
+  drawRect(W*0.7,H*0.4-4,W*0.2,4,'#5a3a2a');
+  drawRect(W*0.7,H*0.15,4,H*0.25,'#5a3a2a');
+  drawRect(W*0.9-4,H*0.15,4,H*0.25,'#5a3a2a');
+  drawRect(W*0.8-2,H*0.15,4,H*0.25,'#5a3a2a');
+  drawRect(W*0.7,H*0.27,W*0.2,4,'#5a3a2a');
+  // Curtains
+  ctx.fillStyle='#8b4040';
+  ctx.fillRect(W*0.67,H*0.12,W*0.05,H*0.3);
+  ctx.fillRect(W*0.88,H*0.12,W*0.05,H*0.3);
+  // Bed
+  drawRect(W*0.05,H*0.45,W*0.25,H*0.25,'#4a6a8a');
+  drawRect(W*0.05,H*0.45,W*0.06,H*0.08,'#fff');
+  drawRect(W*0.05,H*0.45,W*0.25,4,'#3a5a7a');
+  // TV
+  const tvx=W*0.4,tvy=H*0.3,tvw=W*0.15,tvh=H*0.18;
+  drawRect(tvx-5,tvy-5,tvw+10,tvh+10,'#222');
+  drawRect(tvx,tvy,tvw,tvh,'#1a2a3a');
+  // TV Stand
+  drawRect(tvx+tvw*0.3,tvy+tvh,tvw*0.4,H*0.08,'#3a2a1a');
+  // TV content - news
+  const t=sceneData.tvFrame;
+  ctx.fillStyle='rgba(100,150,200,0.15)';
+  ctx.fillRect(tvx,tvy,tvw,tvh);
+  drawText('NEWS',tvx+tvw/2,tvy+20,'#c44',10);
+  if(t%300<150){
+    drawText('MISSING',tvx+tvw/2,tvy+tvh*0.45,'#ff4444',9);
+    drawText('CHILDREN',tvx+tvw/2,tvy+tvh*0.65,'#ff4444',9);
+  }else{
+    drawText('3 children',tvx+tvw/2,tvy+tvh*0.45,'#aaa',8);
+    drawText('vanished',tvx+tvw/2,tvy+tvh*0.55,'#aaa',8);
+    drawText('this week',tvx+tvw/2,tvy+tvh*0.65,'#aaa',8);
+  }
+  // TV glow
+  ctx.fillStyle='rgba(100,150,200,0.03)';
+  drawCircle(tvx+tvw/2,tvy+tvh/2,tvw*0.8,'rgba(100,150,200,0.03)');
+  // Alarm clock
+  const ax=W*0.32,ay=H*0.5;
+  drawRect(ax-12,ay-12,24,24,'#333');
+  drawCircle(ax,ay,10,'#444');
+  ctx.strokeStyle='#0f0';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(ax,ay);
+  ctx.lineTo(ax+Math.cos(-Math.PI/2+gameTime*2)*7,ay+Math.sin(-Math.PI/2+gameTime*2)*7);
+  ctx.stroke();
+  if(sceneData.alarmPlayed&&Math.floor(gameTime*4)%2===0){
+    drawText('!!!',ax,ay-20,'#f44',14);
+  }
+  // Door
+  drawRect(W*0.88,H*0.35,W*0.08,H*0.35,'#5a3a1a');
+  drawCircle(W*0.9,H*0.52,3,'#ca8');
+  if(sceneData.canLeave){
+    drawText('EXIT >>',W*0.92,H*0.35-5,'#ff8',12);
+  }
+  // Player
+  drawPlayer(player.x,player.y);
+  // Warm lighting overlay
+  ctx.fillStyle='rgba(255,200,100,0.03)';
+  ctx.fillRect(0,0,W,H);
+}
+
+// ========== SCENE: SCHOOL YARD ==========
+function initSchoolyard(){
+  player.x=W*0.2;player.y=H*0.7;
+  sceneData={entered:false,phase:sceneData.phase||'arrive',
+    npcs:[],womanX:W*0.6,womanY:H*0.55,womanApproaching:false,
+    approachTimer:0,screamDone:false,choiceMade:null,
+    walkHomePhase:false,homeReached:false};
+  if(sceneData.phase==='afterschool'){
+    // NPCs walking away
+    for(let i=0;i<3;i++){
+      sceneData.npcs.push({x:W*0.4+i*60,y:H*0.65+i*15,vx:-0.5-Math.random(),
+        col:'#'+Math.floor(Math.random()*999+333).toString()});
+    }
+  }
+}
+function initSchoolyardAfter(){
+  player.x=W*0.3;player.y=H*0.6;
+  sceneData={phase:'afterschool',
+    npcs:[],womanX:W*0.6,womanY:H*0.55,womanApproaching:false,
+    approachTimer:0,screamDone:false,choiceMade:null,
+    walkHomePhase:false,homeReached:false};
+  for(let i=0;i<3;i++){
+    sceneData.npcs.push({x:W*0.4+i*60,y:H*0.65+i*15,vx:-0.5-Math.random()*0.5,
+      col:['#6a6a8a','#5a7a5a','#7a6a5a'][i]});
+  }
+  startAmbient(45,0.05);
+}
+
+function updateSchoolyard(){
+  const spd=2.5;
+  let mx=0,my=0;
+  if(keys['w']||keys['arrowup'])my=-1;
+  if(keys['s']||keys['arrowdown'])my=1;
+  if(keys['a']||keys['arrowleft'])mx=-1;
+  if(keys['d']||keys['arrowright'])mx=1;
+  if(mx||my){
+    const len=Math.sqrt(mx*mx+my*my);
+    player.x+=mx/len*spd;player.y+=my/len*spd;
+    if(frameCount%15===0)playFootstep();
+  }
+  player.x=Math.max(20,Math.min(W-20,player.x));
+  player.y=Math.max(H*0.4,Math.min(H*0.85,player.y));
+
+  if(sceneData.phase==='arrive'){
+    // Door zone
+    const doorX=W*0.5,doorY=H*0.38;
+    if(Math.abs(player.x-doorX)<40&&Math.abs(player.y-doorY)<30){
+      promptEl.style.display='block';
+      promptEl.textContent='Press E to enter school';
+      if(keys['e']){keys['e']=false;promptEl.style.display='none';
+        playDoorOpen();playBell();fadeToScene('classroom');}
+    }else{promptEl.style.display='none';}
+  }
+
+  if(sceneData.phase==='afterschool'){
+    // Update NPCs walking away
+    sceneData.npcs.forEach(n=>{n.x+=n.vx;});
+
+    if(!sceneData.womanApproaching&&!sceneData.screamDone){
+      // Woman cries
+      if(frameCount%120===0)playSob();
+      // Check proximity
+      if(Math.abs(player.x-sceneData.womanX)<120&&Math.abs(player.y-sceneData.womanY)<80){
+        sceneData.womanApproaching=true;sceneData.approachTimer=0;
+      }
+    }
+
+    if(sceneData.womanApproaching&&!sceneData.screamDone){
+      sceneData.approachTimer++;
+      // Woman approaches
+      const dx=player.x-sceneData.womanX;
+      const dy=player.y-sceneData.womanY;
+      const d=Math.sqrt(dx*dx+dy*dy);
+      if(d>30){
+        sceneData.womanX+=dx/d*2.5;
+        sceneData.womanY+=dy/d*2.5;
+      }
+      if(sceneData.approachTimer>60&&!sceneData.screamDone){
+        sceneData.screamDone=true;
+        // JUMPSCARE
+        doWomanScreamer(()=>{
+          showDialogue("Woman: Please! My son... he's gone! They took him! You have to help me find him!",4000);
+          setTimeout(()=>{
+            choicesEl.style.display='flex';
+            choicesEl.innerHTML=`
+              <button class="btn" onclick="makeChoice('help')">Help the woman find her child</button>
+              <button class="btn" onclick="makeChoice('decline')">Politely decline</button>`;
+          },4500);
+        });
+      }
+    }
+
+    if(sceneData.walkHomePhase){
+      const homeX=W*0.1,homeY=H*0.7;
+      if(Math.abs(player.x-homeX)<40&&Math.abs(player.y-homeY)<30){
+        if(!sceneData.homeReached){
+          sceneData.homeReached=true;
+          promptEl.style.display='none';
+          stopAmbient();fadeToScene('homeend');
+        }
+      }else{
+        promptEl.style.display='block';
+        promptEl.textContent='Walk home (bottom-left)';
+      }
+    }
+  }
+}
+
+function doWomanScreamer(cb){
+  playScreamer();shake(30,12);
+  screamerEl.style.display='flex';
+  // Draw scary woman face
+  sctx.fillStyle='#0a0a0a';sctx.fillRect(0,0,800,600);
+  sctx.fillStyle='#d4c4b4';
+  sctx.beginPath();sctx.ellipse(400,280,120,160,0,0,Math.PI*2);sctx.fill();
+  // Dark hair
+  sctx.fillStyle='#0a0505';
+  sctx.fillRect(270,100,260,140);
+  sctx.fillRect(260,140,40,200);
+  sctx.fillRect(500,140,40,200);
+  // Eyes - wide open
+  sctx.fillStyle='#fff';
+  sctx.beginPath();sctx.ellipse(355,260,30,20,0,0,Math.PI*2);sctx.fill();
+  sctx.beginPath();sctx.ellipse(445,260,30,20,0,0,Math.PI*2);sctx.fill();
+  sctx.fillStyle='#111';
+  drawCircleCtx(sctx,355,260,12,'#111');
+  drawCircleCtx(sctx,445,260,12,'#111');
+  // Mouth - screaming
+  sctx.fillStyle='#200';
+  sctx.beginPath();sctx.ellipse(400,360,40,35,0,0,Math.PI*2);sctx.fill();
+  // Tears
+  sctx.fillStyle='rgba(100,130,200,0.6)';
+  sctx.fillRect(345,280,10,40);
+  sctx.fillRect(445,280,10,40);
+  // Dark circles under eyes
+  sctx.fillStyle='rgba(60,30,40,0.5)';
+  sctx.beginPath();sctx.ellipse(355,280,25,8,0,0,Math.PI*2);sctx.fill();
+  sctx.beginPath();sctx.ellipse(445,280,25,8,0,0,Math.PI*2);sctx.fill();
+
+  setTimeout(()=>{screamerEl.style.display='none';if(cb)cb();},1200);
+}
+
+function drawCircleCtx(c,x,y,r,col){c.fillStyle=col;c.beginPath();c.arc(x,y,r,0,Math.PI*2);c.fill();}
+
+window.makeChoice=function(c){
+  choicesEl.style.display='none';
+  if(c==='help'){
+    showDialogue("You: I'll help you. Let's find your son.",2500);
+    setTimeout(()=>{
+      stopAmbient();
+      fadeToScene('corridor');
+    },3000);
+  }else{
+    showDialogue("You: I'm sorry, I can't help. I have to go home.",2500);
+    setTimeout(()=>{
+      playScreamer();shake(20,8);
+      showDialogue("The woman lets out a terrible SCREAM and runs away into the darkness!",3000);
+      setTimeout(()=>{
+        sceneData.walkHomePhase=true;
+      },3500);
+    },3000);
+  }
+};
+
+function drawSchoolyard(){
+  // Sky
+  const skyGrad=ctx.createLinearGradient(0,0,0,H*0.5);
+  if(sceneData.phase==='afterschool'){
+    skyGrad.addColorStop(0,'#1a1020');skyGrad.addColorStop(1,'#3a2030');
+  }else{
+    skyGrad.addColorStop(0,'#4a8ab4');skyGrad.addColorStop(1,'#8ab4d4');
+  }
+  ctx.fillStyle=skyGrad;ctx.fillRect(0,0,W,H*0.5);
+
+  // Ground
+  ctx.fillStyle=sceneData.phase==='afterschool'?'#1a2a1a':'#3a6a3a';
+  ctx.fillRect(0,H*0.5,W,H*0.5);
+  // Path
+  ctx.fillStyle=sceneData.phase==='afterschool'?'#2a2a2a':'#8a8a7a';
+  ctx.fillRect(W*0.35,H*0.38,W*0.3,H*0.55);
+
+  // School building
+  ctx.fillStyle=sceneData.phase==='afterschool'?'#2a2020':'#8a7a6a';
+  ctx.fillRect(W*0.3,H*0.1,W*0.4,H*0.35);
+  // Roof
+  ctx.fillStyle=sceneData.phase==='afterschool'?'#1a1010':'#6a3a2a';
+  ctx.beginPath();
+  ctx.moveTo(W*0.25,H*0.1);ctx.lineTo(W*0.5,H*0.02);ctx.lineTo(W*0.75,H*0.1);
+  ctx.fill();
+  // Windows
+  for(let i=0;i<3;i++){
+    ctx.fillStyle=sceneData.phase==='afterschool'?'rgba(255,200,100,0.2)':'#87CEEB';
+    ctx.fillRect(W*(0.35+i*0.1),H*0.15,W*0.06,H*0.08);
+  }
+  // Door
+  ctx.fillStyle='#4a2a1a';
+  ctx.fillRect(W*0.47,H*0.28,W*0.06,H*0.1);
+  drawCircle(W*0.52,H*0.34,3,'#ca8');
+
+  // Trees
+  for(let i=0;i<4;i++){
+    const tx=W*(0.1+i*0.25),ty=H*0.4;
+    ctx.fillStyle='#3a2a1a';ctx.fillRect(tx-4,ty,8,H*0.15);
+    ctx.fillStyle=sceneData.phase==='afterschool'?'#1a3a1a':'#2a6a2a';
+    drawCircle(tx,ty-10,25,sceneData.phase==='afterschool'?'#1a3a1a':'#2a6a2a');
+  }
+
+  if(sceneData.phase==='afterschool'){
+    // NPCs walking away
+    sceneData.npcs.forEach(n=>{
+      if(n.x>-50)drawPerson(n.x,n.y,40,n.col,n.col,'#333','#222');
+    });
+    // Woman
+    if(!sceneData.walkHomePhase){
+      drawPerson(sceneData.womanX,sceneData.womanY,50,'#c8b8a8','#2a1a2a','#1a1a2a','#ddd','woman');
+      // Crying text
+      if(!sceneData.screamDone&&frameCount%180<90){
+        drawText('*sobbing*',sceneData.womanX,sceneData.womanY-70,'#a88',12);
+      }
+    }
+    // Fog
+    ctx.fillStyle='rgba(10,10,20,0.3)';ctx.fillRect(0,0,W,H);
+    // Moon
+    drawCircle(W*0.8,H*0.08,30,'rgba(200,200,220,0.4)');
+  }
+
+  // Home marker (decline path)
+  if(sceneData.walkHomePhase){
+    drawRect(W*0.02,H*0.55,W*0.12,H*0.2,'#5a4a3a');
+    drawRect(W*0.06,H*0.6,W*0.04,H*0.12,'#3a2a1a');
+    drawText('HOME',W*0.08,H*0.53,'#aa8',12);
+  }
+
+  drawPlayer(player.x,player.y);
+}
+
+// ========== SCENE: CLASSROOM ==========
+function initClassroom(){
+  sceneData={clockAngle:0,hoursPassed:0,done:false,phase:'clock'};
+}
+function updateClassroom(){
+  if(sceneData.phase==='clock'){
+    sceneData.clockAngle+=0.15;
+    if(sceneData.clockAngle>Math.PI*12){
+      sceneData.phase='done';
+      playBell();
+      showDialogue("School's over! Time to go home.",2500);
+      setTimeout(()=>{
+        dialogueEl.style.display='none';
+        fadeEl.classList.add('active');
+        setTimeout(()=>{
+          scene='schoolyard';
+          initSchoolyardAfter();
+          setTimeout(()=>{fadeEl.classList.remove('active');},100);
+        },900);
+      },3000);
+    }
+  }
+}
+function drawClassroom(){
+  // Classroom bg
+  drawRect(0,0,W,H,'#4a4a3a');
+  drawRect(0,H*0.65,W,H*0.35,'#6a5a4a');
+  // Blackboard
+  drawRect(W*0.2,H*0.1,W*0.6,H*0.3,'#2a4a2a');
+  drawRect(W*0.2,H*0.1,W*0.6,4,'#8a7a5a');
+  drawRect(W*0.2,H*0.4-4,W*0.6,4,'#8a7a5a');
+  drawText('Mathematics',W*0.5,H*0.25,'rgba(255,255,255,0.3)',20);
+  // Desks
+  for(let r=0;r<2;r++){
+    for(let c=0;c<4;c++){
+      drawRect(W*(0.2+c*0.17),H*(0.55+r*0.15),W*0.12,H*0.06,'#7a6a4a');
+    }
+  }
+  // Clock
+  const cx=W*0.5,cy=H*0.5;
+  drawCircle(cx,cy,60,'#eee');
+  drawCircle(cx,cy,55,'#fff');
+  // Clock numbers
+  for(let i=1;i<=12;i++){
+    const a=-Math.PI/2+(i/12)*Math.PI*2;
+    drawText(i.toString(),cx+Math.cos(a)*42,cy+Math.sin(a)*42+5,'#333',12);
+  }
+  // Hands
+  const ha=sceneData.clockAngle;
+  ctx.strokeStyle='#333';ctx.lineWidth=3;
+  ctx.beginPath();ctx.moveTo(cx,cy);
+  ctx.lineTo(cx+Math.cos(-Math.PI/2+ha)*35,cy+Math.sin(-Math.PI/2+ha)*35);ctx.stroke();
+  ctx.strokeStyle='#c44';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(cx,cy);
+  ctx.lineTo(cx+Math.cos(-Math.PI/2+ha*12)*45,cy+Math.sin(-Math.PI/2+ha*12)*45);ctx.stroke();
+  // Hours text
+  const hrs=Math.min(6,Math.floor(sceneData.clockAngle/(Math.PI*2)));
+  drawText(hrs+' hours passed...',W*0.5,H*0.9,'#aaa',18);
+
+  // Spinning effect
+  ctx.fillStyle='rgba(0,0,0,'+(0.3+Math.sin(gameTime*2)*0.1)+')';
+  ctx.fillRect(0,0,W,H);
+}
+
+// ========== SCENE: HOME END (Decline path) ==========
+function initHomeend(){
+  sceneData={tvTime:0,newsShown:false,endShown:false};
+  player.x=W*0.5;player.y=H*0.6;
+}
+function updateHomeend(){
+  sceneData.tvTime++;
+  if(sceneData.tvTime>90&&!sceneData.newsShown){
+    sceneData.newsShown=true;
+    playScreamer();shake(10,4);
+    showDialogue("BREAKING NEWS: The body of a woman has been found near the school...",4000);
+    setTimeout(()=>{
+      showDialogue("You think: If I had helped her... I would be dead too...",4000);
+      setTimeout(()=>{
+        showEnd("THE END","You chose safety over compassion. The woman's fate was sealed.\nBut was it really the right choice?\n\n- BAD ENDING -");
+      },4500);
+    },4500);
+  }
+}
+function drawHomeend(){
+  drawHome();
+  // Darker atmosphere
+  ctx.fillStyle='rgba(0,0,20,0.4)';ctx.fillRect(0,0,W,H);
+  if(sceneData.newsShown){
+    const tvx=W*0.4,tvy=H*0.3,tvw=W*0.15,tvh=H*0.18;
+    drawRect(tvx,tvy,tvw,tvh,'#2a0a0a');
+    drawText('BREAKING',tvx+tvw/2,tvy+tvh*0.35,'#f44',11);
+    drawText('WOMAN',tvx+tvw/2,tvy+tvh*0.55,'#f44',10);
+    drawText('FOUND DEAD',tvx+tvw/2,tvy+tvh*0.75,'#f44',9);
+  }
+}
+
+// ========== SCENE: CORRIDOR (PATH A) ==========
+const GRID_COLS=10,GRID_ROWS=12;
+let gridOffX,gridOffY,tileSize;
+function initCorridor(){
+  tileSize=Math.min(W/(GRID_COLS+4),H/(GRID_ROWS+4));
+  gridOffX=(W-GRID_COLS*tileSize)/2;
+  gridOffY=(H-GRID_ROWS*tileSize)/2;
+  // Build grid: 0=safe, 1=danger, 2=hole(revealed), 3=tested-safe
+  tileGrid=[];
+  for(let r=0;r<GRID_ROWS;r++){
+    tileGrid[r]=[];
+    for(let c=0;c<GRID_COLS;c++){
+      // Ensure path exists - at least 3 safe per row
+      tileGrid[r][c]=Math.random()<0.3?1:0;
+    }
+    // Guarantee at least one safe path column
+    const safeCol=Math.floor(Math.random()*GRID_COLS);
+    tileGrid[r][safeCol]=0;
+    if(safeCol>0)tileGrid[r][safeCol-1]=0;
+    if(safeCol<GRID_COLS-1)tileGrid[r][safeCol+1]=0;
+  }
+  // First two rows always safe
+  for(let c=0;c<GRID_COLS;c++){tileGrid[0][c]=0;tileGrid[1][c]=0;}
+
+  player.gridR=0;player.gridC=Math.floor(GRID_COLS/2);
+  stones=5;
+  sceneData={womanR:0,womanC:Math.floor(GRID_COLS/2)+1,womanAlive:true,
+    womanFallRow:-1,womanMoveTimer:0,phase:'explore',
+    throwTarget:null,throwAnim:0,
+    speechTimer:0,speechIdx:0,childFound:false,doorRow:GRID_ROWS-2,
+    speeches:["I miss him so much...","He's just a little boy...","Please, we have to find him...",
+      "He was playing outside...","I heard a scream...","My baby..."]};
+  inventoryEl.style.display='block';
+  startAmbient(35,0.06);
+}
+
+function updateCorridor(){
+  if(interactCooldown>0)interactCooldown--;
+  inventoryEl.textContent='Stones: '+stones;
+
+  // Stone pickups - random spots
+  if(frameCount%300===0&&stones<8){
+    // Place stone near player
+    const sr=Math.min(GRID_ROWS-1,player.gridR+2);
+    const sc=Math.floor(Math.random()*GRID_COLS);
+    if(tileGrid[sr]&&tileGrid[sr][sc]===0)tileGrid[sr][sc]=5; // 5=stone pickup
+  }
+
+  // Pick up stone
+  if(keys['e']&&interactCooldown<=0){
+    keys['e']=false;interactCooldown=15;
+    const r=player.gridR,c=player.gridC;
+    // Check adjacent
+    for(let dr=-1;dr<=1;dr++){
+      for(let dc=-1;dc<=1;dc++){
+        const nr=r+dr,nc=c+dc;
+        if(nr>=0&&nr<GRID_ROWS&&nc>=0&&nc<GRID_COLS&&tileGrid[nr][nc]===5){
+          tileGrid[nr][nc]=0;stones++;
+          playStoneThrow();
+        }
+      }
+    }
+    // Door check
+    if(r>=sceneData.doorRow-1&&!sceneData.childFound&&sceneData.phase==='explore'){
+      sceneData.childFound=true;
+      playDoorOpen();playChildCry();
+      showDialogue("You find a small, dirty boy crying in a hidden room...",3000);
+      setTimeout(()=>{
+        showDialogue("Press E to take his hand.",2000);
+        sceneData.phase='takechild';
+      },3500);
+    }
+    if(sceneData.phase==='takechild'){
+      sceneData.phase='oldman';
+      showDialogue("You take the child's hand...",1500);
+      setTimeout(()=>triggerOldMan(),2000);
+    }
+  }
+
+  // Movement on grid
+  let moved=false;
+  if(keys['w']||keys['arrowup']){keys['w']=keys['arrowup']=false;
+    if(player.gridR<GRID_ROWS-1){
+      const nr=player.gridR+1;
+      if(canWalkTile(nr,player.gridC)){player.gridR=nr;moved=true;}
+    }
+  }
+  if(keys['s']||keys['arrowdown']){keys['s']=keys['arrowdown']=false;
+    if(player.gridR>0){
+      const nr=player.gridR-1;
+      if(canWalkTile(nr,player.gridC)){player.gridR=nr;moved=true;}
+    }
+  }
+  if(keys['a']||keys['arrowleft']){keys['a']=keys['arrowleft']=false;
+    if(player.gridC>0){
+      const nc=player.gridC-1;
+      if(canWalkTile(player.gridR,nc)){player.gridC=nc;moved=true;}
+    }
+  }
+  if(keys['d']||keys['arrowright']){keys['d']=keys['arrowright']=false;
+    if(player.gridC<GRID_COLS-1){
+      const nc=player.gridC+1;
+      if(canWalkTile(player.gridR,nc)){player.gridC=nc;moved=true;}
+    }
+  }
+  if(moved)playFootstep();
+
+  // Throw stone with click
+  if(mouseClicked&&stones>0&&sceneData.phase==='explore'){
+    const gc=Math.floor((mouseX-gridOffX)/tileSize);
+    const gr=GRID_ROWS-1-Math.floor((mouseY-gridOffY)/tileSize);
+    if(gc>=0&&gc<GRID_COLS&&gr>=0&&gr<GRID_ROWS){
+      if(tileGrid[gr][gc]===0||tileGrid[gr][gc]===1){
+        stones--;playStoneThrow();
+        if(tileGrid[gr][gc]===1){
+          // Danger - tile falls
+          setTimeout(()=>{tileGrid[gr][gc]=2;playTileFall();
+            addParticle(gridOffX+(gc+0.5)*tileSize,gridOffY+(GRID_ROWS-1-gr+0.5)*tileSize,'#d8a');
+          },300);
+        }else{
+          // Safe - flash green
+          tileGrid[gr][gc]=3;
+          setTimeout(()=>{if(tileGrid[gr][gc]===3)tileGrid[gr][gc]=0;},1500);
+        }
+      }
+    }
+  }
+
+  // Woman movement
+  if(sceneData.womanAlive&&sceneData.phase==='explore'){
+    sceneData.womanMoveTimer++;
+    if(sceneData.womanMoveTimer>40){
+      sceneData.womanMoveTimer=0;
+      // Woman moves forward recklessly
+      const nr=sceneData.womanR+1;
+      if(nr<GRID_ROWS){
+        let nc=sceneData.womanC;
+        // Slight random movement
+        if(Math.random()<0.3)nc+=Math.random()<0.5?-1:1;
+        nc=Math.max(0,Math.min(GRID_COLS-1,nc));
+        sceneData.womanR=nr;sceneData.womanC=nc;
+        // Check if she steps on danger
+        if(tileGrid[nr]&&(tileGrid[nr][nc]===1||tileGrid[nr][nc]===2)){
+          sceneData.womanAlive=false;sceneData.womanFallRow=nr;
+          playCrumble();playScreamer();shake(15,6);
+          tileGrid[nr][nc]=2;
+          addParticle(gridOffX+(nc+0.5)*tileSize,gridOffY+(GRID_ROWS-1-nr+0.5)*tileSize,'#c88');
+          showDialogue("The woman steps on an unstable tile and falls into the darkness below!",3000);
+          setTimeout(()=>showDialogue("You're alone now... but the child might still be ahead.",3000),3500);
+        }
+      }
+    }
+    // Speech bubbles
+    sceneData.speechTimer++;
+    if(sceneData.speechTimer>150){
+      sceneData.speechTimer=0;
+      sceneData.speechIdx=(sceneData.speechIdx+1)%sceneData.speeches.length;
+      playSob();
+    }
+  }
+
+  mouseClicked=false;
+}
+
+function canWalkTile(r,c){
+  if(r<0||r>=GRID_ROWS||c<0||c>=GRID_COLS)return false;
+  const t=tileGrid[r][c];
+  return t!==2; // Can walk on anything except holes
+}
+
+function drawCorridor(){
+  // Dark background
+  drawRect(0,0,W,H,'#1a0a0a');
+
+  // Walls
+  ctx.fillStyle='#2a1a1a';
+  ctx.fillRect(gridOffX-tileSize,gridOffY-tileSize*0.5,tileSize*0.8,GRID_ROWS*tileSize+tileSize);
+  ctx.fillRect(gridOffX+GRID_COLS*tileSize+tileSize*0.2,gridOffY-tileSize*0.5,tileSize*0.8,GRID_ROWS*tileSize+tileSize);
+
+  // Draw grid
+  for(let r=0;r<GRID_ROWS;r++){
+    for(let c=0;c<GRID_COLS;c++){
+      const x=gridOffX+c*tileSize;
+      const y=gridOffY+(GRID_ROWS-1-r)*tileSize;
+      const t=tileGrid[r][c];
+
+      if(t===2){
+        // Hole
+        drawRect(x,y,tileSize,tileSize,'#050005');
+        ctx.strokeStyle='#300';ctx.lineWidth=1;ctx.strokeRect(x,y,tileSize,tileSize);
+      }else if(t===3){
+        // Tested safe - green flash
+        drawRect(x,y,tileSize,tileSize,'#2a5a3a');
+        ctx.strokeStyle='#4a7a5a';ctx.lineWidth=1;ctx.strokeRect(x,y,tileSize,tileSize);
+      }else if(t===5){
+        // Stone pickup
+        drawRect(x,y,tileSize,tileSize,'#c8889a');
+        ctx.strokeStyle='#a06878';ctx.lineWidth=1;ctx.strokeRect(x,y,tileSize,tileSize);
+        drawCircle(x+tileSize/2,y+tileSize/2,tileSize*0.2,'#888');
+      }else{
+        // Pink tile
+        const pink=t===1?'#c8889a':'#c8889a'; // Same color, danger hidden
+        drawRect(x,y,tileSize,tileSize,pink);
+        ctx.strokeStyle='#a06878';ctx.lineWidth=1;ctx.strokeRect(x,y,tileSize,tileSize);
+      }
+    }
+  }
+
+  // Door on right wall near end
+  if(sceneData.phase==='explore'||sceneData.phase==='takechild'){
+    const doorY=gridOffY+(GRID_ROWS-1-sceneData.doorRow)*tileSize;
+    const doorX=gridOffX+GRID_COLS*tileSize+tileSize*0.2;
+    drawRect(doorX,doorY-tileSize*0.5,tileSize*0.6,tileSize*1.5,'#4a2a1a');
+    drawCircle(doorX+tileSize*0.15,doorY+tileSize*0.3,3,'#ca8');
+    if(player.gridR>=sceneData.doorRow-1){
+      drawText('Door',doorX+tileSize*0.3,doorY-tileSize*0.6,'#aa8',11);
+    }
+  }
+
+  // Woman
+  if(sceneData.womanAlive){
+    const wx=gridOffX+(sceneData.womanC+0.5)*tileSize;
+    const wy=gridOffY+(GRID_ROWS-1-sceneData.womanR+0.3)*tileSize;
+    drawPerson(wx,wy,tileSize*0.8,'#c8b8a8','#2a1a2a','#1a1a2a','#ddd','woman');
+    // Speech bubble
+    if(sceneData.speechTimer<80){
+      speechEl.style.display='block';
+      speechEl.textContent=sceneData.speeches[sceneData.speechIdx];
+      speechEl.style.left=(wx-60)+'px';
+      speechEl.style.top=(wy-tileSize*1.5)+'px';
+    }else{
+      speechEl.style.display='none';
+    }
+  }else{
+    speechEl.style.display='none';
+  }
+
+  // Player
+  const px=gridOffX+(player.gridC+0.5)*tileSize;
+  const py=gridOffY+(GRID_ROWS-1-player.gridR+0.3)*tileSize;
+  drawPlayer(px,py);
+
+  // Child (if found)
+  if(sceneData.childFound){
+    drawPerson(px+tileSize*0.6,py+tileSize*0.1,tileSize*0.5,'#d4b8a0','#5a5a6a','#3a3a4a','#333','child');
+  }
+
+  // Fog overlay
+  ctx.fillStyle='rgba(10,5,10,0.2)';ctx.fillRect(0,0,W,H);
+  // Eerie light
+  const grad=ctx.createRadialGradient(px,py,10,px,py,tileSize*5);
+  grad.addColorStop(0,'rgba(255,200,180,0.05)');grad.addColorStop(1,'rgba(0,0,0,0.4)');
+  ctx.fillStyle=grad;ctx.fillRect(0,0,W,H);
+
+  drawText('Click tiles to throw stones | WASD to move | E to interact',W/2,H-20,'rgba(200,200,200,0.4)',12);
+}
+
+// ========== OLD MAN / CHASE ==========
+function triggerOldMan(){
+  // JUMPSCARE
+  screamerEl.style.display='flex';
+  playScreamer();shake(40,15);
+  // Draw old man face
+  sctx.fillStyle='#050505';sctx.fillRect(0,0,800,600);
+  // Grey skin
+  sctx.fillStyle='#6a6a6a';
+  sctx.beginPath();sctx.ellipse(400,300,140,180,0,0,Math.PI*2);sctx.fill();
+  // Bald - no hair, just bumpy head
+  sctx.fillStyle='#5a5a5a';
+  sctx.beginPath();sctx.ellipse(400,180,100,60,0,0,Math.PI);sctx.fill();
+  // White blind eyes
+  sctx.fillStyle='#eeeeed';
+  sctx.beginPath();sctx.ellipse(350,270,28,22,0,0,Math.PI*2);sctx.fill();
+  sctx.beginPath();sctx.ellipse(450,270,28,22,0,0,Math.PI*2);sctx.fill();
+  // No pupils - just white
+  sctx.fillStyle='rgba(200,200,200,0.5)';
+  drawCircleCtx(sctx,350,270,8,'rgba(200,200,200,0.5)');
+  drawCircleCtx(sctx,450,270,8,'rgba(200,200,200,0.5)');
+  // Mouth - snarling
+  sctx.fillStyle='#200';
+  sctx.beginPath();sctx.ellipse(400,380,50,25,0,0,Math.PI*2);sctx.fill();
+  // Teeth
+  sctx.fillStyle='#aa9';
+  for(let i=0;i<6;i++){
+    sctx.fillRect(365+i*14,368,8,15);
+  }
+  // Wrinkles
+  sctx.strokeStyle='#4a4a4a';sctx.lineWidth=2;
+  for(let i=0;i<5;i++){
+    sctx.beginPath();sctx.moveTo(310+i*40,240);
+    sctx.quadraticCurveTo(320+i*40,235,330+i*40,240);sctx.stroke();
+  }
+  // Veins
+  sctx.strokeStyle='rgba(100,50,50,0.4)';sctx.lineWidth=1;
+  sctx.beginPath();sctx.moveTo(350,200);sctx.lineTo(340,250);sctx.lineTo(345,270);sctx.stroke();
+  sctx.beginPath();sctx.moveTo(450,200);sctx.lineTo(460,250);sctx.lineTo(455,270);sctx.stroke();
+
+  setTimeout(()=>{
+    screamerEl.style.display='none';
+    showDialogue("An old man appears from the shadows, dragging the woman's body!",2500);
+    setTimeout(()=>{
+      showDialogue("RUN! Get back to the exit!",2000);
+      setTimeout(()=>{
+        dialogueEl.style.display='none';
+        sceneData.phase='chase';
+        oldManChasing=true;
+        sceneData.oldManR=GRID_ROWS-1;
+        sceneData.oldManC=Math.floor(GRID_COLS/2);
+        sceneData.oldManMoveTimer=0;
+        chaseProgress=0;
+        startHeartbeat();
+      },2200);
+    },2800);
+  },1500);
+}
+
+function updateChase(){
+  if(sceneData.phase!=='chase')return;
+  inventoryEl.textContent='RUN!!!';
+
+  // Player movement (reversed - going back toward row 0)
+  let moved=false;
+  if((keys['w']||keys['arrowup'])&&interactCooldown<=0){
+    keys['w']=keys['arrowup']=false;interactCooldown=3;
+    if(player.gridR>0){
+      const nr=player.gridR-1;
+      if(tileGrid[nr][player.gridC]!==2){player.gridR=nr;moved=true;}
+    }
+  }
+  if((keys['s']||keys['arrowdown'])&&interactCooldown<=0){
+    keys['s']=keys['arrowdown']=false;interactCooldown=3;
+    if(player.gridR<GRID_ROWS-1){
+      const nr=player.gridR+1;
+      if(tileGrid[nr][player.gridC]!==2){player.gridR=nr;moved=true;}
+    }
+  }
+  if((keys['a']||keys['arrowleft'])&&interactCooldown<=0){
+    keys['a']=keys['arrowleft']=false;interactCooldown=3;
+    if(player.gridC>0){
+      const nc=player.gridC-1;
+      if(tileGrid[player.gridR][nc]!==2){player.gridC=nc;moved=true;}
+    }
+  }
+  if((keys['d']||keys['arrowright'])&&interactCooldown<=0){
+    keys['d']=keys['arrowright']=false;interactCooldown=3;
+    if(player.gridC<GRID_COLS-1){
+      const nc=player.gridC+1;
+      if(tileGrid[player.gridR][nc]!==2){player.gridC=nc;moved=true;}
+    }
+  }
+
+  // Space to jump over gap
+  if(keys[' ']||keys['Space']){
+    keys[' ']=keys['Space']=false;
+    // Jump 2 tiles in last moved direction (default: backward = toward row 0)
+    const nr=player.gridR-2;
+    if(nr>=0&&tileGrid[nr]&&tileGrid[nr][player.gridC]!==2){
+      player.gridR=nr;moved=true;
+      playFootstep();
+    }
+  }
+
+  if(moved){playFootstep();
+    // Crumble tile behind
+    const behindR=player.gridR+1;
+    if(behindR<GRID_ROWS&&tileGrid[behindR]&&Math.random()<0.4){
+      tileGrid[behindR][player.gridC]=2;
+      addParticle(gridOffX+(player.gridC+0.5)*tileSize,
+        gridOffY+(GRID_ROWS-1-behindR+0.5)*tileSize,'#d8a');
+      playCrumble();
+    }
+  }
+
+  // Old man chases
+  sceneData.oldManMoveTimer++;
+  if(sceneData.oldManMoveTimer>25){
+    sceneData.oldManMoveTimer=0;
+    // Move toward player
+    let bestR=sceneData.oldManR,bestC=sceneData.oldManC;
+    if(sceneData.oldManR>player.gridR)bestR--;
+    else if(sceneData.oldManR<player.gridR)bestR++;
+    if(sceneData.oldManC<player.gridC)bestC++;
+    else if(sceneData.oldManC>player.gridC)bestC--;
+    // Old man doesn't care about holes
+    sceneData.oldManR=bestR;sceneData.oldManC=bestC;
+    if(Math.random()<0.3){playTone(80,0.2,'sawtooth',0.08);}
+  }
+
+  // Check if caught
+  if(sceneData.oldManR===player.gridR&&sceneData.oldManC===player.gridC){
+    stopHeartbeat();stopAmbient();
+    playScreamer();shake(30,15);
+    showEnd("GAME OVER","The old man caught you...\nDarkness consumes everything.\n\nTry again?");
+  }
+
+  // Check if escaped (reach row 0)
+  if(player.gridR<=0){
+    stopHeartbeat();stopAmbient();
+    showEnd("YOU ESCAPED","You saved the child and escaped the horror.\nThe nightmare is over... for now.\n\n- GOOD ENDING -");
+  }
+
+  if(interactCooldown>0)interactCooldown--;
+}
+
+function drawChase(){
+  drawCorridor();
+
+  // Old man
+  if(sceneData.oldManR!==undefined){
+    const ox=gridOffX+(sceneData.oldManC+0.5)*tileSize;
+    const oy=gridOffY+(GRID_ROWS-1-sceneData.oldManR+0.3)*tileSize;
+    drawPerson(ox,oy,tileSize*1.1,'#5a5a5a','#2a2a2a','#1a1a1a','#eee','oldman');
+
+    // Dragging woman
+    if(!sceneData.womanAlive){
+      drawPerson(ox+tileSize,oy+tileSize*0.3,tileSize*0.6,'#b8a898','#2a1a2a','#1a1a2a','#888','woman');
+    }
+  }
+
+  // Red pulsing overlay
+  ctx.fillStyle='rgba(80,0,0,'+(0.1+Math.sin(gameTime*5)*0.05)+')';
+  ctx.fillRect(0,0,W,H);
+
+  // Distance warning
+  if(sceneData.oldManR!==undefined){
+    const dist=Math.abs(sceneData.oldManR-player.gridR)+Math.abs(sceneData.oldManC-player.gridC);
+    if(dist<4){
+      drawText('HE\'S CLOSE!',W/2,40,'#f44',24);
+    }
+  }
+
+  drawText('W/S to move | SPACE to jump over gaps | Get to the exit!',W/2,H-20,'rgba(255,150,150,0.6)',12);
+}
+
+// ========== UI HELPERS ==========
+function showDialogue(text,duration){
+  dialogueEl.style.display='block';dialogueEl.textContent=text;
+  if(duration)setTimeout(()=>{dialogueEl.style.display='none';},duration);
+}
+
+function showEnd(title,text){
+  endScreen.style.display='flex';
+  document.getElementById('endTitle').textContent=title;
+  document.getElementById('endText').textContent=text;
+}
+
+// ========== INIT SCENES ==========
+function initScene(s){
+  promptEl.style.display='none';dialogueEl.style.display='none';
+  choicesEl.style.display='none';speechEl.style.display='none';
+  inventoryEl.style.display='none';particles=[];
+  switch(s){
+    case'home':initHome();break;
+    case'schoolyard':initSchoolyard();break;
+    case'classroom':initClassroom();break;
+    case'homeend':initHomeend();break;
+    case'corridor':initCorridor();break;
+  }
+}
+
+// ========== MAIN LOOP ==========
+function update(){
+  gameTime+=0.016;frameCount++;
+  if(shakeTimer>0)shakeTimer--;
+  updateParticles();
+
+  switch(scene){
+    case'home':updateHome();break;
+    case'schoolyard':updateSchoolyard();break;
+    case'classroom':updateClassroom();break;
+    case'homeend':updateHomeend();break;
+    case'corridor':
+      if(sceneData.phase==='chase')updateChase();
+      else updateCorridor();
+      break;
+  }
+  mouseClicked=false;
+}
+
+function draw(){
+  ctx.save();
+  if(shakeTimer>0){
+    const sx=(Math.random()-0.5)*shakeIntensity;
+    const sy=(Math.random()-0.5)*shakeIntensity;
+    ctx.translate(sx,sy);
+  }
+
+  ctx.clearRect(-20,-20,W+40,H+40);
+
+  switch(scene){
+    case'home':drawHome();break;
+    case'schoolyard':drawSchoolyard();break;
+    case'classroom':drawClassroom();break;
+    case'homeend':drawHomeend();break;
+    case'corridor':
+      if(sceneData.phase==='chase')drawChase();
+      else drawCorridor();
+      break;
+  }
+
+  drawParticles();
+  ctx.restore();
+}
+
+function gameLoop(){
+  update();draw();
+  requestAnimationFrame(gameLoop);
+}
+
+// ========== START ==========
+document.getElementById('startBtn').onclick=function(){
+  initAudio();
+  titleScreen.style.display='none';
+  scene='home';
+  initScene('home');
+  gameLoop();
+};
+
+document.getElementById('restartBtn').onclick=function(){
+  endScreen.style.display='none';
+  stopHeartbeat();stopAmbient();
+  oldManChasing=false;
+  scene='home';
+  initScene('home');
+};
+
+// Prevent default on game keys
+window.addEventListener('keydown',e=>{
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))e.preventDefault();
+});
+</script>
+</body>
+</html>
