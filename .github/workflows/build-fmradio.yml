@@ -69,3 +69,82 @@ jobs:
         with:
           name: FmRadio-Windows
           path: fmradio-windows/dist/FmRadio.exe
+
+  build-windows-portable:
+    name: Build Windows Portable ZIP
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Python embeddable
+        shell: pwsh
+        run: |
+          $pythonVersion = "3.10.11"
+          $url = "https://www.python.org/ftp/python/$pythonVersion/python-$pythonVersion-embed-amd64.zip"
+          Invoke-WebRequest -Uri $url -OutFile python-embed.zip
+
+      - name: Create portable structure
+        shell: pwsh
+        run: |
+          $out = "fmradio-portable"
+          $pyDir = "$out/python"
+          New-Item -ItemType Directory -Path $pyDir -Force
+          Expand-Archive -Path python-embed.zip -DestinationPath $pyDir -Force
+
+          # Enable site-packages in embeddable Python
+          $pth = Get-ChildItem "$pyDir/python*._pth" | Select-Object -First 1
+          @("python310.zip", ".", "Lib", "Lib/site-packages", "import site") | Set-Content $pth.FullName
+
+          New-Item -ItemType Directory -Path "$pyDir/Lib/site-packages" -Force
+
+      - name: Install pip and dependencies
+        shell: pwsh
+        run: |
+          $pyDir = "fmradio-portable/python"
+          Invoke-WebRequest -Uri "https://bootstrap.pypa.io/get-pip.py" -OutFile "$pyDir/get-pip.py"
+          & "$pyDir/python.exe" "$pyDir/get-pip.py" --no-warn-script-location --quiet
+          Remove-Item "$pyDir/get-pip.py"
+          & "$pyDir/python.exe" -m pip install numpy scipy sounddevice pyrtlsdr `
+            --target "$pyDir/Lib/site-packages" `
+            --no-warn-script-location --quiet
+
+      - name: Copy application files
+        shell: pwsh
+        run: |
+          $out = "fmradio-portable"
+          Copy-Item "fmradio-windows/fm_radio.py" "$out/fm_radio.py"
+          if (Test-Path "fmradio-windows/fm_stations.json") {
+            Copy-Item "fmradio-windows/fm_stations.json" "$out/fm_stations.json"
+          }
+
+          # Create launcher
+          @"
+          @echo off
+          title FM Radio RTL-SDR - Portable
+          color 0A
+          echo.
+          echo  ============================================
+          echo   FM Radio RTL-SDR v1.0
+          echo   Portable Edition (Python included)
+          echo  ============================================
+          echo  NOTE: Connect RTL-SDR device before starting!
+          echo  If not detected, install WinUSB driver via Zadig:
+          echo    https://zadig.akeo.ie
+          "%~dp0python\python.exe" "%~dp0fm_radio.py"
+          if %errorlevel% neq 0 (
+              echo.
+              echo  [ERROR] Application exited with error. See above.
+              pause
+          )
+          "@ | Set-Content "$out/FmRadio.bat"
+
+      - name: Create ZIP archive
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "fmradio-portable" -DestinationPath "FmRadio-Windows-Portable.zip"
+
+      - name: Upload Portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: FmRadio-Windows-Portable
+          path: FmRadio-Windows-Portable.zip
