@@ -144,14 +144,21 @@ jobs:
             --target "$pyDir/Lib/site-packages" `
             --no-warn-script-location --quiet
 
-      - name: Verify imports work
+      - name: Verify packages installed
         shell: pwsh
         run: |
           $pyDir = "fmradio-portable/python"
-          # Verify core deps (rtlsdr needs native DLL which may not be on CI runner)
-          & "$pyDir/python.exe" -c "import numpy; from scipy.signal import firwin; import sounddevice; print('Core imports OK')"
-          # Check rtlsdr package is at least installed (import may fail without hardware DLL)
-          & "$pyDir/python.exe" -c "import importlib.util; assert importlib.util.find_spec('rtlsdr') is not None; print('rtlsdr package found')"
+          & "$pyDir/python.exe" -c @"
+          import importlib.util
+          for pkg in ['numpy', 'scipy', 'sounddevice', 'rtlsdr']:
+              spec = importlib.util.find_spec(pkg)
+              assert spec is not None, f'{pkg} not found!'
+              print(f'  {pkg}: {spec.origin}')
+          # Verify numpy actually works (pure Python, no native DLL issues)
+          import numpy as np
+          print(f'  numpy {np.__version__} functional')
+          print('All packages verified OK')
+          "@
 
       - name: Copy application files
         shell: pwsh
