@@ -148,3 +148,47 @@ jobs:
         with:
           name: FmRadio-Windows-Portable
           path: FmRadio-Windows-Portable.zip
+
+  create-release:
+    name: Create Release
+    needs: [build-windows-portable, build-windows-exe]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release files
+        run: |
+          mkdir release
+          cp artifacts/FmRadio-Windows-Portable/FmRadio-Windows-Portable.zip release/
+          cp artifacts/FmRadio-Windows/FmRadio.exe release/
+
+      - name: Delete old release
+        run: |
+          gh release delete latest --yes 2>/dev/null || true
+          git push origin :refs/tags/latest 2>/dev/null || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Release
+        run: |
+          gh release create latest \
+            --title "FM Radio - Latest Build" \
+            --notes "Автоматическая сборка FM Radio.
+
+          **Скачать:**
+          - **FmRadio-Windows-Portable.zip** — портативная версия (Python внутри, ничего не надо ставить)
+          - **FmRadio.exe** — EXE версия (нужен Python на ПК)
+
+          Распакуй ZIP и запусти **FmRadio.bat**" \
+            --latest \
+            release/FmRadio-Windows-Portable.zip \
+            release/FmRadio.exe
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
