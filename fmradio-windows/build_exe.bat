@@ -29,6 +29,10 @@ pyinstaller --noconfirm --onefile --windowed ^
     --hidden-import "rtlsdr" ^
     --hidden-import "numpy" ^
     --hidden-import "scipy.signal" ^
+    --hidden-import "scipy.spatial" ^
+    --hidden-import "scipy.fft" ^
+    --hidden-import "scipy.linalg" ^
+    --hidden-import "scipy.special" ^
     --hidden-import "sounddevice" ^
     --hidden-import "tkinter" ^
     fm_radio.py
