@@ -21,7 +21,54 @@ from tkinter import ttk, messagebox, simpledialog
 from pathlib import Path
 
 import numpy as np
-from scipy.signal import firwin, lfilter, decimate
+
+try:
+    from scipy.signal import firwin, lfilter, decimate
+except (ImportError, ModuleNotFoundError):
+    # Pure-numpy fallback when scipy is incomplete (e.g. missing scipy.spatial)
+    def firwin(numtaps, cutoff, fs=None):
+        """FIR lowpass filter design via windowed sinc."""
+        nyq = fs / 2.0
+        fc = cutoff / nyq
+        half = (numtaps - 1) / 2.0
+        n = np.arange(numtaps)
+        h = np.sinc(2 * fc * (n - half)) * 2 * fc
+        # Hamming window
+        h *= 0.54 - 0.46 * np.cos(2 * np.pi * n / (numtaps - 1))
+        h /= np.sum(h)
+        return h
+
+    def lfilter(b, a, x, zi=None):
+        """FIR filter (a=1) using numpy convolution with state."""
+        M = len(b)
+        N = len(x)
+        x = np.asarray(x, dtype=np.float64)
+        b = np.asarray(b, dtype=np.float64)
+        y = np.convolve(x, b)[:N]
+        if zi is not None:
+            zi = np.asarray(zi, dtype=np.float64)
+            n_zi = min(M - 1, N)
+            y[:n_zi] += zi[:n_zi]
+        # Compute output filter state
+        zf = np.zeros(M - 1)
+        x_rev = x[::-1]
+        for j in range(M - 1):
+            valid = min(M - 1 - j, N)
+            zf[j] = np.dot(b[j + 1:j + 1 + valid], x_rev[:valid])
+        if zi is not None:
+            for j in range(M - 1):
+                if N + j < M - 1:
+                    zf[j] += zi[N + j]
+            return y, zf
+        return y, zf
+
+    def decimate(x, q, ftype='fir'):
+        """Downsample signal after anti-aliasing FIR filter."""
+        n = 30 * q + 1
+        b = firwin(n, 1.0 / q, fs=2.0)
+        filtered = np.convolve(x, b, mode='same')
+        return filtered[::q]
+
 import sounddevice as sd
 
 try:
