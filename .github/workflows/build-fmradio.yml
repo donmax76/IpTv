@@ -1,0 +1,67 @@
+name: Build FM Radio
+
+on:
+  push:
+    branches: [ 'claude/fm-radio-app-*', 'main', 'master' ]
+  workflow_dispatch:
+
+jobs:
+  build-android-apk:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Build FM Radio APK
+        run: |
+          chmod +x gradlew
+          ./gradlew :fmradio:assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: FmRadio-debug.apk
+          path: fmradio/build/outputs/apk/debug/fmradio-debug.apk
+
+  build-windows-exe:
+    name: Build Windows EXE
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pyrtlsdr numpy scipy sounddevice pyinstaller
+
+      - name: Build EXE
+        working-directory: fmradio-windows
+        run: |
+          pyinstaller --noconfirm --onefile --windowed `
+            --name "FmRadio" `
+            --hidden-import "rtlsdr" `
+            --hidden-import "numpy" `
+            --hidden-import "scipy.signal" `
+            --hidden-import "sounddevice" `
+            --hidden-import "_sounddevice_data" `
+            --collect-data "sounddevice" `
+            fm_radio.py
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: FmRadio-Windows
+          path: fmradio-windows/dist/FmRadio.exe
