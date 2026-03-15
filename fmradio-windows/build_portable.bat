@@ -108,6 +108,7 @@ if exist "%~dp0fm_stations.json" (
 REM === Create launcher batch file ===
 (
 echo @echo off
+echo setlocal
 echo title FM Radio RTL-SDR - Portable
 echo color 0A
 echo echo.
@@ -118,6 +119,24 @@ echo echo  ============================================
 echo echo  NOTE: Connect RTL-SDR device before starting!
 echo echo  If not detected, install WinUSB driver via Zadig:
 echo echo    https://zadig.akeo.ie
+echo echo.
+echo.
+echo REM Check if dependencies are installed
+echo "%%~dp0python\python.exe" -c "import rtlsdr, numpy, sounddevice" 2^>nul
+echo if %%errorlevel%% neq 0 ^(
+echo     echo  [*] Installing missing dependencies...
+echo     "%%~dp0python\python.exe" -m pip install pyrtlsdr numpy scipy sounddevice --target "%%~dp0python\Lib\site-packages" --no-warn-script-location --quiet
+echo     if %%errorlevel%% neq 0 ^(
+echo         echo  [ERROR] Failed to install dependencies. Check internet connection.
+echo         pause
+echo         exit /b 1
+echo     ^)
+echo     echo  [OK] Dependencies installed.
+echo     echo.
+echo ^)
+echo.
+echo echo  [*] Starting FM Radio...
+echo echo.
 echo "%%~dp0python\python.exe" "%%~dp0fm_radio.py"
 echo if %%errorlevel%% neq 0 ^(
 echo     echo.
