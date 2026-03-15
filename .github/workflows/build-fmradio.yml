@@ -144,6 +144,12 @@ jobs:
             --target "$pyDir/Lib/site-packages" `
             --no-warn-script-location --quiet
 
+      - name: Verify imports work
+        shell: pwsh
+        run: |
+          $pyDir = "fmradio-portable/python"
+          & "$pyDir/python.exe" -c "import rtlsdr; import numpy; import sounddevice; from scipy.signal import firwin; print('All imports OK')"
+
       - name: Copy application files
         shell: pwsh
         run: |
@@ -156,13 +162,12 @@ jobs:
           # Create launcher
           @"
           @echo off
+          setlocal
           title FM Radio RTL-SDR - Portable
           color 0A
 
           set "TCL_LIBRARY=%~dp0python\tcl\tcl8.6"
           set "TK_LIBRARY=%~dp0python\tcl\tk8.6"
-          set "PYTHONHOME=%~dp0python"
-          set "PYTHONPATH=%~dp0python\Lib;%~dp0python\Lib\site-packages;%~dp0python\DLLs"
           set "PATH=%~dp0python\DLLs;%~dp0python;%PATH%"
 
           echo.
@@ -173,6 +178,23 @@ jobs:
           echo  NOTE: Connect RTL-SDR device before starting!
           echo  If not detected, install WinUSB driver via Zadig:
           echo    https://zadig.akeo.ie
+          echo.
+
+          REM Check if dependencies are importable
+          "%~dp0python\python.exe" -c "import rtlsdr, numpy, sounddevice" 2>nul
+          if %errorlevel% neq 0 (
+              echo  [*] Installing missing dependencies...
+              "%~dp0python\python.exe" -m pip install pyrtlsdr numpy scipy sounddevice --target "%~dp0python\Lib\site-packages" --no-warn-script-location --quiet
+              if %errorlevel% neq 0 (
+                  echo  [ERROR] Failed to install dependencies. Check internet connection.
+                  pause
+                  exit /b 1
+              )
+              echo  [OK] Dependencies installed.
+              echo.
+          )
+
+          echo  [*] Starting FM Radio...
           echo.
           "%~dp0python\python.exe" "%~dp0fm_radio.py"
           if %errorlevel% neq 0 (

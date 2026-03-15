@@ -84,7 +84,7 @@ FM_BAND_END = 108.0e6   # 108.0 MHz
 FM_STEP = 100e3          # 100 kHz
 SAMPLE_RATE = 1.024e6    # 1.024 MHz
 AUDIO_RATE = 48000        # 48 kHz audio output
-STATIONS_FILE = "fm_stations.json"
+STATIONS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fm_stations.json")
 
 
 class FmDemodulator:
@@ -481,6 +481,7 @@ class FmRadioApp:
         time.sleep(0.2)
 
     def _playback_loop(self):
+        stream = None
         try:
             stream = sd.OutputStream(
                 samplerate=AUDIO_RATE, channels=1, dtype='float32',
@@ -494,11 +495,15 @@ class FmRadioApp:
                 audio = audio * self.volume
                 if len(audio) > 0:
                     stream.write(audio.reshape(-1, 1))
-
-            stream.stop()
-            stream.close()
         except Exception as e:
             self.root.after(0, lambda: self._handle_play_error(str(e)))
+        finally:
+            if stream is not None:
+                try:
+                    stream.stop()
+                    stream.close()
+                except Exception:
+                    pass
 
     def _handle_play_error(self, msg):
         self.is_playing = False
@@ -550,9 +555,6 @@ class FmRadioApp:
         self.is_scanning = True
         self.btn_scan.config(text="\u25A0  Stop Scan")
 
-        self.scan_progress.pack(fill=tk.X, pady=(0, 2), before=self.btn_scan.master)
-        self.lbl_scan.pack(fill=tk.X, pady=(0, 4), before=self.btn_scan.master)
-        # Re-pack after btn_scan — fix by packing below it
         self.scan_progress.pack(fill=tk.X, pady=(0, 2))
         self.lbl_scan.pack(fill=tk.X, pady=(0, 4))
 
