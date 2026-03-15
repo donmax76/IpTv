@@ -190,17 +190,20 @@ jobs:
           echo    https://zadig.akeo.ie
           echo.
 
-          REM Check if dependencies are importable
-          "%~dp0python\python.exe" -c "import rtlsdr, numpy, sounddevice" 2>nul
+          REM Check if dependencies are installed (use find_spec to avoid DLL load issues)
+          "%~dp0python\python.exe" -c "import importlib.util; missing=[p for p in ['numpy','scipy','sounddevice','rtlsdr'] if not importlib.util.find_spec(p)]; exit(1 if missing else 0)" 2>nul
           if %errorlevel% neq 0 (
               echo  [*] Installing missing dependencies...
-              "%~dp0python\python.exe" -m pip install pyrtlsdr numpy scipy sounddevice --target "%~dp0python\Lib\site-packages" --no-warn-script-location --quiet
+              "%~dp0python\python.exe" -m pip install --upgrade pyrtlsdr numpy scipy sounddevice --target "%~dp0python\Lib\site-packages" --no-warn-script-location --quiet
               if %errorlevel% neq 0 (
                   echo  [ERROR] Failed to install dependencies. Check internet connection.
                   pause
                   exit /b 1
               )
               echo  [OK] Dependencies installed.
+              echo.
+          ) else (
+              echo  [OK] All dependencies found.
               echo.
           )
 
