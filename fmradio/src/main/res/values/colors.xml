@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="background_dark">#FF1A1A2E</color>
+    <color name="surface_dark">#FF16213E</color>
+    <color name="surface_light">#FF1F2B47</color>
+    <color name="accent_green">#FF00E676</color>
+    <color name="accent_orange">#FFFF9100</color>
+    <color name="accent_blue">#FF448AFF</color>
+    <color name="accent_red">#FFFF5252</color>
+    <color name="text_primary">#FFFFFFFF</color>
+    <color name="text_secondary">#FFB0BEC5</color>
+    <color name="text_hint">#FF78909C</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="star_yellow">#FFFFD600</color>
+    <color name="button_circle">#FF263859</color>
+    <color name="button_play">#FF00C853</color>
+    <color name="station_selected">#33448AFF</color>
+</resources>

@@ -15,3 +15,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "TVViewer"
 include(":app")
+include(":fmradio")

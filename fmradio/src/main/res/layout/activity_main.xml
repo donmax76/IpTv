@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/background_dark"
+    android:padding="16dp">
+
+    <!-- Header: Device status -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="8dp">
+
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/status_disconnected"
+            android:textColor="@color/text_secondary"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/btnConnect"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:text="@string/btn_connect"
+            android:textSize="12sp"
+            android:backgroundTint="@color/accent_blue"
+            android:textColor="@color/white" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvDeviceInfo"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="@color/text_hint"
+        android:textSize="11sp"
+        android:layout_marginBottom="12dp" />
+
+    <!-- Frequency Display (large, car-friendly) -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="@drawable/bg_frequency_display"
+        android:padding="20dp"
+        android:layout_marginBottom="12dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="FM MHz"
+            android:textColor="@color/accent_orange"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/tvFrequency"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="100.0"
+            android:textColor="@color/accent_green"
+            android:textSize="72sp"
+            android:fontFamily="monospace"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Frequency Seekbar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="8dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="87.5"
+            android:textColor="@color/text_secondary"
+            android:textSize="11sp" />
+
+        <SeekBar
+            android:id="@+id/seekFrequency"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="8dp"
+            android:progressTint="@color/accent_green"
+            android:thumbTint="@color/accent_green" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="108.0"
+            android:textColor="@color/text_secondary"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+    <!-- Controls Row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:layout_marginBottom="12dp">
+
+        <ImageButton
+            android:id="@+id/btnFreqDown"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:src="@drawable/ic_skip_previous"
+            android:background="@drawable/bg_button_circle"
+            android:contentDescription="@string/cd_freq_down"
+            android:scaleType="centerInside"
+            android:padding="16dp" />
+
+        <ImageButton
+            android:id="@+id/btnPlayStop"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:src="@drawable/ic_play"
+            android:background="@drawable/bg_button_play"
+            android:contentDescription="@string/cd_play_stop"
+            android:scaleType="centerInside"
+            android:padding="16dp"
+            android:layout_marginStart="24dp"
+            android:layout_marginEnd="24dp"
+            android:enabled="false" />
+
+        <ImageButton
+            android:id="@+id/btnFreqUp"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:src="@drawable/ic_skip_next"
+            android:background="@drawable/bg_button_circle"
+            android:contentDescription="@string/cd_freq_up"
+            android:scaleType="centerInside"
+            android:padding="16dp" />
+    </LinearLayout>
+
+    <!-- Volume -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="8dp">
+
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@drawable/ic_volume"
+            android:contentDescription="@string/cd_volume" />
+
+        <SeekBar
+            android:id="@+id/seekVolume"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:progressTint="@color/accent_orange"
+            android:thumbTint="@color/accent_orange" />
+    </LinearLayout>
+
+    <!-- Scan Button & Progress -->
+    <Button
+        android:id="@+id/btnScan"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="@string/btn_scan"
+        android:backgroundTint="@color/accent_orange"
+        android:textColor="@color/white"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:enabled="false"
+        android:layout_marginBottom="4dp" />
+
+    <LinearLayout
+        android:id="@+id/layoutScanning"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:layout_marginBottom="4dp">
+
+        <ProgressBar
+            android:id="@+id/progressScan"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="100"
+            android:progressTint="@color/accent_green" />
+
+        <TextView
+            android:id="@+id/tvScanStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp"
+            android:gravity="center" />
+    </LinearLayout>
+
+    <!-- Saved Stations List -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/label_saved_stations"
+        android:textColor="@color/text_primary"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="4dp" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvStations"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingBottom="8dp" />
+
+</LinearLayout>
