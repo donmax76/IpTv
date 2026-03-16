@@ -148,24 +148,25 @@ jobs:
         shell: pwsh
         run: |
           $pyDir = "fmradio-portable/python"
-          # Download official rtl-sdr release for Windows (64-bit)
-          $rtlUrl = "https://ftp.osmocom.org/binaries/windows/rtl-sdr/rtl-sdr-64bit-20240623.zip"
+          # Download RTL-SDR Blog drivers (includes rtlsdr.dll for Windows x64)
+          $rtlUrl = "https://github.com/rtlsdrblog/rtl-sdr-blog/releases/latest/download/Release.zip"
           Invoke-WebRequest -Uri $rtlUrl -OutFile rtl-sdr.zip
           Expand-Archive rtl-sdr.zip -DestinationPath rtl-sdr-extract -Force
-          # Copy DLLs to python dir (so they're on PATH via the bat launcher)
-          $dllDir = Get-ChildItem -Path rtl-sdr-extract -Recurse -Filter "rtlsdr.dll" | Select-Object -First 1
-          if ($dllDir) {
-            $srcDir = $dllDir.DirectoryName
-            Copy-Item "$srcDir/rtlsdr.dll" "$pyDir/" -Force
-            Copy-Item "$srcDir/libusb-1.0.dll" "$pyDir/" -Force -ErrorAction SilentlyContinue
-            # Also copy as librtlsdr.dll (pyrtlsdr looks for both names)
-            Copy-Item "$srcDir/rtlsdr.dll" "$pyDir/librtlsdr.dll" -Force
-            Write-Host "RTL-SDR DLLs copied:"
-            Get-ChildItem "$pyDir/rtlsdr.dll","$pyDir/librtlsdr.dll","$pyDir/libusb-1.0.dll" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.Name) ($($_.Length) bytes)" }
+          # Use x64 DLLs
+          $x64Dir = Get-ChildItem -Path rtl-sdr-extract -Recurse -Directory -Filter "x64" | Select-Object -First 1
+          if (-not $x64Dir) {
+            # Fallback: search for rtlsdr.dll anywhere
+            $x64Dir = Get-ChildItem -Path rtl-sdr-extract -Recurse -Filter "rtlsdr.dll" | Select-Object -First 1
+            $srcDir = $x64Dir.DirectoryName
           } else {
-            Write-Error "rtlsdr.dll not found in downloaded archive"
-            exit 1
+            $srcDir = $x64Dir.FullName
           }
+          # Copy all DLLs to python dir (on PATH via bat launcher)
+          Copy-Item "$srcDir/rtlsdr.dll" "$pyDir/" -Force
+          Copy-Item "$srcDir/rtlsdr.dll" "$pyDir/librtlsdr.dll" -Force
+          Get-ChildItem "$srcDir/*.dll" | Copy-Item -Destination "$pyDir/" -Force
+          Write-Host "RTL-SDR DLLs copied from $srcDir :"
+          Get-ChildItem "$pyDir/*.dll" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.Name) ($($_.Length) bytes)" }
           Remove-Item rtl-sdr.zip, rtl-sdr-extract -Recurse -Force
 
       - name: Verify packages installed
