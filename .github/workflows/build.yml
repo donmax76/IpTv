@@ -70,7 +70,7 @@ jobs:
         fi
         if [ -n "$APK_PATH" ]; then
           mkdir -p apk_output
-          cp "$APK_PATH" apk_output/TVViewer-v5.1-debug.apk
+          cp "$APK_PATH" apk_output/TVViewer-v5.2-debug.apk
         else
           echo "::error::No APK found"
           exit 1
@@ -81,16 +81,16 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: TVViewer-debug
-        path: apk_output/TVViewer-v5.1-debug.apk
+        path: apk_output/TVViewer-v5.2-debug.apk
         if-no-files-found: error
 
     - name: Create Release
       if: steps.build.outputs.exit_code == '0' && github.event_name == 'push'
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: v5.1-build${{ github.run_number }}
-        name: TVViewer v5.1 (Build ${{ github.run_number }})
-        files: apk_output/TVViewer-v5.1-debug.apk
+        tag_name: v5.2-build${{ github.run_number }}
+        name: TVViewer v5.2 (Build ${{ github.run_number }})
+        files: apk_output/TVViewer-v5.2-debug.apk
         fail_on_unmatched_files: true
         make_latest: true
       env:
