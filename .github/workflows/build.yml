@@ -32,19 +32,26 @@ jobs:
       run: sed -i 's/\r$//' gradlew
 
     - name: Build Debug APK
-      id: build
       run: |
-        ./gradlew assembleDebug --no-daemon --stacktrace > build_output.log 2>&1
-        BUILD_EXIT=$?
-        echo "exit_code=$BUILD_EXIT" >> $GITHUB_OUTPUT
-        cat build_output.log
-        if [ $BUILD_EXIT -ne 0 ]; then
-          echo "::error::Gradle build failed with exit code $BUILD_EXIT"
-          exit 1
-        fi
+        # Try build with retry on failure
+        for attempt in 1 2 3; do
+          echo "=== Build attempt $attempt ==="
+          if ./gradlew assembleDebug --stacktrace; then
+            echo "Build succeeded on attempt $attempt"
+            break
+          else
+            echo "Build failed on attempt $attempt"
+            if [ $attempt -eq 3 ]; then
+              echo "All attempts failed"
+              exit 1
+            fi
+            echo "Retrying in 10 seconds..."
+            sleep 10
+            ./gradlew clean 2>/dev/null || true
+          fi
+        done
 
     - name: Find and prepare APK
-      id: apk
       run: |
         echo "=== All APK files ==="
         find . -name "*.apk" -type f -ls
@@ -56,10 +63,8 @@ jobs:
           echo "APK found at: $APK_PATH"
           mkdir -p apk_output
           cp "$APK_PATH" apk_output/TVViewer-v5.1-debug.apk
-          echo "apk_found=true" >> $GITHUB_OUTPUT
         else
           echo "::error::No APK file found!"
-          echo "apk_found=false" >> $GITHUB_OUTPUT
           exit 1
         fi
 
