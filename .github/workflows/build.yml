@@ -32,10 +32,43 @@ jobs:
       run: sed -i 's/\r$//' gradlew
 
     - name: Build Debug APK
-      id: build
       run: |
+        set -o pipefail
         ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee build_output.log
-      continue-on-error: true
+
+    - name: Find APK files
+      if: success()
+      run: |
+        echo "=== All APK files ==="
+        find . -name "*.apk" -type f -ls
+        echo "=== Expected path ==="
+        ls -la app/build/outputs/apk/debug/ 2>/dev/null || echo "DEBUG APK DIR NOT FOUND"
+        echo "=== Searching broader ==="
+        find . -path "*/build/outputs/apk/**/*.apk" -type f -ls
+
+    - name: Upload APK artifact
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-debug
+        path: |
+          app/build/outputs/apk/debug/*.apk
+          **/build/outputs/apk/**/*.apk
+        if-no-files-found: warn
+
+    - name: Create Release
+      if: success() && github.event_name == 'push'
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v${{ github.run_number }}
+        name: TVViewer v5.1 (Build ${{ github.run_number }})
+        files: |
+          app/build/outputs/apk/debug/*.apk
+          **/build/outputs/apk/**/*.apk
+        fail_on_unmatched_files: false
+        make_latest: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Upload build log
       if: always()
@@ -44,43 +77,3 @@ jobs:
         name: build-log
         path: build_output.log
         if-no-files-found: ignore
-
-    - name: Show build errors
-      if: steps.build.outcome == 'failure'
-      run: |
-        echo "=== BUILD FAILED ==="
-        echo "=== Last 200 lines of build output ==="
-        tail -200 build_output.log
-        echo "=== Searching for error: lines ==="
-        grep -i "error:" build_output.log || true
-        echo "=== Searching for FAILURE lines ==="
-        grep -i "FAILURE" build_output.log || true
-        exit 1
-
-    - name: List APK files
-      if: steps.build.outcome == 'success'
-      run: |
-        echo "=== All APK files ==="
-        find . -name "*.apk" -type f -ls
-        echo "=== Expected path ==="
-        ls -la app/build/outputs/apk/debug/ || echo "DEBUG APK DIR NOT FOUND"
-
-    - name: Upload APK artifact
-      if: steps.build.outcome == 'success'
-      uses: actions/upload-artifact@v4
-      with:
-        name: app-debug
-        path: app/build/outputs/apk/debug/*.apk
-        if-no-files-found: error
-
-    - name: Create Release
-      if: steps.build.outcome == 'success' && github.event_name == 'push'
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: v${{ github.run_number }}
-        name: TVViewer v5.1 (Build ${{ github.run_number }})
-        files: app/build/outputs/apk/debug/*.apk
-        fail_on_unmatched_files: true
-        make_latest: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
