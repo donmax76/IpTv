@@ -21,17 +21,18 @@
         android:theme="@style/Theme.TVViewer"
         android:usesCleartextTraffic="true"
         tools:targetApi="34">
+
         <activity
             android:name=".CrashReportActivity"
             android:exported="false"
             android:theme="@style/Theme.TVViewer"
             android:noHistory="true" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.TVViewer.NoActionBar"
+            android:theme="@style/Theme.TVViewer"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
-            android:screenOrientation="fullUser"
             android:resizeableActivity="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -39,14 +40,20 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
+
         <activity
-            android:name=".SettingsActivity"
+            android:name=".PlayerActivity"
             android:exported="false"
+            android:theme="@style/Theme.TVViewer.Player"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:screenOrientation="fullUser"
             android:parentActivityName=".MainActivity" />
+
         <activity
-            android:name=".TvGuideActivity"
+            android:name=".AddPlaylistActivity"
             android:exported="false"
-            android:theme="@style/Theme.TVViewer.NoActionBar"
+            android:theme="@style/Theme.TVViewer"
             android:parentActivityName=".MainActivity" />
+
     </application>
 </manifest>

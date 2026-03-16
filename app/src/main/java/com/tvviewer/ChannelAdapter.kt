@@ -6,6 +6,7 @@ import android.view.ViewGroup
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
 
@@ -23,6 +24,7 @@ class ChannelAdapter(
         val channelName: TextView = view.findViewById(R.id.channelName)
         val channelLogo: ImageView = view.findViewById(R.id.channelLogo)
         val channelEpg: TextView? = view.findViewById(R.id.channelEpg)
+        val channelGroup: TextView? = view.findViewById(R.id.channelGroup)
         val btnFavorite: ImageButton = view.findViewById(R.id.btnFavorite)
     }
 
@@ -36,27 +38,44 @@ class ChannelAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val channel = channels[position]
+        val context = holder.itemView.context
+
         holder.channelNumber?.text = "${position + 1}"
         holder.channelName.text = channel.name
+
         holder.channelLogo.load(channel.logoUrl) {
             crossfade(true)
-            error(android.R.drawable.ic_menu_gallery)
-            placeholder(android.R.drawable.ic_menu_gallery)
+            error(R.drawable.ic_channel_placeholder)
+            placeholder(R.drawable.ic_channel_placeholder)
         }
+
+        // Group
+        holder.channelGroup?.let { groupView ->
+            if (channel.group != null) {
+                groupView.text = channel.group
+                groupView.visibility = View.VISIBLE
+            } else {
+                groupView.visibility = View.GONE
+            }
+        }
+
+        // EPG
         val (now, next) = EpgRepository.getNowNext(epgData, channel.tvgId)
         holder.channelEpg?.let { epg ->
             epg.text = when {
-                now != null && next != null -> "• $now → $next"
-                now != null -> "• $now"
-                next != null -> "→ $next"
+                now != null -> now
+                next != null -> "-> $next"
                 else -> null
             }
             epg.visibility = if (epg.text.isNullOrEmpty()) View.GONE else View.VISIBLE
         }
-        holder.btnFavorite.setImageResource(
-            if (channel.url in favorites) android.R.drawable.btn_star_big_on
-            else android.R.drawable.btn_star_big_off
+
+        // Favorite
+        val isFav = channel.url in favorites
+        holder.btnFavorite.setColorFilter(
+            ContextCompat.getColor(context, if (isFav) R.color.favorite_active else R.color.favorite_inactive)
         )
+
         holder.btnFavorite.setOnClickListener { onFavoriteClick(channel) }
         holder.itemView.setOnClickListener { onChannelClick(channel) }
     }
@@ -77,10 +96,6 @@ class ChannelAdapter(
 
     fun updateFavorites(newFavorites: Set<String>) {
         favorites = newFavorites
-        notifyDataSetChanged()
-    }
-
-    fun refreshDisplayMode() {
         notifyDataSetChanged()
     }
 }
