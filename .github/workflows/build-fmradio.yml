@@ -45,7 +45,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pyrtlsdr numpy scipy sounddevice pyinstaller
+          pip install "pyrtlsdr==0.3.0" numpy scipy sounddevice pyinstaller
 
       - name: Build EXE
         working-directory: fmradio-windows
@@ -140,7 +140,7 @@ jobs:
           Invoke-WebRequest -Uri "https://bootstrap.pypa.io/get-pip.py" -OutFile "$pyDir/get-pip.py"
           & "$pyDir/python.exe" "$pyDir/get-pip.py" --no-warn-script-location --quiet
           Remove-Item "$pyDir/get-pip.py"
-          & "$pyDir/python.exe" -m pip install numpy scipy sounddevice pyrtlsdr `
+          & "$pyDir/python.exe" -m pip install numpy scipy sounddevice "pyrtlsdr==0.3.0" `
             --target "$pyDir/Lib/site-packages" `
             --no-warn-script-location --quiet
 
@@ -219,7 +219,7 @@ jobs:
           "%~dp0python\python.exe" -c "import importlib.util; missing=[p for p in ['numpy','scipy','sounddevice','rtlsdr'] if not importlib.util.find_spec(p)]; exit(1 if missing else 0)" 2>nul
           if %errorlevel% neq 0 (
               echo  [*] Installing missing dependencies...
-              "%~dp0python\python.exe" -m pip install --upgrade pyrtlsdr numpy scipy sounddevice --target "%~dp0python\Lib\site-packages" --no-warn-script-location --quiet
+              "%~dp0python\python.exe" -m pip install --upgrade "pyrtlsdr==0.3.0" numpy scipy sounddevice --target "%~dp0python\Lib\site-packages" --no-warn-script-location --quiet
               if %errorlevel% neq 0 (
                   echo  [ERROR] Failed to install dependencies. Check internet connection.
                   pause
