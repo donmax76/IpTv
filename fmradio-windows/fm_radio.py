@@ -71,11 +71,26 @@ except (ImportError, ModuleNotFoundError):
 
 import sounddevice as sd
 
-try:
-    from rtlsdr import RtlSdr
-except ImportError:
-    print("ERROR: pyrtlsdr not installed. Run: pip install pyrtlsdr")
-    sys.exit(1)
+RtlSdr = None
+
+def _load_rtlsdr():
+    global RtlSdr
+    if RtlSdr is None:
+        try:
+            from rtlsdr import RtlSdr as _Sdr
+            RtlSdr = _Sdr
+        except (ImportError, OSError) as e:
+            raise RuntimeError(
+                "RTL-SDR driver not found.\n\n"
+                "Install steps:\n"
+                "1. Download Zadig: https://zadig.akeo.ie\n"
+                "2. Plug in RTL-SDR device\n"
+                "3. In Zadig: Options -> List All Devices\n"
+                "4. Select 'Bulk-In, Interface (Interface 0)'\n"
+                "5. Install WinUSB driver\n\n"
+                f"Details: {e}"
+            )
+    return RtlSdr
 
 
 # --- Constants ---
@@ -421,7 +436,7 @@ class FmRadioApp:
         try:
             self.lbl_status.config(text="Connecting...")
             self.root.update()
-            self.sdr = RtlSdr()
+            self.sdr = _load_rtlsdr()()
             self.sdr.sample_rate = SAMPLE_RATE
             self.sdr.center_freq = self.current_freq
             self.sdr.gain = 'auto'
