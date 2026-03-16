@@ -7,6 +7,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -29,16 +32,21 @@ jobs:
       run: sed -i 's/\r$//' gradlew
 
     - name: Build Debug APK
-      run: ./gradlew assembleDebug --no-daemon
+      run: ./gradlew assembleDebug --no-daemon --stacktrace
 
     - name: List APK files
-      run: find . -name "*.apk" -type f
+      run: |
+        echo "=== All APK files ==="
+        find . -name "*.apk" -type f -ls
+        echo "=== Expected path ==="
+        ls -la app/build/outputs/apk/debug/ || echo "DEBUG APK DIR NOT FOUND"
 
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
       with:
         name: app-debug
         path: app/build/outputs/apk/debug/*.apk
+        if-no-files-found: error
 
     - name: Create Release
       if: github.event_name == 'push'
@@ -47,6 +55,7 @@ jobs:
         tag_name: v${{ github.run_number }}
         name: TVViewer v5.0 (Build ${{ github.run_number }})
         files: app/build/outputs/apk/debug/*.apk
+        fail_on_unmatched_files: true
         make_latest: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
