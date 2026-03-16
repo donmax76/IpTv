@@ -31,26 +31,22 @@ jobs:
     - name: Build Debug APK
       run: ./gradlew assembleDebug --no-daemon
 
-    - name: Find APK
-      id: find_apk
-      run: |
-        APK_PATH=$(find app/build/outputs -name "*.apk" -type f | head -1)
-        echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
-        echo "Found APK: $APK_PATH"
+    - name: List APK files
+      run: find . -name "*.apk" -type f
 
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
       with:
         name: app-debug
-        path: ${{ steps.find_apk.outputs.apk_path }}
+        path: app/build/outputs/apk/debug/*.apk
 
     - name: Create Release
       if: github.event_name == 'push'
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: build-${{ github.run_number }}
-        name: Build ${{ github.run_number }}
-        files: ${{ steps.find_apk.outputs.apk_path }}
+        tag_name: v${{ github.run_number }}
+        name: TVViewer v5.0 (Build ${{ github.run_number }})
+        files: app/build/outputs/apk/debug/*.apk
         make_latest: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
