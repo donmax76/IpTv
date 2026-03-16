@@ -144,6 +144,20 @@ jobs:
             --target "$pyDir/Lib/site-packages" `
             --no-warn-script-location --quiet
 
+          # Patch pyrtlsdr to not require pkg_resources at all
+          $rtlsdrInit = "$pyDir/Lib/site-packages/rtlsdr/__init__.py"
+          if (Test-Path $rtlsdrInit) {
+            $content = Get-Content $rtlsdrInit -Raw
+            # Replace pkg_resources version lookup with hardcoded version
+            $content = $content -replace 'from pkg_resources import get_distribution', '# patched: removed pkg_resources dependency'
+            $content = $content -replace "get_distribution\(['""]pyrtlsdr['""]\)\.version", "'0.3.0'"
+            $content = $content -replace '__version__\s*=\s*get_distribution\([^)]+\)\.version', "__version__ = '0.3.0'"
+            Set-Content $rtlsdrInit -Value $content
+            Write-Host "Patched pyrtlsdr __init__.py to remove pkg_resources dependency"
+            Write-Host "--- Patched content (first 20 lines) ---"
+            Get-Content $rtlsdrInit -TotalCount 20 | ForEach-Object { Write-Host $_ }
+          }
+
       - name: Download librtlsdr native DLL
         shell: pwsh
         run: |

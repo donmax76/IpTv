@@ -16,6 +16,23 @@ import os
 import sys
 import threading
 import time
+
+# --- Ensure pkg_resources is available BEFORE any third-party imports ---
+# pyrtlsdr requires pkg_resources (from setuptools). If setuptools is missing
+# in the portable build, create a minimal shim so imports don't fail.
+try:
+    import pkg_resources  # noqa: F401
+except ImportError:
+    import types as _types
+    _fake_pr = _types.ModuleType('pkg_resources')
+    class _FakeDist:
+        version = '0.3.0'
+    _fake_pr.get_distribution = lambda name: _FakeDist()
+    _fake_pr.DistributionNotFound = type('DistributionNotFound', (Exception,), {})
+    _fake_pr.VersionConflict = type('VersionConflict', (Exception,), {})
+    sys.modules['pkg_resources'] = _fake_pr
+    del _types, _fake_pr
+
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 from pathlib import Path
@@ -73,25 +90,6 @@ import sounddevice as sd
 
 RtlSdr = None
 
-def _ensure_pkg_resources():
-    """Ensure pkg_resources is available (needed by pyrtlsdr).
-    If setuptools is missing, create a minimal shim so pyrtlsdr can import."""
-    try:
-        import pkg_resources  # noqa: F401
-    except ImportError:
-        import types
-        fake = types.ModuleType('pkg_resources')
-
-        class _FakeDist:
-            version = '0.3.0'
-
-        def _get_distribution(name):
-            return _FakeDist()
-
-        fake.get_distribution = _get_distribution
-        sys.modules['pkg_resources'] = fake
-
-
 def _find_rtlsdr_dll():
     """Try to locate rtlsdr DLL and add its directory to PATH."""
     import ctypes.util
@@ -123,10 +121,7 @@ def _find_rtlsdr_dll():
 def _load_rtlsdr():
     global RtlSdr
     if RtlSdr is None:
-        # Step 1: Ensure pkg_resources shim exists (pyrtlsdr needs it)
-        _ensure_pkg_resources()
-
-        # Step 2: Try to find DLL on PATH
+        # Try to find DLL on PATH
         _find_rtlsdr_dll()
 
         # Step 3: Import pyrtlsdr
