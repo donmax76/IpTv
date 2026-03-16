@@ -16,7 +16,7 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import coil.Coil
+import coil.imageLoader
 import kotlinx.coroutines.launch
 
 class SettingsFragment : Fragment() {
@@ -406,7 +406,7 @@ class SettingsFragment : Fragment() {
                 .setPositiveButton(R.string.ok) { _, _ ->
                     ChannelDataHolder.epgData = emptyMap()
                     ChannelDataHolder.allChannels = emptyList()
-                    coil.Coil.imageLoader(requireContext()).memoryCache?.clear()
+                    requireContext().imageLoader.memoryCache?.clear()
                     Toast.makeText(requireContext(), R.string.cache_cleared, Toast.LENGTH_SHORT).show()
                 }
                 .setNegativeButton(R.string.cancel, null)
