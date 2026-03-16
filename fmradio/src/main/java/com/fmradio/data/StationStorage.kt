@@ -15,6 +15,12 @@ class StationStorage(context: Context) {
         private const val KEY_STATIONS = "saved_stations"
         private const val KEY_LAST_FREQUENCY = "last_frequency"
         private const val KEY_LAST_VOLUME = "last_volume"
+        private const val KEY_PRESET_PREFIX = "preset_"
+        private const val KEY_BASS = "eq_bass"
+        private const val KEY_TREBLE = "eq_treble"
+        private const val KEY_AF_ENABLED = "af_enabled"
+        private const val KEY_TA_ENABLED = "ta_enabled"
+        const val PRESET_COUNT = 6
     }
 
     private val prefs: SharedPreferences =
@@ -92,4 +98,34 @@ class StationStorage(context: Context) {
     var lastVolume: Float
         get() = prefs.getFloat(KEY_LAST_VOLUME, 0.8f)
         set(value) = prefs.edit().putFloat(KEY_LAST_VOLUME, value).apply()
+
+    // --- Preset memory (1-6) ---
+
+    fun getPreset(index: Int): Long {
+        return prefs.getLong("${KEY_PRESET_PREFIX}$index", 0L)
+    }
+
+    fun setPreset(index: Int, frequencyHz: Long) {
+        prefs.edit().putLong("${KEY_PRESET_PREFIX}$index", frequencyHz).apply()
+    }
+
+    // --- Equalizer settings ---
+
+    var bassLevel: Int
+        get() = prefs.getInt(KEY_BASS, 10) // 0-20, center=10
+        set(value) = prefs.edit().putInt(KEY_BASS, value).apply()
+
+    var trebleLevel: Int
+        get() = prefs.getInt(KEY_TREBLE, 10) // 0-20, center=10
+        set(value) = prefs.edit().putInt(KEY_TREBLE, value).apply()
+
+    // --- AF/TA toggles ---
+
+    var afEnabled: Boolean
+        get() = prefs.getBoolean(KEY_AF_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_AF_ENABLED, value).apply()
+
+    var taEnabled: Boolean
+        get() = prefs.getBoolean(KEY_TA_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_TA_ENABLED, value).apply()
 }

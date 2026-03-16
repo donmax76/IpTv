@@ -35,40 +35,97 @@ class MainActivity : AppCompatActivity() {
     private var serviceBound = false
     private var scanner: FmScanner? = null
 
-    // UI elements
-    private lateinit var tvFrequency: TextView
+    // UI: Status
     private lateinit var tvStatus: TextView
     private lateinit var tvDeviceInfo: TextView
+    private lateinit var btnConnect: Button
+
+    // UI: LCD Display
+    private lateinit var tvFrequency: TextView
+    private lateinit var tvStereoIndicator: TextView
+    private lateinit var tvRdsIndicator: TextView
+    private lateinit var tvTaIndicator: TextView
+    private lateinit var tvAfIndicator: TextView
+    private lateinit var tvSignalBars: TextView
     private lateinit var tvRdsPs: TextView
     private lateinit var tvRdsRt: TextView
     private lateinit var tvRdsPty: TextView
-    private lateinit var btnPlayStop: ImageButton
-    private lateinit var btnScan: Button
-    private lateinit var btnFreqDown: ImageButton
-    private lateinit var btnFreqUp: ImageButton
-    private lateinit var btnConnect: Button
-    private lateinit var seekVolume: SeekBar
     private lateinit var seekFrequency: SeekBar
-    private lateinit var rvStations: RecyclerView
+
+    // UI: Controls
+    private lateinit var btnSeekBack: ImageButton
+    private lateinit var btnFreqDown: ImageButton
+    private lateinit var btnPlayStop: ImageButton
+    private lateinit var btnFreqUp: ImageButton
+    private lateinit var btnSeekForward: ImageButton
+
+    // UI: Presets
+    private lateinit var presetButtons: List<Button>
+
+    // UI: Volume + EQ
+    private lateinit var seekVolume: SeekBar
+    private lateinit var seekBass: SeekBar
+    private lateinit var seekTreble: SeekBar
+    private lateinit var tvVolumeValue: TextView
+    private lateinit var tvBassValue: TextView
+    private lateinit var tvTrebleValue: TextView
+
+    // UI: Function buttons
+    private lateinit var btnScan: Button
+    private lateinit var btnAf: Button
+    private lateinit var btnTa: Button
+    private lateinit var btnPty: Button
+
+    // UI: Scan
+    private lateinit var layoutScanning: View
     private lateinit var progressScan: ProgressBar
     private lateinit var tvScanStatus: TextView
-    private lateinit var layoutScanning: View
 
+    // UI: Station list
+    private lateinit var rvStations: RecyclerView
     private lateinit var stationAdapter: StationAdapter
 
-    private var currentFrequency: Long = 100000000L // 100.0 MHz
+    private var currentFrequency: Long = 100000000L
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, service: IBinder) {
             val binder = service as FmRadioService.LocalBinder
             radioService = binder.getService()
             serviceBound = true
+
             radioService?.onFrequencyChanged = { freq ->
-                runOnUiThread { updateFrequencyDisplay(freq) }
+                runOnUiThread {
+                    currentFrequency = freq
+                    updateFrequencyDisplay(freq)
+                    seekFrequency.progress = frequencyToProgress(freq)
+                    stationAdapter.setSelectedFrequency(freq)
+                    stationStorage.lastFrequency = freq
+                }
             }
             radioService?.onRdsDataReceived = { rdsData ->
                 runOnUiThread { updateRdsDisplay(rdsData) }
             }
+            radioService?.onStereoChanged = { stereo ->
+                runOnUiThread { updateStereoIndicator(stereo) }
+            }
+            radioService?.onSeekComplete = { foundFreq ->
+                runOnUiThread {
+                    if (foundFreq != null) {
+                        currentFrequency = foundFreq
+                        updateFrequencyDisplay(foundFreq)
+                        seekFrequency.progress = frequencyToProgress(foundFreq)
+                        stationStorage.lastFrequency = foundFreq
+                    } else {
+                        showToast(getString(R.string.msg_no_station_found))
+                    }
+                    tvStatus.text = if (radioService?.isPlaying == true)
+                        getString(R.string.status_playing) else getString(R.string.status_connected)
+                }
+            }
+
+            // Restore AF/TA state
+            radioService?.afEnabled = stationStorage.afEnabled
+            radioService?.taEnabled = stationStorage.taEnabled
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
@@ -88,131 +145,206 @@ class MainActivity : AppCompatActivity() {
         initViews()
         setupListeners()
         loadSavedStations()
+        restoreSettings()
 
-        // Restore last frequency
-        currentFrequency = stationStorage.lastFrequency
-        updateFrequencyDisplay(currentFrequency)
-
-        // Start foreground service
         startRadioService()
 
-        // Auto-connect if device is attached via intent
         if (intent?.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) {
             connectDevice()
         }
     }
 
     private fun initViews() {
-        tvFrequency = findViewById(R.id.tvFrequency)
+        // Status
         tvStatus = findViewById(R.id.tvStatus)
         tvDeviceInfo = findViewById(R.id.tvDeviceInfo)
+        btnConnect = findViewById(R.id.btnConnect)
+
+        // LCD
+        tvFrequency = findViewById(R.id.tvFrequency)
+        tvStereoIndicator = findViewById(R.id.tvStereoIndicator)
+        tvRdsIndicator = findViewById(R.id.tvRdsIndicator)
+        tvTaIndicator = findViewById(R.id.tvTaIndicator)
+        tvAfIndicator = findViewById(R.id.tvAfIndicator)
+        tvSignalBars = findViewById(R.id.tvSignalBars)
         tvRdsPs = findViewById(R.id.tvRdsPs)
         tvRdsRt = findViewById(R.id.tvRdsRt)
         tvRdsPty = findViewById(R.id.tvRdsPty)
-        btnPlayStop = findViewById(R.id.btnPlayStop)
-        btnScan = findViewById(R.id.btnScan)
-        btnFreqDown = findViewById(R.id.btnFreqDown)
-        btnFreqUp = findViewById(R.id.btnFreqUp)
-        btnConnect = findViewById(R.id.btnConnect)
-        seekVolume = findViewById(R.id.seekVolume)
         seekFrequency = findViewById(R.id.seekFrequency)
-        rvStations = findViewById(R.id.rvStations)
+
+        // Controls
+        btnSeekBack = findViewById(R.id.btnSeekBack)
+        btnFreqDown = findViewById(R.id.btnFreqDown)
+        btnPlayStop = findViewById(R.id.btnPlayStop)
+        btnFreqUp = findViewById(R.id.btnFreqUp)
+        btnSeekForward = findViewById(R.id.btnSeekForward)
+
+        // Presets
+        presetButtons = listOf(
+            findViewById(R.id.btnPreset1),
+            findViewById(R.id.btnPreset2),
+            findViewById(R.id.btnPreset3),
+            findViewById(R.id.btnPreset4),
+            findViewById(R.id.btnPreset5),
+            findViewById(R.id.btnPreset6)
+        )
+
+        // Volume + EQ
+        seekVolume = findViewById(R.id.seekVolume)
+        seekBass = findViewById(R.id.seekBass)
+        seekTreble = findViewById(R.id.seekTreble)
+        tvVolumeValue = findViewById(R.id.tvVolumeValue)
+        tvBassValue = findViewById(R.id.tvBassValue)
+        tvTrebleValue = findViewById(R.id.tvTrebleValue)
+
+        // Function buttons
+        btnScan = findViewById(R.id.btnScan)
+        btnAf = findViewById(R.id.btnAf)
+        btnTa = findViewById(R.id.btnTa)
+        btnPty = findViewById(R.id.btnPty)
+
+        // Scan
+        layoutScanning = findViewById(R.id.layoutScanning)
         progressScan = findViewById(R.id.progressScan)
         tvScanStatus = findViewById(R.id.tvScanStatus)
-        layoutScanning = findViewById(R.id.layoutScanning)
-
-        // Frequency seekbar: 87.5 - 108.0 MHz in 100 kHz steps
-        seekFrequency.max = 205 // (108.0 - 87.5) / 0.1 = 205 steps
-        seekFrequency.progress = frequencyToProgress(currentFrequency)
-
-        // Volume seekbar
-        seekVolume.max = 100
-        seekVolume.progress = (stationStorage.lastVolume * 100).toInt()
 
         // Station list
+        rvStations = findViewById(R.id.rvStations)
         stationAdapter = StationAdapter(
             stations = emptyList(),
-            onStationClick = { station -> tuneToStation(station) },
-            onFavoriteClick = { station -> toggleFavorite(station) },
-            onLongClick = { station -> showStationOptions(station) }
+            onStationClick = { tuneToStation(it) },
+            onFavoriteClick = { toggleFavorite(it) },
+            onLongClick = { showStationOptions(it) }
         )
         rvStations.layoutManager = LinearLayoutManager(this)
         rvStations.adapter = stationAdapter
 
+        seekFrequency.max = 205
+        seekVolume.max = 100
         layoutScanning.visibility = View.GONE
+    }
+
+    private fun restoreSettings() {
+        currentFrequency = stationStorage.lastFrequency
+        updateFrequencyDisplay(currentFrequency)
+        seekFrequency.progress = frequencyToProgress(currentFrequency)
+
+        seekVolume.progress = (stationStorage.lastVolume * 100).toInt()
+        tvVolumeValue.text = seekVolume.progress.toString()
+
+        seekBass.progress = stationStorage.bassLevel
+        tvBassValue.text = (seekBass.progress - 10).toString()
+
+        seekTreble.progress = stationStorage.trebleLevel
+        tvTrebleValue.text = (seekTreble.progress - 10).toString()
+
+        // Update preset button labels
+        updatePresetLabels()
+
+        // AF/TA indicator states
+        updateAfIndicator(stationStorage.afEnabled)
+        updateTaIndicator(stationStorage.taEnabled)
     }
 
     private fun setupListeners() {
         btnConnect.setOnClickListener { connectDevice() }
 
         btnPlayStop.setOnClickListener {
-            if (radioService?.isPlaying == true) {
-                stopPlayback()
-            } else {
-                startPlayback()
-            }
+            if (radioService?.isPlaying == true) stopPlayback() else startPlayback()
         }
 
-        btnFreqDown.setOnClickListener {
-            setFrequency(currentFrequency - 100000) // -100 kHz
+        btnFreqDown.setOnClickListener { setFrequency(currentFrequency - 100000) }
+        btnFreqUp.setOnClickListener { setFrequency(currentFrequency + 100000) }
+
+        btnSeekBack.setOnClickListener {
+            tvStatus.text = getString(R.string.status_seeking)
+            radioService?.seekStation(forward = false)
         }
 
-        btnFreqUp.setOnClickListener {
-            setFrequency(currentFrequency + 100000) // +100 kHz
+        btnSeekForward.setOnClickListener {
+            tvStatus.text = getString(R.string.status_seeking)
+            radioService?.seekStation(forward = true)
         }
 
-        btnScan.setOnClickListener {
-            if (scanner?.isScanning() == true) {
-                scanner?.stopScan()
-            } else {
-                startScan()
+        // Preset buttons: short press = tune, long press = save
+        presetButtons.forEachIndexed { index, btn ->
+            btn.setOnClickListener { loadPreset(index) }
+            btn.setOnLongClickListener {
+                savePreset(index)
+                true
             }
         }
 
         seekFrequency.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
-                if (fromUser) {
-                    val freq = progressToFrequency(progress)
-                    updateFrequencyDisplay(freq)
-                }
+            override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
+                if (fromUser) updateFrequencyDisplay(progressToFrequency(progress))
             }
-
-            override fun onStartTrackingTouch(seekBar: SeekBar) {}
-
-            override fun onStopTrackingTouch(seekBar: SeekBar) {
-                val freq = progressToFrequency(seekBar.progress)
-                setFrequency(freq)
+            override fun onStartTrackingTouch(sb: SeekBar) {}
+            override fun onStopTrackingTouch(sb: SeekBar) {
+                setFrequency(progressToFrequency(sb.progress))
             }
         })
 
         seekVolume.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+            override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
-                    val volume = progress / 100f
-                    radioService?.setVolume(volume)
-                    stationStorage.lastVolume = volume
+                    radioService?.setVolume(progress / 100f)
+                    stationStorage.lastVolume = progress / 100f
+                }
+                tvVolumeValue.text = progress.toString()
+            }
+            override fun onStartTrackingTouch(sb: SeekBar) {}
+            override fun onStopTrackingTouch(sb: SeekBar) {}
+        })
+
+        seekBass.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
+                val value = progress - 10
+                tvBassValue.text = if (value > 0) "+$value" else value.toString()
+                if (fromUser) {
+                    radioService?.setBass(progress)
+                    stationStorage.bassLevel = progress
                 }
             }
-
-            override fun onStartTrackingTouch(seekBar: SeekBar) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar) {}
+            override fun onStartTrackingTouch(sb: SeekBar) {}
+            override fun onStopTrackingTouch(sb: SeekBar) {}
         })
+
+        seekTreble.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
+                val value = progress - 10
+                tvTrebleValue.text = if (value > 0) "+$value" else value.toString()
+                if (fromUser) {
+                    radioService?.setTreble(progress)
+                    stationStorage.trebleLevel = progress
+                }
+            }
+            override fun onStartTrackingTouch(sb: SeekBar) {}
+            override fun onStopTrackingTouch(sb: SeekBar) {}
+        })
+
+        btnScan.setOnClickListener {
+            if (scanner?.isScanning() == true) scanner?.stopScan() else startScan()
+        }
+
+        btnAf.setOnClickListener { toggleAf() }
+        btnTa.setOnClickListener { toggleTa() }
+        btnPty.setOnClickListener { showPtyInfo() }
     }
+
+    // --- Device ---
 
     private fun connectDevice() {
         tvStatus.text = getString(R.string.status_connecting)
-
         val device = RtlSdrDevice.findDevice(this)
         if (device == null) {
             tvStatus.text = getString(R.string.status_no_device)
             showToast(getString(R.string.msg_connect_rtlsdr))
             return
         }
-
         permissionHelper.requestPermission(device) { granted ->
-            if (granted) {
-                openDevice(device)
-            } else {
+            if (granted) openDevice(device)
+            else {
                 tvStatus.text = getString(R.string.status_permission_denied)
                 showToast(getString(R.string.msg_usb_permission_needed))
             }
@@ -224,17 +356,10 @@ class MainActivity : AppCompatActivity() {
         if (dev.open(usbDevice)) {
             rtlSdrDevice = dev
             radioService?.initDevice(dev)
-
             tvStatus.text = getString(R.string.status_connected)
-            tvDeviceInfo.text = getString(
-                R.string.device_info_format,
-                dev.getTunerType().name,
-                usbDevice.deviceName
-            )
+            tvDeviceInfo.text = getString(R.string.device_info_format, dev.getTunerType().name, usbDevice.deviceName)
             btnConnect.text = getString(R.string.btn_disconnect)
-            btnPlayStop.isEnabled = true
-            btnScan.isEnabled = true
-
+            setControlsEnabled(true)
             showToast(getString(R.string.msg_device_connected))
         } else {
             tvStatus.text = getString(R.string.status_connection_failed)
@@ -242,20 +367,27 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setControlsEnabled(enabled: Boolean) {
+        btnPlayStop.isEnabled = enabled
+        btnScan.isEnabled = enabled
+        btnSeekBack.isEnabled = enabled
+        btnSeekForward.isEnabled = enabled
+    }
+
+    // --- Playback ---
+
     private fun startPlayback() {
         val service = radioService ?: return
-        if (rtlSdrDevice == null) {
-            showToast(getString(R.string.msg_connect_first))
-            return
-        }
+        if (rtlSdrDevice == null) { showToast(getString(R.string.msg_connect_first)); return }
 
         service.tuneToFrequency(currentFrequency)
         service.startPlayback()
         service.setVolume(seekVolume.progress / 100f)
+        service.setBass(seekBass.progress)
+        service.setTreble(seekTreble.progress)
+
         btnPlayStop.setImageResource(R.drawable.ic_stop)
         tvStatus.text = getString(R.string.status_playing)
-
-        // Clear RDS display on new playback
         clearRdsDisplay()
     }
 
@@ -264,43 +396,71 @@ class MainActivity : AppCompatActivity() {
         btnPlayStop.setImageResource(R.drawable.ic_play)
         tvStatus.text = getString(R.string.status_stopped)
         clearRdsDisplay()
+        updateStereoIndicator(false)
     }
 
+    // --- Frequency ---
+
     private fun setFrequency(frequencyHz: Long) {
-        val freq = frequencyHz.coerceIn(
-            FmScanner.FM_BAND_START,
-            FmScanner.FM_BAND_END
-        )
+        val freq = frequencyHz.coerceIn(FmScanner.FM_BAND_START, FmScanner.FM_BAND_END)
         currentFrequency = freq
         stationStorage.lastFrequency = freq
         updateFrequencyDisplay(freq)
         seekFrequency.progress = frequencyToProgress(freq)
-
         if (radioService?.isPlaying == true) {
             radioService?.tuneToFrequency(freq)
             clearRdsDisplay()
         }
-
         stationAdapter.setSelectedFrequency(freq)
     }
 
     private fun tuneToStation(station: RadioStation) {
         setFrequency(station.frequencyHz)
-        if (radioService?.isPlaying != true) {
-            startPlayback()
+        if (radioService?.isPlaying != true) startPlayback()
+    }
+
+    // --- Presets ---
+
+    private fun loadPreset(index: Int) {
+        val freq = stationStorage.getPreset(index)
+        if (freq > 0) {
+            setFrequency(freq)
+            if (radioService?.isPlaying != true && rtlSdrDevice != null) startPlayback()
+            highlightPreset(index)
+        } else {
+            showToast(getString(R.string.msg_preset_empty, index + 1))
         }
     }
 
-    private fun startScan() {
-        val dev = rtlSdrDevice
-        if (dev == null) {
-            showToast(getString(R.string.msg_connect_first))
-            return
+    private fun savePreset(index: Int) {
+        stationStorage.setPreset(index, currentFrequency)
+        updatePresetLabels()
+        highlightPreset(index)
+        showToast(getString(R.string.msg_preset_saved, index + 1, currentFrequency / 1e6))
+    }
+
+    private fun updatePresetLabels() {
+        presetButtons.forEachIndexed { index, btn ->
+            val freq = stationStorage.getPreset(index)
+            btn.text = if (freq > 0) {
+                String.format("%.1f", freq / 1e6)
+            } else {
+                (index + 1).toString()
+            }
         }
+    }
 
-        // Stop playback during scan
+    private fun highlightPreset(activeIndex: Int) {
+        presetButtons.forEachIndexed { index, btn ->
+            btn.isSelected = index == activeIndex
+        }
+    }
+
+    // --- Scan ---
+
+    private fun startScan() {
+        val dev = rtlSdrDevice ?: run { showToast(getString(R.string.msg_connect_first)); return }
         stopPlayback()
-
         scanner = FmScanner(dev)
         layoutScanning.visibility = View.VISIBLE
         btnScan.text = getString(R.string.btn_stop_scan)
@@ -310,28 +470,19 @@ class MainActivity : AppCompatActivity() {
             scanner?.scan(object : FmScanner.ScanListener {
                 override fun onScanProgress(currentFreqHz: Long, progress: Float) {
                     progressScan.progress = (progress * 100).toInt()
-                    tvScanStatus.text = getString(
-                        R.string.scan_progress_format,
-                        currentFreqHz / 1e6,
-                        (progress * 100).toInt()
-                    )
+                    tvScanStatus.text = getString(R.string.scan_progress_format, currentFreqHz / 1e6, (progress * 100).toInt())
+                    updateFrequencyDisplay(currentFreqHz)
                 }
-
                 override fun onStationFound(result: FmScanner.ScanResult) {
-                    val station = RadioStation(
-                        frequencyHz = result.frequencyHz,
-                        signalStrength = result.signalStrength
-                    )
-                    stationStorage.addStation(station)
+                    stationStorage.addStation(RadioStation(frequencyHz = result.frequencyHz, signalStrength = result.signalStrength))
                     loadSavedStations()
                 }
-
                 override fun onScanComplete(stations: List<FmScanner.ScanResult>) {
                     layoutScanning.visibility = View.GONE
                     btnScan.text = getString(R.string.btn_scan)
                     showToast(getString(R.string.msg_scan_complete, stations.size))
+                    updateFrequencyDisplay(currentFrequency)
                 }
-
                 override fun onScanError(error: String) {
                     layoutScanning.visibility = View.GONE
                     btnScan.text = getString(R.string.btn_scan)
@@ -341,7 +492,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // --- RDS Display ---
+
     private fun updateRdsDisplay(rdsData: RdsDecoder.RdsData) {
+        // RDS indicator
+        tvRdsIndicator.setTextColor(if (rdsData.hasData) getColor(R.color.lcd_green) else getColor(R.color.lcd_dim))
+
         if (rdsData.ps.isNotBlank()) {
             tvRdsPs.text = rdsData.ps
             tvRdsPs.visibility = View.VISIBLE
@@ -355,7 +511,18 @@ class MainActivity : AppCompatActivity() {
             tvRdsPty.visibility = View.VISIBLE
         }
 
-        // Auto-save RDS name to station
+        // TA indicator
+        tvTaIndicator.setTextColor(
+            if (rdsData.ta) getColor(R.color.lcd_red) else getColor(R.color.lcd_dim)
+        )
+
+        // AF indicator
+        tvAfIndicator.setTextColor(
+            if (rdsData.afList.isNotEmpty() && stationStorage.afEnabled)
+                getColor(R.color.lcd_green) else getColor(R.color.lcd_dim)
+        )
+
+        // Auto-save RDS name
         if (rdsData.ps.isNotBlank()) {
             val stations = stationStorage.loadStations()
             val station = stations.find { Math.abs(it.frequencyHz - currentFrequency) < 50000 }
@@ -374,10 +541,50 @@ class MainActivity : AppCompatActivity() {
         tvRdsPs.visibility = View.GONE
         tvRdsRt.visibility = View.GONE
         tvRdsPty.visibility = View.GONE
-        tvRdsPs.text = ""
-        tvRdsRt.text = ""
-        tvRdsPty.text = ""
+        tvRdsIndicator.setTextColor(getColor(R.color.lcd_dim))
+        tvTaIndicator.setTextColor(getColor(R.color.lcd_dim))
     }
+
+    private fun updateStereoIndicator(stereo: Boolean) {
+        tvStereoIndicator.setTextColor(
+            if (stereo) getColor(R.color.lcd_green) else getColor(R.color.lcd_dim)
+        )
+    }
+
+    // --- AF / TA ---
+
+    private fun toggleAf() {
+        val newState = !stationStorage.afEnabled
+        stationStorage.afEnabled = newState
+        radioService?.afEnabled = newState
+        updateAfIndicator(newState)
+    }
+
+    private fun toggleTa() {
+        val newState = !stationStorage.taEnabled
+        stationStorage.taEnabled = newState
+        radioService?.taEnabled = newState
+        updateTaIndicator(newState)
+    }
+
+    private fun updateAfIndicator(enabled: Boolean) {
+        btnAf.setTextColor(if (enabled) getColor(R.color.lcd_green) else getColor(R.color.lcd_amber))
+    }
+
+    private fun updateTaIndicator(enabled: Boolean) {
+        btnTa.setTextColor(if (enabled) getColor(R.color.lcd_green) else getColor(R.color.lcd_amber))
+    }
+
+    private fun showPtyInfo() {
+        val rds = radioService?.currentRdsData ?: return
+        if (rds.ptyName.isNotBlank()) {
+            showToast("PTY: ${rds.ptyName}")
+        } else {
+            showToast("No PTY data")
+        }
+    }
+
+    // --- Station management ---
 
     private fun toggleFavorite(station: RadioStation) {
         stationStorage.toggleFavorite(station.frequencyHz)
@@ -385,72 +592,51 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showStationOptions(station: RadioStation) {
-        val options = arrayOf(
-            getString(R.string.option_rename),
-            getString(R.string.option_delete),
-            getString(R.string.option_toggle_favorite)
-        )
-
         AlertDialog.Builder(this)
             .setTitle(station.displayName)
-            .setItems(options) { _, which ->
+            .setItems(arrayOf(
+                getString(R.string.option_rename),
+                getString(R.string.option_delete),
+                getString(R.string.option_toggle_favorite)
+            )) { _, which ->
                 when (which) {
                     0 -> showRenameDialog(station)
-                    1 -> {
-                        stationStorage.removeStation(station.frequencyHz)
-                        loadSavedStations()
-                    }
+                    1 -> { stationStorage.removeStation(station.frequencyHz); loadSavedStations() }
                     2 -> toggleFavorite(station)
                 }
-            }
-            .show()
+            }.show()
     }
 
     private fun showRenameDialog(station: RadioStation) {
-        val editText = EditText(this).apply {
-            setText(station.name)
-            hint = getString(R.string.hint_station_name)
-        }
-
+        val editText = EditText(this).apply { setText(station.name); hint = getString(R.string.hint_station_name) }
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.dialog_rename_title))
             .setView(editText)
             .setPositiveButton(getString(R.string.btn_save)) { _, _ ->
-                val newName = editText.text.toString().trim()
-                if (newName.isNotEmpty()) {
-                    stationStorage.renameStation(station.frequencyHz, newName)
-                    loadSavedStations()
-                }
+                val name = editText.text.toString().trim()
+                if (name.isNotEmpty()) { stationStorage.renameStation(station.frequencyHz, name); loadSavedStations() }
             }
             .setNegativeButton(getString(R.string.btn_cancel), null)
             .show()
     }
 
     private fun loadSavedStations() {
-        val stations = stationStorage.loadStations()
-        stationAdapter.updateStations(stations)
+        stationAdapter.updateStations(stationStorage.loadStations())
         stationAdapter.setSelectedFrequency(currentFrequency)
     }
+
+    // --- Helpers ---
 
     private fun updateFrequencyDisplay(frequencyHz: Long) {
         tvFrequency.text = String.format("%.1f", frequencyHz / 1_000_000.0)
     }
 
-    private fun frequencyToProgress(freq: Long): Int {
-        return ((freq - FmScanner.FM_BAND_START) / 100000).toInt()
-    }
-
-    private fun progressToFrequency(progress: Int): Long {
-        return FmScanner.FM_BAND_START + progress * 100000L
-    }
+    private fun frequencyToProgress(freq: Long) = ((freq - FmScanner.FM_BAND_START) / 100000).toInt()
+    private fun progressToFrequency(progress: Int) = FmScanner.FM_BAND_START + progress * 100000L
 
     private fun startRadioService() {
         val intent = Intent(this, FmRadioService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
-        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
         bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
     }
 
@@ -460,10 +646,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         permissionHelper.unregister()
-        if (serviceBound) {
-            unbindService(serviceConnection)
-            serviceBound = false
-        }
+        if (serviceBound) { unbindService(serviceConnection); serviceBound = false }
         rtlSdrDevice?.close()
         super.onDestroy()
     }

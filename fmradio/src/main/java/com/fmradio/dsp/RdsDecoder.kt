@@ -57,6 +57,10 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         val pty: Int = 0,           // Programme Type code
         val ptyName: String = "",   // Programme Type name
         val pi: Int = 0,            // Programme Identification
+        val tp: Boolean = false,    // Traffic Programme flag
+        val ta: Boolean = false,    // Traffic Announcement flag
+        val ms: Boolean = false,    // Music/Speech flag (true = music)
+        val afList: List<Float> = emptyList(), // Alternative Frequencies (MHz)
         val hasData: Boolean = false
     )
 
@@ -110,6 +114,10 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private var rtLength = 0
     private var piCode = 0
     private var ptyCode = 0
+    private var tpFlag = false
+    private var taFlag = false
+    private var msFlag = false
+    private val afFrequencies = mutableSetOf<Float>()
     @Volatile
     private var dataChanged = false
 
@@ -295,8 +303,22 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         val versionB = (blockB and 0x0800) != 0
         ptyCode = (blockB shr 5) and 0x1F
 
+        // TP (Traffic Programme) flag — bit 10 of block B
+        tpFlag = (blockB and 0x0400) != 0
+
+        // TA (Traffic Announcement) — bit 4 of block B in group 0
+        if (groupType == 0) {
+            val newTa = (blockB and 0x0010) != 0
+            if (newTa != taFlag) {
+                taFlag = newTa
+                dataChanged = true
+            }
+            // M/S flag — bit 3 of block B in group 0
+            msFlag = (blockB and 0x0008) != 0
+        }
+
         when (groupType) {
-            0 -> decodeGroup0(blockB, blockC, blockD, versionB)  // PS name
+            0 -> decodeGroup0(blockB, blockC, blockD, versionB)  // PS name + AF
             2 -> decodeGroup2(blockB, blockC, blockD, versionB)  // RadioText
         }
 
@@ -307,11 +329,12 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         }
     }
 
-    // Group 0: Programme Service name (2 chars per group)
+    // Group 0: Programme Service name (2 chars per group) + Alternative Frequencies
     private fun decodeGroup0(blockB: Int, blockC: Int, blockD: Int, versionB: Boolean) {
         val segmentAddr = blockB and 0x03
         val pos = segmentAddr * 2
 
+        // PS characters from block D
         val c1 = ((blockD shr 8) and 0xFF).toChar()
         val c2 = (blockD and 0xFF).toChar()
 
@@ -323,6 +346,27 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 Log.d(TAG, "PS update: ${String(psChars).trim()}")
             }
         }
+
+        // AF (Alternative Frequencies) from block C in version A
+        if (!versionB) {
+            val af1code = (blockC shr 8) and 0xFF
+            val af2code = blockC and 0xFF
+            decodeAfCode(af1code)
+            decodeAfCode(af2code)
+        }
+    }
+
+    /** Decode an AF code to frequency and add to list. Codes 1-204 map to 87.6-107.9 MHz. */
+    private fun decodeAfCode(code: Int) {
+        if (code in 1..204) {
+            val freqMHz = 87.5f + code * 0.1f
+            if (afFrequencies.add(freqMHz)) {
+                dataChanged = true
+                Log.d(TAG, "AF: $freqMHz MHz")
+            }
+        }
+        // Codes 224-249: number of AFs to follow (variant info), 250=LF/MF filler
+        // We ignore these
     }
 
     // Group 2: RadioText (4 chars per group in version A, 2 in version B)
@@ -368,28 +412,28 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     }
 
     private fun notifyListener() {
+        listener?.onRdsData(buildRdsData())
+    }
+
+    /** Get current RDS data snapshot */
+    fun getCurrentData(): RdsData = buildRdsData()
+
+    private fun buildRdsData(): RdsData {
         val ps = String(psChars).trim()
         val rt = String(rtChars, 0, rtLength).trim()
         val ptyName = if (ptyCode in PTY_NAMES.indices) PTY_NAMES[ptyCode] else ""
-
-        val data = RdsData(
+        return RdsData(
             ps = ps,
             rt = rt,
             pty = ptyCode,
             ptyName = ptyName,
             pi = piCode,
+            tp = tpFlag,
+            ta = taFlag,
+            ms = msFlag,
+            afList = afFrequencies.sorted(),
             hasData = ps.isNotBlank() || rt.isNotBlank()
         )
-
-        listener?.onRdsData(data)
-    }
-
-    /** Get current RDS data snapshot */
-    fun getCurrentData(): RdsData {
-        val ps = String(psChars).trim()
-        val rt = String(rtChars, 0, rtLength).trim()
-        val ptyName = if (ptyCode in PTY_NAMES.indices) PTY_NAMES[ptyCode] else ""
-        return RdsData(ps, rt, ptyCode, ptyName, piCode, ps.isNotBlank() || rt.isNotBlank())
     }
 
     fun reset() {
@@ -413,6 +457,10 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         rtLength = 0
         piCode = 0
         ptyCode = 0
+        tpFlag = false
+        taFlag = false
+        msFlag = false
+        afFrequencies.clear()
         dataChanged = false
     }
 }

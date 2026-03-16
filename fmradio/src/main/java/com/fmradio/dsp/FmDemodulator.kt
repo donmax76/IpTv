@@ -57,6 +57,18 @@ class FmDemodulator(
     // Wideband baseband listener (for RDS decoder, called at intermediate rate)
     var widebandListener: ((FloatArray) -> Unit)? = null
 
+    // Stereo pilot tone detection (19 kHz)
+    private var pilotPhase = 0.0
+    private val pilotIncrement = 2.0 * PI * 19000.0 / intermediateRate
+    private var pilotEnergy = 0f
+    private var pilotSampleCount = 0
+    private val pilotDetectWindow = intermediateRate / 4  // 250ms window
+
+    /** True if 19 kHz stereo pilot is detected */
+    @Volatile
+    var isStereo = false
+        private set
+
     init {
         // De-emphasis: 75us time constant
         val tau = 75e-6f
@@ -154,6 +166,19 @@ class FmDemodulator(
             // atan2 normalized to [-1, 1]
             val baseband = atan2(imagProd, realProd) / PI.toFloat()
 
+            // Stereo pilot detection: correlate with 19 kHz
+            val pilotCorr = baseband * cos(pilotPhase).toFloat()
+            pilotPhase += pilotIncrement
+            if (pilotPhase > 2 * PI) pilotPhase -= 2 * PI
+            pilotEnergy += pilotCorr * pilotCorr
+            pilotSampleCount++
+            if (pilotSampleCount >= pilotDetectWindow) {
+                val avgEnergy = pilotEnergy / pilotSampleCount
+                isStereo = avgEnergy > 0.001f  // Threshold for pilot presence
+                pilotEnergy = 0f
+                pilotSampleCount = 0
+            }
+
             // Feed wideband baseband to RDS decoder at 192 kHz
             if (widebandBuf != null && wbCount < widebandBuf.size) {
                 widebandBuf[wbCount++] = baseband
@@ -227,5 +252,9 @@ class FmDemodulator(
         audioLpfIdx = 0
         stage1Counter = 0
         stage2Counter = 0
+        pilotPhase = 0.0
+        pilotEnergy = 0f
+        pilotSampleCount = 0
+        isStereo = false
     }
 }
