@@ -189,6 +189,34 @@
 
         </LinearLayout>
 
+        <!-- Color Theme Section -->
+        <LinearLayout
+            android:id="@+id/colorThemeLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_playlist_card"
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:layout_marginBottom="16dp"
+            android:clickable="true"
+            android:focusable="true">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/color_theme"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp"/>
+
+            <TextView
+                android:id="@+id/colorThemeValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp"/>
+
+        </LinearLayout>
+
         <!-- Display Section -->
         <TextView
             android:layout_width="wrap_content"

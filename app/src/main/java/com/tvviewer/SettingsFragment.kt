@@ -37,6 +37,7 @@ class SettingsFragment : Fragment() {
 
         setupPlayerType(view)
         setupLanguage(view)
+        setupColorTheme(view)
         setupDisplay(view)
         setupPlayerSettings(view)
         setupCustomChannels(view)
@@ -55,6 +56,8 @@ class SettingsFragment : Fragment() {
 
         val langName = LocaleHelper.supportedLanguages.find { it.first == prefs.language }?.second ?: "System"
         view.findViewById<TextView>(R.id.languageValue)?.text = langName
+
+        view.findViewById<TextView>(R.id.colorThemeValue)?.text = getThemeName(prefs.colorTheme)
 
         view.findViewById<TextView>(R.id.displayModeValue)?.text =
             if (prefs.listDisplayMode == "grid") getString(R.string.list_display_grid)
@@ -152,6 +155,40 @@ class SettingsFragment : Fragment() {
                 }
                 .show()
         }
+    }
+
+    private fun setupColorTheme(view: View) {
+        val themeValue = view.findViewById<TextView>(R.id.colorThemeValue)
+        themeValue.text = getThemeName(prefs.colorTheme)
+
+        view.findViewById<LinearLayout>(R.id.colorThemeLayout).setOnClickListener {
+            val names = arrayOf(
+                getString(R.string.theme_purple),
+                getString(R.string.theme_blue),
+                getString(R.string.theme_green),
+                getString(R.string.theme_orange),
+                getString(R.string.theme_red)
+            )
+            val values = arrayOf("purple", "blue", "green", "orange", "red")
+            val current = values.indexOf(prefs.colorTheme).coerceAtLeast(0)
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
+                .setTitle(R.string.color_theme)
+                .setSingleChoiceItems(names, current) { dialog, which ->
+                    prefs.colorTheme = values[which]
+                    themeValue.text = names[which]
+                    dialog.dismiss()
+                    activity?.recreate()
+                }
+                .show()
+        }
+    }
+
+    private fun getThemeName(theme: String): String = when (theme) {
+        "blue" -> getString(R.string.theme_blue)
+        "green" -> getString(R.string.theme_green)
+        "orange" -> getString(R.string.theme_orange)
+        "red" -> getString(R.string.theme_red)
+        else -> getString(R.string.theme_purple)
     }
 
     private fun setupDisplay(view: View) {

@@ -171,4 +171,26 @@
     <string name="multiscreen">Мультиэкран</string>
     <string name="recording_hint">Запись потока</string>
     <string name="share_channel">Поделиться каналом</string>
+
+    <!-- Xtream Codes -->
+    <string name="tab_m3u">M3U Плейлист</string>
+    <string name="tab_xtream">Xtream Codes</string>
+    <string name="xtream_codes_desc">Введите данные вашего Xtream Codes провайдера для подключения</string>
+    <string name="xtream_server">Сервер (URL)</string>
+    <string name="xtream_username">Логин</string>
+    <string name="xtream_password">Пароль</string>
+    <string name="xtream_login">Подключиться</string>
+    <string name="xtream_connected">Подключено!</string>
+    <string name="xtream_error">Ошибка: %s</string>
+
+    <!-- Color themes -->
+    <string name="color_theme">Цветовая тема</string>
+    <string name="theme_purple">Фиолетовая</string>
+    <string name="theme_blue">Синяя</string>
+    <string name="theme_green">Зелёная</string>
+    <string name="theme_orange">Оранжевая</string>
+    <string name="theme_red">Красная</string>
+
+    <!-- Channel info OSD -->
+    <string name="channel_info_format">%1$d / %2$d</string>
 </resources>

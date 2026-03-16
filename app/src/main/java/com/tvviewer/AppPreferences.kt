@@ -194,6 +194,18 @@ class AppPreferences(context: Context) {
         get() = prefs.getString(KEY_LAST_EPG_URL, null)
         set(value) = prefs.edit().putString(KEY_LAST_EPG_URL, value).apply()
 
+    var colorTheme: String
+        get() = prefs.getString(KEY_COLOR_THEME, "purple") ?: "purple"
+        set(value) = prefs.edit().putString(KEY_COLOR_THEME, value).apply()
+
+    var lastSelectedGroup: String?
+        get() = prefs.getString(KEY_LAST_GROUP, null)
+        set(value) = prefs.edit().putString(KEY_LAST_GROUP, value).apply()
+
+    var lastPlaylistName: String?
+        get() = prefs.getString(KEY_LAST_PLAYLIST_NAME, null)
+        set(value) = prefs.edit().putString(KEY_LAST_PLAYLIST_NAME, value).apply()
+
     companion object {
         private const val PREFS_NAME = "tvviewer_prefs"
         private const val KEY_PLAYER = "player_type"
@@ -221,6 +233,9 @@ class AppPreferences(context: Context) {
         private const val KEY_SLEEP_TIMER = "sleep_timer"
         private const val KEY_PARENTAL_PIN = "parental_pin"
         private const val KEY_LAST_EPG_URL = "last_epg_url"
+        private const val KEY_COLOR_THEME = "color_theme"
+        private const val KEY_LAST_GROUP = "last_selected_group"
+        private const val KEY_LAST_PLAYLIST_NAME = "last_playlist_name"
         private const val DEFAULT_UPDATE_CHECK_URL = "https://raw.githubusercontent.com/donmax76/TestApp/master/TVViewer/version.json"
 
         const val PLAYER_INTERNAL = "internal"

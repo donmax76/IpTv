@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
@@ -34,74 +35,197 @@
 
     </LinearLayout>
 
-    <LinearLayout
+    <!-- Tab selector: M3U / Xtream Codes -->
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/tabLayout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="24dp">
+        android:background="@color/surface"
+        app:tabTextColor="@color/text_secondary"
+        app:tabSelectedTextColor="@color/text_primary"
+        app:tabIndicatorColor="@color/primary"
+        app:tabMode="fixed"
+        app:tabGravity="fill"/>
 
-        <com.google.android.material.textfield.TextInputLayout
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
+
+        <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            android:hint="@string/playlist_name"
-            android:textColorHint="@color/text_hint">
+            android:layout_height="wrap_content">
 
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/editPlaylistName"
+            <!-- M3U Tab Content -->
+            <LinearLayout
+                android:id="@+id/m3uContent"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textColor="@color/text_primary"
-                android:inputType="text"/>
+                android:orientation="vertical"
+                android:padding="24dp">
 
-        </com.google.android.material.textfield.TextInputLayout>
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    android:hint="@string/playlist_name"
+                    android:textColorHint="@color/text_hint">
 
-        <com.google.android.material.textfield.TextInputLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="24dp"
-            android:hint="@string/playlist_url"
-            android:textColorHint="@color/text_hint">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/editPlaylistName"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/text_primary"
+                        android:inputType="text"/>
 
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/editPlaylistUrl"
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="24dp"
+                    android:hint="@string/playlist_url"
+                    android:textColorHint="@color/text_hint">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/editPlaylistUrl"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/text_primary"
+                        android:inputType="textUri"/>
+
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnAdd"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:text="@string/add_playlist"
+                    android:textSize="16sp"
+                    android:backgroundTint="@color/primary"/>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="@color/divider"
+                    android:layout_marginTop="24dp"
+                    android:layout_marginBottom="24dp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/builtin_playlists"
+                    android:textColor="@color/text_primary"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="16dp"/>
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/builtinPlaylistsRecyclerView"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:nestedScrollingEnabled="false"/>
+
+            </LinearLayout>
+
+            <!-- Xtream Codes Tab Content -->
+            <LinearLayout
+                android:id="@+id/xtreamContent"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textColor="@color/text_primary"
-                android:inputType="textUri"/>
+                android:orientation="vertical"
+                android:padding="24dp"
+                android:visibility="gone">
 
-        </com.google.android.material.textfield.TextInputLayout>
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/xtream_codes_desc"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="14sp"
+                    android:layout_marginBottom="20dp"/>
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnAdd"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:text="@string/add_playlist"
-            android:textSize="16sp"
-            android:backgroundTint="@color/primary"/>
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    android:hint="@string/xtream_server"
+                    android:textColorHint="@color/text_hint">
 
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="@color/divider"
-            android:layout_marginTop="24dp"
-            android:layout_marginBottom="24dp"/>
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/editXtreamServer"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/text_primary"
+                        android:inputType="textUri"
+                        android:hint="http://example.com:8080"/>
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/builtin_playlists"
-            android:textColor="@color/text_primary"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="16dp"/>
+                </com.google.android.material.textfield.TextInputLayout>
 
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/builtinPlaylistsRecyclerView"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:nestedScrollingEnabled="false"/>
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    android:hint="@string/xtream_username"
+                    android:textColorHint="@color/text_hint">
 
-    </LinearLayout>
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/editXtreamUsername"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/text_primary"
+                        android:inputType="text"/>
+
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="24dp"
+                    android:hint="@string/xtream_password"
+                    android:textColorHint="@color/text_hint"
+                    app:endIconMode="password_toggle">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/editXtreamPassword"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/text_primary"
+                        android:inputType="textPassword"/>
+
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnXtreamLogin"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:text="@string/xtream_login"
+                    android:textSize="16sp"
+                    android:backgroundTint="@color/primary"/>
+
+                <ProgressBar
+                    android:id="@+id/xtreamProgress"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:layout_gravity="center"
+                    android:layout_marginTop="16dp"
+                    android:indeterminateTint="@color/primary"
+                    android:visibility="gone"/>
+
+                <TextView
+                    android:id="@+id/xtreamStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="14sp"
+                    android:gravity="center"
+                    android:layout_marginTop="16dp"
+                    android:visibility="gone"/>
+
+            </LinearLayout>
+
+        </FrameLayout>
+
+    </ScrollView>
 
 </LinearLayout>

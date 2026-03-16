@@ -45,8 +45,10 @@
             android:name=".PlayerActivity"
             android:exported="false"
             android:theme="@style/Theme.TVViewer.Player"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
             android:screenOrientation="unspecified"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
             android:parentActivityName=".MainActivity" />
 
         <activity

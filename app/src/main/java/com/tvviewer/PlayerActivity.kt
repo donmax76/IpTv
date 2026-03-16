@@ -1,9 +1,12 @@
 package com.tvviewer
 
+import android.app.PictureInPictureParams
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Rational
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.Log
@@ -15,11 +18,13 @@ import android.view.WindowManager
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.RelativeLayout
 import android.widget.TextView
 import android.widget.Toast
+import coil.load
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -96,6 +101,17 @@ class PlayerActivity : BaseActivity() {
         }
     }
 
+    // Channel info banner
+    private lateinit var channelInfoBanner: LinearLayout
+    private lateinit var bannerChannelNumber: TextView
+    private lateinit var bannerChannelName: TextView
+    private lateinit var bannerChannelLogo: ImageView
+    private lateinit var bannerEpgNow: TextView
+    private lateinit var bannerEpgNext: TextView
+    private lateinit var bannerClock: TextView
+    private val bannerHandler = Handler(Looper.getMainLooper())
+    private val bannerHideRunnable = Runnable { channelInfoBanner.visibility = View.GONE }
+
     private var overlayAdapter: OverlayChannelAdapter? = null
     private var overlaySearchEdit: EditText? = null
     private var overlayChannelCount: TextView? = null
@@ -121,6 +137,7 @@ class PlayerActivity : BaseActivity() {
         updateEpg()
         initPlayer()
         playStream(currentUrl!!)
+        showChannelBanner()
         scheduleHideControls()
         startClock()
 
@@ -150,6 +167,15 @@ class PlayerActivity : BaseActivity() {
         numberInputDisplay = findViewById(R.id.numberInputDisplay)
         sleepTimerIndicator = findViewById(R.id.sleepTimerIndicator)
 
+        // Channel info banner
+        channelInfoBanner = findViewById(R.id.channelInfoBanner)
+        bannerChannelNumber = findViewById(R.id.bannerChannelNumber)
+        bannerChannelName = findViewById(R.id.bannerChannelName)
+        bannerChannelLogo = findViewById(R.id.bannerChannelLogo)
+        bannerEpgNow = findViewById(R.id.bannerEpgNow)
+        bannerEpgNext = findViewById(R.id.bannerEpgNext)
+        bannerClock = findViewById(R.id.bannerClock)
+
         // Show clock based on settings
         if (prefs.timeDisplayPosition != "off") {
             clockDisplay.visibility = View.VISIBLE
@@ -168,6 +194,14 @@ class PlayerActivity : BaseActivity() {
                 }
             }
             scheduleHideControls()
+        }
+
+        findViewById<ImageButton>(R.id.btnPip).apply {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                setOnClickListener { enterPipMode() }
+            } else {
+                visibility = View.GONE
+            }
         }
 
         findViewById<ImageButton>(R.id.btnAspectRatio).setOnClickListener {
@@ -344,6 +378,7 @@ class PlayerActivity : BaseActivity() {
 
         updateEpg()
         playStream(channel.url)
+        showChannelBanner()
         scheduleHideControls()
     }
 
@@ -386,6 +421,46 @@ class PlayerActivity : BaseActivity() {
             getString(R.string.aspect_fill)
         )
         Toast.makeText(this, names[aspectRatioMode], Toast.LENGTH_SHORT).show()
+    }
+
+    // === Channel info banner ===
+
+    private fun showChannelBanner() {
+        val channels = ChannelDataHolder.allChannels
+        if (currentIndex !in channels.indices) return
+
+        val channel = channels[currentIndex]
+        bannerChannelNumber.text = "${currentIndex + 1}"
+        bannerChannelName.text = channel.name
+
+        channel.logoUrl?.let { url ->
+            bannerChannelLogo.load(url) {
+                crossfade(true)
+                error(R.drawable.ic_channel_placeholder)
+                placeholder(R.drawable.ic_channel_placeholder)
+            }
+        }
+
+        val (now, next) = EpgRepository.getNowNext(ChannelDataHolder.epgData, channel.tvgId)
+        if (now != null) {
+            bannerEpgNow.text = now
+            bannerEpgNow.visibility = View.VISIBLE
+        } else {
+            bannerEpgNow.visibility = View.GONE
+        }
+        if (next != null) {
+            bannerEpgNext.text = "-> $next"
+            bannerEpgNext.visibility = View.VISIBLE
+        } else {
+            bannerEpgNext.visibility = View.GONE
+        }
+
+        val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+        bannerClock.text = time
+
+        channelInfoBanner.visibility = View.VISIBLE
+        bannerHandler.removeCallbacks(bannerHideRunnable)
+        bannerHandler.postDelayed(bannerHideRunnable, 4000)
     }
 
     // === Channel list overlay ===
@@ -560,6 +635,35 @@ class PlayerActivity : BaseActivity() {
         }
     }
 
+    // === Picture-in-Picture ===
+
+    private fun enterPipMode() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val params = PictureInPictureParams.Builder()
+                .setAspectRatio(Rational(16, 9))
+                .build()
+            enterPictureInPictureMode(params)
+        }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && player?.isPlaying == true) {
+            enterPipMode()
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (isInPictureInPictureMode) {
+            controlsOverlay.visibility = View.GONE
+            channelListOverlay.visibility = View.GONE
+            channelInfoBanner.visibility = View.GONE
+            controlsVisible = false
+            channelListVisible = false
+        }
+    }
+
     // === System UI ===
 
     private fun hideSystemUI() {
@@ -598,6 +702,7 @@ class PlayerActivity : BaseActivity() {
         clockHandler.removeCallbacks(clockRunnable)
         numberHandler.removeCallbacks(numberRunnable)
         sleepHandler.removeCallbacks(sleepTimerRunnable)
+        bannerHandler.removeCallbacks(bannerHideRunnable)
         player?.release()
         player = null
     }

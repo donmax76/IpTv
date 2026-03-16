@@ -39,9 +39,13 @@ class CategoryAdapter(
 
     override fun getItemCount() = categories.size
 
-    fun updateCategories(newCategories: List<String>) {
+    fun updateCategories(newCategories: List<String>, selectedCategory: String? = null) {
         categories = newCategories
-        selectedPosition = 0
+        selectedPosition = if (selectedCategory != null) {
+            newCategories.indexOf(selectedCategory).coerceAtLeast(0)
+        } else {
+            0
+        }
         notifyDataSetChanged()
     }
 }

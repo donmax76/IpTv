@@ -67,4 +67,32 @@
         <item name="boxStrokeColor">#7C6CF7</item>
         <item name="hintTextColor">#80FFFFFF</item>
     </style>
+
+    <!-- Color Theme: Blue -->
+    <style name="Theme.TVViewer.Blue" parent="Theme.TVViewer">
+        <item name="colorPrimary">#2196F3</item>
+        <item name="colorPrimaryVariant">#1976D2</item>
+        <item name="colorSecondary">#03DAC5</item>
+    </style>
+
+    <!-- Color Theme: Green -->
+    <style name="Theme.TVViewer.Green" parent="Theme.TVViewer">
+        <item name="colorPrimary">#4CAF50</item>
+        <item name="colorPrimaryVariant">#388E3C</item>
+        <item name="colorSecondary">#00BCD4</item>
+    </style>
+
+    <!-- Color Theme: Orange -->
+    <style name="Theme.TVViewer.Orange" parent="Theme.TVViewer">
+        <item name="colorPrimary">#FF9800</item>
+        <item name="colorPrimaryVariant">#F57C00</item>
+        <item name="colorSecondary">#FFB74D</item>
+    </style>
+
+    <!-- Color Theme: Red -->
+    <style name="Theme.TVViewer.Red" parent="Theme.TVViewer">
+        <item name="colorPrimary">#F44336</item>
+        <item name="colorPrimaryVariant">#D32F2F</item>
+        <item name="colorSecondary">#FF7043</item>
+    </style>
 </resources>

@@ -83,6 +83,7 @@ class ChannelsFragment : Fragment() {
             categories = emptyList(),
             onCategoryClick = { category ->
                 selectedCategory = category
+                prefs.lastSelectedGroup = category
                 filterChannels()
             }
         )
@@ -150,8 +151,11 @@ class ChannelsFragment : Fragment() {
                 // Extract categories
                 categories = listOf(getString(R.string.all)) +
                     allChannels.mapNotNull { it.group }.distinct().sorted()
-                selectedCategory = getString(R.string.all)
-                categoryAdapter.updateCategories(categories)
+                // Restore last selected group
+                val lastGroup = prefs.lastSelectedGroup
+                selectedCategory = if (lastGroup != null && categories.contains(lastGroup)) lastGroup
+                    else getString(R.string.all)
+                categoryAdapter.updateCategories(categories, selectedCategory)
 
                 filterChannels()
 
@@ -178,6 +182,7 @@ class ChannelsFragment : Fragment() {
                 }
 
                 prefs.lastPlaylistUrl = url
+                prefs.lastPlaylistName = name
             } catch (e: Exception) {
                 Log.e("ChannelsFragment", "Load error", e)
                 progressBar.visibility = View.GONE

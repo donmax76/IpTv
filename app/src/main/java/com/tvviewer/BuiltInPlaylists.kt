@@ -8,9 +8,6 @@ object BuiltInPlaylists {
     private const val B = "https://iptv-org.github.io/iptv"
 
     val categories: List<PlaylistCategory> = listOf(
-        PlaylistCategory("custom", listOf(
-            Playlist("FlyVideo", "http://flyvideo.ucoz.ru/zedomS.m3u"),
-        )),
         PlaylistCategory("general", listOf(
             Playlist("Все каналы", "$B/index.m3u"),
             Playlist("Спорт", "$B/categories/sports.m3u"),
