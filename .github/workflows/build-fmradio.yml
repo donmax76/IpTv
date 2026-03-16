@@ -144,6 +144,30 @@ jobs:
             --target "$pyDir/Lib/site-packages" `
             --no-warn-script-location --quiet
 
+      - name: Download librtlsdr native DLL
+        shell: pwsh
+        run: |
+          $pyDir = "fmradio-portable/python"
+          # Download official rtl-sdr release for Windows (64-bit)
+          $rtlUrl = "https://ftp.osmocom.org/binaries/windows/rtl-sdr/rtl-sdr-64bit-20240623.zip"
+          Invoke-WebRequest -Uri $rtlUrl -OutFile rtl-sdr.zip
+          Expand-Archive rtl-sdr.zip -DestinationPath rtl-sdr-extract -Force
+          # Copy DLLs to python dir (so they're on PATH via the bat launcher)
+          $dllDir = Get-ChildItem -Path rtl-sdr-extract -Recurse -Filter "rtlsdr.dll" | Select-Object -First 1
+          if ($dllDir) {
+            $srcDir = $dllDir.DirectoryName
+            Copy-Item "$srcDir/rtlsdr.dll" "$pyDir/" -Force
+            Copy-Item "$srcDir/libusb-1.0.dll" "$pyDir/" -Force -ErrorAction SilentlyContinue
+            # Also copy as librtlsdr.dll (pyrtlsdr looks for both names)
+            Copy-Item "$srcDir/rtlsdr.dll" "$pyDir/librtlsdr.dll" -Force
+            Write-Host "RTL-SDR DLLs copied:"
+            Get-ChildItem "$pyDir/rtlsdr.dll","$pyDir/librtlsdr.dll","$pyDir/libusb-1.0.dll" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.Name) ($($_.Length) bytes)" }
+          } else {
+            Write-Error "rtlsdr.dll not found in downloaded archive"
+            exit 1
+          }
+          Remove-Item rtl-sdr.zip, rtl-sdr-extract -Recurse -Force
+
       - name: Verify packages installed
         shell: pwsh
         run: |
