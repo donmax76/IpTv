@@ -202,23 +202,68 @@
         <!-- Channel list panel -->
         <LinearLayout
             android:id="@+id/channelListPanel"
-            android:layout_width="320dp"
+            android:layout_width="340dp"
             android:layout_height="match_parent"
             android:layout_gravity="start"
             android:orientation="vertical"
             android:background="@drawable/bg_overlay_panel"
-            android:paddingTop="16dp">
+            android:paddingTop="12dp">
 
-            <TextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/channels"
-                android:textColor="@android:color/white"
-                android:textSize="18sp"
-                android:textStyle="bold"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp"
-                android:layout_marginBottom="8dp"/>
+                android:layout_marginBottom="8dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/channels"
+                    android:textColor="@android:color/white"
+                    android:textSize="18sp"
+                    android:textStyle="bold"/>
+
+                <TextView
+                    android:id="@+id/overlayChannelCount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#B0B0CC"
+                    android:textSize="13sp"/>
+
+            </LinearLayout>
+
+            <!-- Search in channel list -->
+            <EditText
+                android:id="@+id/overlaySearchEdit"
+                android:layout_width="match_parent"
+                android:layout_height="36dp"
+                android:layout_marginStart="12dp"
+                android:layout_marginEnd="12dp"
+                android:layout_marginBottom="8dp"
+                android:background="@drawable/bg_overlay_search"
+                android:hint="@string/search_channels"
+                android:textColor="@android:color/white"
+                android:textColorHint="#80FFFFFF"
+                android:textSize="13sp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:singleLine="true"
+                android:imeOptions="actionDone"
+                android:inputType="text"/>
+
+            <!-- Category chips for quick filter -->
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/overlayCategoriesList"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp"
+                android:clipToPadding="false"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"/>
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/overlayChannelsList"

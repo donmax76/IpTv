@@ -48,7 +48,7 @@ class OverlayChannelAdapter(
 
         // Highlight current channel
         if (position == currentIndex) {
-            holder.itemView.setBackgroundColor(0x406C5CE7.toInt())
+            holder.itemView.setBackgroundColor(0x407C6CF7.toInt())
         } else {
             holder.itemView.setBackgroundColor(0)
         }

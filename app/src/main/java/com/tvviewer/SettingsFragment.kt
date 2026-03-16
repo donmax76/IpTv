@@ -122,7 +122,7 @@ class SettingsFragment : Fragment() {
         view.findViewById<LinearLayout>(R.id.playerTypeLayout).setOnClickListener {
             val options = arrayOf(getString(R.string.player_internal), getString(R.string.player_external))
             val current = if (prefs.playerType == AppPreferences.PLAYER_INTERNAL) 0 else 1
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
                 .setTitle(R.string.player)
                 .setSingleChoiceItems(options, current) { dialog, which ->
                     prefs.playerType = if (which == 0) AppPreferences.PLAYER_INTERNAL else AppPreferences.PLAYER_EXTERNAL
@@ -142,7 +142,7 @@ class SettingsFragment : Fragment() {
             val codes = LocaleHelper.supportedLanguages.map { it.first }
             val current = codes.indexOf(prefs.language).coerceAtLeast(0)
 
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
                 .setTitle(R.string.language)
                 .setSingleChoiceItems(names, current) { dialog, which ->
                     prefs.language = codes[which]
@@ -162,7 +162,7 @@ class SettingsFragment : Fragment() {
         view.findViewById<LinearLayout>(R.id.displayModeLayout).setOnClickListener {
             val options = arrayOf(getString(R.string.list_display_list), getString(R.string.list_display_grid))
             val current = if (prefs.listDisplayMode == "list") 0 else 1
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
                 .setTitle(R.string.list_display)
                 .setSingleChoiceItems(options, current) { dialog, which ->
                     prefs.listDisplayMode = if (which == 0) "list" else "grid"
@@ -183,7 +183,7 @@ class SettingsFragment : Fragment() {
             val options = arrayOf(getString(R.string.quality_auto), getString(R.string.quality_1080), getString(R.string.quality_4k))
             val values = arrayOf("auto", "1080", "4k")
             val current = values.indexOf(prefs.preferredQuality).coerceAtLeast(0)
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
                 .setTitle(R.string.quality)
                 .setSingleChoiceItems(options, current) { dialog, which ->
                     prefs.preferredQuality = values[which]
@@ -204,7 +204,7 @@ class SettingsFragment : Fragment() {
             val options = arrayOf(getString(R.string.buffer_low), getString(R.string.buffer_normal), getString(R.string.buffer_high))
             val values = arrayOf("low", "normal", "high")
             val current = values.indexOf(prefs.bufferMode).coerceAtLeast(0)
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
                 .setTitle(R.string.buffer_mode)
                 .setSingleChoiceItems(options, current) { dialog, which ->
                     prefs.bufferMode = values[which]
@@ -226,7 +226,7 @@ class SettingsFragment : Fragment() {
             val options = arrayOf(getString(R.string.orientation_auto), getString(R.string.orientation_portrait), getString(R.string.orientation_landscape))
             val values = arrayOf("auto", "portrait", "landscape")
             val current = values.indexOf(prefs.screenOrientation).coerceAtLeast(0)
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
                 .setTitle(R.string.screen_orientation)
                 .setSingleChoiceItems(options, current) { dialog, which ->
                     prefs.screenOrientation = values[which]
@@ -249,7 +249,7 @@ class SettingsFragment : Fragment() {
             val options = arrayOf(getString(R.string.sort_default), getString(R.string.sort_name), getString(R.string.sort_group))
             val values = arrayOf("default", "name", "group")
             val current = values.indexOf(prefs.channelSort).coerceAtLeast(0)
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
                 .setTitle(R.string.channel_sort)
                 .setSingleChoiceItems(options, current) { dialog, which ->
                     prefs.channelSort = values[which]
@@ -269,7 +269,7 @@ class SettingsFragment : Fragment() {
             val options = arrayOf("3", "5", "7", "10", "15", "20")
             val values = intArrayOf(3, 5, 7, 10, 15, 20)
             val current = values.indexOfFirst { it == prefs.channelListAutoHideSeconds }.coerceAtLeast(0)
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
                 .setTitle(R.string.list_autohide)
                 .setSingleChoiceItems(options.map { "$it сек" }.toTypedArray(), current) { dialog, which ->
                     prefs.channelListAutoHideSeconds = values[which]
@@ -291,7 +291,7 @@ class SettingsFragment : Fragment() {
             val options = arrayOf(getString(R.string.time_off), getString(R.string.time_left), getString(R.string.time_right))
             val values = arrayOf("off", "left", "right")
             val current = values.indexOf(prefs.timeDisplayPosition).coerceAtLeast(0)
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
                 .setTitle(R.string.time_display)
                 .setSingleChoiceItems(options, current) { dialog, which ->
                     prefs.timeDisplayPosition = values[which]
@@ -321,7 +321,7 @@ class SettingsFragment : Fragment() {
             )
             val values = intArrayOf(0, 30, 60, 90, 120)
             val current = values.indexOfFirst { it == prefs.sleepTimerMinutes }.coerceAtLeast(0)
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
                 .setTitle(R.string.sleep_timer)
                 .setSingleChoiceItems(options, current) { dialog, which ->
                     prefs.sleepTimerMinutes = values[which]
@@ -359,7 +359,7 @@ class SettingsFragment : Fragment() {
         view.findViewById<LinearLayout>(R.id.parentalLayout).setOnClickListener {
             if (prefs.parentalPin != null) {
                 // Remove PIN
-                AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+                AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
                     .setTitle(R.string.parental_control)
                     .setMessage(R.string.pin_enter)
                     .setView(EditText(requireContext()).apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD; id = android.R.id.edit })
@@ -382,7 +382,7 @@ class SettingsFragment : Fragment() {
                     hint = getString(R.string.pin_enter)
                     id = android.R.id.edit
                 }
-                AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+                AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
                     .setTitle(R.string.parental_control)
                     .setView(editText)
                     .setPositiveButton(R.string.ok) { _, _ ->
@@ -400,7 +400,7 @@ class SettingsFragment : Fragment() {
 
         // Clear cache
         view.findViewById<LinearLayout>(R.id.clearCacheLayout).setOnClickListener {
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
                 .setTitle(R.string.clear_cache)
                 .setMessage(R.string.clear_cache_hint)
                 .setPositiveButton(R.string.ok) { _, _ ->
@@ -437,7 +437,7 @@ class SettingsFragment : Fragment() {
         val nameEdit = dialogView.findViewById<EditText>(R.id.editChannelName)
         val urlEdit = dialogView.findViewById<EditText>(R.id.editChannelUrl)
 
-        AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+        AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
             .setTitle(R.string.custom_channels)
             .setView(dialogView)
             .setPositiveButton(R.string.add_playlist) { _, _ ->
@@ -474,7 +474,7 @@ class SettingsFragment : Fragment() {
                 val result = UpdateChecker.check(prefs.updateCheckUrl)
                 val updateInfo = result.getOrNull()
                 if (updateInfo != null && updateInfo.versionCode > BuildConfig.VERSION_CODE) {
-                    AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+                    AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
                         .setTitle(getString(R.string.update_available, updateInfo.versionName))
                         .setPositiveButton(R.string.update_download) { _, _ ->
                             UpdateInstaller.downloadAndInstall(requireContext(), updateInfo.downloadUrl)
@@ -497,7 +497,7 @@ class SettingsFragment : Fragment() {
             return
         }
 
-        AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+        AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
             .setTitle(R.string.error_log)
             .setMessage(content.takeLast(3000))
             .setPositiveButton(R.string.copy_errors) { _, _ ->

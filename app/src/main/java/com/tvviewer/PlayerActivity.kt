@@ -4,12 +4,15 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.Editable
+import android.text.TextWatcher
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
@@ -94,6 +97,10 @@ class PlayerActivity : BaseActivity() {
     }
 
     private var overlayAdapter: OverlayChannelAdapter? = null
+    private var overlaySearchEdit: EditText? = null
+    private var overlayChannelCount: TextView? = null
+    private var overlayFilteredChannels: List<Channel> = emptyList()
+    private var overlayFilteredIndices: List<Int> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -186,16 +193,74 @@ class PlayerActivity : BaseActivity() {
         overlayChannelsList.layoutManager = LinearLayoutManager(this)
         findViewById<View>(R.id.channelListDimBg).setOnClickListener { hideChannelList() }
 
+        overlaySearchEdit = findViewById(R.id.overlaySearchEdit)
+        overlayChannelCount = findViewById(R.id.overlayChannelCount)
+
+        overlaySearchEdit?.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) { filterOverlayChannels() }
+        })
+
+        // Category chips in overlay
+        val overlayCategoriesList = findViewById<RecyclerView>(R.id.overlayCategoriesList)
+        overlayCategoriesList.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+        val channels = ChannelDataHolder.allChannels
+        val cats = listOf(getString(R.string.all)) + channels.mapNotNull { it.group }.distinct().sorted()
+        val catAdapter = CategoryAdapter(cats) { category ->
+            overlaySelectedCategory = category
+            filterOverlayChannels()
+        }
+        overlayCategoriesList.adapter = catAdapter
+
         setupOverlayChannelList()
     }
+
+    private var overlaySelectedCategory: String = ""
 
     private fun setupOverlayChannelList() {
         val channels = ChannelDataHolder.allChannels
         if (channels.isEmpty()) return
 
+        overlaySelectedCategory = getString(R.string.all)
+        overlayFilteredChannels = channels
+        overlayFilteredIndices = channels.indices.toList()
+        overlayChannelCount?.text = "${channels.size}"
+
         overlayAdapter = OverlayChannelAdapter(channels, ChannelDataHolder.epgData, currentIndex) { index ->
             switchToChannel(index)
             hideChannelList()
+        }
+        overlayChannelsList.adapter = overlayAdapter
+    }
+
+    private fun filterOverlayChannels() {
+        val channels = ChannelDataHolder.allChannels
+        if (channels.isEmpty()) return
+
+        val query = overlaySearchEdit?.text?.toString()?.trim()?.lowercase() ?: ""
+        val allLabel = getString(R.string.all)
+
+        val filtered = channels.withIndex().filter { (_, ch) ->
+            val matchesSearch = query.isEmpty() || ch.name.lowercase().contains(query)
+            val matchesCat = overlaySelectedCategory.isEmpty() || overlaySelectedCategory == allLabel ||
+                ch.group == overlaySelectedCategory
+            matchesSearch && matchesCat
+        }
+
+        overlayFilteredChannels = filtered.map { it.value }
+        overlayFilteredIndices = filtered.map { it.index }
+        overlayChannelCount?.text = "${overlayFilteredChannels.size}"
+
+        // Find current channel position in filtered list
+        val filteredCurrentIndex = overlayFilteredIndices.indexOf(currentIndex)
+
+        overlayAdapter = OverlayChannelAdapter(overlayFilteredChannels, ChannelDataHolder.epgData, filteredCurrentIndex) { filteredIndex ->
+            if (filteredIndex in overlayFilteredIndices.indices) {
+                val realIndex = overlayFilteredIndices[filteredIndex]
+                switchToChannel(realIndex)
+                hideChannelList()
+            }
         }
         overlayChannelsList.adapter = overlayAdapter
     }

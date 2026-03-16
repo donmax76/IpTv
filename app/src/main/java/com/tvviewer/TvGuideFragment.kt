@@ -121,6 +121,15 @@ class TvGuideFragment : Fragment() {
             return
         }
 
+        // Auto-refresh EPG if no data and we have a URL
+        if (epgData.isEmpty()) {
+            val epgUrl = prefs.lastEpgUrl
+            if (!epgUrl.isNullOrBlank()) {
+                refreshEpg()
+                return
+            }
+        }
+
         allChannelsWithEpg = channels.map { ch ->
             val normId = ch.tvgId?.lowercase()?.replace(Regex("[^a-z0-9]"), "") ?: ""
             val programmes = epgData[normId] ?: emptyList()
@@ -133,6 +142,13 @@ class TvGuideFragment : Fragment() {
         if (prefs.epgLastUpdate > 0) {
             val dateStr = SimpleDateFormat("HH:mm dd.MM", Locale.getDefault()).format(Date(prefs.epgLastUpdate))
             epgStatus.text = "${epgStatus.text} • ${getString(R.string.epg_last_update, dateStr)}"
+        }
+
+        if (channelsWithData == 0) {
+            emptyLayout.visibility = View.VISIBLE
+            emptyText.text = getString(R.string.epg_no_data)
+            recyclerView.visibility = View.GONE
+            return
         }
 
         filterAndDisplay()

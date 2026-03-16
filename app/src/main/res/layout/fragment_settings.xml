@@ -9,16 +9,16 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="12dp">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/settings"
             android:textColor="@color/text_primary"
-            android:textSize="24sp"
+            android:textSize="22sp"
             android:textStyle="bold"
-            android:layout_marginBottom="24dp"/>
+            android:layout_marginBottom="16dp"/>
 
         <!-- Player Section -->
         <TextView
@@ -43,7 +43,10 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:layout_marginBottom="16dp"
+                android:layout_marginBottom="4dp"
+                android:padding="8dp"
+                android:minHeight="48dp"
+                android:clickable="true"
                 android:focusable="true"
                 android:background="@drawable/settings_item_focused">
 
@@ -69,7 +72,10 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:layout_marginBottom="16dp"
+                android:layout_marginBottom="4dp"
+                android:padding="8dp"
+                android:minHeight="48dp"
+                android:clickable="true"
                 android:focusable="true"
                 android:background="@drawable/settings_item_focused">
 
@@ -94,7 +100,10 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:layout_marginBottom="16dp"
+                android:layout_marginBottom="4dp"
+                android:padding="8dp"
+                android:minHeight="48dp"
+                android:clickable="true"
                 android:focusable="true"
                 android:background="@drawable/settings_item_focused">
 
@@ -119,6 +128,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
+                android:padding="8dp"
+                android:minHeight="48dp"
+                android:clickable="true"
                 android:focusable="true"
                 android:background="@drawable/settings_item_focused">
 
@@ -158,6 +170,7 @@
             android:orientation="vertical"
             android:padding="16dp"
             android:layout_marginBottom="16dp"
+            android:clickable="true"
             android:focusable="true">
 
             <TextView
@@ -199,7 +212,10 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:layout_marginBottom="16dp"
+                android:layout_marginBottom="4dp"
+                android:padding="8dp"
+                android:minHeight="48dp"
+                android:clickable="true"
                 android:focusable="true"
                 android:background="@drawable/settings_item_focused">
 
@@ -224,7 +240,10 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:layout_marginBottom="16dp"
+                android:layout_marginBottom="4dp"
+                android:padding="8dp"
+                android:minHeight="48dp"
+                android:clickable="true"
                 android:focusable="true"
                 android:background="@drawable/settings_item_focused">
 
@@ -249,7 +268,10 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:layout_marginBottom="16dp"
+                android:layout_marginBottom="4dp"
+                android:padding="8dp"
+                android:minHeight="48dp"
+                android:clickable="true"
                 android:focusable="true"
                 android:background="@drawable/settings_item_focused">
 
@@ -274,7 +296,10 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:layout_marginBottom="16dp"
+                android:layout_marginBottom="4dp"
+                android:padding="8dp"
+                android:minHeight="48dp"
+                android:clickable="true"
                 android:focusable="true"
                 android:background="@drawable/settings_item_focused">
 
@@ -299,6 +324,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
+                android:padding="8dp"
+                android:minHeight="48dp"
+                android:clickable="true"
                 android:focusable="true"
                 android:background="@drawable/settings_item_focused">
 
@@ -343,7 +371,10 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:layout_marginBottom="16dp"
+                android:layout_marginBottom="4dp"
+                android:padding="8dp"
+                android:minHeight="48dp"
+                android:clickable="true"
                 android:focusable="true"
                 android:background="@drawable/settings_item_focused">
 
@@ -368,7 +399,10 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:layout_marginBottom="16dp"
+                android:layout_marginBottom="4dp"
+                android:padding="8dp"
+                android:minHeight="48dp"
+                android:clickable="true"
                 android:focusable="true"
                 android:background="@drawable/settings_item_focused">
 
@@ -393,7 +427,10 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:layout_marginBottom="16dp"
+                android:layout_marginBottom="4dp"
+                android:padding="8dp"
+                android:minHeight="48dp"
+                android:clickable="true"
                 android:focusable="true"
                 android:background="@drawable/settings_item_focused">
 
@@ -418,6 +455,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
+                android:padding="8dp"
+                android:minHeight="48dp"
+                android:clickable="true"
                 android:focusable="true"
                 android:background="@drawable/settings_item_focused">
 
@@ -463,6 +503,9 @@
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
+                android:padding="8dp"
+                android:minHeight="48dp"
+                android:clickable="true"
                 android:focusable="true"
                 android:background="@drawable/settings_item_focused">
 
@@ -514,7 +557,10 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:layout_marginBottom="16dp"
+                android:layout_marginBottom="4dp"
+                android:padding="8dp"
+                android:minHeight="48dp"
+                android:clickable="true"
                 android:focusable="true"
                 android:background="@drawable/settings_item_focused">
 
@@ -539,6 +585,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
+                android:padding="8dp"
+                android:minHeight="48dp"
+                android:clickable="true"
                 android:focusable="true"
                 android:background="@drawable/settings_item_focused">
 
