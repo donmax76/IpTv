@@ -165,26 +165,36 @@ def _load_rtlsdr():
 FM_BAND_START = 87.5e6  # 87.5 MHz
 FM_BAND_END = 108.0e6   # 108.0 MHz
 FM_STEP = 100e3          # 100 kHz
-SAMPLE_RATE = 1.024e6    # 1.024 MHz
+SAMPLE_RATE = 1.152e6    # 1.152 MHz (divides cleanly: /6→192kHz, /4→48kHz)
 AUDIO_RATE = 48000        # 48 kHz audio output
 STATIONS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fm_stations.json")
 
 
 class FmDemodulator:
-    """FM demodulation: IQ -> audio PCM."""
+    """High-quality FM demodulation with multi-stage decimation:
+    IQ (1152kHz) → DC removal → IF LPF → ÷6 → FM discriminator (192kHz)
+    → Audio LPF → ÷4 → De-emphasis → Audio (48kHz)
+    """
 
     def __init__(self, sample_rate=SAMPLE_RATE, audio_rate=AUDIO_RATE):
         self.sample_rate = sample_rate
         self.audio_rate = audio_rate
-        self.decimation = int(sample_rate / audio_rate)
+        self.stage1_dec = 6          # 1152000 / 6 = 192000
+        self.intermediate_rate = sample_rate / self.stage1_dec
+        self.stage2_dec = int(self.intermediate_rate / audio_rate)  # 192000 / 48000 = 4
 
-        # IF low-pass filter (100 kHz cutoff)
-        self.if_filter = firwin(64, 100e3, fs=sample_rate)
+        # DC offset removal
+        self.dc_i = 0.0
+        self.dc_q = 0.0
+        self.dc_alpha = 0.995
+
+        # IF low-pass filter (80 kHz cutoff, 64 taps, Blackman-Harris window)
+        self.if_filter = self._design_filter(64, 80e3, sample_rate)
         self.if_state_i = np.zeros(len(self.if_filter) - 1)
         self.if_state_q = np.zeros(len(self.if_filter) - 1)
 
-        # Audio low-pass filter (15 kHz cutoff)
-        self.audio_filter = firwin(32, 15e3, fs=audio_rate)
+        # Audio low-pass filter (16 kHz cutoff at intermediate rate, 48 taps)
+        self.audio_filter = self._design_filter(48, 16e3, self.intermediate_rate)
         self.audio_state = np.zeros(len(self.audio_filter) - 1)
 
         # De-emphasis (75us time constant)
@@ -196,42 +206,65 @@ class FmDemodulator:
         # Previous sample for FM discriminator
         self.prev_sample = 0 + 0j
 
+    def _design_filter(self, numtaps, cutoff, fs):
+        """FIR lowpass with Blackman-Harris window."""
+        nyq = fs / 2.0
+        fc = cutoff / nyq
+        half = (numtaps - 1) / 2.0
+        n = np.arange(numtaps)
+        h = np.where(n == half, 2 * fc, np.sinc(2 * fc * (n - half)) * 2 * fc)
+        # Blackman-Harris window (~92 dB stopband)
+        w = n / (numtaps - 1)
+        window = (0.35875 - 0.48829 * np.cos(2 * np.pi * w)
+                  + 0.14128 * np.cos(4 * np.pi * w)
+                  - 0.01168 * np.cos(6 * np.pi * w))
+        h *= window
+        h /= np.sum(h)
+        return h
+
     def demodulate(self, iq_samples):
         """Demodulate IQ samples to audio."""
         if len(iq_samples) == 0:
             return np.array([], dtype=np.float32)
 
-        # IF low-pass filter (I and Q separately)
-        i_filtered, self.if_state_i = lfilter(
-            self.if_filter, 1, iq_samples.real, zi=self.if_state_i
-        )
-        q_filtered, self.if_state_q = lfilter(
-            self.if_filter, 1, iq_samples.imag, zi=self.if_state_q
-        )
-        filtered = i_filtered + 1j * q_filtered
+        # DC offset removal
+        i_raw = iq_samples.real.astype(np.float64)
+        q_raw = iq_samples.imag.astype(np.float64)
+        for k in range(len(i_raw)):
+            self.dc_i = self.dc_alpha * self.dc_i + (1 - self.dc_alpha) * i_raw[k]
+            self.dc_q = self.dc_alpha * self.dc_q + (1 - self.dc_alpha) * q_raw[k]
+            i_raw[k] -= self.dc_i
+            q_raw[k] -= self.dc_q
 
-        # FM discriminator (angle of conjugate product)
+        # IF low-pass filter
+        i_filt, self.if_state_i = lfilter(self.if_filter, 1, i_raw, zi=self.if_state_i)
+        q_filt, self.if_state_q = lfilter(self.if_filter, 1, q_raw, zi=self.if_state_q)
+        filtered = i_filt + 1j * q_filt
+
+        # Stage 1 decimation to intermediate rate
+        filtered = filtered[::self.stage1_dec]
+
+        # FM discriminator
         shifted = filtered[1:] * np.conj(filtered[:-1])
-        # Prepend using previous sample
         first = filtered[0] * np.conj(self.prev_sample)
         self.prev_sample = filtered[-1]
-        discriminated = np.angle(np.concatenate([[first], shifted]))
+        baseband = np.angle(np.concatenate([[first], shifted]))
 
-        # Decimate to audio rate
-        audio = decimate(discriminated, self.decimation, ftype='fir')
+        # Audio low-pass filter at intermediate rate
+        baseband, self.audio_state = lfilter(
+            self.audio_filter, 1, baseband, zi=self.audio_state
+        )
+
+        # Stage 2 decimation to audio rate
+        audio = baseband[::self.stage2_dec]
 
         # De-emphasis filter
         for i in range(len(audio)):
             self.deemph_state += self.deemph_alpha * (audio[i] - self.deemph_state)
             audio[i] = self.deemph_state
 
-        # Audio low-pass filter
-        audio, self.audio_state = lfilter(
-            self.audio_filter, 1, audio, zi=self.audio_state
-        )
-
-        # Normalize
-        audio = audio / (np.max(np.abs(audio)) + 1e-10) * 0.8
+        # Scale (avoid per-block normalization which causes pumping)
+        audio = np.clip(audio * 0.8, -1.0, 1.0)
 
         return audio.astype(np.float32)
 
@@ -248,6 +281,8 @@ class FmDemodulator:
         self.audio_state = np.zeros(len(self.audio_filter) - 1)
         self.deemph_state = 0.0
         self.prev_sample = 0 + 0j
+        self.dc_i = 0.0
+        self.dc_q = 0.0
 
 
 class StationStorage:

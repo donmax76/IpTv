@@ -67,6 +67,38 @@
             android:textSize="72sp"
             android:fontFamily="monospace"
             android:textStyle="bold" />
+
+        <!-- RDS Station Name -->
+        <TextView
+            android:id="@+id/tvRdsPs"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/accent_orange"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace"
+            android:visibility="gone" />
+
+        <!-- RDS RadioText -->
+        <TextView
+            android:id="@+id/tvRdsRt"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:gravity="center"
+            android:visibility="gone" />
+
+        <!-- RDS Programme Type -->
+        <TextView
+            android:id="@+id/tvRdsPty"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_hint"
+            android:textSize="11sp"
+            android:visibility="gone" />
     </LinearLayout>
 
     <!-- Frequency Seekbar -->

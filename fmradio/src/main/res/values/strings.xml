@@ -47,6 +47,9 @@
     <string name="dialog_rename_title">Rename Station</string>
     <string name="hint_station_name">Station name</string>
 
+    <!-- RDS -->
+    <string name="rds_no_data">No RDS</string>
+
     <!-- Content descriptions -->
     <string name="cd_freq_down">Frequency down</string>
     <string name="cd_freq_up">Frequency up</string>

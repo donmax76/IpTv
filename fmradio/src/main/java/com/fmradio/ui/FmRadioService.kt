@@ -10,11 +10,12 @@ import androidx.core.app.NotificationCompat
 import com.fmradio.R
 import com.fmradio.dsp.AudioPlayer
 import com.fmradio.dsp.FmDemodulator
+import com.fmradio.dsp.RdsDecoder
 import com.fmradio.rtlsdr.RtlSdrDevice
 import kotlinx.coroutines.*
 
 /**
- * Foreground service for continuous FM radio playback.
+ * Foreground service for continuous FM radio playback with RDS support.
  */
 class FmRadioService : Service() {
 
@@ -32,6 +33,7 @@ class FmRadioService : Service() {
     private var device: RtlSdrDevice? = null
     private var demodulator: FmDemodulator? = null
     private var audioPlayer: AudioPlayer? = null
+    private var rdsDecoder: RdsDecoder? = null
     private var streamingJob: Job? = null
 
     @Volatile
@@ -41,7 +43,13 @@ class FmRadioService : Service() {
     var currentFrequency: Long = 100000000L
         private set
 
+    // RDS data
+    @Volatile
+    var currentRdsData: RdsDecoder.RdsData = RdsDecoder.RdsData()
+        private set
+
     var onFrequencyChanged: ((Long) -> Unit)? = null
+    var onRdsDataReceived: ((RdsDecoder.RdsData) -> Unit)? = null
 
     override fun onBind(intent: Intent): IBinder = binder
 
@@ -62,6 +70,11 @@ class FmRadioService : Service() {
     fun tuneToFrequency(frequencyHz: Long) {
         currentFrequency = frequencyHz
         device?.setFrequency(frequencyHz)
+
+        // Reset RDS on frequency change
+        rdsDecoder?.reset()
+        currentRdsData = RdsDecoder.RdsData()
+
         updateNotification()
         onFrequencyChanged?.invoke(frequencyHz)
     }
@@ -70,14 +83,35 @@ class FmRadioService : Service() {
         if (isPlaying) return
         val dev = device ?: return
 
+        val sampleRate = FmDemodulator.RECOMMENDED_SAMPLE_RATE
+
+        // Create demodulator with recommended sample rate
         demodulator = FmDemodulator(
-            inputSampleRate = RtlSdrDevice.DEFAULT_SAMPLE_RATE,
+            inputSampleRate = sampleRate,
             audioSampleRate = 48000
         )
 
+        // Create RDS decoder at intermediate rate (192 kHz)
+        rdsDecoder = RdsDecoder(sampleRate / 6).also { rds ->
+            rds.listener = object : RdsDecoder.RdsListener {
+                override fun onRdsData(data: RdsDecoder.RdsData) {
+                    currentRdsData = data
+                    onRdsDataReceived?.invoke(data)
+                    if (data.ps.isNotBlank()) {
+                        updateNotification()
+                    }
+                }
+            }
+        }
+
+        // Connect demodulator wideband output to RDS decoder
+        demodulator?.widebandListener = { widebandSamples ->
+            rdsDecoder?.process(widebandSamples)
+        }
+
         audioPlayer = AudioPlayer(48000).also { it.start() }
 
-        dev.setSampleRate(RtlSdrDevice.DEFAULT_SAMPLE_RATE)
+        dev.setSampleRate(sampleRate)
         dev.setAutoGain(true)
         dev.setFrequency(currentFrequency)
 
@@ -91,7 +125,7 @@ class FmRadioService : Service() {
         }
 
         updateNotification()
-        Log.i(TAG, "Playback started at ${currentFrequency / 1e6} MHz")
+        Log.i(TAG, "Playback started at ${currentFrequency / 1e6} MHz (${sampleRate}Hz, RDS enabled)")
     }
 
     fun stopPlayback() {
@@ -101,8 +135,12 @@ class FmRadioService : Service() {
         streamingJob = null
         audioPlayer?.stop()
         audioPlayer = null
+        demodulator?.widebandListener = null
         demodulator?.reset()
         demodulator = null
+        rdsDecoder?.reset()
+        rdsDecoder = null
+        currentRdsData = RdsDecoder.RdsData()
         updateNotification()
         Log.i(TAG, "Playback stopped")
     }
@@ -135,7 +173,12 @@ class FmRadioService : Service() {
         )
 
         val freqText = String.format("%.1f FM", currentFrequency / 1e6)
-        val statusText = if (isPlaying) "Playing $freqText" else "FM Radio"
+        val rdsName = currentRdsData.ps.takeIf { it.isNotBlank() }
+        val statusText = when {
+            !isPlaying -> "FM Radio"
+            rdsName != null -> "$rdsName — $freqText"
+            else -> "Playing $freqText"
+        }
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("FM Radio")

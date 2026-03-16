@@ -19,13 +19,19 @@ class FmScanner(private val device: RtlSdrDevice) {
         const val FM_STEP = 100000L           // 100 kHz step
 
         // Signal threshold for station detection (dB)
-        private const val SIGNAL_THRESHOLD = -20f
+        private const val SIGNAL_THRESHOLD = -15f
 
         // Settling time after frequency change (ms)
-        private const val SETTLE_TIME_MS = 50L
+        private const val SETTLE_TIME_MS = 80L
 
         // Number of samples to read for measurement
-        private const val MEASUREMENT_SAMPLES = 32768
+        private const val MEASUREMENT_SAMPLES = 65536
+
+        // Number of measurements to average per frequency
+        private const val MEASUREMENTS_PER_FREQ = 3
+
+        // Noise floor samples at scan start
+        private const val NOISE_FLOOR_SAMPLES = 5
     }
 
     data class ScanResult(
@@ -68,44 +74,91 @@ class FmScanner(private val device: RtlSdrDevice) {
 
         Log.i(TAG, "Starting FM scan: ${startFreq/1e6} - ${endFreq/1e6} MHz, step=${step/1e3} kHz")
 
-        // Set optimal sample rate for scanning
-        device.setSampleRate(RtlSdrDevice.DEFAULT_SAMPLE_RATE)
-        device.setAutoGain(true)
+        try {
+            // Stop any active streaming first
+            if (device.isStreaming) {
+                device.stopStreaming()
+                delay(100)
+            }
 
-        var freq = startFreq
-        while (freq <= endFreq && scanning) {
-            // Set frequency
-            device.setFrequency(freq)
+            // Configure device for scanning
+            device.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
+            device.setAutoGain(true)
+            delay(50)
 
-            // Wait for PLL to settle
-            delay(SETTLE_TIME_MS)
-
-            // Clear buffer and read fresh samples
-            device.resetBuffer()
-            val samples = device.readSamples(MEASUREMENT_SAMPLES)
-
-            if (samples != null) {
-                val signalStrength = demodulator.measureSignalStrength(samples)
-
-                if (signalStrength > threshold) {
-                    val result = ScanResult(freq, signalStrength)
-                    stations.add(result)
-                    Log.i(TAG, "Station found: ${result.displayFrequency} MHz (${signalStrength} dB)")
-
-                    withContext(Dispatchers.Main) {
-                        listener.onStationFound(result)
-                    }
+            // Measure noise floor at edges of band (where no stations expected)
+            var noiseFloor = -30f
+            val noiseFreqs = listOf(87400000L, 108100000L)
+            var noiseSum = 0f
+            var noiseMeasurements = 0
+            for (freq in noiseFreqs) {
+                device.setFrequency(freq)
+                delay(SETTLE_TIME_MS)
+                device.resetBuffer()
+                val samples = device.readSamples(MEASUREMENT_SAMPLES)
+                if (samples != null) {
+                    noiseSum += demodulator.measureSignalStrength(samples)
+                    noiseMeasurements++
                 }
             }
-
-            currentStep++
-            val progress = currentStep.toFloat() / totalSteps
-
-            withContext(Dispatchers.Main) {
-                listener.onScanProgress(freq, progress)
+            if (noiseMeasurements > 0) {
+                noiseFloor = noiseSum / noiseMeasurements
+                Log.i(TAG, "Measured noise floor: $noiseFloor dB")
             }
 
-            freq += step
+            // Use adaptive threshold: noise floor + margin
+            val adaptiveThreshold = maxOf(threshold, noiseFloor + 6f)
+            Log.i(TAG, "Using scan threshold: $adaptiveThreshold dB")
+
+            var freq = startFreq
+            while (freq <= endFreq && scanning) {
+                // Set frequency
+                device.setFrequency(freq)
+
+                // Wait for PLL to settle
+                delay(SETTLE_TIME_MS)
+
+                // Clear buffer and take multiple measurements
+                device.resetBuffer()
+                var signalSum = 0f
+                var validMeasurements = 0
+
+                for (m in 0 until MEASUREMENTS_PER_FREQ) {
+                    val samples = device.readSamples(MEASUREMENT_SAMPLES)
+                    if (samples != null && samples.isNotEmpty()) {
+                        signalSum += demodulator.measureSignalStrength(samples)
+                        validMeasurements++
+                    }
+                }
+
+                if (validMeasurements > 0) {
+                    val avgSignal = signalSum / validMeasurements
+
+                    if (avgSignal > adaptiveThreshold) {
+                        val result = ScanResult(freq, avgSignal)
+                        stations.add(result)
+                        Log.i(TAG, "Station found: ${result.displayFrequency} MHz ($avgSignal dB)")
+
+                        withContext(Dispatchers.Main) {
+                            listener.onStationFound(result)
+                        }
+                    }
+                }
+
+                currentStep++
+                val progress = currentStep.toFloat() / totalSteps
+
+                withContext(Dispatchers.Main) {
+                    listener.onScanProgress(freq, progress)
+                }
+
+                freq += step
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Scan error", e)
+            withContext(Dispatchers.Main) {
+                listener.onScanError(e.message ?: "Unknown error")
+            }
         }
 
         scanning = false

@@ -20,6 +20,7 @@ import com.fmradio.R
 import com.fmradio.data.RadioStation
 import com.fmradio.data.StationStorage
 import com.fmradio.dsp.FmScanner
+import com.fmradio.dsp.RdsDecoder
 import com.fmradio.rtlsdr.RtlSdrDevice
 import com.fmradio.rtlsdr.UsbPermissionHelper
 import kotlinx.coroutines.launch
@@ -38,6 +39,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvFrequency: TextView
     private lateinit var tvStatus: TextView
     private lateinit var tvDeviceInfo: TextView
+    private lateinit var tvRdsPs: TextView
+    private lateinit var tvRdsRt: TextView
+    private lateinit var tvRdsPty: TextView
     private lateinit var btnPlayStop: ImageButton
     private lateinit var btnScan: Button
     private lateinit var btnFreqDown: ImageButton
@@ -61,6 +65,9 @@ class MainActivity : AppCompatActivity() {
             serviceBound = true
             radioService?.onFrequencyChanged = { freq ->
                 runOnUiThread { updateFrequencyDisplay(freq) }
+            }
+            radioService?.onRdsDataReceived = { rdsData ->
+                runOnUiThread { updateRdsDisplay(rdsData) }
             }
         }
 
@@ -99,6 +106,9 @@ class MainActivity : AppCompatActivity() {
         tvFrequency = findViewById(R.id.tvFrequency)
         tvStatus = findViewById(R.id.tvStatus)
         tvDeviceInfo = findViewById(R.id.tvDeviceInfo)
+        tvRdsPs = findViewById(R.id.tvRdsPs)
+        tvRdsRt = findViewById(R.id.tvRdsRt)
+        tvRdsPty = findViewById(R.id.tvRdsPty)
         btnPlayStop = findViewById(R.id.btnPlayStop)
         btnScan = findViewById(R.id.btnScan)
         btnFreqDown = findViewById(R.id.btnFreqDown)
@@ -244,12 +254,16 @@ class MainActivity : AppCompatActivity() {
         service.setVolume(seekVolume.progress / 100f)
         btnPlayStop.setImageResource(R.drawable.ic_stop)
         tvStatus.text = getString(R.string.status_playing)
+
+        // Clear RDS display on new playback
+        clearRdsDisplay()
     }
 
     private fun stopPlayback() {
         radioService?.stopPlayback()
         btnPlayStop.setImageResource(R.drawable.ic_play)
         tvStatus.text = getString(R.string.status_stopped)
+        clearRdsDisplay()
     }
 
     private fun setFrequency(frequencyHz: Long) {
@@ -264,6 +278,7 @@ class MainActivity : AppCompatActivity() {
 
         if (radioService?.isPlaying == true) {
             radioService?.tuneToFrequency(freq)
+            clearRdsDisplay()
         }
 
         stationAdapter.setSelectedFrequency(freq)
@@ -324,6 +339,44 @@ class MainActivity : AppCompatActivity() {
                 }
             })
         }
+    }
+
+    private fun updateRdsDisplay(rdsData: RdsDecoder.RdsData) {
+        if (rdsData.ps.isNotBlank()) {
+            tvRdsPs.text = rdsData.ps
+            tvRdsPs.visibility = View.VISIBLE
+        }
+        if (rdsData.rt.isNotBlank()) {
+            tvRdsRt.text = rdsData.rt
+            tvRdsRt.visibility = View.VISIBLE
+        }
+        if (rdsData.ptyName.isNotBlank() && rdsData.pty > 0) {
+            tvRdsPty.text = rdsData.ptyName
+            tvRdsPty.visibility = View.VISIBLE
+        }
+
+        // Auto-save RDS name to station
+        if (rdsData.ps.isNotBlank()) {
+            val stations = stationStorage.loadStations()
+            val station = stations.find { Math.abs(it.frequencyHz - currentFrequency) < 50000 }
+            if (station != null && station.rdsPs != rdsData.ps) {
+                stationStorage.updateStation(station.copy(
+                    rdsPs = rdsData.ps,
+                    rdsRt = rdsData.rt,
+                    rdsPty = rdsData.ptyName
+                ))
+                loadSavedStations()
+            }
+        }
+    }
+
+    private fun clearRdsDisplay() {
+        tvRdsPs.visibility = View.GONE
+        tvRdsRt.visibility = View.GONE
+        tvRdsPty.visibility = View.GONE
+        tvRdsPs.text = ""
+        tvRdsRt.text = ""
+        tvRdsPty.text = ""
     }
 
     private fun toggleFavorite(station: RadioStation) {

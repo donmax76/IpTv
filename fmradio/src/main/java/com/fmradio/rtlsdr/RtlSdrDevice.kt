@@ -37,9 +37,8 @@ class RtlSdrDevice(private val context: Context) {
         private const val CTRL_IN = UsbConstants.USB_DIR_IN or UsbConstants.USB_TYPE_VENDOR
         private const val CTRL_OUT = UsbConstants.USB_DIR_OUT or UsbConstants.USB_TYPE_VENDOR
 
-        // Default sample rate for FM
-        const val DEFAULT_SAMPLE_RATE = 1024000 // 1.024 MHz
-        const val FM_SAMPLE_RATE = 170000 // For FM demodulation
+        // Default sample rate for FM (1.152 MHz — divides cleanly to 48 kHz audio)
+        const val DEFAULT_SAMPLE_RATE = 1152000
 
         fun findDevice(context: Context): UsbDevice? {
             val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager

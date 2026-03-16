@@ -2,12 +2,13 @@ package com.fmradio.dsp
 
 import android.media.AudioAttributes
 import android.media.AudioFormat
-import android.media.AudioManager
 import android.media.AudioTrack
+import android.os.Build
 import android.util.Log
 
 /**
  * Audio output player using Android AudioTrack for low-latency playback.
+ * Uses larger buffer and PERFORMANCE_MODE_LOW_LATENCY for better quality.
  */
 class AudioPlayer(private val sampleRate: Int = 48000) {
 
@@ -22,13 +23,15 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
     fun start() {
         if (isPlaying) return
 
-        val bufferSize = AudioTrack.getMinBufferSize(
+        val minBufSize = AudioTrack.getMinBufferSize(
             sampleRate,
             AudioFormat.CHANNEL_OUT_MONO,
             AudioFormat.ENCODING_PCM_16BIT
-        ) * 2
+        )
+        // Use 4x minimum buffer to avoid underruns
+        val bufferSize = minBufSize * 4
 
-        audioTrack = AudioTrack.Builder()
+        val builder = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -44,11 +47,15 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             )
             .setBufferSizeInBytes(bufferSize)
             .setTransferMode(AudioTrack.MODE_STREAM)
-            .build()
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+        }
+
+        audioTrack = builder.build()
         audioTrack?.play()
         isPlaying = true
-        Log.i(TAG, "Audio playback started (${sampleRate}Hz)")
+        Log.i(TAG, "Audio playback started (${sampleRate}Hz, buffer=${bufferSize})")
     }
 
     fun writeSamples(samples: ShortArray) {

@@ -35,7 +35,11 @@ class StationAdapter(
         val station = stations[position]
 
         holder.tvFrequency.text = station.displayFrequency
-        holder.tvName.text = station.name.ifEmpty { "---" }
+        holder.tvName.text = when {
+            station.name.isNotEmpty() -> station.name
+            station.rdsPs.isNotBlank() -> station.rdsPs
+            else -> "---"
+        }
 
         val signalBars = when {
             station.signalStrength > -5 -> "\u2588\u2588\u2588\u2588\u2588"

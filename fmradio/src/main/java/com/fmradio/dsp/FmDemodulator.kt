@@ -3,51 +3,71 @@ package com.fmradio.dsp
 import kotlin.math.*
 
 /**
- * FM demodulation DSP pipeline:
- * IQ samples -> Low-pass filter -> FM discriminator -> Audio decimation -> De-emphasis -> Audio output
+ * High-quality FM demodulation DSP pipeline with multi-stage decimation:
+ *
+ * IQ samples (1152 kHz) → DC removal → IF LPF → Decimate ÷6 → FM discriminator (192 kHz)
+ *   → Wideband baseband output (for RDS decoder at 192 kHz)
+ *   → Audio LPF → Decimate ÷4 → De-emphasis → Output audio (48 kHz)
  */
 class FmDemodulator(
-    private val inputSampleRate: Int = 1024000,
+    private val inputSampleRate: Int = RECOMMENDED_SAMPLE_RATE,
     private val audioSampleRate: Int = 48000
 ) {
+    companion object {
+        /** Recommended RTL-SDR sample rate for high-quality FM.
+         *  1152000 / 6 = 192000 intermediate, 192000 / 4 = 48000 audio. Clean chain. */
+        const val RECOMMENDED_SAMPLE_RATE = 1152000
+    }
+
+    // Intermediate rate after first decimation stage
+    private val stage1Decimation = 6
+    private val intermediateRate: Int = inputSampleRate / stage1Decimation  // 192000 Hz
+    private val stage2Decimation: Int = intermediateRate / audioSampleRate  // 4
+
+    // DC offset removal (IIR high-pass)
+    private var dcI = 0f
+    private var dcQ = 0f
+    private val dcAlpha = 0.995f
+
     // Previous I/Q sample for FM discriminator
     private var prevI = 0f
     private var prevQ = 0f
 
-    // De-emphasis filter state (75us for FM broadcast)
+    // De-emphasis filter state (75us for US/Europe FM broadcast)
     private var deEmphasisState = 0f
     private val deEmphasisAlpha: Float
 
-    // Decimation factor
-    private val decimationFactor: Int
+    // Stage 1: IF low-pass FIR filter (before first decimation)
+    private val ifLpfOrder = 64
+    private val ifLpfCoeffs: FloatArray
+    private var ifBufI = FloatArray(ifLpfOrder)
+    private var ifBufQ = FloatArray(ifLpfOrder)
+    private var ifBufIdx = 0
 
-    // Low-pass FIR filter coefficients for IF filtering
-    private val lpfCoeffs: FloatArray
-    private val lpfOrder = 32
-    private var lpfBufferI = FloatArray(lpfOrder)
-    private var lpfBufferQ = FloatArray(lpfOrder)
-    private var lpfIndex = 0
-
-    // Audio low-pass filter
+    // Stage 2: Audio low-pass FIR filter (before second decimation, cuts above 15 kHz)
+    private val audioLpfOrder = 48
     private val audioLpfCoeffs: FloatArray
-    private val audioLpfOrder = 16
-    private var audioLpfBuffer = FloatArray(audioLpfOrder)
-    private var audioLpfIndex = 0
+    private var audioLpfBuf = FloatArray(audioLpfOrder)
+    private var audioLpfIdx = 0
+
+    // Decimation counters (persistent across calls)
+    private var stage1Counter = 0
+    private var stage2Counter = 0
+
+    // Wideband baseband listener (for RDS decoder, called at intermediate rate)
+    var widebandListener: ((FloatArray) -> Unit)? = null
 
     init {
-        // Calculate decimation factor
-        decimationFactor = inputSampleRate / audioSampleRate
-
-        // De-emphasis: 75us time constant (used in US/Europe FM broadcast)
+        // De-emphasis: 75us time constant
         val tau = 75e-6f
         val dt = 1f / audioSampleRate
         deEmphasisAlpha = dt / (tau + dt)
 
-        // Design low-pass FIR filter for IF (cutoff at ~100kHz)
-        lpfCoeffs = designLowPassFilter(lpfOrder, 100000f / inputSampleRate)
+        // IF LPF: cutoff at ~80kHz (relative to input rate) — pass FM signal, reject neighbors
+        ifLpfCoeffs = designLowPassFilter(ifLpfOrder, 80000f / inputSampleRate)
 
-        // Audio low-pass filter (cutoff at ~15kHz)
-        audioLpfCoeffs = designLowPassFilter(audioLpfOrder, 15000f / audioSampleRate)
+        // Audio LPF: cutoff at ~16kHz (relative to intermediate rate) — pass audio, cut pilot & subcarriers
+        audioLpfCoeffs = designLowPassFilter(audioLpfOrder, 16000f / intermediateRate)
     }
 
     private fun designLowPassFilter(order: Int, normalizedCutoff: Float): FloatArray {
@@ -62,11 +82,17 @@ class FmDemodulator(
             } else {
                 sin(2 * PI.toFloat() * normalizedCutoff * n) / (PI.toFloat() * n)
             }
-            // Apply Hamming window
-            coeffs[i] *= (0.54f - 0.46f * cos(2 * PI.toFloat() * i / (order - 1)))
+            // Blackman-Harris window — ~92 dB stopband attenuation
+            val w = i.toFloat() / (order - 1).toFloat()
+            val a0 = 0.35875f
+            val a1 = 0.48829f
+            val a2 = 0.14128f
+            val a3 = 0.01168f
+            coeffs[i] *= a0 - a1 * cos(2 * PI.toFloat() * w) +
+                    a2 * cos(4 * PI.toFloat() * w) - a3 * cos(6 * PI.toFloat() * w)
             sum += coeffs[i]
         }
-        // Normalize
+        // Normalize for unity gain at DC
         for (i in coeffs.indices) {
             coeffs[i] /= sum
         }
@@ -75,63 +101,97 @@ class FmDemodulator(
 
     /**
      * Demodulate raw IQ samples (interleaved unsigned 8-bit) to audio PCM (16-bit).
+     * Also feeds wideband baseband to RDS decoder if listener is set.
      */
     fun demodulate(iqData: ByteArray): ShortArray {
-        val numSamples = iqData.size / 2
-        val audioSamples = mutableListOf<Short>()
+        val numIqSamples = iqData.size / 2
+        val maxAudioSamples = numIqSamples / (stage1Decimation * stage2Decimation) + 2
+        val audioOut = ShortArray(maxAudioSamples)
+        var audioCount = 0
 
-        var decimCounter = 0
+        // Wideband buffer for RDS (at intermediate rate)
+        val wbListener = widebandListener
+        val maxWbSamples = numIqSamples / stage1Decimation + 2
+        val widebandBuf = if (wbListener != null) FloatArray(maxWbSamples) else null
+        var wbCount = 0
 
-        for (i in 0 until numSamples) {
+        for (i in 0 until numIqSamples) {
             // Convert unsigned 8-bit to float (-1.0 to 1.0)
-            val iSample = (iqData[i * 2].toInt() and 0xFF) / 127.5f - 1f
-            val qSample = (iqData[i * 2 + 1].toInt() and 0xFF) / 127.5f - 1f
+            var iSample = (iqData[i * 2].toInt() and 0xFF) / 127.5f - 1f
+            var qSample = (iqData[i * 2 + 1].toInt() and 0xFF) / 127.5f - 1f
 
-            // Apply IF low-pass filter
-            lpfBufferI[lpfIndex] = iSample
-            lpfBufferQ[lpfIndex] = qSample
+            // DC offset removal (IIR high-pass filter)
+            dcI = dcAlpha * dcI + (1 - dcAlpha) * iSample
+            dcQ = dcAlpha * dcQ + (1 - dcAlpha) * qSample
+            iSample -= dcI
+            qSample -= dcQ
 
-            var filteredI = 0f
-            var filteredQ = 0f
-            for (j in 0 until lpfOrder) {
-                val idx = (lpfIndex - j + lpfOrder) % lpfOrder
-                filteredI += lpfBufferI[idx] * lpfCoeffs[j]
-                filteredQ += lpfBufferQ[idx] * lpfCoeffs[j]
+            // Feed into IF low-pass filter buffer
+            ifBufI[ifBufIdx] = iSample
+            ifBufQ[ifBufIdx] = qSample
+            ifBufIdx = (ifBufIdx + 1) % ifLpfOrder
+
+            // Stage 1 decimation: only process every 6th sample
+            stage1Counter++
+            if (stage1Counter < stage1Decimation) continue
+            stage1Counter = 0
+
+            // Compute filtered I/Q at intermediate rate
+            var filtI = 0f
+            var filtQ = 0f
+            for (j in 0 until ifLpfOrder) {
+                val idx = (ifBufIdx - 1 - j + ifLpfOrder) % ifLpfOrder
+                filtI += ifBufI[idx] * ifLpfCoeffs[j]
+                filtQ += ifBufQ[idx] * ifLpfCoeffs[j]
             }
-            lpfIndex = (lpfIndex + 1) % lpfOrder
 
-            // Decimation - only process every Nth sample
-            decimCounter++
-            if (decimCounter < decimationFactor) continue
-            decimCounter = 0
+            // FM discriminator: phase difference via conjugate multiply
+            val realProd = filtI * prevI + filtQ * prevQ
+            val imagProd = filtQ * prevI - filtI * prevQ
+            prevI = filtI
+            prevQ = filtQ
 
-            // FM discriminator (atan2 of conjugate product)
-            val realProduct = filteredI * prevI + filteredQ * prevQ
-            val imagProduct = filteredQ * prevI - filteredI * prevQ
-            prevI = filteredI
-            prevQ = filteredQ
+            // atan2 normalized to [-1, 1]
+            val baseband = atan2(imagProd, realProd) / PI.toFloat()
 
-            var audio = atan2(imagProduct, realProduct) / PI.toFloat()
+            // Feed wideband baseband to RDS decoder at 192 kHz
+            if (widebandBuf != null && wbCount < widebandBuf.size) {
+                widebandBuf[wbCount++] = baseband
+            }
+
+            // Audio low-pass filter buffer
+            audioLpfBuf[audioLpfIdx] = baseband
+            audioLpfIdx = (audioLpfIdx + 1) % audioLpfOrder
+
+            // Stage 2 decimation: output every 4th intermediate sample
+            stage2Counter++
+            if (stage2Counter < stage2Decimation) continue
+            stage2Counter = 0
+
+            // Compute filtered audio at 48 kHz
+            var filtAudio = 0f
+            for (j in 0 until audioLpfOrder) {
+                val idx = (audioLpfIdx - 1 - j + audioLpfOrder) % audioLpfOrder
+                filtAudio += audioLpfBuf[idx] * audioLpfCoeffs[j]
+            }
 
             // De-emphasis filter
-            deEmphasisState += deEmphasisAlpha * (audio - deEmphasisState)
-            audio = deEmphasisState
+            deEmphasisState += deEmphasisAlpha * (filtAudio - deEmphasisState)
+            val audio = deEmphasisState
 
-            // Audio low-pass filter
-            audioLpfBuffer[audioLpfIndex] = audio
-            var filteredAudio = 0f
-            for (j in 0 until audioLpfOrder) {
-                val idx = (audioLpfIndex - j + audioLpfOrder) % audioLpfOrder
-                filteredAudio += audioLpfBuffer[idx] * audioLpfCoeffs[j]
+            // Scale to 16-bit PCM
+            val scaled = (audio * 28000f).coerceIn(-32767f, 32767f)
+            if (audioCount < audioOut.size) {
+                audioOut[audioCount++] = scaled.toInt().toShort()
             }
-            audioLpfIndex = (audioLpfIndex + 1) % audioLpfOrder
-
-            // Scale and clip to 16-bit PCM
-            val pcmSample = (filteredAudio * 24000).toInt().coerceIn(-32768, 32767)
-            audioSamples.add(pcmSample.toShort())
         }
 
-        return audioSamples.toShortArray()
+        // Send wideband data to RDS decoder
+        if (wbListener != null && wbCount > 0) {
+            wbListener.invoke(if (wbCount == widebandBuf!!.size) widebandBuf else widebandBuf.copyOf(wbCount))
+        }
+
+        return if (audioCount == audioOut.size) audioOut else audioOut.copyOf(audioCount)
     }
 
     /**
@@ -158,10 +218,14 @@ class FmDemodulator(
         prevI = 0f
         prevQ = 0f
         deEmphasisState = 0f
-        lpfBufferI = FloatArray(lpfOrder)
-        lpfBufferQ = FloatArray(lpfOrder)
-        lpfIndex = 0
-        audioLpfBuffer = FloatArray(audioLpfOrder)
-        audioLpfIndex = 0
+        dcI = 0f
+        dcQ = 0f
+        ifBufI = FloatArray(ifLpfOrder)
+        ifBufQ = FloatArray(ifLpfOrder)
+        ifBufIdx = 0
+        audioLpfBuf = FloatArray(audioLpfOrder)
+        audioLpfIdx = 0
+        stage1Counter = 0
+        stage2Counter = 0
     }
 }
