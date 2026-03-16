@@ -32,9 +32,19 @@ jobs:
       run: sed -i 's/\r$//' gradlew
 
     - name: Build Debug APK
-      run: ./gradlew assembleDebug --no-daemon --stacktrace
+      run: |
+        ./gradlew assembleDebug --no-daemon --stacktrace > build_output.log 2>&1 || {
+          echo "## Build Failed" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -150 build_output.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat build_output.log
+          exit 1
+        }
+        echo "Build succeeded!"
+        cat build_output.log
 
-    - name: Find and upload APK
+    - name: Find APK
       if: success()
       run: |
         echo "=== All APK files ==="
@@ -44,8 +54,6 @@ jobs:
           mkdir -p apk_output
           cp "$APK_PATH" apk_output/
           echo "APK found: $APK_PATH"
-        else
-          echo "::warning::No APK file found"
         fi
 
     - name: Upload APK artifact
