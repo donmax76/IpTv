@@ -116,7 +116,7 @@
     <string name="update_url_hint">URL version.json</string>
     <string name="update_url_hint_placeholder">Стандартный URL</string>
     <string name="update_404_hint">Создайте Gist с version.json</string>
-    <string name="add_mədəniyyət">Добавить Mədəniyyət</string>
+    <string name="add_medeniyyet">Добавить Mədəniyyət</string>
     <string name="medeniyyet_url_hint">URL потока Mədəniyyət TV</string>
     <string name="tv_guide_unavailable">Программа недоступна</string>
     <string name="tv_guide_now">Сейчас</string>
