@@ -32,20 +32,35 @@ jobs:
       run: sed -i 's/\r$//' gradlew
 
     - name: Build Debug APK
+      id: build
       run: |
-        ./gradlew assembleDebug --no-daemon --stacktrace > build_output.log 2>&1 || {
-          echo "## Build Failed" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          tail -150 build_output.log >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat build_output.log
-          exit 1
-        }
-        echo "Build succeeded!"
-        cat build_output.log
+        ./gradlew assembleDebug --no-daemon --stacktrace > build_output.log 2>&1 || true
+        BUILD_EXIT=${PIPESTATUS[0]:-$?}
+        echo "exit_code=$BUILD_EXIT" >> $GITHUB_OUTPUT
+        if [ $BUILD_EXIT -ne 0 ]; then
+          echo "Build failed with exit code $BUILD_EXIT"
+          echo "=== LAST 150 LINES ==="
+          tail -150 build_output.log
+          echo "=== ERROR LINES ==="
+          grep -in "error" build_output.log | tail -30
+        fi
+
+    - name: Commit error log on failure
+      if: steps.build.outputs.exit_code != '0'
+      run: |
+        tail -200 build_output.log > BUILD_ERROR.log
+        git config user.name "github-actions"
+        git config user.email "github-actions@github.com"
+        git add BUILD_ERROR.log
+        git commit -m "CI: build error log [skip ci]" || true
+        git push || true
+
+    - name: Fail if build failed
+      if: steps.build.outputs.exit_code != '0'
+      run: exit 1
 
     - name: Find APK
-      if: success()
+      if: steps.build.outputs.exit_code == '0'
       run: |
         echo "=== All APK files ==="
         find . -name "*.apk" -type f -ls
@@ -57,7 +72,7 @@ jobs:
         fi
 
     - name: Upload APK artifact
-      if: success()
+      if: steps.build.outputs.exit_code == '0'
       uses: actions/upload-artifact@v4
       with:
         name: app-debug
@@ -65,7 +80,7 @@ jobs:
         if-no-files-found: warn
 
     - name: Create Release
-      if: success() && github.event_name == 'push'
+      if: steps.build.outputs.exit_code == '0' && github.event_name == 'push'
       uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ github.run_number }}
