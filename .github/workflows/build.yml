@@ -32,7 +32,16 @@ jobs:
       run: sed -i 's/\r$//' gradlew
 
     - name: Build Debug APK
-      run: ./gradlew assembleDebug --no-daemon --stacktrace
+      id: build
+      run: |
+        ./gradlew assembleDebug --no-daemon --stacktrace > build_output.log 2>&1
+        BUILD_EXIT=$?
+        echo "exit_code=$BUILD_EXIT" >> $GITHUB_OUTPUT
+        cat build_output.log
+        if [ $BUILD_EXIT -ne 0 ]; then
+          echo "::error::Gradle build failed with exit code $BUILD_EXIT"
+          exit 1
+        fi
 
     - name: Find and prepare APK
       id: apk
@@ -49,13 +58,12 @@ jobs:
           cp "$APK_PATH" apk_output/TVViewer-v5.1-debug.apk
           echo "apk_found=true" >> $GITHUB_OUTPUT
         else
-          echo "::error::No APK file found anywhere!"
+          echo "::error::No APK file found!"
           echo "apk_found=false" >> $GITHUB_OUTPUT
           exit 1
         fi
 
     - name: Upload APK artifact
-      if: steps.apk.outputs.apk_found == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: TVViewer-debug
@@ -63,7 +71,7 @@ jobs:
         if-no-files-found: error
 
     - name: Create Release
-      if: steps.apk.outputs.apk_found == 'true' && github.event_name == 'push'
+      if: github.event_name == 'push'
       uses: softprops/action-gh-release@v2
       with:
         tag_name: v5.1-build${{ github.run_number }}
