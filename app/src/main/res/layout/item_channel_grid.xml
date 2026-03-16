@@ -7,7 +7,10 @@
     app:cardBackgroundColor="@color/card_background"
     app:cardCornerRadius="12dp"
     app:cardElevation="2dp"
-    app:strokeWidth="0dp">
+    app:strokeWidth="0dp"
+    android:focusable="true"
+    android:focusableInTouchMode="false"
+    android:foreground="@drawable/item_channel_focused">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -20,7 +23,8 @@
             android:id="@+id/channelLogo"
             android:layout_width="56dp"
             android:layout_height="56dp"
-            android:scaleType="centerCrop"
+            android:scaleType="fitCenter"
+            android:adjustViewBounds="true"
             android:src="@drawable/ic_channel_placeholder"
             android:layout_marginBottom="8dp"/>
 

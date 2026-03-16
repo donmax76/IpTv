@@ -164,10 +164,12 @@ class ChannelsFragment : Fragment() {
 
                 // Load EPG in background
                 result.epgUrl?.let { epgUrl ->
+                    prefs.lastEpgUrl = epgUrl
                     lifecycleScope.launch {
                         try {
                             epgData = EpgRepository.fetchEpg(epgUrl)
                             ChannelDataHolder.epgData = epgData
+                            prefs.epgLastUpdate = System.currentTimeMillis()
                             adapter.updateEpg(epgData)
                         } catch (e: Exception) {
                             Log.e("ChannelsFragment", "EPG error", e)

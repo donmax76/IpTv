@@ -35,6 +35,7 @@
                 android:layout_height="40dp"
                 android:src="@drawable/ic_back"
                 android:background="?attr/selectableItemBackgroundBorderless"
+                android:focusable="true"
                 android:contentDescription="@string/back"/>
 
             <LinearLayout
@@ -66,6 +67,17 @@
 
             </LinearLayout>
 
+            <!-- Clock display -->
+            <TextView
+                android:id="@+id/clockDisplay"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@android:color/white"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:layout_marginEnd="12dp"
+                android:visibility="gone"/>
+
             <TextView
                 android:id="@+id/liveBadge"
                 android:layout_width="wrap_content"
@@ -75,7 +87,18 @@
                 android:textSize="11sp"
                 android:textStyle="bold"
                 android:background="@drawable/bg_live_badge"
-                android:layout_marginEnd="12dp"/>
+                android:layout_marginEnd="8dp"/>
+
+            <ImageButton
+                android:id="@+id/btnChannelList"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/ic_channel_list"
+                android:tint="@android:color/white"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:focusable="true"
+                android:layout_marginEnd="8dp"
+                android:contentDescription="@string/channel_list"/>
 
             <ImageButton
                 android:id="@+id/btnAspectRatio"
@@ -83,6 +106,7 @@
                 android:layout_height="40dp"
                 android:src="@drawable/ic_aspect_ratio"
                 android:background="?attr/selectableItemBackgroundBorderless"
+                android:focusable="true"
                 android:contentDescription="@string/aspect_ratio"/>
 
         </LinearLayout>
@@ -96,6 +120,7 @@
             android:src="@drawable/ic_pause"
             android:background="@drawable/bg_player_control"
             android:scaleType="center"
+            android:focusable="true"
             android:contentDescription="@string/play_pause"/>
 
         <!-- Bottom bar -->
@@ -106,6 +131,17 @@
             android:orientation="vertical"
             android:padding="16dp"
             android:layout_alignParentBottom="true">
+
+            <!-- Sleep timer indicator -->
+            <TextView
+                android:id="@+id/sleepTimerIndicator"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:textColor="@color/accent_orange"
+                android:textSize="12sp"
+                android:visibility="gone"
+                android:layout_marginBottom="8dp"/>
 
             <!-- Channel navigation -->
             <LinearLayout
@@ -120,6 +156,7 @@
                     android:layout_height="44dp"
                     android:src="@drawable/ic_back"
                     android:background="?attr/selectableItemBackgroundBorderless"
+                    android:focusable="true"
                     android:contentDescription="@string/prev_channel"/>
 
                 <TextView
@@ -139,6 +176,7 @@
                     android:src="@drawable/ic_back"
                     android:rotation="180"
                     android:background="?attr/selectableItemBackgroundBorderless"
+                    android:focusable="true"
                     android:contentDescription="@string/next_channel"/>
 
             </LinearLayout>
@@ -146,6 +184,52 @@
         </LinearLayout>
 
     </RelativeLayout>
+
+    <!-- Semi-transparent channel list overlay panel -->
+    <FrameLayout
+        android:id="@+id/channelListOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <!-- Dim background (clickable to close) -->
+        <View
+            android:id="@+id/channelListDimBg"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#80000000"/>
+
+        <!-- Channel list panel -->
+        <LinearLayout
+            android:id="@+id/channelListPanel"
+            android:layout_width="320dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="start"
+            android:orientation="vertical"
+            android:background="@drawable/bg_overlay_panel"
+            android:paddingTop="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/channels"
+                android:textColor="@android:color/white"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:layout_marginBottom="8dp"/>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/overlayChannelsList"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:paddingBottom="16dp"/>
+
+        </LinearLayout>
+
+    </FrameLayout>
 
     <!-- Loading indicator -->
     <ProgressBar
@@ -183,5 +267,20 @@
             android:backgroundTint="@color/primary"/>
 
     </LinearLayout>
+
+    <!-- Channel number input overlay (for remote number input) -->
+    <TextView
+        android:id="@+id/numberInputDisplay"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="80dp"
+        android:layout_marginEnd="24dp"
+        android:textColor="@android:color/white"
+        android:textSize="48sp"
+        android:textStyle="bold"
+        android:background="#99000000"
+        android:padding="16dp"
+        android:visibility="gone"/>
 
 </FrameLayout>

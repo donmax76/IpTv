@@ -37,6 +37,7 @@ class SettingsFragment : Fragment() {
         setupPlayerType(view)
         setupLanguage(view)
         setupDisplay(view)
+        setupPlayerSettings(view)
         setupCustomChannels(view)
         setupAbout(view)
     }
@@ -69,6 +70,44 @@ class SettingsFragment : Fragment() {
             "high" -> getString(R.string.buffer_high)
             else -> getString(R.string.buffer_normal)
         }
+
+        view.findViewById<TextView>(R.id.orientationValue)?.text = when (prefs.screenOrientation) {
+            "portrait" -> getString(R.string.orientation_portrait)
+            "landscape" -> getString(R.string.orientation_landscape)
+            else -> getString(R.string.orientation_auto)
+        }
+
+        view.findViewById<TextView>(R.id.sortValue)?.text = when (prefs.channelSort) {
+            "name" -> getString(R.string.sort_name)
+            "group" -> getString(R.string.sort_group)
+            else -> getString(R.string.sort_default)
+        }
+
+        view.findViewById<TextView>(R.id.autoHideValue)?.text =
+            getString(R.string.controls_hide_seconds, prefs.channelListAutoHideSeconds)
+
+        view.findViewById<TextView>(R.id.timeDisplayValue)?.text = when (prefs.timeDisplayPosition) {
+            "left" -> getString(R.string.time_left)
+            "right" -> getString(R.string.time_right)
+            else -> getString(R.string.time_off)
+        }
+
+        view.findViewById<TextView>(R.id.sleepTimerValue)?.text = when (prefs.sleepTimerMinutes) {
+            30 -> getString(R.string.sleep_timer_30)
+            60 -> getString(R.string.sleep_timer_60)
+            90 -> getString(R.string.sleep_timer_90)
+            120 -> getString(R.string.sleep_timer_120)
+            else -> getString(R.string.sleep_timer_off)
+        }
+
+        view.findViewById<TextView>(R.id.autoplayValue)?.text =
+            if (prefs.autoplayLast) getString(R.string.autoplay_hint) else getString(R.string.time_off)
+
+        view.findViewById<TextView>(R.id.epgAutoUpdateValue)?.text =
+            if (prefs.epgAutoUpdate) getString(R.string.epg_auto_update_hint) else getString(R.string.time_off)
+
+        view.findViewById<TextView>(R.id.parentalValue)?.text =
+            if (prefs.parentalPin != null) getString(R.string.pin_set) else getString(R.string.time_off)
 
         view.findViewById<TextView>(R.id.versionText)?.text =
             getString(R.string.version_format, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)
@@ -171,6 +210,205 @@ class SettingsFragment : Fragment() {
                     bufferValue.text = options[which]
                     dialog.dismiss()
                 }
+                .show()
+        }
+
+        // Orientation
+        val orientationValue = view.findViewById<TextView>(R.id.orientationValue)
+        orientationValue.text = when (prefs.screenOrientation) {
+            "portrait" -> getString(R.string.orientation_portrait)
+            "landscape" -> getString(R.string.orientation_landscape)
+            else -> getString(R.string.orientation_auto)
+        }
+
+        view.findViewById<LinearLayout>(R.id.orientationLayout).setOnClickListener {
+            val options = arrayOf(getString(R.string.orientation_auto), getString(R.string.orientation_portrait), getString(R.string.orientation_landscape))
+            val values = arrayOf("auto", "portrait", "landscape")
+            val current = values.indexOf(prefs.screenOrientation).coerceAtLeast(0)
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+                .setTitle(R.string.screen_orientation)
+                .setSingleChoiceItems(options, current) { dialog, which ->
+                    prefs.screenOrientation = values[which]
+                    orientationValue.text = options[which]
+                    dialog.dismiss()
+                    activity?.recreate()
+                }
+                .show()
+        }
+
+        // Channel sort
+        val sortValue = view.findViewById<TextView>(R.id.sortValue)
+        sortValue.text = when (prefs.channelSort) {
+            "name" -> getString(R.string.sort_name)
+            "group" -> getString(R.string.sort_group)
+            else -> getString(R.string.sort_default)
+        }
+
+        view.findViewById<LinearLayout>(R.id.sortLayout).setOnClickListener {
+            val options = arrayOf(getString(R.string.sort_default), getString(R.string.sort_name), getString(R.string.sort_group))
+            val values = arrayOf("default", "name", "group")
+            val current = values.indexOf(prefs.channelSort).coerceAtLeast(0)
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+                .setTitle(R.string.channel_sort)
+                .setSingleChoiceItems(options, current) { dialog, which ->
+                    prefs.channelSort = values[which]
+                    sortValue.text = options[which]
+                    dialog.dismiss()
+                }
+                .show()
+        }
+    }
+
+    private fun setupPlayerSettings(view: View) {
+        // Auto-hide controls
+        val autoHideValue = view.findViewById<TextView>(R.id.autoHideValue)
+        autoHideValue.text = getString(R.string.controls_hide_seconds, prefs.channelListAutoHideSeconds)
+
+        view.findViewById<LinearLayout>(R.id.autoHideLayout).setOnClickListener {
+            val options = arrayOf("3", "5", "7", "10", "15", "20")
+            val values = intArrayOf(3, 5, 7, 10, 15, 20)
+            val current = values.indexOfFirst { it == prefs.channelListAutoHideSeconds }.coerceAtLeast(0)
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+                .setTitle(R.string.list_autohide)
+                .setSingleChoiceItems(options.map { "$it сек" }.toTypedArray(), current) { dialog, which ->
+                    prefs.channelListAutoHideSeconds = values[which]
+                    autoHideValue.text = getString(R.string.controls_hide_seconds, values[which])
+                    dialog.dismiss()
+                }
+                .show()
+        }
+
+        // Time display
+        val timeDisplayValue = view.findViewById<TextView>(R.id.timeDisplayValue)
+        timeDisplayValue.text = when (prefs.timeDisplayPosition) {
+            "left" -> getString(R.string.time_left)
+            "right" -> getString(R.string.time_right)
+            else -> getString(R.string.time_off)
+        }
+
+        view.findViewById<LinearLayout>(R.id.timeDisplayLayout).setOnClickListener {
+            val options = arrayOf(getString(R.string.time_off), getString(R.string.time_left), getString(R.string.time_right))
+            val values = arrayOf("off", "left", "right")
+            val current = values.indexOf(prefs.timeDisplayPosition).coerceAtLeast(0)
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+                .setTitle(R.string.time_display)
+                .setSingleChoiceItems(options, current) { dialog, which ->
+                    prefs.timeDisplayPosition = values[which]
+                    timeDisplayValue.text = options[which]
+                    dialog.dismiss()
+                }
+                .show()
+        }
+
+        // Sleep timer
+        val sleepTimerValue = view.findViewById<TextView>(R.id.sleepTimerValue)
+        sleepTimerValue.text = when (prefs.sleepTimerMinutes) {
+            30 -> getString(R.string.sleep_timer_30)
+            60 -> getString(R.string.sleep_timer_60)
+            90 -> getString(R.string.sleep_timer_90)
+            120 -> getString(R.string.sleep_timer_120)
+            else -> getString(R.string.sleep_timer_off)
+        }
+
+        view.findViewById<LinearLayout>(R.id.sleepTimerLayout).setOnClickListener {
+            val options = arrayOf(
+                getString(R.string.sleep_timer_off),
+                getString(R.string.sleep_timer_30),
+                getString(R.string.sleep_timer_60),
+                getString(R.string.sleep_timer_90),
+                getString(R.string.sleep_timer_120)
+            )
+            val values = intArrayOf(0, 30, 60, 90, 120)
+            val current = values.indexOfFirst { it == prefs.sleepTimerMinutes }.coerceAtLeast(0)
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+                .setTitle(R.string.sleep_timer)
+                .setSingleChoiceItems(options, current) { dialog, which ->
+                    prefs.sleepTimerMinutes = values[which]
+                    sleepTimerValue.text = options[which]
+                    dialog.dismiss()
+                    if (values[which] > 0) {
+                        Toast.makeText(requireContext(), getString(R.string.sleep_timer_set, options[which]), Toast.LENGTH_SHORT).show()
+                    }
+                }
+                .show()
+        }
+
+        // Autoplay
+        val autoplayValue = view.findViewById<TextView>(R.id.autoplayValue)
+        autoplayValue.text = if (prefs.autoplayLast) getString(R.string.autoplay_hint) else getString(R.string.time_off)
+
+        view.findViewById<LinearLayout>(R.id.autoplayLayout).setOnClickListener {
+            prefs.autoplayLast = !prefs.autoplayLast
+            autoplayValue.text = if (prefs.autoplayLast) getString(R.string.autoplay_hint) else getString(R.string.time_off)
+        }
+
+        // EPG auto-update
+        val epgAutoUpdateValue = view.findViewById<TextView>(R.id.epgAutoUpdateValue)
+        epgAutoUpdateValue.text = if (prefs.epgAutoUpdate) getString(R.string.epg_auto_update_hint) else getString(R.string.time_off)
+
+        view.findViewById<LinearLayout>(R.id.epgAutoUpdateLayout).setOnClickListener {
+            prefs.epgAutoUpdate = !prefs.epgAutoUpdate
+            epgAutoUpdateValue.text = if (prefs.epgAutoUpdate) getString(R.string.epg_auto_update_hint) else getString(R.string.time_off)
+        }
+
+        // Parental control
+        val parentalValue = view.findViewById<TextView>(R.id.parentalValue)
+        parentalValue.text = if (prefs.parentalPin != null) getString(R.string.pin_set) else getString(R.string.time_off)
+
+        view.findViewById<LinearLayout>(R.id.parentalLayout).setOnClickListener {
+            if (prefs.parentalPin != null) {
+                // Remove PIN
+                AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+                    .setTitle(R.string.parental_control)
+                    .setMessage(R.string.pin_enter)
+                    .setView(EditText(requireContext()).apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD; id = android.R.id.edit })
+                    .setPositiveButton(R.string.ok) { dialog, _ ->
+                        val input = (dialog as AlertDialog).findViewById<EditText>(android.R.id.edit)?.text.toString()
+                        if (input == prefs.parentalPin) {
+                            prefs.parentalPin = null
+                            parentalValue.text = getString(R.string.time_off)
+                            Toast.makeText(requireContext(), R.string.pin_removed, Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(requireContext(), R.string.pin_wrong, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    .setNegativeButton(R.string.cancel, null)
+                    .show()
+            } else {
+                // Set PIN
+                val editText = EditText(requireContext()).apply {
+                    inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+                    hint = getString(R.string.pin_enter)
+                    id = android.R.id.edit
+                }
+                AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+                    .setTitle(R.string.parental_control)
+                    .setView(editText)
+                    .setPositiveButton(R.string.ok) { _, _ ->
+                        val pin = editText.text.toString()
+                        if (pin.length >= 4) {
+                            prefs.parentalPin = pin
+                            parentalValue.text = getString(R.string.pin_set)
+                            Toast.makeText(requireContext(), R.string.pin_set, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    .setNegativeButton(R.string.cancel, null)
+                    .show()
+            }
+        }
+
+        // Clear cache
+        view.findViewById<LinearLayout>(R.id.clearCacheLayout).setOnClickListener {
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer)
+                .setTitle(R.string.clear_cache)
+                .setMessage(R.string.clear_cache_hint)
+                .setPositiveButton(R.string.ok) { _, _ ->
+                    ChannelDataHolder.epgData = emptyMap()
+                    ChannelDataHolder.allChannels = emptyList()
+                    coil.Coil.imageLoader(requireContext()).memoryCache?.clear()
+                    Toast.makeText(requireContext(), R.string.cache_cleared, Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton(R.string.cancel, null)
                 .show()
         }
     }

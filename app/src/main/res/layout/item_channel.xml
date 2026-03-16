@@ -10,7 +10,10 @@
     app:cardBackgroundColor="@color/card_background"
     app:cardCornerRadius="12dp"
     app:cardElevation="2dp"
-    app:strokeWidth="0dp">
+    app:strokeWidth="0dp"
+    android:focusable="true"
+    android:focusableInTouchMode="false"
+    android:foreground="@drawable/item_channel_focused">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -34,7 +37,8 @@
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:layout_marginStart="12dp"
-            android:scaleType="centerCrop"
+            android:scaleType="fitCenter"
+            android:adjustViewBounds="true"
             android:src="@drawable/ic_channel_placeholder"/>
 
         <LinearLayout

@@ -162,6 +162,38 @@ class AppPreferences(context: Context) {
 
     fun getUpdateCheckUrlRaw(): String? = prefs.getString(KEY_UPDATE_CHECK_URL, null)
 
+    var screenOrientation: String
+        get() = prefs.getString(KEY_ORIENTATION, "auto") ?: "auto"
+        set(value) = prefs.edit().putString(KEY_ORIENTATION, value).apply()
+
+    var autoplayLast: Boolean
+        get() = prefs.getBoolean(KEY_AUTOPLAY, false)
+        set(value) = prefs.edit().putBoolean(KEY_AUTOPLAY, value).apply()
+
+    var epgAutoUpdate: Boolean
+        get() = prefs.getBoolean(KEY_EPG_AUTO_UPDATE, true)
+        set(value) = prefs.edit().putBoolean(KEY_EPG_AUTO_UPDATE, value).apply()
+
+    var epgLastUpdate: Long
+        get() = prefs.getLong(KEY_EPG_LAST_UPDATE, 0L)
+        set(value) = prefs.edit().putLong(KEY_EPG_LAST_UPDATE, value).apply()
+
+    var channelSort: String
+        get() = prefs.getString(KEY_CHANNEL_SORT, "default") ?: "default"
+        set(value) = prefs.edit().putString(KEY_CHANNEL_SORT, value).apply()
+
+    var sleepTimerMinutes: Int
+        get() = prefs.getInt(KEY_SLEEP_TIMER, 0)
+        set(value) = prefs.edit().putInt(KEY_SLEEP_TIMER, value).apply()
+
+    var parentalPin: String?
+        get() = prefs.getString(KEY_PARENTAL_PIN, null)
+        set(value) = prefs.edit().putString(KEY_PARENTAL_PIN, value).apply()
+
+    var lastEpgUrl: String?
+        get() = prefs.getString(KEY_LAST_EPG_URL, null)
+        set(value) = prefs.edit().putString(KEY_LAST_EPG_URL, value).apply()
+
     companion object {
         private const val PREFS_NAME = "tvviewer_prefs"
         private const val KEY_PLAYER = "player_type"
@@ -181,6 +213,14 @@ class AppPreferences(context: Context) {
         private const val KEY_LIST_AUTOHIDE = "list_autohide"
         private const val KEY_TIME_DISPLAY = "time_display"
         private const val KEY_UPDATE_CHECK_URL = "update_check_url"
+        private const val KEY_ORIENTATION = "screen_orientation"
+        private const val KEY_AUTOPLAY = "autoplay_last"
+        private const val KEY_EPG_AUTO_UPDATE = "epg_auto_update"
+        private const val KEY_EPG_LAST_UPDATE = "epg_last_update"
+        private const val KEY_CHANNEL_SORT = "channel_sort"
+        private const val KEY_SLEEP_TIMER = "sleep_timer"
+        private const val KEY_PARENTAL_PIN = "parental_pin"
+        private const val KEY_LAST_EPG_URL = "last_epg_url"
         private const val DEFAULT_UPDATE_CHECK_URL = "https://raw.githubusercontent.com/donmax76/TestApp/master/TVViewer/version.json"
 
         const val PLAYER_INTERNAL = "internal"
