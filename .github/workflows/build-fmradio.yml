@@ -45,14 +45,16 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install "pyrtlsdr==0.3.0" numpy scipy sounddevice pyinstaller
+          pip install setuptools "pyrtlsdr==0.3.0" numpy scipy sounddevice pyinstaller
 
       - name: Build EXE
         working-directory: fmradio-windows
+        shell: pwsh
         run: |
           pyinstaller --noconfirm --onefile --windowed `
             --name "FmRadio" `
             --hidden-import "rtlsdr" `
+            --hidden-import "pkg_resources" `
             --hidden-import "numpy" `
             --hidden-import "scipy.signal" `
             --hidden-import "scipy.spatial" `
@@ -294,7 +296,8 @@ jobs:
 
   create-release:
     name: Create Release
-    needs: [build-windows-portable, build-windows-exe]
+    needs: [build-windows-portable]
+    if: always() && needs.build-windows-portable.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -310,7 +313,10 @@ jobs:
         run: |
           mkdir release
           cp artifacts/FmRadio-Windows-Portable/FmRadio-Windows-Portable.zip release/
-          cp artifacts/FmRadio-Windows/FmRadio.exe release/
+          # EXE is optional - copy if exists
+          if [ -f artifacts/FmRadio-Windows/FmRadio.exe ]; then
+            cp artifacts/FmRadio-Windows/FmRadio.exe release/
+          fi
 
       - name: Delete old release
         run: |
@@ -321,6 +327,10 @@ jobs:
 
       - name: Create Release
         run: |
+          FILES="release/FmRadio-Windows-Portable.zip"
+          if [ -f release/FmRadio.exe ]; then
+            FILES="$FILES release/FmRadio.exe"
+          fi
           gh release create latest \
             --title "FM Radio - Latest Build" \
             --notes "Автоматическая сборка FM Radio.
@@ -331,7 +341,6 @@ jobs:
 
           Распакуй ZIP и запусти **FmRadio.bat**" \
             --latest \
-            release/FmRadio-Windows-Portable.zip \
-            release/FmRadio.exe
+            $FILES
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
