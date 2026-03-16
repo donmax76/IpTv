@@ -32,39 +32,66 @@ jobs:
       run: sed -i 's/\r$//' gradlew
 
     - name: Build Debug APK
+      id: build
       run: |
         set -o pipefail
         ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee build_output.log
+        BUILD_EXIT=$?
+        if [ $BUILD_EXIT -ne 0 ]; then
+          echo "## Build Failed" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -100 build_output.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Error lines:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -i "error" build_output.log | head -30 >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          exit 1
+        fi
+      continue-on-error: true
 
-    - name: Find APK files
-      if: success()
+    - name: Print errors if build failed
+      if: steps.build.outcome == 'failure'
+      run: |
+        echo "::error::Build failed. See summary for details."
+        echo "=== LAST 80 LINES OF BUILD OUTPUT ==="
+        tail -80 build_output.log
+        echo "=== ERROR LINES ==="
+        grep -in "error" build_output.log | head -30
+        exit 1
+
+    - name: Find and upload APK
+      if: steps.build.outcome == 'success'
       run: |
         echo "=== All APK files ==="
         find . -name "*.apk" -type f -ls
-        echo "=== Expected path ==="
-        ls -la app/build/outputs/apk/debug/ 2>/dev/null || echo "DEBUG APK DIR NOT FOUND"
-        echo "=== Searching broader ==="
-        find . -path "*/build/outputs/apk/**/*.apk" -type f -ls
+        APK_PATH=$(find . -name "*.apk" -path "*/outputs/apk/*" -type f | head -1)
+        if [ -n "$APK_PATH" ]; then
+          mkdir -p apk_output
+          cp "$APK_PATH" apk_output/
+          echo "APK found: $APK_PATH"
+          echo "## Build Successful" >> $GITHUB_STEP_SUMMARY
+          echo "APK: $(basename $APK_PATH)" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "::warning::No APK file found"
+        fi
 
     - name: Upload APK artifact
-      if: success()
+      if: steps.build.outcome == 'success'
       uses: actions/upload-artifact@v4
       with:
         name: app-debug
-        path: |
-          app/build/outputs/apk/debug/*.apk
-          **/build/outputs/apk/**/*.apk
+        path: apk_output/*.apk
         if-no-files-found: warn
 
     - name: Create Release
-      if: success() && github.event_name == 'push'
+      if: steps.build.outcome == 'success' && github.event_name == 'push'
       uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ github.run_number }}
         name: TVViewer v5.1 (Build ${{ github.run_number }})
-        files: |
-          app/build/outputs/apk/debug/*.apk
-          **/build/outputs/apk/**/*.apk
+        files: apk_output/*.apk
         fail_on_unmatched_files: false
         make_latest: true
       env:
