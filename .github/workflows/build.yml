@@ -32,37 +32,10 @@ jobs:
       run: sed -i 's/\r$//' gradlew
 
     - name: Build Debug APK
-      id: build
-      run: |
-        set -o pipefail
-        ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee build_output.log
-        BUILD_EXIT=$?
-        if [ $BUILD_EXIT -ne 0 ]; then
-          echo "## Build Failed" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          tail -100 build_output.log >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Error lines:" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          grep -i "error" build_output.log | head -30 >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          exit 1
-        fi
-      continue-on-error: true
-
-    - name: Print errors if build failed
-      if: steps.build.outcome == 'failure'
-      run: |
-        echo "::error::Build failed. See summary for details."
-        echo "=== LAST 80 LINES OF BUILD OUTPUT ==="
-        tail -80 build_output.log
-        echo "=== ERROR LINES ==="
-        grep -in "error" build_output.log | head -30
-        exit 1
+      run: ./gradlew assembleDebug --no-daemon --stacktrace
 
     - name: Find and upload APK
-      if: steps.build.outcome == 'success'
+      if: success()
       run: |
         echo "=== All APK files ==="
         find . -name "*.apk" -type f -ls
@@ -71,14 +44,12 @@ jobs:
           mkdir -p apk_output
           cp "$APK_PATH" apk_output/
           echo "APK found: $APK_PATH"
-          echo "## Build Successful" >> $GITHUB_STEP_SUMMARY
-          echo "APK: $(basename $APK_PATH)" >> $GITHUB_STEP_SUMMARY
         else
           echo "::warning::No APK file found"
         fi
 
     - name: Upload APK artifact
-      if: steps.build.outcome == 'success'
+      if: success()
       uses: actions/upload-artifact@v4
       with:
         name: app-debug
@@ -86,7 +57,7 @@ jobs:
         if-no-files-found: warn
 
     - name: Create Release
-      if: steps.build.outcome == 'success' && github.event_name == 'push'
+      if: success() && github.event_name == 'push'
       uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ github.run_number }}
@@ -96,11 +67,3 @@ jobs:
         make_latest: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Upload build log
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-log
-        path: build_output.log
-        if-no-files-found: ignore
