@@ -161,12 +161,18 @@ jobs:
           } else {
             $srcDir = $x64Dir.FullName
           }
-          # Copy all DLLs to python dir (on PATH via bat launcher)
-          Copy-Item "$srcDir/rtlsdr.dll" "$pyDir/" -Force
-          Copy-Item "$srcDir/rtlsdr.dll" "$pyDir/librtlsdr.dll" -Force
+          # Copy all DLLs to python dir AND DLLs dir (both on PATH via bat launcher)
           Get-ChildItem "$srcDir/*.dll" | Copy-Item -Destination "$pyDir/" -Force
-          Write-Host "RTL-SDR DLLs copied from $srcDir :"
+          Get-ChildItem "$srcDir/*.dll" | Copy-Item -Destination "$pyDir/DLLs/" -Force
+          # Ensure librtlsdr.dll exists (pyrtlsdr looks for this name)
+          if (Test-Path "$srcDir/rtlsdr.dll") {
+            Copy-Item "$srcDir/rtlsdr.dll" "$pyDir/librtlsdr.dll" -Force
+            Copy-Item "$srcDir/rtlsdr.dll" "$pyDir/DLLs/librtlsdr.dll" -Force
+          }
+          Write-Host "RTL-SDR DLLs in python/:"
           Get-ChildItem "$pyDir/*.dll" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.Name) ($($_.Length) bytes)" }
+          Write-Host "RTL-SDR DLLs in python/DLLs/:"
+          Get-ChildItem "$pyDir/DLLs/*.dll" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.Name) ($($_.Length) bytes)" }
           Remove-Item rtl-sdr.zip, rtl-sdr-extract -Recurse -Force
 
       - name: Verify packages installed
@@ -174,15 +180,34 @@ jobs:
         run: |
           $pyDir = "fmradio-portable/python"
           & "$pyDir/python.exe" -c @"
-          import importlib.util
-          for pkg in ['numpy', 'scipy', 'sounddevice', 'rtlsdr']:
+          import importlib.util, sys, os
+
+          # Check all packages are findable
+          for pkg in ['setuptools', 'pkg_resources', 'numpy', 'scipy', 'sounddevice', 'rtlsdr']:
               spec = importlib.util.find_spec(pkg)
               assert spec is not None, f'{pkg} not found!'
               print(f'  {pkg}: {spec.origin}')
-          # Verify numpy actually works (pure Python, no native DLL issues)
+
+          # Verify pkg_resources works (pyrtlsdr needs this)
+          from pkg_resources import get_distribution
+          print(f'  pkg_resources: functional')
+
+          # Verify numpy actually works
           import numpy as np
           print(f'  numpy {np.__version__} functional')
-          print('All packages verified OK')
+
+          # Verify rtlsdr.dll exists on disk
+          script_dir = os.path.dirname(os.path.abspath(sys.executable))
+          found_dll = False
+          for d in [script_dir, os.path.join(script_dir, 'DLLs')]:
+              for name in ['rtlsdr.dll', 'librtlsdr.dll']:
+                  p = os.path.join(d, name)
+                  if os.path.isfile(p):
+                      print(f'  DLL found: {p} ({os.path.getsize(p)} bytes)')
+                      found_dll = True
+          assert found_dll, 'rtlsdr.dll not found in python/ or python/DLLs/'
+
+          print('All packages and DLLs verified OK')
           "@
 
       - name: Copy application files
@@ -216,7 +241,7 @@ jobs:
           echo.
 
           REM Check if dependencies are installed (use find_spec to avoid DLL load issues)
-          "%~dp0python\python.exe" -c "import importlib.util; missing=[p for p in ['numpy','scipy','sounddevice','rtlsdr'] if not importlib.util.find_spec(p)]; exit(1 if missing else 0)" 2>nul
+          "%~dp0python\python.exe" -c "import importlib.util; missing=[p for p in ['setuptools','numpy','scipy','sounddevice','rtlsdr'] if not importlib.util.find_spec(p)]; exit(1 if missing else 0)" 2>nul
           if %errorlevel% neq 0 (
               echo  [*] Installing missing dependencies...
               "%~dp0python\python.exe" -m pip install --upgrade setuptools "pyrtlsdr==0.3.0" numpy scipy sounddevice --target "%~dp0python\Lib\site-packages" --no-warn-script-location --quiet

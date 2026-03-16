@@ -73,21 +73,94 @@ import sounddevice as sd
 
 RtlSdr = None
 
+def _ensure_pkg_resources():
+    """Ensure pkg_resources is available (needed by pyrtlsdr).
+    If setuptools is missing, create a minimal shim so pyrtlsdr can import."""
+    try:
+        import pkg_resources  # noqa: F401
+    except ImportError:
+        import types
+        fake = types.ModuleType('pkg_resources')
+
+        class _FakeDist:
+            version = '0.3.0'
+
+        def _get_distribution(name):
+            return _FakeDist()
+
+        fake.get_distribution = _get_distribution
+        sys.modules['pkg_resources'] = fake
+
+
+def _find_rtlsdr_dll():
+    """Try to locate rtlsdr DLL and add its directory to PATH."""
+    import ctypes.util
+    # Common DLL names for RTL-SDR on Windows
+    dll_names = ['rtlsdr', 'librtlsdr', 'rtlsdr.dll', 'librtlsdr.dll']
+
+    # Check if already loadable
+    for name in dll_names:
+        if ctypes.util.find_library(name):
+            return True
+
+    # Search in common locations relative to this script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    search_dirs = [
+        script_dir,
+        os.path.join(script_dir, 'python'),
+        os.path.join(script_dir, 'python', 'DLLs'),
+    ]
+
+    for d in search_dirs:
+        for dll in ['rtlsdr.dll', 'librtlsdr.dll']:
+            if os.path.isfile(os.path.join(d, dll)):
+                if d not in os.environ.get('PATH', ''):
+                    os.environ['PATH'] = d + os.pathsep + os.environ.get('PATH', '')
+                return True
+    return False
+
+
 def _load_rtlsdr():
     global RtlSdr
     if RtlSdr is None:
+        # Step 1: Ensure pkg_resources shim exists (pyrtlsdr needs it)
+        _ensure_pkg_resources()
+
+        # Step 2: Try to find DLL on PATH
+        _find_rtlsdr_dll()
+
+        # Step 3: Import pyrtlsdr
         try:
             from rtlsdr import RtlSdr as _Sdr
             RtlSdr = _Sdr
-        except (ImportError, OSError) as e:
+        except ImportError as e:
+            err = str(e)
+            if 'pkg_resources' in err:
+                hint = ("Python package 'setuptools' is missing.\n"
+                        "Run: pip install setuptools\n\n")
+            elif 'rtlsdr' in err.lower() and 'dll' in err.lower():
+                hint = ("RTL-SDR native library (rtlsdr.dll) not found.\n"
+                        "Make sure the portable ZIP was fully extracted.\n\n")
+            else:
+                hint = ""
             raise RuntimeError(
-                "RTL-SDR driver not found.\n\n"
+                f"RTL-SDR driver not found.\n\n{hint}"
                 "Install steps:\n"
                 "1. Download Zadig: https://zadig.akeo.ie\n"
                 "2. Plug in RTL-SDR device\n"
                 "3. In Zadig: Options -> List All Devices\n"
-                "4. Select 'Bulk-In, Interface (Interface 0)'\n"
+                "4. Select 'RTL2832U' or 'Bulk-In, Interface (Interface 0)'\n"
                 "5. Install WinUSB driver\n\n"
+                f"Details: {e}"
+            )
+        except OSError as e:
+            raise RuntimeError(
+                "RTL-SDR native library failed to load.\n\n"
+                "This usually means rtlsdr.dll is missing or corrupted.\n"
+                "Make sure the portable ZIP was fully extracted.\n\n"
+                "If using the portable version, check that these files exist:\n"
+                "  python\\rtlsdr.dll\n"
+                "  python\\librtlsdr.dll\n\n"
                 f"Details: {e}"
             )
     return RtlSdr
