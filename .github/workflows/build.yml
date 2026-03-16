@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   build:
@@ -32,43 +33,51 @@ jobs:
       run: sed -i 's/\r$//' gradlew
 
     - name: Build Debug APK
+      id: build
       run: |
-        # Try build with retry on failure
-        for attempt in 1 2 3; do
-          echo "=== Build attempt $attempt ==="
-          if ./gradlew assembleDebug --stacktrace; then
-            echo "Build succeeded on attempt $attempt"
-            break
-          else
-            echo "Build failed on attempt $attempt"
-            if [ $attempt -eq 3 ]; then
-              echo "All attempts failed"
-              exit 1
-            fi
-            echo "Retrying in 10 seconds..."
-            sleep 10
-            ./gradlew clean 2>/dev/null || true
-          fi
-        done
+        ./gradlew assembleDebug --stacktrace 2>&1 | tee build_output.log || true
+        BUILD_EXIT=${PIPESTATUS[0]}
+        echo "exit_code=$BUILD_EXIT" >> $GITHUB_OUTPUT
+        if [ "$BUILD_EXIT" != "0" ]; then
+          echo "Build failed with exit code $BUILD_EXIT"
+        fi
+
+    - name: Create issue on build failure
+      if: steps.build.outputs.exit_code != '0'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        ERROR_CONTENT=$(tail -100 build_output.log)
+        gh issue create \
+          --title "Build Error - $(date +%Y%m%d-%H%M)" \
+          --body "## Build Error Log
+
+        \`\`\`
+        $ERROR_CONTENT
+        \`\`\`
+
+        Commit: ${{ github.sha }}
+        Run: ${{ github.run_id }}"
+        exit 1
 
     - name: Find and prepare APK
+      if: steps.build.outputs.exit_code == '0'
       run: |
-        echo "=== All APK files ==="
         find . -name "*.apk" -type f -ls
         APK_PATH=$(find . -name "*.apk" -path "*/outputs/*" -type f | head -1)
         if [ -z "$APK_PATH" ]; then
           APK_PATH=$(find . -name "*.apk" -type f | head -1)
         fi
         if [ -n "$APK_PATH" ]; then
-          echo "APK found at: $APK_PATH"
           mkdir -p apk_output
           cp "$APK_PATH" apk_output/TVViewer-v5.1-debug.apk
         else
-          echo "::error::No APK file found!"
+          echo "::error::No APK found"
           exit 1
         fi
 
     - name: Upload APK artifact
+      if: steps.build.outputs.exit_code == '0'
       uses: actions/upload-artifact@v4
       with:
         name: TVViewer-debug
@@ -76,7 +85,7 @@ jobs:
         if-no-files-found: error
 
     - name: Create Release
-      if: github.event_name == 'push'
+      if: steps.build.outputs.exit_code == '0' && github.event_name == 'push'
       uses: softprops/action-gh-release@v2
       with:
         tag_name: v5.1-build${{ github.run_number }}
