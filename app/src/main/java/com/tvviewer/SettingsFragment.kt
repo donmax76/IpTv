@@ -444,6 +444,10 @@ class SettingsFragment : Fragment() {
                     ChannelDataHolder.epgData = emptyMap()
                     ChannelDataHolder.allChannels = emptyList()
                     requireContext().imageLoader.memoryCache?.clear()
+                    // Delete EPG cache file
+                    try {
+                        java.io.File(requireContext().filesDir, "epg_cache.json").delete()
+                    } catch (_: Exception) {}
                     Toast.makeText(requireContext(), R.string.cache_cleared, Toast.LENGTH_SHORT).show()
                 }
                 .setNegativeButton(R.string.cancel, null)

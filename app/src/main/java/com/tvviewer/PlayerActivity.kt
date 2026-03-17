@@ -347,11 +347,26 @@ class PlayerActivity : BaseActivity() {
         overlayFilteredIndices = channels.indices.toList()
         overlayChannelCount?.text = "${channels.size}"
 
-        overlayAdapter = OverlayChannelAdapter(channels, ChannelDataHolder.epgData, currentIndex) { index ->
-            switchToChannel(index)
-            hideChannelList()
-        }
+        overlayAdapter = OverlayChannelAdapter(channels, ChannelDataHolder.epgData, currentIndex,
+            favorites = prefs.favorites,
+            onChannelClick = { index ->
+                switchToChannel(index)
+                hideChannelList()
+            },
+            onFavoriteClick = { channel ->
+                toggleFavorite(channel)
+            }
+        )
         overlayChannelsList.adapter = overlayAdapter
+    }
+
+    private fun toggleFavorite(channel: Channel) {
+        if (prefs.isFavorite(channel.url)) {
+            prefs.removeFavorite(channel.url)
+        } else {
+            prefs.addFavorite(channel.url)
+        }
+        overlayAdapter?.updateFavorites(prefs.favorites)
     }
 
     private fun filterOverlayChannels() {
@@ -375,13 +390,19 @@ class PlayerActivity : BaseActivity() {
         // Find current channel position in filtered list
         val filteredCurrentIndex = overlayFilteredIndices.indexOf(currentIndex)
 
-        overlayAdapter = OverlayChannelAdapter(overlayFilteredChannels, ChannelDataHolder.epgData, filteredCurrentIndex) { filteredIndex ->
-            if (filteredIndex in overlayFilteredIndices.indices) {
-                val realIndex = overlayFilteredIndices[filteredIndex]
-                switchToChannel(realIndex)
-                hideChannelList()
+        overlayAdapter = OverlayChannelAdapter(overlayFilteredChannels, ChannelDataHolder.epgData, filteredCurrentIndex,
+            favorites = prefs.favorites,
+            onChannelClick = { filteredIndex ->
+                if (filteredIndex in overlayFilteredIndices.indices) {
+                    val realIndex = overlayFilteredIndices[filteredIndex]
+                    switchToChannel(realIndex)
+                    hideChannelList()
+                }
+            },
+            onFavoriteClick = { channel ->
+                toggleFavorite(channel)
             }
-        }
+        )
         overlayChannelsList.adapter = overlayAdapter
     }
 
@@ -819,6 +840,54 @@ class PlayerActivity : BaseActivity() {
         channelInfoBanner.visibility = View.VISIBLE
         bannerHandler.removeCallbacks(bannerHideRunnable)
         bannerHandler.postDelayed(bannerHideRunnable, 5000)
+
+        // Tap banner to show full EPG info
+        channelInfoBanner.setOnClickListener {
+            showEpgDetailDialog()
+        }
+    }
+
+    private fun showEpgDetailDialog() {
+        val channels = ChannelDataHolder.allChannels
+        if (currentIndex !in channels.indices) return
+        val channel = channels[currentIndex]
+        val epg = ChannelDataHolder.epgData
+        val tvgId = channel.tvgId ?: return
+
+        val normId = tvgId.lowercase().replace(Regex("[^a-z0-9]"), "")
+        val programmes = epg[normId] ?: return
+        if (programmes.isEmpty()) return
+
+        val now = System.currentTimeMillis()
+        val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+
+        // Show current + next 10 programmes
+        val relevantProgs = programmes.filter { it.end >= now }.take(12)
+        if (relevantProgs.isEmpty()) return
+
+        val sb = StringBuilder()
+        for (p in relevantProgs) {
+            val startTime = timeFormat.format(Date(p.start))
+            val endTime = timeFormat.format(Date(p.end))
+            val isCurrent = now in p.start..p.end
+            if (isCurrent) {
+                sb.append("▶ $startTime - $endTime  ${p.title}")
+                val progress = EpgRepository.getCurrentProgress(p)
+                sb.append(" [${(progress * 100).toInt()}%]")
+            } else {
+                sb.append("   $startTime - $endTime  ${p.title}")
+            }
+            if (p.description.isNotEmpty()) {
+                sb.append("\n     ${p.description.take(100)}")
+            }
+            sb.append("\n\n")
+        }
+
+        android.app.AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
+            .setTitle("${channel.name} — ${getString(R.string.tv_guide)}")
+            .setMessage(sb.toString().trim())
+            .setPositiveButton(R.string.ok, null)
+            .show()
     }
 
     // === Channel list overlay ===

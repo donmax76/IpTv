@@ -4,8 +4,10 @@
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:padding="6dp"
-    android:paddingStart="8dp">
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp"
+    android:paddingStart="8dp"
+    android:paddingEnd="8dp">
 
     <TextView
         android:id="@+id/progTime"
@@ -13,16 +15,34 @@
         android:layout_height="wrap_content"
         android:textColor="@color/text_hint"
         android:textSize="11sp"
-        android:layout_marginEnd="8dp"/>
+        android:layout_marginEnd="8dp"
+        android:minWidth="75dp"/>
 
-    <TextView
-        android:id="@+id/progTitle"
+    <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:textColor="@color/text_secondary"
-        android:textSize="12sp"
-        android:singleLine="true"
-        android:ellipsize="end"/>
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/progTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp"
+            android:singleLine="true"
+            android:ellipsize="end"/>
+
+        <TextView
+            android:id="@+id/progDescription"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_hint"
+            android:textSize="10sp"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:visibility="gone"/>
+
+    </LinearLayout>
 
 </LinearLayout>

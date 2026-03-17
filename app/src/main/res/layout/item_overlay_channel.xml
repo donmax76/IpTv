@@ -2,60 +2,91 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="horizontal"
-    android:gravity="center_vertical"
-    android:padding="10dp"
+    android:orientation="vertical"
     android:paddingStart="12dp"
     android:paddingEnd="12dp"
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp"
     android:focusable="true"
     android:background="@drawable/bg_epg_item">
 
-    <TextView
-        android:id="@+id/overlayChannelNumber"
-        android:layout_width="24dp"
-        android:layout_height="24dp"
-        android:gravity="center"
-        android:textColor="@android:color/white"
-        android:textSize="10sp"
-        android:textStyle="bold"
-        android:background="@drawable/bg_channel_number"/>
-
-    <ImageView
-        android:id="@+id/overlayChannelLogo"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
-        android:layout_marginStart="8dp"
-        android:scaleType="fitCenter"
-        android:adjustViewBounds="true"
-        android:src="@drawable/ic_channel_placeholder"/>
-
     <LinearLayout
-        android:layout_width="0dp"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:orientation="vertical"
-        android:layout_marginStart="8dp">
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
 
         <TextView
-            android:id="@+id/overlayChannelName"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:id="@+id/overlayChannelNumber"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:gravity="center"
             android:textColor="@android:color/white"
-            android:textSize="13sp"
+            android:textSize="10sp"
             android:textStyle="bold"
-            android:singleLine="true"
-            android:ellipsize="end"/>
+            android:background="@drawable/bg_channel_number"/>
 
-        <TextView
-            android:id="@+id/overlayChannelEpg"
-            android:layout_width="wrap_content"
+        <ImageView
+            android:id="@+id/overlayChannelLogo"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_marginStart="8dp"
+            android:scaleType="fitCenter"
+            android:adjustViewBounds="true"
+            android:src="@drawable/ic_channel_placeholder"/>
+
+        <LinearLayout
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:textColor="#B0FFFFFF"
-            android:textSize="11sp"
-            android:singleLine="true"
-            android:ellipsize="end"
-            android:visibility="gone"/>
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="8dp">
+
+            <TextView
+                android:id="@+id/overlayChannelName"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@android:color/white"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:singleLine="true"
+                android:ellipsize="end"/>
+
+            <TextView
+                android:id="@+id/overlayChannelEpg"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#B0FFFFFF"
+                android:textSize="11sp"
+                android:singleLine="true"
+                android:ellipsize="end"
+                android:visibility="gone"/>
+
+        </LinearLayout>
+
+        <ImageButton
+            android:id="@+id/overlayFavoriteBtn"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:src="@drawable/ic_favorite_border"
+            android:tint="#80FFFFFF"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:scaleType="center"
+            android:contentDescription="@string/favorite"/>
 
     </LinearLayout>
+
+    <!-- EPG progress bar -->
+    <ProgressBar
+        android:id="@+id/overlayEpgProgress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:layout_marginTop="4dp"
+        android:layout_marginStart="34dp"
+        android:progressTint="@color/primary"
+        android:progressBackgroundTint="#20FFFFFF"
+        android:max="100"
+        android:visibility="gone"/>
 
 </LinearLayout>

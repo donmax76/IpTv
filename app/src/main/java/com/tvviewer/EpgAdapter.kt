@@ -80,6 +80,13 @@ class EpgAdapter(
                 progView.findViewById<TextView>(R.id.progTime).text =
                     "${timeFormat.format(Date(prog.start))} - ${timeFormat.format(Date(prog.end))}"
                 progView.findViewById<TextView>(R.id.progTitle).text = prog.title
+                val descView = progView.findViewById<TextView>(R.id.progDescription)
+                if (prog.description.isNotEmpty()) {
+                    descView.text = prog.description
+                    descView.visibility = View.VISIBLE
+                } else {
+                    descView.visibility = View.GONE
+                }
                 holder.nextLayout.addView(progView)
             }
         } else {
