@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.view.View
+import android.view.WindowManager
 import android.widget.*
 import com.fmradio.R
 import com.fmradio.data.RadioStation
@@ -36,7 +37,6 @@ class MainActivity : Activity() {
 
     private lateinit var tvStatus: TextView
     private lateinit var tvDeviceInfo: TextView
-    private lateinit var btnConnect: Button
 
     private lateinit var tvFrequency: TextView
     private lateinit var tvBandIndicator: TextView
@@ -146,6 +146,9 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Keep screen on for car use
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
         setContentView(R.layout.activity_main)
 
         stationStorage = StationStorage(this)
@@ -160,15 +163,13 @@ class MainActivity : Activity() {
 
         startRadioService()
 
-        if (intent?.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) {
-            connectDevice()
-        }
+        // Auto-connect: always try to find and open RTL-SDR on startup
+        connectDevice()
     }
 
     private fun initViews() {
         tvStatus = findViewById(R.id.tvStatus)
         tvDeviceInfo = findViewById(R.id.tvDeviceInfo)
-        btnConnect = findViewById(R.id.btnConnect)
 
         tvFrequency = findViewById(R.id.tvFrequency)
         tvBandIndicator = findViewById(R.id.tvBandIndicator)
@@ -256,8 +257,6 @@ class MainActivity : Activity() {
     }
 
     private fun setupListeners() {
-        btnConnect.setOnClickListener { connectDevice() }
-
         btnPlayStop.setOnClickListener {
             if (radioService?.isPlaying == true) stopPlayback() else startPlayback()
         }
@@ -386,12 +385,11 @@ class MainActivity : Activity() {
             radioService?.initDevice(dev)
             tvStatus.text = getString(R.string.status_connected)
             tvDeviceInfo.text = getString(R.string.device_info_format, dev.getTunerType().name, usbDevice.deviceName)
-            btnConnect.text = getString(R.string.btn_disconnect)
             setControlsEnabled(true)
-            showToast(getString(R.string.msg_device_connected))
+            // Auto-start playback after connecting
+            startPlayback()
         } else {
             tvStatus.text = getString(R.string.status_connection_failed)
-            showToast(getString(R.string.msg_connection_failed))
         }
     }
 
@@ -633,6 +631,13 @@ class MainActivity : Activity() {
 
     private fun showToast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        if (intent?.action == UsbManager.ACTION_USB_DEVICE_ATTACHED && rtlSdrDevice == null) {
+            connectDevice()
+        }
     }
 
     override fun onDestroy() {

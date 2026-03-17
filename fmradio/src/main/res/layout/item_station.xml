@@ -4,10 +4,10 @@
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:gravity="center_vertical"
-    android:padding="10dp"
-    android:layout_marginBottom="2dp"
-    android:layout_marginStart="4dp"
-    android:layout_marginEnd="4dp"
+    android:padding="6dp"
+    android:layout_marginBottom="1dp"
+    android:layout_marginStart="2dp"
+    android:layout_marginEnd="2dp"
     android:background="@drawable/bg_station_item">
 
     <LinearLayout
@@ -21,7 +21,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textColor="@color/lcd_green"
-            android:textSize="18sp"
+            android:textSize="15sp"
             android:textStyle="bold"
             android:fontFamily="monospace" />
 
@@ -30,8 +30,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textColor="@color/lcd_amber"
-            android:textSize="12sp"
-            android:fontFamily="monospace" />
+            android:textSize="10sp"
+            android:fontFamily="monospace"
+            android:singleLine="true" />
     </LinearLayout>
 
     <TextView
@@ -39,14 +40,14 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:textColor="@color/lcd_green"
-        android:textSize="11sp"
+        android:textSize="9sp"
         android:fontFamily="monospace"
-        android:layout_marginEnd="8dp" />
+        android:layout_marginEnd="4dp" />
 
     <ImageButton
         android:id="@+id/btnFavorite"
-        android:layout_width="36dp"
-        android:layout_height="36dp"
+        android:layout_width="30dp"
+        android:layout_height="30dp"
         android:src="@drawable/ic_star_outline"
         android:background="?android:attr/selectableItemBackgroundBorderless"
         android:contentDescription="@string/cd_favorite"

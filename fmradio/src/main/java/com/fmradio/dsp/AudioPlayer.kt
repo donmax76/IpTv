@@ -14,10 +14,10 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
 
     companion object {
         private const val TAG = "AudioPlayer"
-        // Ring buffer: ~500ms of audio at 48kHz (mono 16-bit)
-        private const val RING_BUFFER_SAMPLES = 48000 / 2  // 24000 samples = 500ms
-        private const val LOW_WATERMARK = 2400   // start feeding when 50ms buffered
-        private const val HIGH_WATERMARK = 20000  // pause accepting when 416ms buffered
+        // Ring buffer: ~1s of audio at 48kHz (mono 16-bit) — larger for car USB jitter
+        private const val RING_BUFFER_SAMPLES = 48000  // 48000 samples = 1000ms
+        private const val LOW_WATERMARK = 4800   // start feeding when 100ms buffered
+        private const val HIGH_WATERMARK = 40000  // pause accepting when 833ms buffered
     }
 
     private var audioTrack: AudioTrack? = null
@@ -42,8 +42,8 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             AudioFormat.CHANNEL_OUT_MONO,
             AudioFormat.ENCODING_PCM_16BIT
         )
-        // Use 6x minimum buffer for smooth streaming
-        val bufferSize = minBufSize * 6
+        // Use 8x minimum buffer for smooth streaming on car head units
+        val bufferSize = minBufSize * 8
 
         audioTrack = AudioTrack.Builder()
             .setAudioAttributes(
