@@ -2,15 +2,13 @@ package com.fmradio.ui
 
 import android.app.*
 import android.content.Intent
+import android.media.MediaMetadata
+import android.media.session.MediaSession
+import android.media.session.PlaybackState
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
-import android.support.v4.media.MediaMetadataCompat
-import android.support.v4.media.session.MediaSessionCompat
-import android.support.v4.media.session.PlaybackStateCompat
 import android.util.Log
-import androidx.core.app.NotificationCompat
-import androidx.media.session.MediaButtonReceiver
 import com.fmradio.R
 import com.fmradio.data.StationStorage
 import com.fmradio.dsp.AudioEqualizer
@@ -21,18 +19,6 @@ import com.fmradio.dsp.RdsDecoder
 import com.fmradio.rtlsdr.RtlSdrDevice
 import kotlinx.coroutines.*
 
-/**
- * Foreground service for FM radio playback with MediaSession support
- * for car steering wheel controls, Bluetooth remotes, and media buttons.
- *
- * Supported media buttons:
- * - PLAY/PAUSE: toggle playback
- * - NEXT: next saved station or seek forward
- * - PREVIOUS: previous saved station or seek backward
- * - STOP: stop playback
- * - FAST_FORWARD: frequency +0.1 MHz
- * - REWIND: frequency -0.1 MHz
- */
 class FmRadioService : Service() {
 
     companion object {
@@ -55,10 +41,8 @@ class FmRadioService : Service() {
     private var streamingJob: Job? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    // MediaSession for car/remote controls
-    private var mediaSession: MediaSessionCompat? = null
+    private var mediaSession: MediaSession? = null
 
-    // Station storage for preset navigation
     private lateinit var stationStorage: StationStorage
 
     @Volatile
@@ -68,22 +52,17 @@ class FmRadioService : Service() {
     var currentFrequency: Long = 100000000L
         private set
 
-    // Current band
     var currentBand: FmScanner.Band = FmScanner.Band.FM_BROADCAST
 
-    // RDS data
     @Volatile
     var currentRdsData: RdsDecoder.RdsData = RdsDecoder.RdsData()
         private set
 
-    // Stereo status
     val isStereo: Boolean get() = demodulator?.isStereo == true
 
-    // AF/TA modes
     var afEnabled = false
     var taEnabled = false
 
-    // Callbacks
     var onFrequencyChanged: ((Long) -> Unit)? = null
     var onRdsDataReceived: ((RdsDecoder.RdsData) -> Unit)? = null
     var onStereoChanged: ((Boolean) -> Unit)? = null
@@ -100,41 +79,29 @@ class FmRadioService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Handle media button intents from car stereo / Bluetooth remote
-        MediaButtonReceiver.handleIntent(mediaSession, intent)
         startForeground(NOTIFICATION_ID, createNotification())
         return START_STICKY
     }
 
-    /**
-     * Initialize MediaSession for car steering wheel and remote control support.
-     * This enables MEDIA_NEXT, MEDIA_PREVIOUS, PLAY/PAUSE from:
-     * - Car steering wheel buttons
-     * - Bluetooth audio remotes
-     * - Headset buttons
-     * - Android Auto
-     * - Lock screen media controls
-     */
     private fun initMediaSession() {
-        mediaSession = MediaSessionCompat(this, "FmRadioSession").apply {
-            // Declare supported actions
+        mediaSession = MediaSession(this, "FmRadioSession").apply {
             setPlaybackState(
-                PlaybackStateCompat.Builder()
+                PlaybackState.Builder()
                     .setActions(
-                        PlaybackStateCompat.ACTION_PLAY or
-                        PlaybackStateCompat.ACTION_PAUSE or
-                        PlaybackStateCompat.ACTION_PLAY_PAUSE or
-                        PlaybackStateCompat.ACTION_STOP or
-                        PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
-                        PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
-                        PlaybackStateCompat.ACTION_FAST_FORWARD or
-                        PlaybackStateCompat.ACTION_REWIND
+                        PlaybackState.ACTION_PLAY or
+                        PlaybackState.ACTION_PAUSE or
+                        PlaybackState.ACTION_PLAY_PAUSE or
+                        PlaybackState.ACTION_STOP or
+                        PlaybackState.ACTION_SKIP_TO_NEXT or
+                        PlaybackState.ACTION_SKIP_TO_PREVIOUS or
+                        PlaybackState.ACTION_FAST_FORWARD or
+                        PlaybackState.ACTION_REWIND
                     )
-                    .setState(PlaybackStateCompat.STATE_STOPPED, 0, 1f)
+                    .setState(PlaybackState.STATE_STOPPED, 0, 1f)
                     .build()
             )
 
-            setCallback(object : MediaSessionCompat.Callback() {
+            setCallback(object : MediaSession.Callback() {
                 override fun onPlay() {
                     Log.i(TAG, "MediaSession: PLAY")
                     if (!isPlaying) startPlayback()
@@ -152,42 +119,24 @@ class FmRadioService : Service() {
                     onPlaybackStateChanged?.invoke(false)
                 }
 
-                /**
-                 * NEXT button on car steering wheel / remote:
-                 * Switches to next saved station. If no saved stations, seeks forward.
-                 */
                 override fun onSkipToNext() {
-                    Log.i(TAG, "MediaSession: NEXT (steering wheel)")
+                    Log.i(TAG, "MediaSession: NEXT")
                     navigateStation(forward = true)
                 }
 
-                /**
-                 * PREVIOUS button on car steering wheel / remote:
-                 * Switches to previous saved station. If no saved stations, seeks backward.
-                 */
                 override fun onSkipToPrevious() {
-                    Log.i(TAG, "MediaSession: PREVIOUS (steering wheel)")
+                    Log.i(TAG, "MediaSession: PREVIOUS")
                     navigateStation(forward = false)
                 }
 
-                /** FAST_FORWARD: frequency +0.1 MHz */
                 override fun onFastForward() {
-                    Log.i(TAG, "MediaSession: FAST_FORWARD (+0.1 MHz)")
                     val step = currentBand.stepHz
-                    tuneToFrequency(
-                        (currentFrequency + step)
-                            .coerceAtMost(currentBand.endHz)
-                    )
+                    tuneToFrequency((currentFrequency + step).coerceAtMost(currentBand.endHz))
                 }
 
-                /** REWIND: frequency -0.1 MHz */
                 override fun onRewind() {
-                    Log.i(TAG, "MediaSession: REWIND (-0.1 MHz)")
                     val step = currentBand.stepHz
-                    tuneToFrequency(
-                        (currentFrequency - step)
-                            .coerceAtLeast(currentBand.startHz)
-                    )
+                    tuneToFrequency((currentFrequency - step).coerceAtLeast(currentBand.startHz))
                 }
             })
 
@@ -195,21 +144,10 @@ class FmRadioService : Service() {
         }
     }
 
-    /**
-     * Navigate to next/previous saved station.
-     * Used by car steering wheel NEXT/PREV buttons.
-     *
-     * Logic:
-     * 1. Get sorted list of saved stations
-     * 2. Find station closest to current frequency in the given direction
-     * 3. If no saved stations, fall back to seek
-     */
     private fun navigateStation(forward: Boolean) {
-        val stations = stationStorage.loadStations()
-            .sortedBy { it.frequencyHz }
+        val stations = stationStorage.loadStations().sortedBy { it.frequencyHz }
 
         if (stations.isEmpty()) {
-            // No saved stations - seek instead
             seekStation(forward)
             return
         }
@@ -217,10 +155,10 @@ class FmRadioService : Service() {
         val current = currentFrequency
         val next = if (forward) {
             stations.firstOrNull { it.frequencyHz > current + 50000 }
-                ?: stations.first() // wrap around
+                ?: stations.first()
         } else {
             stations.lastOrNull { it.frequencyHz < current - 50000 }
-                ?: stations.last() // wrap around
+                ?: stations.last()
         }
 
         tuneToFrequency(next.frequencyHz)
@@ -231,36 +169,34 @@ class FmRadioService : Service() {
     }
 
     private fun updateMediaSessionState() {
-        val state = if (isPlaying) PlaybackStateCompat.STATE_PLAYING
-                    else PlaybackStateCompat.STATE_STOPPED
+        val state = if (isPlaying) PlaybackState.STATE_PLAYING else PlaybackState.STATE_STOPPED
 
         mediaSession?.setPlaybackState(
-            PlaybackStateCompat.Builder()
+            PlaybackState.Builder()
                 .setActions(
-                    PlaybackStateCompat.ACTION_PLAY or
-                    PlaybackStateCompat.ACTION_PAUSE or
-                    PlaybackStateCompat.ACTION_PLAY_PAUSE or
-                    PlaybackStateCompat.ACTION_STOP or
-                    PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
-                    PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
-                    PlaybackStateCompat.ACTION_FAST_FORWARD or
-                    PlaybackStateCompat.ACTION_REWIND
+                    PlaybackState.ACTION_PLAY or
+                    PlaybackState.ACTION_PAUSE or
+                    PlaybackState.ACTION_PLAY_PAUSE or
+                    PlaybackState.ACTION_STOP or
+                    PlaybackState.ACTION_SKIP_TO_NEXT or
+                    PlaybackState.ACTION_SKIP_TO_PREVIOUS or
+                    PlaybackState.ACTION_FAST_FORWARD or
+                    PlaybackState.ACTION_REWIND
                 )
                 .setState(state, currentFrequency, 1f)
                 .build()
         )
 
-        // Update metadata (shows on car display / lock screen)
         val freqText = String.format("%.1f MHz", currentFrequency / 1e6)
         val title = currentRdsData.ps.takeIf { it.isNotBlank() } ?: freqText
         val subtitle = if (currentRdsData.rt.isNotBlank()) currentRdsData.rt else currentBand.displayName
 
         mediaSession?.setMetadata(
-            MediaMetadataCompat.Builder()
-                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
-                .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, subtitle)
-                .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, "FM Radio RTL-SDR")
-                .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, freqText)
+            MediaMetadata.Builder()
+                .putString(MediaMetadata.METADATA_KEY_TITLE, title)
+                .putString(MediaMetadata.METADATA_KEY_ARTIST, subtitle)
+                .putString(MediaMetadata.METADATA_KEY_ALBUM, "FM Radio RTL-SDR")
+                .putString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE, freqText)
                 .build()
         )
     }
@@ -319,7 +255,7 @@ class FmRadioService : Service() {
         isPlaying = true
         var lastStereo = false
 
-        streamingJob = dev.startStreaming(16384) { iqData ->
+        streamingJob = dev.startStreaming(65536) { iqData ->
             var audioSamples = demodulator?.demodulate(iqData)
             if (audioSamples != null && audioSamples.isNotEmpty()) {
                 val eq = equalizer
@@ -423,9 +359,7 @@ class FmRadioService : Service() {
         }
     }
 
-    private fun checkAfSwitch(rdsData: RdsDecoder.RdsData) {
-        // AF list stored in RDS data, actual switching on user request
-    }
+    private fun checkAfSwitch(rdsData: RdsDecoder.RdsData) {}
 
     fun switchToAf(freqMHz: Float) {
         tuneToFrequency((freqMHz * 1_000_000).toLong())
@@ -458,61 +392,19 @@ class FmRadioService : Service() {
             else -> "$freqText$stereoText"
         }
 
-        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("FM Radio")
             .setContentText(statusText)
             .setSmallIcon(R.drawable.ic_radio)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
 
-        // Add media controls to notification (for lock screen & quick access)
         val session = mediaSession
         if (session != null) {
             builder.setStyle(
-                androidx.media.app.NotificationCompat.MediaStyle()
+                Notification.MediaStyle()
                     .setMediaSession(session.sessionToken)
                     .setShowActionsInCompactView(0, 1, 2)
-            )
-
-            // Previous station button
-            builder.addAction(
-                NotificationCompat.Action(
-                    R.drawable.ic_skip_previous, "Previous",
-                    MediaButtonReceiver.buildMediaButtonPendingIntent(
-                        this, PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
-                    )
-                )
-            )
-
-            // Play/Pause button
-            if (isPlaying) {
-                builder.addAction(
-                    NotificationCompat.Action(
-                        R.drawable.ic_stop, "Pause",
-                        MediaButtonReceiver.buildMediaButtonPendingIntent(
-                            this, PlaybackStateCompat.ACTION_PAUSE
-                        )
-                    )
-                )
-            } else {
-                builder.addAction(
-                    NotificationCompat.Action(
-                        R.drawable.ic_play, "Play",
-                        MediaButtonReceiver.buildMediaButtonPendingIntent(
-                            this, PlaybackStateCompat.ACTION_PLAY
-                        )
-                    )
-                )
-            }
-
-            // Next station button
-            builder.addAction(
-                NotificationCompat.Action(
-                    R.drawable.ic_skip_next, "Next",
-                    MediaButtonReceiver.buildMediaButtonPendingIntent(
-                        this, PlaybackStateCompat.ACTION_SKIP_TO_NEXT
-                    )
-                )
             )
         }
 

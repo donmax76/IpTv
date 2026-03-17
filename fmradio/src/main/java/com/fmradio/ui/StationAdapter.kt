@@ -3,9 +3,9 @@ package com.fmradio.ui
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.BaseAdapter
 import android.widget.ImageButton
 import android.widget.TextView
-import androidx.recyclerview.widget.RecyclerView
 import com.fmradio.R
 import com.fmradio.data.RadioStation
 
@@ -14,28 +14,27 @@ class StationAdapter(
     private val onStationClick: (RadioStation) -> Unit,
     private val onFavoriteClick: (RadioStation) -> Unit,
     private val onLongClick: (RadioStation) -> Unit
-) : RecyclerView.Adapter<StationAdapter.ViewHolder>() {
+) : BaseAdapter() {
 
     private var selectedFrequency: Long = 0
 
-    class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-        val tvFrequency: TextView = view.findViewById(R.id.tvStationFrequency)
-        val tvName: TextView = view.findViewById(R.id.tvStationName)
-        val tvSignal: TextView = view.findViewById(R.id.tvSignalStrength)
-        val btnFavorite: ImageButton = view.findViewById(R.id.btnFavorite)
-    }
+    override fun getCount() = stations.size
+    override fun getItem(position: Int) = stations[position]
+    override fun getItemId(position: Int) = stations[position].frequencyHz
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val view = LayoutInflater.from(parent.context)
+    override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+        val view = convertView ?: LayoutInflater.from(parent.context)
             .inflate(R.layout.item_station, parent, false)
-        return ViewHolder(view)
-    }
 
-    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val station = stations[position]
 
-        holder.tvFrequency.text = station.displayFrequency
-        holder.tvName.text = when {
+        val tvFrequency = view.findViewById<TextView>(R.id.tvStationFrequency)
+        val tvName = view.findViewById<TextView>(R.id.tvStationName)
+        val tvSignal = view.findViewById<TextView>(R.id.tvSignalStrength)
+        val btnFavorite = view.findViewById<ImageButton>(R.id.btnFavorite)
+
+        tvFrequency.text = station.displayFrequency
+        tvName.text = when {
             station.name.isNotEmpty() -> station.name
             station.rdsPs.isNotBlank() -> station.rdsPs
             else -> "---"
@@ -48,23 +47,23 @@ class StationAdapter(
             station.signalStrength > -20 -> "\u2588\u2588"
             else -> "\u2588"
         }
-        holder.tvSignal.text = signalBars
+        tvSignal.text = signalBars
 
-        holder.btnFavorite.setImageResource(
+        btnFavorite.setImageResource(
             if (station.isFavorite) R.drawable.ic_star_filled else R.drawable.ic_star_outline
         )
 
-        holder.itemView.isSelected = station.frequencyHz == selectedFrequency
+        view.isSelected = station.frequencyHz == selectedFrequency
 
-        holder.itemView.setOnClickListener { onStationClick(station) }
-        holder.btnFavorite.setOnClickListener { onFavoriteClick(station) }
-        holder.itemView.setOnLongClickListener {
+        view.setOnClickListener { onStationClick(station) }
+        btnFavorite.setOnClickListener { onFavoriteClick(station) }
+        view.setOnLongClickListener {
             onLongClick(station)
             true
         }
-    }
 
-    override fun getItemCount() = stations.size
+        return view
+    }
 
     fun updateStations(newStations: List<RadioStation>) {
         stations = newStations

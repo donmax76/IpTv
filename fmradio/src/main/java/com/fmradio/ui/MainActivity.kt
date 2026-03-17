@@ -1,5 +1,7 @@
 package com.fmradio.ui
 
+import android.app.Activity
+import android.app.AlertDialog
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -11,11 +13,6 @@ import android.os.Bundle
 import android.os.IBinder
 import android.view.View
 import android.widget.*
-import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.lifecycleScope
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import com.fmradio.R
 import com.fmradio.data.RadioStation
 import com.fmradio.data.StationStorage
@@ -23,9 +20,9 @@ import com.fmradio.dsp.FmScanner
 import com.fmradio.dsp.RdsDecoder
 import com.fmradio.rtlsdr.RtlSdrDevice
 import com.fmradio.rtlsdr.UsbPermissionHelper
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : Activity() {
 
     private lateinit var stationStorage: StationStorage
     private lateinit var permissionHelper: UsbPermissionHelper
@@ -35,15 +32,12 @@ class MainActivity : AppCompatActivity() {
     private var serviceBound = false
     private var scanner: FmScanner? = null
 
-    // Current band
     private var currentBand: FmScanner.Band = FmScanner.Band.FM_BROADCAST
 
-    // UI: Status
     private lateinit var tvStatus: TextView
     private lateinit var tvDeviceInfo: TextView
     private lateinit var btnConnect: Button
 
-    // UI: LCD Display
     private lateinit var tvFrequency: TextView
     private lateinit var tvBandIndicator: TextView
     private lateinit var tvStereoIndicator: TextView
@@ -58,17 +52,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvBandStart: TextView
     private lateinit var tvBandEnd: TextView
 
-    // UI: Controls
     private lateinit var btnSeekBack: ImageButton
     private lateinit var btnFreqDown: ImageButton
     private lateinit var btnPlayStop: ImageButton
     private lateinit var btnFreqUp: ImageButton
     private lateinit var btnSeekForward: ImageButton
 
-    // UI: Presets
     private lateinit var presetButtons: List<Button>
 
-    // UI: Volume + EQ
     private lateinit var seekVolume: SeekBar
     private lateinit var seekBass: SeekBar
     private lateinit var seekTreble: SeekBar
@@ -76,23 +67,22 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvBassValue: TextView
     private lateinit var tvTrebleValue: TextView
 
-    // UI: Function buttons
     private lateinit var btnScan: Button
     private lateinit var btnAf: Button
     private lateinit var btnTa: Button
     private lateinit var btnPty: Button
     private lateinit var btnBand: Button
 
-    // UI: Scan
     private lateinit var layoutScanning: View
     private lateinit var progressScan: ProgressBar
     private lateinit var tvScanStatus: TextView
 
-    // UI: Station list
-    private lateinit var rvStations: RecyclerView
+    private lateinit var lvStations: ListView
     private lateinit var stationAdapter: StationAdapter
 
     private var currentFrequency: Long = 100000000L
+
+    private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, service: IBinder) {
@@ -223,15 +213,14 @@ class MainActivity : AppCompatActivity() {
         progressScan = findViewById(R.id.progressScan)
         tvScanStatus = findViewById(R.id.tvScanStatus)
 
-        rvStations = findViewById(R.id.rvStations)
+        lvStations = findViewById(R.id.lvStations)
         stationAdapter = StationAdapter(
             stations = emptyList(),
             onStationClick = { tuneToStation(it) },
             onFavoriteClick = { toggleFavorite(it) },
             onLongClick = { showStationOptions(it) }
         )
-        rvStations.layoutManager = LinearLayoutManager(this)
-        rvStations.adapter = stationAdapter
+        lvStations.adapter = stationAdapter
 
         seekVolume.max = 100
         layoutScanning.visibility = View.GONE
@@ -342,8 +331,6 @@ class MainActivity : AppCompatActivity() {
         btnBand.setOnClickListener { showBandSelector() }
     }
 
-    // --- Band Selector ---
-
     private fun showBandSelector() {
         val bands = FmScanner.Band.values()
         val names = bands.map { "${it.shortName} — ${it.description}" }.toTypedArray()
@@ -351,8 +338,7 @@ class MainActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.dialog_band_title))
             .setItems(names) { _, which ->
-                val band = bands[which]
-                selectBand(band)
+                selectBand(bands[which])
             }
             .show()
     }
@@ -363,31 +349,18 @@ class MainActivity : AppCompatActivity() {
         stationStorage.currentBandName = band.name
         radioService?.currentBand = band
         applyBand(band)
-
-        // Set frequency to band start
-        val newFreq = band.startHz
-        setFrequency(newFreq)
+        setFrequency(band.startHz)
         showToast(getString(R.string.msg_band_changed, band.displayName))
     }
 
     private fun applyBand(band: FmScanner.Band) {
-        // Update LCD band indicator
         tvBandIndicator.text = band.shortName
-
-        // Update seekbar range
-        val totalSteps = band.totalSteps
-        seekFrequency.max = totalSteps
-
-        // Update scale labels
+        seekFrequency.max = band.totalSteps
         tvBandStart.text = String.format("%.0f", band.startHz / 1e6)
         tvBandEnd.text = String.format("%.0f", band.endHz / 1e6)
-
-        // Update band button text
         btnBand.text = getString(R.string.band_label_format,
             band.displayName, band.startHz / 1e6, band.endHz / 1e6)
     }
-
-    // --- Device ---
 
     private fun connectDevice() {
         tvStatus.text = getString(R.string.status_connecting)
@@ -429,8 +402,6 @@ class MainActivity : AppCompatActivity() {
         btnSeekForward.isEnabled = enabled
     }
 
-    // --- Playback ---
-
     private fun startPlayback() {
         val service = radioService ?: return
         if (rtlSdrDevice == null) { showToast(getString(R.string.msg_connect_first)); return }
@@ -454,8 +425,6 @@ class MainActivity : AppCompatActivity() {
         updateStereoIndicator(false)
     }
 
-    // --- Frequency ---
-
     private fun setFrequency(frequencyHz: Long) {
         val freq = frequencyHz.coerceIn(currentBand.startHz, currentBand.endHz)
         currentFrequency = freq
@@ -473,8 +442,6 @@ class MainActivity : AppCompatActivity() {
         setFrequency(station.frequencyHz)
         if (radioService?.isPlaying != true) startPlayback()
     }
-
-    // --- Presets ---
 
     private fun loadPreset(index: Int) {
         val freq = stationStorage.getPreset(index)
@@ -497,16 +464,13 @@ class MainActivity : AppCompatActivity() {
     private fun updatePresetLabels() {
         presetButtons.forEachIndexed { index, btn ->
             val freq = stationStorage.getPreset(index)
-            btn.text = if (freq > 0) String.format("%.1f", freq / 1e6)
-            else (index + 1).toString()
+            btn.text = if (freq > 0) String.format("%.1f", freq / 1e6) else (index + 1).toString()
         }
     }
 
     private fun highlightPreset(activeIndex: Int) {
         presetButtons.forEachIndexed { index, btn -> btn.isSelected = index == activeIndex }
     }
-
-    // --- Scan ---
 
     private fun startScan() {
         val dev = rtlSdrDevice ?: run { showToast(getString(R.string.msg_connect_first)); return }
@@ -516,7 +480,7 @@ class MainActivity : AppCompatActivity() {
         btnScan.text = getString(R.string.btn_stop_scan)
         progressScan.progress = 0
 
-        lifecycleScope.launch {
+        activityScope.launch {
             scanner?.scanBand(currentBand, object : FmScanner.ScanListener {
                 override fun onScanProgress(currentFreqHz: Long, progress: Float) {
                     progressScan.progress = (progress * 100).toInt()
@@ -541,8 +505,6 @@ class MainActivity : AppCompatActivity() {
             })
         }
     }
-
-    // --- RDS Display ---
 
     private fun updateRdsDisplay(rdsData: RdsDecoder.RdsData) {
         tvRdsIndicator.setTextColor(if (rdsData.hasData) getColor(R.color.lcd_green) else getColor(R.color.lcd_dim))
@@ -579,8 +541,6 @@ class MainActivity : AppCompatActivity() {
         tvStereoIndicator.setTextColor(if (stereo) getColor(R.color.lcd_green) else getColor(R.color.lcd_dim))
     }
 
-    // --- AF / TA ---
-
     private fun toggleAf() {
         val newState = !stationStorage.afEnabled
         stationStorage.afEnabled = newState
@@ -608,8 +568,6 @@ class MainActivity : AppCompatActivity() {
         if (rds.ptyName.isNotBlank()) showToast("PTY: ${rds.ptyName}")
         else showToast("No PTY data")
     }
-
-    // --- Station management ---
 
     private fun toggleFavorite(station: RadioStation) {
         stationStorage.toggleFavorite(station.frequencyHz)
@@ -650,10 +608,7 @@ class MainActivity : AppCompatActivity() {
         stationAdapter.setSelectedFrequency(currentFrequency)
     }
 
-    // --- Helpers ---
-
     private fun updateFrequencyDisplay(frequencyHz: Long) {
-        // Adaptive format: <1000 MHz show 1 decimal, >=1000 MHz show 3 decimals
         tvFrequency.text = if (frequencyHz >= 1000000000L)
             String.format("%.3f", frequencyHz / 1_000_000.0)
         else
@@ -684,6 +639,7 @@ class MainActivity : AppCompatActivity() {
         permissionHelper.unregister()
         if (serviceBound) { unbindService(serviceConnection); serviceBound = false }
         rtlSdrDevice?.close()
+        activityScope.cancel()
         super.onDestroy()
     }
 }

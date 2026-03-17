@@ -2,12 +2,9 @@ package com.fmradio.data
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
+import org.json.JSONArray
+import org.json.JSONObject
 
-/**
- * Persistent storage for saved radio stations using SharedPreferences + Gson.
- */
 class StationStorage(context: Context) {
 
     companion object {
@@ -26,18 +23,41 @@ class StationStorage(context: Context) {
 
     private val prefs: SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    private val gson = Gson()
 
     fun saveStations(stations: List<RadioStation>) {
-        val json = gson.toJson(stations)
-        prefs.edit().putString(KEY_STATIONS, json).apply()
+        val arr = JSONArray()
+        for (s in stations) {
+            arr.put(JSONObject().apply {
+                put("frequencyHz", s.frequencyHz)
+                put("name", s.name)
+                put("isFavorite", s.isFavorite)
+                put("signalStrength", s.signalStrength.toDouble())
+                put("addedTimestamp", s.addedTimestamp)
+                put("rdsPs", s.rdsPs)
+                put("rdsRt", s.rdsRt)
+                put("rdsPty", s.rdsPty)
+            })
+        }
+        prefs.edit().putString(KEY_STATIONS, arr.toString()).apply()
     }
 
     fun loadStations(): List<RadioStation> {
         val json = prefs.getString(KEY_STATIONS, null) ?: return emptyList()
         return try {
-            val type = object : TypeToken<List<RadioStation>>() {}.type
-            gson.fromJson(json, type)
+            val arr = JSONArray(json)
+            (0 until arr.length()).map { i ->
+                val obj = arr.getJSONObject(i)
+                RadioStation(
+                    frequencyHz = obj.getLong("frequencyHz"),
+                    name = obj.optString("name", ""),
+                    isFavorite = obj.optBoolean("isFavorite", false),
+                    signalStrength = obj.optDouble("signalStrength", 0.0).toFloat(),
+                    addedTimestamp = obj.optLong("addedTimestamp", System.currentTimeMillis()),
+                    rdsPs = obj.optString("rdsPs", ""),
+                    rdsRt = obj.optString("rdsRt", ""),
+                    rdsPty = obj.optString("rdsPty", "")
+                )
+            }
         } catch (e: Exception) {
             emptyList()
         }
@@ -45,7 +65,6 @@ class StationStorage(context: Context) {
 
     fun addStation(station: RadioStation) {
         val stations = loadStations().toMutableList()
-        // Avoid duplicates (within 50 kHz)
         stations.removeAll { Math.abs(it.frequencyHz - station.frequencyHz) < 50000 }
         stations.add(station)
         stations.sortBy { it.frequencyHz }
@@ -93,14 +112,12 @@ class StationStorage(context: Context) {
     }
 
     var lastFrequency: Long
-        get() = prefs.getLong(KEY_LAST_FREQUENCY, 100000000L) // Default 100.0 MHz
+        get() = prefs.getLong(KEY_LAST_FREQUENCY, 100000000L)
         set(value) = prefs.edit().putLong(KEY_LAST_FREQUENCY, value).apply()
 
     var lastVolume: Float
         get() = prefs.getFloat(KEY_LAST_VOLUME, 0.8f)
         set(value) = prefs.edit().putFloat(KEY_LAST_VOLUME, value).apply()
-
-    // --- Preset memory (1-6) ---
 
     fun getPreset(index: Int): Long {
         return prefs.getLong("${KEY_PRESET_PREFIX}$index", 0L)
@@ -110,17 +127,13 @@ class StationStorage(context: Context) {
         prefs.edit().putLong("${KEY_PRESET_PREFIX}$index", frequencyHz).apply()
     }
 
-    // --- Equalizer settings ---
-
     var bassLevel: Int
-        get() = prefs.getInt(KEY_BASS, 10) // 0-20, center=10
+        get() = prefs.getInt(KEY_BASS, 10)
         set(value) = prefs.edit().putInt(KEY_BASS, value).apply()
 
     var trebleLevel: Int
-        get() = prefs.getInt(KEY_TREBLE, 10) // 0-20, center=10
+        get() = prefs.getInt(KEY_TREBLE, 10)
         set(value) = prefs.edit().putInt(KEY_TREBLE, value).apply()
-
-    // --- AF/TA toggles ---
 
     var afEnabled: Boolean
         get() = prefs.getBoolean(KEY_AF_ENABLED, false)
@@ -129,8 +142,6 @@ class StationStorage(context: Context) {
     var taEnabled: Boolean
         get() = prefs.getBoolean(KEY_TA_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_TA_ENABLED, value).apply()
-
-    // --- Band ---
 
     var currentBandName: String
         get() = prefs.getString(KEY_BAND, "FM_BROADCAST") ?: "FM_BROADCAST"

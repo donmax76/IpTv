@@ -637,13 +637,14 @@
         android:layout_marginBottom="4dp"
         android:paddingStart="8dp" />
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/rvStations"
+    <ListView
+        android:id="@+id/lvStations"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:nestedScrollingEnabled="false"
         android:clipToPadding="false"
-        android:paddingBottom="8dp" />
+        android:paddingBottom="8dp"
+        android:divider="@android:color/transparent"
+        android:dividerHeight="0dp" />
 
 </LinearLayout>
 </ScrollView>

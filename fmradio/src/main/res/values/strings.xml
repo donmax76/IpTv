@@ -32,15 +32,15 @@
     <string name="msg_connect_first">Connect RTL-SDR device first</string>
     <string name="msg_scan_complete">Scan complete! Found %d stations</string>
     <string name="msg_scan_error">Scan error: %s</string>
-    <string name="msg_preset_saved">Preset %d: %.1f FM saved</string>
-    <string name="msg_preset_empty">Preset %d is empty — long press to save</string>
+    <string name="msg_preset_saved" formatted="false">Preset %d: %.1f FM saved</string>
+    <string name="msg_preset_empty" formatted="false">Preset %d is empty — long press to save</string>
     <string name="msg_no_station_found">No station found</string>
 
     <!-- Scan -->
-    <string name="scan_progress_format">Scanning %.1f MHz (%d%%)</string>
+    <string name="scan_progress_format" formatted="false">Scanning %.1f MHz (%d%%)</string>
 
     <!-- Device info -->
-    <string name="device_info_format">%s | %s</string>
+    <string name="device_info_format" formatted="false">%s | %s</string>
 
     <!-- Options -->
     <string name="option_rename">Rename</string>
@@ -55,7 +55,7 @@
     <string name="rds_no_data">No RDS</string>
 
     <!-- Band selector -->
-    <string name="band_label_format">BAND: %s  %.1f - %.1f MHz</string>
+    <string name="band_label_format" formatted="false">BAND: %s  %.1f - %.1f MHz</string>
     <string name="dialog_band_title">Select Band</string>
     <string name="msg_band_changed">Band: %s</string>
 
