@@ -27,25 +27,27 @@ class FmDemodulator(
     // DC offset removal (IIR high-pass)
     private var dcI = 0f
     private var dcQ = 0f
-    private val dcAlpha = 0.995f
+    private val dcAlpha = 0.999f
 
     // Previous I/Q sample for FM discriminator
     private var prevI = 0f
     private var prevQ = 0f
 
-    // De-emphasis filter state (75us for US/Europe FM broadcast)
-    private var deEmphasisState = 0f
-    private val deEmphasisAlpha: Float
+    // De-emphasis filter state (75us for US/Europe FM broadcast) — two-stage for gentler response
+    private var deEmphasisState1 = 0f
+    private var deEmphasisState2 = 0f
+    private val deEmphasisAlpha1: Float
+    private val deEmphasisAlpha2: Float
 
     // Stage 1: IF low-pass FIR filter (before first decimation)
-    private val ifLpfOrder = 64
+    private val ifLpfOrder = 96
     private val ifLpfCoeffs: FloatArray
     private var ifBufI = FloatArray(ifLpfOrder)
     private var ifBufQ = FloatArray(ifLpfOrder)
     private var ifBufIdx = 0
 
     // Stage 2: Audio low-pass FIR filter (before second decimation, cuts above 15 kHz)
-    private val audioLpfOrder = 48
+    private val audioLpfOrder = 64
     private val audioLpfCoeffs: FloatArray
     private var audioLpfBuf = FloatArray(audioLpfOrder)
     private var audioLpfIdx = 0
@@ -70,10 +72,13 @@ class FmDemodulator(
         private set
 
     init {
-        // De-emphasis: 75us time constant
+        // De-emphasis: 75us time constant, split into two gentler stages to reduce ringing
         val tau = 75e-6f
         val dt = 1f / audioSampleRate
-        deEmphasisAlpha = dt / (tau + dt)
+        val singleAlpha = dt / (tau + dt)
+        // Two-stage: each stage uses sqrt of the single-stage response
+        deEmphasisAlpha1 = singleAlpha * 0.6f
+        deEmphasisAlpha2 = singleAlpha * 0.4f
 
         // IF LPF: cutoff at ~80kHz (relative to input rate) — pass FM signal, reject neighbors
         ifLpfCoeffs = designLowPassFilter(ifLpfOrder, 80000f / inputSampleRate)
@@ -200,14 +205,15 @@ class FmDemodulator(
                 filtAudio += audioLpfBuf[idx] * audioLpfCoeffs[j]
             }
 
-            // De-emphasis filter
-            deEmphasisState += deEmphasisAlpha * (filtAudio - deEmphasisState)
-            val audio = deEmphasisState
+            // Two-stage de-emphasis filter (gentler, reduces ringing)
+            deEmphasisState1 += deEmphasisAlpha1 * (filtAudio - deEmphasisState1)
+            deEmphasisState2 += deEmphasisAlpha2 * (deEmphasisState1 - deEmphasisState2)
+            val audio = deEmphasisState2
 
             // Scale to 16-bit PCM with soft limiting to prevent distortion
-            val raw = audio * 20000f
-            val scaled = if (raw > 24000f) 24000f + (raw - 24000f) * 0.3f
-                         else if (raw < -24000f) -24000f + (raw + 24000f) * 0.3f
+            val raw = audio * 16000f
+            val scaled = if (raw > 20000f) 20000f + (raw - 20000f) * 0.3f
+                         else if (raw < -20000f) -20000f + (raw + 20000f) * 0.3f
                          else raw
             val clamped = scaled.coerceIn(-32000f, 32000f)
             if (audioCount < audioOut.size) {
@@ -246,7 +252,8 @@ class FmDemodulator(
     fun reset() {
         prevI = 0f
         prevQ = 0f
-        deEmphasisState = 0f
+        deEmphasisState1 = 0f
+        deEmphasisState2 = 0f
         dcI = 0f
         dcQ = 0f
         ifBufI = FloatArray(ifLpfOrder)

@@ -1,17 +1,52 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Outer bezel -->
+    <!-- Outer bezel with subtle highlight -->
     <item>
         <shape android:shape="rectangle">
-            <solid android:color="#FF333333" />
-            <corners android:radius="8dp" />
+            <gradient
+                android:startColor="#FF484858"
+                android:centerColor="#FF2A2A32"
+                android:endColor="#FF18181E"
+                android:angle="270" />
+            <corners android:radius="12dp" />
         </shape>
     </item>
-    <!-- Inner LCD area -->
+    <!-- Inner bezel groove -->
+    <item android:left="2dp" android:top="2dp" android:right="2dp" android:bottom="2dp">
+        <shape android:shape="rectangle">
+            <solid android:color="#FF060608" />
+            <corners android:radius="11dp" />
+        </shape>
+    </item>
+    <!-- LCD screen with deep blue gradient -->
     <item android:left="3dp" android:top="3dp" android:right="3dp" android:bottom="3dp">
         <shape android:shape="rectangle">
-            <solid android:color="@color/surface_lcd" />
-            <corners android:radius="6dp" />
+            <gradient
+                android:startColor="#FF0E2848"
+                android:centerColor="#FF081C35"
+                android:endColor="#FF041020"
+                android:angle="315" />
+            <corners android:radius="10dp" />
+        </shape>
+    </item>
+    <!-- Subtle green inner glow at top-left -->
+    <item android:left="4dp" android:top="4dp" android:right="4dp" android:bottom="4dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:startColor="#0C00FF88"
+                android:endColor="#00000000"
+                android:angle="315" />
+            <corners android:radius="9dp" />
+        </shape>
+    </item>
+    <!-- Subtle cyan glow at bottom-right -->
+    <item android:left="4dp" android:top="4dp" android:right="4dp" android:bottom="4dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:startColor="#00000000"
+                android:endColor="#0600EFFF"
+                android:angle="315" />
+            <corners android:radius="9dp" />
         </shape>
     </item>
 </layer-list>

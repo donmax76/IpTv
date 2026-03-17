@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#FF050505">
+    android:background="#FF050508">
 
     <!-- ============ MAIN CONTENT: LEFT Radio + RIGHT Stations ============ -->
     <LinearLayout
@@ -13,32 +13,31 @@
         android:orientation="horizontal"
         android:padding="6dp">
 
-        <!-- ======== LEFT PANEL: Radio Controls ======== -->
+        <!-- ======== LEFT PANEL: Radio Controls (65% via weight 65) ======== -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="6"
+            android:layout_weight="65"
             android:orientation="vertical"
             android:background="@drawable/bg_car_radio"
-            android:padding="8dp"
+            android:padding="10dp"
             android:layout_marginEnd="4dp">
 
-            <!-- Top bar: Status + indicators -->
-            <LinearLayout
+            <!-- Top bar: Status + indicators + version -->
+            <RelativeLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:layout_marginBottom="2dp">
+                android:layout_marginBottom="4dp">
 
                 <TextView
                     android:id="@+id/tvStatus"
-                    android:layout_width="0dp"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
+                    android:layout_alignParentStart="true"
+                    android:layout_centerVertical="true"
                     android:text="@string/status_disconnected"
                     android:textColor="@color/text_hint"
-                    android:textSize="10sp"
+                    android:textSize="14sp"
                     android:fontFamily="monospace"
                     android:singleLine="true" />
 
@@ -46,10 +45,24 @@
                     android:id="@+id/tvDeviceInfo"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:layout_toStartOf="@+id/tvVersion"
+                    android:layout_centerVertical="true"
+                    android:layout_marginEnd="12dp"
                     android:textColor="@color/text_hint"
-                    android:textSize="9sp"
+                    android:textSize="12sp"
                     android:fontFamily="monospace" />
-            </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tvVersion"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
+                    android:text="v1.2"
+                    android:textColor="@color/version_text"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace" />
+            </RelativeLayout>
 
             <!-- ========= LCD DISPLAY ========= -->
             <LinearLayout
@@ -58,10 +71,10 @@
                 android:layout_weight="1"
                 android:orientation="vertical"
                 android:background="@drawable/bg_lcd_display"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"
-                android:paddingTop="6dp"
-                android:paddingBottom="4dp">
+                android:paddingStart="18dp"
+                android:paddingEnd="18dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="6dp">
 
                 <!-- LCD top row: Band + Stereo + RDS + TA + AF + Signal -->
                 <LinearLayout
@@ -76,7 +89,7 @@
                         android:layout_height="wrap_content"
                         android:text="FM"
                         android:textColor="@color/lcd_amber"
-                        android:textSize="12sp"
+                        android:textSize="14sp"
                         android:textStyle="bold"
                         android:fontFamily="monospace" />
 
@@ -86,10 +99,10 @@
                         android:layout_height="wrap_content"
                         android:text="STEREO"
                         android:textColor="@color/lcd_dim"
-                        android:textSize="10sp"
+                        android:textSize="14sp"
                         android:textStyle="bold"
                         android:fontFamily="monospace"
-                        android:layout_marginStart="10dp" />
+                        android:layout_marginStart="14dp" />
 
                     <TextView
                         android:id="@+id/tvRdsIndicator"
@@ -97,10 +110,10 @@
                         android:layout_height="wrap_content"
                         android:text="RDS"
                         android:textColor="@color/lcd_dim"
-                        android:textSize="10sp"
+                        android:textSize="14sp"
                         android:textStyle="bold"
                         android:fontFamily="monospace"
-                        android:layout_marginStart="10dp" />
+                        android:layout_marginStart="14dp" />
 
                     <TextView
                         android:id="@+id/tvTaIndicator"
@@ -108,10 +121,10 @@
                         android:layout_height="wrap_content"
                         android:text="TA"
                         android:textColor="@color/lcd_dim"
-                        android:textSize="10sp"
+                        android:textSize="14sp"
                         android:textStyle="bold"
                         android:fontFamily="monospace"
-                        android:layout_marginStart="10dp" />
+                        android:layout_marginStart="14dp" />
 
                     <TextView
                         android:id="@+id/tvAfIndicator"
@@ -119,10 +132,10 @@
                         android:layout_height="wrap_content"
                         android:text="AF"
                         android:textColor="@color/lcd_dim"
-                        android:textSize="10sp"
+                        android:textSize="14sp"
                         android:textStyle="bold"
                         android:fontFamily="monospace"
-                        android:layout_marginStart="10dp" />
+                        android:layout_marginStart="14dp" />
 
                     <View
                         android:layout_width="0dp"
@@ -135,7 +148,7 @@
                         android:layout_height="wrap_content"
                         android:text="▁▃▅▇"
                         android:textColor="@color/lcd_green"
-                        android:textSize="10sp"
+                        android:textSize="14sp"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -153,16 +166,20 @@
                         android:layout_height="wrap_content"
                         android:text="100.0"
                         android:textColor="@color/lcd_green"
-                        android:textSize="72sp"
+                        android:textSize="96sp"
                         android:fontFamily="monospace"
                         android:textStyle="bold"
-                        android:includeFontPadding="false" />
+                        android:includeFontPadding="false"
+                        android:shadowColor="@color/glow_green_strong"
+                        android:shadowDx="0"
+                        android:shadowDy="0"
+                        android:shadowRadius="20" />
 
                     <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
-                        android:layout_marginStart="6dp"
+                        android:layout_marginStart="8dp"
                         android:gravity="start">
 
                         <TextView
@@ -170,7 +187,7 @@
                             android:layout_height="wrap_content"
                             android:text="MHz"
                             android:textColor="@color/lcd_amber"
-                            android:textSize="14sp"
+                            android:textSize="20sp"
                             android:fontFamily="monospace" />
 
                         <!-- RDS: Station name (PS) inline -->
@@ -179,9 +196,13 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:textColor="@color/lcd_cyan"
-                            android:textSize="18sp"
+                            android:textSize="24sp"
                             android:textStyle="bold"
                             android:fontFamily="monospace"
+                            android:shadowColor="@color/glow_cyan"
+                            android:shadowDx="0"
+                            android:shadowDy="0"
+                            android:shadowRadius="12"
                             android:visibility="gone" />
                     </LinearLayout>
                 </LinearLayout>
@@ -199,7 +220,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:textColor="@color/lcd_amber"
-                        android:textSize="11sp"
+                        android:textSize="14sp"
                         android:fontFamily="monospace"
                         android:maxLines="1"
                         android:ellipsize="marquee"
@@ -212,9 +233,9 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textColor="@color/lcd_dim"
-                        android:textSize="10sp"
+                        android:textSize="13sp"
                         android:fontFamily="monospace"
-                        android:layout_marginStart="8dp"
+                        android:layout_marginStart="10dp"
                         android:visibility="gone" />
                 </LinearLayout>
 
@@ -224,7 +245,7 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:layout_marginTop="2dp">
+                    android:layout_marginTop="4dp">
 
                     <TextView
                         android:id="@+id/tvBandStart"
@@ -232,7 +253,7 @@
                         android:layout_height="wrap_content"
                         android:text="88"
                         android:textColor="@color/lcd_dim"
-                        android:textSize="9sp"
+                        android:textSize="13sp"
                         android:fontFamily="monospace" />
 
                     <SeekBar
@@ -240,8 +261,9 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:layout_marginStart="4dp"
-                        android:layout_marginEnd="4dp"
+                        android:layout_marginStart="6dp"
+                        android:layout_marginEnd="6dp"
+                        android:minHeight="32dp"
                         android:progressTint="@color/lcd_green"
                         android:thumbTint="@color/lcd_green"
                         android:progressBackgroundTint="@color/lcd_dim" />
@@ -252,7 +274,7 @@
                         android:layout_height="wrap_content"
                         android:text="108"
                         android:textColor="@color/lcd_dim"
-                        android:textSize="9sp"
+                        android:textSize="13sp"
                         android:fontFamily="monospace" />
                 </LinearLayout>
             </LinearLayout>
@@ -263,144 +285,144 @@
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center"
-                android:layout_marginTop="4dp"
-                android:layout_marginBottom="4dp">
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="6dp">
 
                 <ImageButton
                     android:id="@+id/btnSeekBack"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
                     android:src="@drawable/ic_seek_back"
                     android:background="@drawable/bg_seek_button"
                     android:scaleType="centerInside"
-                    android:padding="10dp"
+                    android:padding="12dp"
                     android:contentDescription="@string/cd_seek_back" />
 
                 <ImageButton
                     android:id="@+id/btnFreqDown"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
+                    android:layout_width="52dp"
+                    android:layout_height="52dp"
                     android:src="@drawable/ic_skip_previous"
                     android:background="@drawable/bg_button_metal"
                     android:scaleType="centerInside"
-                    android:padding="10dp"
+                    android:padding="12dp"
                     android:contentDescription="@string/cd_freq_down"
-                    android:layout_marginStart="6dp" />
+                    android:layout_marginStart="10dp" />
 
                 <ImageButton
                     android:id="@+id/btnPlayStop"
-                    android:layout_width="64dp"
-                    android:layout_height="64dp"
+                    android:layout_width="80dp"
+                    android:layout_height="80dp"
                     android:src="@drawable/ic_play"
                     android:background="@drawable/bg_button_play"
                     android:scaleType="centerInside"
-                    android:padding="14dp"
+                    android:padding="18dp"
                     android:contentDescription="@string/cd_play_stop"
-                    android:layout_marginStart="10dp"
-                    android:layout_marginEnd="10dp" />
+                    android:layout_marginStart="14dp"
+                    android:layout_marginEnd="14dp" />
 
                 <ImageButton
                     android:id="@+id/btnFreqUp"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
+                    android:layout_width="52dp"
+                    android:layout_height="52dp"
                     android:src="@drawable/ic_skip_next"
                     android:background="@drawable/bg_button_metal"
                     android:scaleType="centerInside"
-                    android:padding="10dp"
+                    android:padding="12dp"
                     android:contentDescription="@string/cd_freq_up"
-                    android:layout_marginEnd="6dp" />
+                    android:layout_marginEnd="10dp" />
 
                 <ImageButton
                     android:id="@+id/btnSeekForward"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
                     android:src="@drawable/ic_seek_forward"
                     android:background="@drawable/bg_seek_button"
                     android:scaleType="centerInside"
-                    android:padding="10dp"
+                    android:padding="12dp"
                     android:contentDescription="@string/cd_seek_forward" />
             </LinearLayout>
 
-            <!-- ========= PRESETS + FUNCTION BUTTONS ========= -->
+            <!-- ========= PRESETS ========= -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:layout_marginBottom="2dp">
+                android:layout_marginBottom="4dp">
 
                 <Button
                     android:id="@+id/btnPreset1"
                     android:layout_width="0dp"
-                    android:layout_height="38dp"
+                    android:layout_height="48dp"
                     android:layout_weight="1"
                     android:text="1"
                     android:textColor="@color/lcd_amber"
-                    android:textSize="13sp"
+                    android:textSize="16sp"
                     android:textStyle="bold"
                     android:fontFamily="monospace"
                     android:background="@drawable/bg_preset_button"
-                    android:layout_marginEnd="2dp" />
+                    android:layout_marginEnd="3dp" />
 
                 <Button
                     android:id="@+id/btnPreset2"
                     android:layout_width="0dp"
-                    android:layout_height="38dp"
+                    android:layout_height="48dp"
                     android:layout_weight="1"
                     android:text="2"
                     android:textColor="@color/lcd_amber"
-                    android:textSize="13sp"
+                    android:textSize="16sp"
                     android:textStyle="bold"
                     android:fontFamily="monospace"
                     android:background="@drawable/bg_preset_button"
-                    android:layout_marginEnd="2dp" />
+                    android:layout_marginEnd="3dp" />
 
                 <Button
                     android:id="@+id/btnPreset3"
                     android:layout_width="0dp"
-                    android:layout_height="38dp"
+                    android:layout_height="48dp"
                     android:layout_weight="1"
                     android:text="3"
                     android:textColor="@color/lcd_amber"
-                    android:textSize="13sp"
+                    android:textSize="16sp"
                     android:textStyle="bold"
                     android:fontFamily="monospace"
                     android:background="@drawable/bg_preset_button"
-                    android:layout_marginEnd="2dp" />
+                    android:layout_marginEnd="3dp" />
 
                 <Button
                     android:id="@+id/btnPreset4"
                     android:layout_width="0dp"
-                    android:layout_height="38dp"
+                    android:layout_height="48dp"
                     android:layout_weight="1"
                     android:text="4"
                     android:textColor="@color/lcd_amber"
-                    android:textSize="13sp"
+                    android:textSize="16sp"
                     android:textStyle="bold"
                     android:fontFamily="monospace"
                     android:background="@drawable/bg_preset_button"
-                    android:layout_marginEnd="2dp" />
+                    android:layout_marginEnd="3dp" />
 
                 <Button
                     android:id="@+id/btnPreset5"
                     android:layout_width="0dp"
-                    android:layout_height="38dp"
+                    android:layout_height="48dp"
                     android:layout_weight="1"
                     android:text="5"
                     android:textColor="@color/lcd_amber"
-                    android:textSize="13sp"
+                    android:textSize="16sp"
                     android:textStyle="bold"
                     android:fontFamily="monospace"
                     android:background="@drawable/bg_preset_button"
-                    android:layout_marginEnd="2dp" />
+                    android:layout_marginEnd="3dp" />
 
                 <Button
                     android:id="@+id/btnPreset6"
                     android:layout_width="0dp"
-                    android:layout_height="38dp"
+                    android:layout_height="48dp"
                     android:layout_weight="1"
                     android:text="6"
                     android:textColor="@color/lcd_amber"
-                    android:textSize="13sp"
+                    android:textSize="16sp"
                     android:textStyle="bold"
                     android:fontFamily="monospace"
                     android:background="@drawable/bg_preset_button" />
@@ -415,77 +437,77 @@
                 <Button
                     android:id="@+id/btnScan"
                     android:layout_width="0dp"
-                    android:layout_height="32dp"
+                    android:layout_height="40dp"
                     android:layout_weight="1"
                     android:text="SCAN"
                     android:textColor="@color/lcd_amber"
-                    android:textSize="10sp"
+                    android:textSize="12sp"
                     android:textStyle="bold"
                     android:fontFamily="monospace"
                     android:background="@drawable/bg_button_metal"
-                    android:layout_marginEnd="2dp" />
+                    android:layout_marginEnd="3dp" />
 
                 <Button
                     android:id="@+id/btnAf"
                     android:layout_width="0dp"
-                    android:layout_height="32dp"
+                    android:layout_height="40dp"
                     android:layout_weight="1"
                     android:text="AF"
                     android:textColor="@color/lcd_amber"
-                    android:textSize="10sp"
+                    android:textSize="12sp"
                     android:textStyle="bold"
                     android:fontFamily="monospace"
                     android:background="@drawable/bg_button_metal"
-                    android:layout_marginEnd="2dp" />
+                    android:layout_marginEnd="3dp" />
 
                 <Button
                     android:id="@+id/btnTa"
                     android:layout_width="0dp"
-                    android:layout_height="32dp"
+                    android:layout_height="40dp"
                     android:layout_weight="1"
                     android:text="TA"
                     android:textColor="@color/lcd_amber"
-                    android:textSize="10sp"
+                    android:textSize="12sp"
                     android:textStyle="bold"
                     android:fontFamily="monospace"
                     android:background="@drawable/bg_button_metal"
-                    android:layout_marginEnd="2dp" />
+                    android:layout_marginEnd="3dp" />
 
                 <Button
                     android:id="@+id/btnPty"
                     android:layout_width="0dp"
-                    android:layout_height="32dp"
+                    android:layout_height="40dp"
                     android:layout_weight="1"
                     android:text="PTY"
                     android:textColor="@color/lcd_amber"
-                    android:textSize="10sp"
+                    android:textSize="12sp"
                     android:textStyle="bold"
                     android:fontFamily="monospace"
                     android:background="@drawable/bg_button_metal"
-                    android:layout_marginEnd="2dp" />
+                    android:layout_marginEnd="3dp" />
 
                 <Button
                     android:id="@+id/btnBand"
                     android:layout_width="0dp"
-                    android:layout_height="32dp"
+                    android:layout_height="40dp"
                     android:layout_weight="2"
                     android:text="BAND: FM"
                     android:textColor="@color/lcd_cyan"
-                    android:textSize="10sp"
+                    android:textSize="12sp"
                     android:textStyle="bold"
                     android:fontFamily="monospace"
                     android:background="@drawable/bg_button_metal" />
             </LinearLayout>
         </LinearLayout>
 
-        <!-- ======== RIGHT PANEL: Station List ======== -->
+        <!-- ======== RIGHT PANEL: Station List (35% via weight 35) ======== -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="4"
+            android:layout_weight="35"
             android:orientation="vertical"
             android:background="@drawable/bg_car_radio"
-            android:padding="6dp"
+            android:padding="8dp"
             android:layout_marginStart="4dp">
 
             <!-- Stations header -->
@@ -494,7 +516,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:layout_marginBottom="4dp">
+                android:layout_marginBottom="6dp">
 
                 <TextView
                     android:layout_width="0dp"
@@ -502,7 +524,7 @@
                     android:layout_weight="1"
                     android:text="@string/label_saved_stations"
                     android:textColor="@color/lcd_amber"
-                    android:textSize="13sp"
+                    android:textSize="16sp"
                     android:textStyle="bold"
                     android:fontFamily="monospace" />
             </LinearLayout>
@@ -529,7 +551,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:textColor="@color/text_secondary"
-                    android:textSize="10sp"
+                    android:textSize="13sp"
                     android:fontFamily="monospace"
                     android:gravity="center" />
             </LinearLayout>
@@ -542,7 +564,7 @@
                 android:layout_weight="1"
                 android:clipToPadding="false"
                 android:divider="@android:color/transparent"
-                android:dividerHeight="0dp"
+                android:dividerHeight="2dp"
                 android:scrollbarThumbVertical="@color/lcd_dim" />
         </LinearLayout>
 
@@ -554,14 +576,14 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:background="@drawable/bg_car_radio"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:paddingTop="4dp"
-        android:paddingBottom="6dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="10dp"
         android:gravity="center_vertical"
         android:layout_marginStart="6dp"
         android:layout_marginEnd="6dp"
-        android:layout_marginBottom="4dp">
+        android:layout_marginBottom="6dp">
 
         <!-- Volume -->
         <TextView
@@ -569,7 +591,7 @@
             android:layout_height="wrap_content"
             android:text="VOL"
             android:textColor="@color/lcd_amber"
-            android:textSize="10sp"
+            android:textSize="13sp"
             android:fontFamily="monospace"
             android:textStyle="bold" />
 
@@ -578,29 +600,30 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="3"
-            android:layout_marginStart="4dp"
-            android:layout_marginEnd="8dp"
+            android:layout_marginStart="6dp"
+            android:layout_marginEnd="6dp"
+            android:minHeight="36dp"
             android:progressTint="@color/lcd_amber"
             android:thumbTint="@color/lcd_amber"
             android:progressBackgroundTint="@color/lcd_dim" />
 
         <TextView
             android:id="@+id/tvVolumeValue"
-            android:layout_width="24dp"
+            android:layout_width="28dp"
             android:layout_height="wrap_content"
             android:text="80"
             android:textColor="@color/lcd_amber"
-            android:textSize="10sp"
+            android:textSize="13sp"
             android:fontFamily="monospace"
             android:gravity="end" />
 
         <!-- Separator -->
         <View
             android:layout_width="1dp"
-            android:layout_height="16dp"
+            android:layout_height="20dp"
             android:background="@color/lcd_dim"
-            android:layout_marginStart="12dp"
-            android:layout_marginEnd="12dp" />
+            android:layout_marginStart="14dp"
+            android:layout_marginEnd="14dp" />
 
         <!-- Bass -->
         <TextView
@@ -608,7 +631,7 @@
             android:layout_height="wrap_content"
             android:text="BASS"
             android:textColor="@color/lcd_cyan"
-            android:textSize="10sp"
+            android:textSize="13sp"
             android:fontFamily="monospace"
             android:textStyle="bold" />
 
@@ -619,29 +642,30 @@
             android:layout_weight="2"
             android:max="20"
             android:progress="10"
-            android:layout_marginStart="4dp"
-            android:layout_marginEnd="4dp"
+            android:layout_marginStart="6dp"
+            android:layout_marginEnd="6dp"
+            android:minHeight="36dp"
             android:progressTint="@color/lcd_cyan"
             android:thumbTint="@color/lcd_cyan"
             android:progressBackgroundTint="@color/lcd_dim" />
 
         <TextView
             android:id="@+id/tvBassValue"
-            android:layout_width="24dp"
+            android:layout_width="28dp"
             android:layout_height="wrap_content"
             android:text="0"
             android:textColor="@color/lcd_cyan"
-            android:textSize="10sp"
+            android:textSize="13sp"
             android:fontFamily="monospace"
             android:gravity="end" />
 
         <!-- Separator -->
         <View
             android:layout_width="1dp"
-            android:layout_height="16dp"
+            android:layout_height="20dp"
             android:background="@color/lcd_dim"
-            android:layout_marginStart="12dp"
-            android:layout_marginEnd="12dp" />
+            android:layout_marginStart="14dp"
+            android:layout_marginEnd="14dp" />
 
         <!-- Treble -->
         <TextView
@@ -649,7 +673,7 @@
             android:layout_height="wrap_content"
             android:text="TREB"
             android:textColor="@color/lcd_cyan"
-            android:textSize="10sp"
+            android:textSize="13sp"
             android:fontFamily="monospace"
             android:textStyle="bold" />
 
@@ -660,19 +684,20 @@
             android:layout_weight="2"
             android:max="20"
             android:progress="10"
-            android:layout_marginStart="4dp"
-            android:layout_marginEnd="4dp"
+            android:layout_marginStart="6dp"
+            android:layout_marginEnd="6dp"
+            android:minHeight="36dp"
             android:progressTint="@color/lcd_cyan"
             android:thumbTint="@color/lcd_cyan"
             android:progressBackgroundTint="@color/lcd_dim" />
 
         <TextView
             android:id="@+id/tvTrebleValue"
-            android:layout_width="24dp"
+            android:layout_width="28dp"
             android:layout_height="wrap_content"
             android:text="0"
             android:textColor="@color/lcd_cyan"
-            android:textSize="10sp"
+            android:textSize="13sp"
             android:fontFamily="monospace"
             android:gravity="end" />
 

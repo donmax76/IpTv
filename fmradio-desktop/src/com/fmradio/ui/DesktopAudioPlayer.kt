@@ -10,7 +10,7 @@ import javax.sound.sampled.*
 class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
 
     companion object {
-        private const val RING_BUFFER_SAMPLES = 48000 / 2  // 500ms
+        private const val RING_BUFFER_SAMPLES = 48000  // 1000ms
     }
 
     private var sourceDataLine: SourceDataLine? = null
