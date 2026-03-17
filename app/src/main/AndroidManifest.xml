@@ -46,7 +46,7 @@
             android:exported="false"
             android:theme="@style/Theme.TVViewer.Player"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
-            android:screenOrientation="unspecified"
+            android:screenOrientation="sensorLandscape"
             android:supportsPictureInPicture="true"
             android:resizeableActivity="true"
             android:parentActivityName=".MainActivity" />

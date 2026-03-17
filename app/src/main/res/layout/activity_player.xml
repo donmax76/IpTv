@@ -26,7 +26,10 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:padding="16dp"
+            android:padding="12dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:background="@drawable/bg_player_gradient_top"
             android:layout_alignParentTop="true">
 
             <ImageButton
@@ -50,7 +53,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textColor="@android:color/white"
-                    android:textSize="18sp"
+                    android:textSize="16sp"
                     android:textStyle="bold"
                     android:singleLine="true"
                     android:ellipsize="end"/>
@@ -60,7 +63,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textColor="#B0FFFFFF"
-                    android:textSize="13sp"
+                    android:textSize="12sp"
                     android:singleLine="true"
                     android:ellipsize="end"
                     android:visibility="gone"/>
@@ -75,7 +78,7 @@
                 android:textColor="@android:color/white"
                 android:textSize="14sp"
                 android:textStyle="bold"
-                android:layout_marginEnd="12dp"
+                android:layout_marginEnd="8dp"
                 android:visibility="gone"/>
 
             <TextView
@@ -84,37 +87,79 @@
                 android:layout_height="wrap_content"
                 android:text="LIVE"
                 android:textColor="@android:color/white"
-                android:textSize="11sp"
+                android:textSize="10sp"
                 android:textStyle="bold"
                 android:background="@drawable/bg_live_badge"
-                android:layout_marginEnd="8dp"/>
+                android:layout_marginEnd="6dp"/>
+
+            <!-- Audio track info (shows track count) -->
+            <TextView
+                android:id="@+id/audioTrackInfo"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#80FFFFFF"
+                android:textSize="10sp"
+                android:visibility="gone"/>
+
+            <ImageButton
+                android:id="@+id/btnAudioTrack"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@drawable/ic_audio_track"
+                android:tint="@android:color/white"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:focusable="true"
+                android:layout_marginEnd="4dp"
+                android:contentDescription="@string/audio_track"/>
+
+            <ImageButton
+                android:id="@+id/btnSpeed"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@drawable/ic_speed"
+                android:tint="@android:color/white"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:focusable="true"
+                android:layout_marginEnd="4dp"
+                android:contentDescription="@string/playback_speed"/>
 
             <ImageButton
                 android:id="@+id/btnChannelList"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
                 android:src="@drawable/ic_channel_list"
                 android:tint="@android:color/white"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:focusable="true"
-                android:layout_marginEnd="8dp"
+                android:layout_marginEnd="4dp"
                 android:contentDescription="@string/channel_list"/>
 
             <ImageButton
+                android:id="@+id/btnLock"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@drawable/ic_lock"
+                android:tint="@android:color/white"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:focusable="true"
+                android:layout_marginEnd="4dp"
+                android:contentDescription="@string/screen_lock"/>
+
+            <ImageButton
                 android:id="@+id/btnPip"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
                 android:src="@drawable/ic_pip"
                 android:tint="@android:color/white"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:focusable="true"
-                android:layout_marginEnd="8dp"
+                android:layout_marginEnd="4dp"
                 android:contentDescription="PiP"/>
 
             <ImageButton
                 android:id="@+id/btnAspectRatio"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
                 android:src="@drawable/ic_aspect_ratio"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:focusable="true"
@@ -125,8 +170,8 @@
         <!-- Center play/pause -->
         <ImageButton
             android:id="@+id/btnPlayPause"
-            android:layout_width="72dp"
-            android:layout_height="72dp"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
             android:layout_centerInParent="true"
             android:src="@drawable/ic_pause"
             android:background="@drawable/bg_player_control"
@@ -140,7 +185,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp"
+            android:padding="12dp"
+            android:background="@drawable/bg_player_gradient_bottom"
             android:layout_alignParentBottom="true">
 
             <!-- Sleep timer indicator -->
@@ -150,9 +196,9 @@
                 android:layout_height="wrap_content"
                 android:layout_gravity="center_horizontal"
                 android:textColor="@color/accent_orange"
-                android:textSize="12sp"
+                android:textSize="11sp"
                 android:visibility="gone"
-                android:layout_marginBottom="8dp"/>
+                android:layout_marginBottom="6dp"/>
 
             <!-- Channel navigation -->
             <LinearLayout
@@ -175,10 +221,10 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textColor="@android:color/white"
-                    android:textSize="16sp"
+                    android:textSize="15sp"
                     android:textStyle="bold"
-                    android:layout_marginStart="24dp"
-                    android:layout_marginEnd="24dp"/>
+                    android:layout_marginStart="20dp"
+                    android:layout_marginEnd="20dp"/>
 
                 <ImageButton
                     android:id="@+id/btnNextChannel"
@@ -196,7 +242,7 @@
 
     </RelativeLayout>
 
-    <!-- Semi-transparent channel list overlay panel -->
+    <!-- Semi-transparent channel list overlay panel (OTT Navigator style) -->
     <FrameLayout
         android:id="@+id/channelListOverlay"
         android:layout_width="match_parent"
@@ -208,26 +254,26 @@
             android:id="@+id/channelListDimBg"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="#80000000"/>
+            android:background="#60000000"/>
 
         <!-- Channel list panel -->
         <LinearLayout
             android:id="@+id/channelListPanel"
-            android:layout_width="340dp"
+            android:layout_width="320dp"
             android:layout_height="match_parent"
             android:layout_gravity="start"
             android:orientation="vertical"
             android:background="@drawable/bg_overlay_panel"
-            android:paddingTop="12dp">
+            android:paddingTop="8dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
-                android:layout_marginBottom="8dp">
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:layout_marginBottom="6dp">
 
                 <TextView
                     android:layout_width="0dp"
@@ -235,7 +281,7 @@
                     android:layout_weight="1"
                     android:text="@string/channels"
                     android:textColor="@android:color/white"
-                    android:textSize="18sp"
+                    android:textSize="16sp"
                     android:textStyle="bold"/>
 
                 <TextView
@@ -243,7 +289,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textColor="#B0B0CC"
-                    android:textSize="13sp"/>
+                    android:textSize="12sp"/>
 
             </LinearLayout>
 
@@ -251,15 +297,15 @@
             <EditText
                 android:id="@+id/overlaySearchEdit"
                 android:layout_width="match_parent"
-                android:layout_height="36dp"
-                android:layout_marginStart="12dp"
-                android:layout_marginEnd="12dp"
-                android:layout_marginBottom="8dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="10dp"
+                android:layout_marginEnd="10dp"
+                android:layout_marginBottom="6dp"
                 android:background="@drawable/bg_overlay_search"
                 android:hint="@string/search_channels"
                 android:textColor="@android:color/white"
                 android:textColorHint="#80FFFFFF"
-                android:textSize="13sp"
+                android:textSize="12sp"
                 android:paddingStart="12dp"
                 android:paddingEnd="12dp"
                 android:singleLine="true"
@@ -273,15 +319,15 @@
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="4dp"
                 android:clipToPadding="false"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"/>
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"/>
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/overlayChannelsList"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:clipToPadding="false"
-                android:paddingBottom="16dp"/>
+                android:paddingBottom="12dp"/>
 
         </LinearLayout>
 
@@ -324,87 +370,166 @@
 
     </LinearLayout>
 
-    <!-- Channel info banner OSD (appears on channel switch) -->
+    <!-- Channel info banner OSD (appears on channel switch - OTT Navigator style) -->
     <LinearLayout
         android:id="@+id/channelInfoBanner"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:layout_marginBottom="48dp"
-        android:layout_marginStart="24dp"
-        android:layout_marginEnd="24dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
+        android:layout_marginBottom="32dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:orientation="vertical"
         android:background="@drawable/bg_overlay_panel"
-        android:padding="16dp"
+        android:padding="14dp"
         android:visibility="gone">
 
-        <TextView
-            android:id="@+id/bannerChannelNumber"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:gravity="center"
-            android:textColor="@android:color/white"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:background="@drawable/bg_channel_number"/>
-
-        <ImageView
-            android:id="@+id/bannerChannelLogo"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginStart="12dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_channel_placeholder"/>
-
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical"
-            android:layout_marginStart="12dp">
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
             <TextView
-                android:id="@+id/bannerChannelName"
+                android:id="@+id/bannerChannelNumber"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:gravity="center"
+                android:textColor="@android:color/white"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:background="@drawable/bg_channel_number"/>
+
+            <ImageView
+                android:id="@+id/bannerChannelLogo"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="10dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_channel_placeholder"/>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:layout_marginStart="10dp">
+
+                <TextView
+                    android:id="@+id/bannerChannelName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@android:color/white"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:singleLine="true"
+                    android:ellipsize="end"/>
+
+                <TextView
+                    android:id="@+id/bannerEpgNow"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#B0FFFFFF"
+                    android:textSize="12sp"
+                    android:singleLine="true"
+                    android:ellipsize="end"
+                    android:visibility="gone"/>
+
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/bannerClock"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textColor="@android:color/white"
-                android:textSize="18sp"
-                android:textStyle="bold"
-                android:singleLine="true"
-                android:ellipsize="end"/>
-
-            <TextView
-                android:id="@+id/bannerEpgNow"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="#B0FFFFFF"
-                android:textSize="13sp"
-                android:singleLine="true"
-                android:ellipsize="end"
-                android:visibility="gone"/>
-
-            <TextView
-                android:id="@+id/bannerEpgNext"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="#80FFFFFF"
-                android:textSize="12sp"
-                android:singleLine="true"
-                android:ellipsize="end"
-                android:visibility="gone"/>
+                android:textSize="16sp"
+                android:textStyle="bold"/>
 
         </LinearLayout>
 
+        <!-- EPG progress bar -->
+        <ProgressBar
+            android:id="@+id/bannerEpgProgress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="3dp"
+            android:layout_marginTop="8dp"
+            android:progressTint="@color/primary"
+            android:progressBackgroundTint="#40FFFFFF"
+            android:max="100"
+            android:visibility="gone"/>
+
         <TextView
-            android:id="@+id/bannerClock"
+            android:id="@+id/bannerEpgNext"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#80FFFFFF"
+            android:textSize="11sp"
+            android:singleLine="true"
+            android:ellipsize="end"
+            android:layout_marginTop="4dp"
+            android:visibility="gone"/>
+
+    </LinearLayout>
+
+    <!-- Gesture indicator (volume/brightness) -->
+    <LinearLayout
+        android:id="@+id/gestureIndicator"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="@drawable/bg_gesture_indicator"
+        android:padding="20dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/gestureIcon"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:tint="@android:color/white"/>
+
+        <ProgressBar
+            android:id="@+id/gestureProgress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="120dp"
+            android:layout_height="4dp"
+            android:layout_marginTop="10dp"
+            android:progressTint="@color/primary"
+            android:progressBackgroundTint="#40FFFFFF"
+            android:max="100"/>
+
+        <TextView
+            android:id="@+id/gestureText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textColor="@android:color/white"
-            android:textSize="16sp"
-            android:textStyle="bold"/>
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:layout_marginTop="6dp"/>
 
     </LinearLayout>
+
+    <!-- Screen lock overlay -->
+    <FrameLayout
+        android:id="@+id/lockOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <ImageButton
+            android:id="@+id/btnUnlock"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_lock_open"
+            android:background="@drawable/bg_player_control"
+            android:scaleType="center"
+            android:visibility="gone"
+            android:contentDescription="@string/screen_unlock"/>
+
+    </FrameLayout>
 
     <!-- Channel number input overlay (for remote number input) -->
     <TextView

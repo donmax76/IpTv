@@ -193,4 +193,13 @@
 
     <!-- Channel info OSD -->
     <string name="channel_info_format">%1$d / %2$d</string>
+
+    <!-- Player gestures & features -->
+    <string name="brightness">Яркость</string>
+    <string name="screen_lock">Блокировка</string>
+    <string name="screen_unlock">Разблокировка</string>
+    <string name="screen_locked">Экран заблокирован. Нажмите для разблокировки</string>
+    <string name="screen_unlocked">Экран разблокирован</string>
+    <string name="no_audio_tracks">Нет доступных аудиодорожек</string>
+    <string name="no_subtitle_tracks">Нет субтитров</string>
 </resources>

@@ -1,16 +1,21 @@
 package com.tvviewer
 
 import android.app.PictureInPictureParams
+import android.content.Context
 import android.content.res.Configuration
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.Rational
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.Log
+import android.view.GestureDetector
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
@@ -22,12 +27,17 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.RelativeLayout
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import coil.load
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.ui.PlayerView
@@ -36,6 +46,7 @@ import androidx.recyclerview.widget.RecyclerView
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
 
 class PlayerActivity : BaseActivity() {
 
@@ -60,6 +71,22 @@ class PlayerActivity : BaseActivity() {
     private lateinit var numberInputDisplay: TextView
     private lateinit var sleepTimerIndicator: TextView
     private lateinit var prefs: AppPreferences
+
+    // Gesture overlay indicators
+    private lateinit var gestureIndicator: LinearLayout
+    private lateinit var gestureIcon: ImageView
+    private lateinit var gestureText: TextView
+    private lateinit var gestureProgress: ProgressBar
+
+    // Screen lock
+    private lateinit var lockOverlay: FrameLayout
+    private lateinit var btnLock: ImageButton
+    private var isScreenLocked = false
+
+    // Audio/Subtitle info
+    private lateinit var btnAudioTrack: ImageButton
+    private lateinit var btnSpeed: ImageButton
+    private lateinit var audioTrackInfo: TextView
 
     private var player: ExoPlayer? = null
     private var currentUrl: String? = null
@@ -109,6 +136,7 @@ class PlayerActivity : BaseActivity() {
     private lateinit var bannerEpgNow: TextView
     private lateinit var bannerEpgNext: TextView
     private lateinit var bannerClock: TextView
+    private lateinit var bannerEpgProgress: ProgressBar
     private val bannerHandler = Handler(Looper.getMainLooper())
     private val bannerHideRunnable = Runnable { channelInfoBanner.visibility = View.GONE }
 
@@ -118,14 +146,30 @@ class PlayerActivity : BaseActivity() {
     private var overlayFilteredChannels: List<Channel> = emptyList()
     private var overlayFilteredIndices: List<Int> = emptyList()
 
+    // Gesture control
+    private lateinit var audioManager: AudioManager
+    private var gestureDetector: GestureDetector? = null
+    private var isSwipingVolume = false
+    private var isSwipingBrightness = false
+    private var swipeStartVolume = 0
+    private var swipeStartBrightness = 0f
+    private var swipeStartY = 0f
+
+    // Playback speed
+    private var currentSpeedIndex = 2 // index into speedValues
+    private val speedValues = floatArrayOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+    private val speedLabels = arrayOf("0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x")
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(R.layout.activity_player)
 
         prefs = AppPreferences(this)
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         initViews()
         hideSystemUI()
+        setupGestures()
 
         val name = intent.getStringExtra(EXTRA_CHANNEL_NAME) ?: ""
         currentUrl = intent.getStringExtra(EXTRA_CHANNEL_URL) ?: ""
@@ -175,6 +219,22 @@ class PlayerActivity : BaseActivity() {
         bannerEpgNow = findViewById(R.id.bannerEpgNow)
         bannerEpgNext = findViewById(R.id.bannerEpgNext)
         bannerClock = findViewById(R.id.bannerClock)
+        bannerEpgProgress = findViewById(R.id.bannerEpgProgress)
+
+        // Gesture indicator
+        gestureIndicator = findViewById(R.id.gestureIndicator)
+        gestureIcon = findViewById(R.id.gestureIcon)
+        gestureText = findViewById(R.id.gestureText)
+        gestureProgress = findViewById(R.id.gestureProgress)
+
+        // Screen lock
+        lockOverlay = findViewById(R.id.lockOverlay)
+        btnLock = findViewById(R.id.btnLock)
+
+        // Audio track and speed buttons
+        btnAudioTrack = findViewById(R.id.btnAudioTrack)
+        btnSpeed = findViewById(R.id.btnSpeed)
+        audioTrackInfo = findViewById(R.id.audioTrackInfo)
 
         // Show clock based on settings
         if (prefs.timeDisplayPosition != "off") {
@@ -211,6 +271,32 @@ class PlayerActivity : BaseActivity() {
 
         findViewById<ImageButton>(R.id.btnChannelList).setOnClickListener {
             toggleChannelList()
+        }
+
+        // Lock button
+        btnLock.setOnClickListener {
+            toggleScreenLock()
+        }
+
+        // Audio track selection
+        btnAudioTrack.setOnClickListener {
+            showAudioTrackDialog()
+            scheduleHideControls()
+        }
+
+        // Speed button
+        btnSpeed.setOnClickListener {
+            cycleSpeed()
+            scheduleHideControls()
+        }
+
+        // Lock overlay - tap to unlock
+        lockOverlay.setOnClickListener {
+            showUnlockHint()
+        }
+
+        findViewById<ImageButton>(R.id.btnUnlock)?.setOnClickListener {
+            toggleScreenLock()
         }
 
         findViewById<ImageButton>(R.id.btnPrevChannel).setOnClickListener { switchChannel(-1) }
@@ -299,6 +385,237 @@ class PlayerActivity : BaseActivity() {
         overlayChannelsList.adapter = overlayAdapter
     }
 
+    // === Gesture support (volume/brightness) ===
+
+    private fun setupGestures() {
+        gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                if (isScreenLocked) {
+                    showUnlockHint()
+                    return true
+                }
+                if (channelListVisible) {
+                    hideChannelList()
+                    return true
+                }
+                toggleControls()
+                return true
+            }
+
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                if (isScreenLocked) return true
+                // Double tap left/right to switch channels
+                val screenWidth = playerView.width
+                if (e.x < screenWidth / 3f) {
+                    switchChannel(-1)
+                } else if (e.x > screenWidth * 2f / 3f) {
+                    switchChannel(1)
+                } else {
+                    // Double tap center to play/pause
+                    player?.let { p ->
+                        if (p.isPlaying) {
+                            p.pause()
+                            btnPlayPause.setImageResource(R.drawable.ic_play)
+                        } else {
+                            p.play()
+                            btnPlayPause.setImageResource(R.drawable.ic_pause)
+                        }
+                    }
+                }
+                return true
+            }
+
+            override fun onLongPress(e: MotionEvent) {
+                if (isScreenLocked) return
+                // Long press to show channel list
+                if (!channelListVisible) {
+                    showChannelList()
+                }
+            }
+        })
+
+        playerView.setOnTouchListener { _, event ->
+            if (isScreenLocked) {
+                gestureDetector?.onTouchEvent(event)
+                return@setOnTouchListener true
+            }
+
+            gestureDetector?.onTouchEvent(event)
+
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    swipeStartY = event.y
+                    isSwipingVolume = false
+                    isSwipingBrightness = false
+
+                    val screenWidth = playerView.width
+                    if (event.x > screenWidth / 2f) {
+                        // Right side - volume
+                        swipeStartVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                    } else {
+                        // Left side - brightness
+                        swipeStartBrightness = window.attributes.screenBrightness
+                        if (swipeStartBrightness < 0) {
+                            swipeStartBrightness = try {
+                                Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS) / 255f
+                            } catch (e: Exception) { 0.5f }
+                        }
+                    }
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dy = swipeStartY - event.y
+                    val screenWidth = playerView.width
+                    val screenHeight = playerView.height
+
+                    if (abs(dy) > 30 && !channelListVisible) {
+                        if (event.x > screenWidth / 2f) {
+                            // Volume control (right side)
+                            isSwipingVolume = true
+                            val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                            val volumeChange = (dy / screenHeight * maxVolume * 1.5f).toInt()
+                            val newVolume = (swipeStartVolume + volumeChange).coerceIn(0, maxVolume)
+                            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVolume, 0)
+                            showGestureIndicator(
+                                R.drawable.ic_volume,
+                                "${getString(R.string.volume)}: ${(newVolume * 100 / maxVolume)}%",
+                                newVolume * 100 / maxVolume
+                            )
+                        } else {
+                            // Brightness control (left side)
+                            isSwipingBrightness = true
+                            val brightnessChange = dy / screenHeight
+                            val newBrightness = (swipeStartBrightness + brightnessChange).coerceIn(0.01f, 1f)
+                            val layoutParams = window.attributes
+                            layoutParams.screenBrightness = newBrightness
+                            window.attributes = layoutParams
+                            showGestureIndicator(
+                                R.drawable.ic_brightness,
+                                "${getString(R.string.brightness)}: ${(newBrightness * 100).toInt()}%",
+                                (newBrightness * 100).toInt()
+                            )
+                        }
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (isSwipingVolume || isSwipingBrightness) {
+                        hideGestureIndicator()
+                    }
+                    isSwipingVolume = false
+                    isSwipingBrightness = false
+                }
+            }
+            true
+        }
+    }
+
+    private fun showGestureIndicator(iconRes: Int, text: String, progress: Int) {
+        gestureIcon.setImageResource(iconRes)
+        gestureText.text = text
+        gestureProgress.progress = progress
+        gestureIndicator.visibility = View.VISIBLE
+    }
+
+    private fun hideGestureIndicator() {
+        Handler(Looper.getMainLooper()).postDelayed({
+            gestureIndicator.visibility = View.GONE
+        }, 500)
+    }
+
+    // === Screen lock ===
+
+    private fun toggleScreenLock() {
+        isScreenLocked = !isScreenLocked
+        if (isScreenLocked) {
+            hideControls()
+            lockOverlay.visibility = View.VISIBLE
+            Toast.makeText(this, getString(R.string.screen_locked), Toast.LENGTH_SHORT).show()
+        } else {
+            lockOverlay.visibility = View.GONE
+            showControls()
+            Toast.makeText(this, getString(R.string.screen_unlocked), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showUnlockHint() {
+        val btnUnlock = lockOverlay.findViewById<ImageButton>(R.id.btnUnlock)
+        btnUnlock?.visibility = View.VISIBLE
+        Handler(Looper.getMainLooper()).postDelayed({
+            btnUnlock?.visibility = View.GONE
+        }, 3000)
+    }
+
+    // === Audio track selection ===
+
+    private fun showAudioTrackDialog() {
+        val p = player ?: return
+        val tracks = p.currentTracks
+
+        val audioTracks = mutableListOf<Pair<String, Int>>() // label, groupIndex
+        var groupIndex = 0
+        for (group in tracks.groups) {
+            if (group.type == C.TRACK_TYPE_AUDIO) {
+                for (i in 0 until group.length) {
+                    val format = group.getTrackFormat(i)
+                    val label = buildString {
+                        append(format.label ?: format.language ?: "Track ${audioTracks.size + 1}")
+                        if (format.channelCount > 0) append(" (${format.channelCount}ch)")
+                        if (format.sampleRate > 0) append(" ${format.sampleRate / 1000}kHz")
+                    }
+                    audioTracks.add(label to groupIndex)
+                }
+                groupIndex++
+            } else {
+                groupIndex++
+            }
+        }
+
+        if (audioTracks.isEmpty()) {
+            Toast.makeText(this, getString(R.string.no_audio_tracks), Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val names = audioTracks.map { it.first }.toTypedArray()
+        android.app.AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
+            .setTitle(getString(R.string.audio_track))
+            .setItems(names) { _, which ->
+                selectAudioTrack(which)
+            }
+            .show()
+    }
+
+    private fun selectAudioTrack(trackIndex: Int) {
+        val p = player ?: return
+        var audioGroupIdx = 0
+        var audioTrackIdx = 0
+        var currentAudioTrack = 0
+
+        for (group in p.currentTracks.groups) {
+            if (group.type == C.TRACK_TYPE_AUDIO) {
+                for (i in 0 until group.length) {
+                    if (currentAudioTrack == trackIndex) {
+                        val override = TrackSelectionOverride(group.mediaTrackGroup, i)
+                        p.trackSelectionParameters = p.trackSelectionParameters
+                            .buildUpon()
+                            .setOverrideForType(override)
+                            .build()
+                        Toast.makeText(this, "${getString(R.string.audio_track)}: ${group.getTrackFormat(i).label ?: "Track ${trackIndex + 1}"}", Toast.LENGTH_SHORT).show()
+                        return
+                    }
+                    currentAudioTrack++
+                }
+            }
+        }
+    }
+
+    // === Playback speed ===
+
+    private fun cycleSpeed() {
+        currentSpeedIndex = (currentSpeedIndex + 1) % speedValues.size
+        val speed = speedValues[currentSpeedIndex]
+        player?.playbackParameters = PlaybackParameters(speed)
+        Toast.makeText(this, "${getString(R.string.playback_speed)}: ${speedLabels[currentSpeedIndex]}", Toast.LENGTH_SHORT).show()
+    }
+
     private fun initPlayer() {
         val loadControl = when (prefs.bufferMode) {
             "low" -> DefaultLoadControl.Builder()
@@ -325,11 +642,16 @@ class PlayerActivity : BaseActivity() {
                                 loadingIndicator.visibility = View.GONE
                                 errorLayout.visibility = View.GONE
                                 btnPlayPause.setImageResource(R.drawable.ic_pause)
+                                updateAudioTrackInfo()
                             }
                             Player.STATE_ENDED, Player.STATE_IDLE -> {
                                 loadingIndicator.visibility = View.GONE
                             }
                         }
+                    }
+
+                    override fun onTracksChanged(tracks: Tracks) {
+                        updateAudioTrackInfo()
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
@@ -340,6 +662,23 @@ class PlayerActivity : BaseActivity() {
                     }
                 })
             }
+    }
+
+    private fun updateAudioTrackInfo() {
+        val p = player ?: return
+        var audioCount = 0
+        for (group in p.currentTracks.groups) {
+            if (group.type == C.TRACK_TYPE_AUDIO) {
+                audioCount += group.length
+            }
+        }
+        if (audioCount > 1) {
+            btnAudioTrack.visibility = View.VISIBLE
+            audioTrackInfo.text = "$audioCount"
+            audioTrackInfo.visibility = View.VISIBLE
+        } else {
+            audioTrackInfo.visibility = View.GONE
+        }
     }
 
     private fun playStream(url: String) {
@@ -380,15 +719,24 @@ class PlayerActivity : BaseActivity() {
         playStream(channel.url)
         showChannelBanner()
         scheduleHideControls()
+
+        // Reset speed to 1x on channel switch
+        if (currentSpeedIndex != 2) {
+            currentSpeedIndex = 2
+            player?.playbackParameters = PlaybackParameters(1f)
+        }
     }
 
     private fun updateEpg() {
         val channels = ChannelDataHolder.allChannels
         if (currentIndex in channels.indices) {
             val channel = channels[currentIndex]
-            val (now, _) = EpgRepository.getNowNext(ChannelDataHolder.epgData, channel.tvgId)
-            if (now != null) {
-                epgNow.text = now
+            val (nowProg, nextProg) = EpgRepository.getNowNextDetailed(ChannelDataHolder.epgData, channel.tvgId)
+            if (nowProg != null) {
+                val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+                val nowTime = timeFormat.format(Date(nowProg.start))
+                val nowEndTime = timeFormat.format(Date(nowProg.end))
+                epgNow.text = "$nowTime - $nowEndTime  ${nowProg.title}"
                 epgNow.visibility = View.VISIBLE
             } else {
                 epgNow.visibility = View.GONE
@@ -441,26 +789,36 @@ class PlayerActivity : BaseActivity() {
             }
         }
 
-        val (now, next) = EpgRepository.getNowNext(ChannelDataHolder.epgData, channel.tvgId)
-        if (now != null) {
-            bannerEpgNow.text = now
+        val (nowProg, nextProg) = EpgRepository.getNowNextDetailed(ChannelDataHolder.epgData, channel.tvgId)
+        val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+
+        if (nowProg != null) {
+            val nowTime = timeFormat.format(Date(nowProg.start))
+            val nowEndTime = timeFormat.format(Date(nowProg.end))
+            bannerEpgNow.text = "$nowTime - $nowEndTime  ${nowProg.title}"
             bannerEpgNow.visibility = View.VISIBLE
+            // Show progress
+            val progress = EpgRepository.getCurrentProgress(nowProg)
+            bannerEpgProgress.progress = (progress * 100).toInt()
+            bannerEpgProgress.visibility = View.VISIBLE
         } else {
             bannerEpgNow.visibility = View.GONE
+            bannerEpgProgress.visibility = View.GONE
         }
-        if (next != null) {
-            bannerEpgNext.text = "-> $next"
+        if (nextProg != null) {
+            val nextTime = timeFormat.format(Date(nextProg.start))
+            bannerEpgNext.text = "${getString(R.string.epg_next)}: $nextTime ${nextProg.title}"
             bannerEpgNext.visibility = View.VISIBLE
         } else {
             bannerEpgNext.visibility = View.GONE
         }
 
-        val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+        val time = timeFormat.format(Date())
         bannerClock.text = time
 
         channelInfoBanner.visibility = View.VISIBLE
         bannerHandler.removeCallbacks(bannerHideRunnable)
-        bannerHandler.postDelayed(bannerHideRunnable, 4000)
+        bannerHandler.postDelayed(bannerHideRunnable, 5000)
     }
 
     // === Channel list overlay ===
@@ -475,7 +833,12 @@ class PlayerActivity : BaseActivity() {
         hideHandler.removeCallbacks(hideRunnable)
 
         // Scroll to current channel
-        overlayChannelsList.scrollToPosition(currentIndex.coerceAtLeast(0))
+        val scrollIndex = overlayFilteredIndices.indexOf(currentIndex)
+        if (scrollIndex >= 0) {
+            overlayChannelsList.scrollToPosition(scrollIndex)
+        } else {
+            overlayChannelsList.scrollToPosition(currentIndex.coerceAtLeast(0))
+        }
     }
 
     private fun hideChannelList() {
@@ -487,6 +850,7 @@ class PlayerActivity : BaseActivity() {
     // === Controls visibility ===
 
     private fun toggleControls() {
+        if (isScreenLocked) return
         if (channelListVisible) {
             hideChannelList()
             return
@@ -495,6 +859,7 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun showControls() {
+        if (isScreenLocked) return
         controlsOverlay.visibility = View.VISIBLE
         controlsVisible = true
         scheduleHideControls()
@@ -527,6 +892,14 @@ class PlayerActivity : BaseActivity() {
     // === D-pad / Remote control ===
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (isScreenLocked) {
+            if (keyCode == KeyEvent.KEYCODE_BACK) {
+                toggleScreenLock()
+                return true
+            }
+            return true
+        }
+
         when (keyCode) {
             // D-pad center / Enter - toggle controls or select
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
@@ -548,7 +921,7 @@ class PlayerActivity : BaseActivity() {
                 showControls()
                 return true
             }
-            // D-pad Left - rewind / show channel list
+            // D-pad Left - show channel list
             KeyEvent.KEYCODE_DPAD_LEFT -> {
                 if (channelListVisible) return super.onKeyDown(keyCode, event)
                 toggleChannelList()
@@ -595,7 +968,7 @@ class PlayerActivity : BaseActivity() {
             }
             // Info key
             KeyEvent.KEYCODE_INFO, KeyEvent.KEYCODE_TV_DATA_SERVICE -> {
-                showControls()
+                showChannelBanner()
                 return true
             }
         }
@@ -659,6 +1032,7 @@ class PlayerActivity : BaseActivity() {
             controlsOverlay.visibility = View.GONE
             channelListOverlay.visibility = View.GONE
             channelInfoBanner.visibility = View.GONE
+            lockOverlay.visibility = View.GONE
             controlsVisible = false
             channelListVisible = false
         }

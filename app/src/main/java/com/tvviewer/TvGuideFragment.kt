@@ -123,8 +123,14 @@ class TvGuideFragment : Fragment() {
 
         // Auto-refresh EPG if no data and we have a URL
         if (epgData.isEmpty()) {
+            // Try loading from cache first
+            val cached = EpgRepository.loadFromCache(requireContext())
+            if (cached != null && cached.isNotEmpty()) {
+                ChannelDataHolder.epgData = cached
+            }
+
             val epgUrl = prefs.lastEpgUrl
-            if (!epgUrl.isNullOrBlank()) {
+            if (!epgUrl.isNullOrBlank() && ChannelDataHolder.epgData.isEmpty()) {
                 refreshEpg()
                 return
             }
@@ -202,7 +208,7 @@ class TvGuideFragment : Fragment() {
         progressBar.visibility = View.VISIBLE
         lifecycleScope.launch {
             try {
-                val data = EpgRepository.fetchEpg(epgUrl)
+                val data = EpgRepository.fetchEpg(epgUrl, requireContext())
                 ChannelDataHolder.epgData = data
                 prefs.epgLastUpdate = System.currentTimeMillis()
                 progressBar.visibility = View.GONE

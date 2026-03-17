@@ -14,14 +14,18 @@ object PlaylistRepository {
     data class PlaylistResult(val channels: List<Channel>, val epgUrl: String?)
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .followRedirects(true)
         .build()
 
     suspend fun fetchPlaylist(url: String): PlaylistResult = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "Fetching playlist: $url")
-            val request = Request.Builder().url(url).build()
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36")
+                .build()
             val response = client.newCall(request).execute()
             Log.d(TAG, "Response: ${response.code} ${response.message}")
             if (!response.isSuccessful) {

@@ -166,18 +166,33 @@ class ChannelsFragment : Fragment() {
                 recyclerView.visibility = View.VISIBLE
                 swipeRefresh.isRefreshing = false
 
-                // Load EPG in background
-                result.epgUrl?.let { epgUrl ->
-                    prefs.lastEpgUrl = epgUrl
-                    lifecycleScope.launch {
-                        try {
-                            epgData = EpgRepository.fetchEpg(epgUrl)
+                // Load EPG - first from cache, then from network
+                lifecycleScope.launch {
+                    try {
+                        // Try loading from cache first for instant display
+                        val cached = EpgRepository.loadFromCache(requireContext())
+                        if (cached != null && cached.isNotEmpty() && epgData.isEmpty()) {
+                            epgData = cached
                             ChannelDataHolder.epgData = epgData
-                            prefs.epgLastUpdate = System.currentTimeMillis()
                             adapter.updateEpg(epgData)
-                        } catch (e: Exception) {
-                            Log.e("ChannelsFragment", "EPG error", e)
+                            Log.d("ChannelsFragment", "EPG loaded from cache: ${cached.size} channels")
                         }
+
+                        // Then fetch fresh data from network
+                        val epgUrl = result.epgUrl ?: prefs.lastEpgUrl
+                        if (!epgUrl.isNullOrBlank()) {
+                            prefs.lastEpgUrl = epgUrl
+                            val freshData = EpgRepository.fetchEpg(epgUrl, context)
+                            if (freshData.isNotEmpty()) {
+                                epgData = freshData
+                                ChannelDataHolder.epgData = epgData
+                                prefs.epgLastUpdate = System.currentTimeMillis()
+                                adapter.updateEpg(epgData)
+                                Log.d("ChannelsFragment", "EPG updated from network: ${freshData.size} channels")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("ChannelsFragment", "EPG error", e)
                     }
                 }
 
