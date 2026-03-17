@@ -14,7 +14,12 @@ import javax.swing.border.EmptyBorder
  * Uses librtlsdr directly via JNA — no rtl_tcp server needed.
  * Auto-detects and opens RTL-SDR device on startup.
  */
-class MainWindow : JFrame("FM Radio RTL-SDR") {
+class MainWindow : JFrame("FM Radio RTL-SDR v1.2 (build 20260317)") {
+
+    companion object {
+        const val VERSION = "1.2"
+        const val BUILD = "20260317-2"
+    }
 
     // RTL-SDR direct access
     private val sdr = RtlSdrNative()
@@ -74,13 +79,18 @@ class MainWindow : JFrame("FM Radio RTL-SDR") {
             background = Color(30, 30, 36)
         }
 
-        // Top: status bar (no connect button)
-        val topPanel = JPanel(FlowLayout(FlowLayout.LEFT)).apply {
+        // Top: status bar with version
+        val versionLabel = JLabel("v$VERSION build $BUILD").apply {
+            foreground = Color(120, 120, 140)
+            font = Font("SansSerif", Font.PLAIN, 11)
+        }
+        val topPanel = JPanel(BorderLayout()).apply {
             background = Color(40, 40, 48)
             add(statusLabel.apply {
                 foreground = Color(200, 200, 100)
                 font = Font("SansSerif", Font.PLAIN, 13)
-            })
+            }, BorderLayout.CENTER)
+            add(versionLabel, BorderLayout.EAST)
         }
 
         // Center: frequency display + controls
