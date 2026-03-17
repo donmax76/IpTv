@@ -160,9 +160,15 @@ class FmDemodulator(
 
             deEmphasisState += deEmphasisAlpha * (filtAudio - deEmphasisState)
             val audio = deEmphasisState
-            val scaled = (audio * 28000f).coerceIn(-32767f, 32767f)
+
+            // Scale to 16-bit PCM with soft limiting to prevent distortion
+            val raw = audio * 20000f
+            val scaled = if (raw > 24000f) 24000f + (raw - 24000f) * 0.3f
+                         else if (raw < -24000f) -24000f + (raw + 24000f) * 0.3f
+                         else raw
+            val clamped = scaled.coerceIn(-32000f, 32000f)
             if (audioCount < audioOut.size) {
-                audioOut[audioCount++] = scaled.toInt().toShort()
+                audioOut[audioCount++] = clamped.toInt().toShort()
             }
         }
 
