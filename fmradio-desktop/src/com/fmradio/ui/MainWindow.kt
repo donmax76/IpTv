@@ -3,7 +3,7 @@ package com.fmradio.ui
 import com.fmradio.dsp.AudioEqualizer
 import com.fmradio.dsp.FmDemodulator
 import com.fmradio.dsp.RdsDecoder
-import com.fmradio.rtlsdr.RtlTcpClient
+import com.fmradio.rtlsdr.RtlSdrNative
 import java.awt.*
 import java.awt.event.*
 import javax.swing.*
@@ -11,12 +11,13 @@ import javax.swing.border.EmptyBorder
 
 /**
  * FM Radio RTL-SDR — Desktop (Windows/Linux/Mac)
- * Connects to rtl_tcp server for RTL-SDR access.
+ * Uses librtlsdr directly via JNA — no rtl_tcp server needed.
+ * Auto-detects and opens RTL-SDR device on startup.
  */
 class MainWindow : JFrame("FM Radio RTL-SDR") {
 
-    // RTL-TCP connection
-    private val rtlClient = RtlTcpClient()
+    // RTL-SDR direct access
+    private val sdr = RtlSdrNative()
     private var streamingThread: Thread? = null
 
     // DSP
@@ -33,14 +34,11 @@ class MainWindow : JFrame("FM Radio RTL-SDR") {
     // UI components
     private val freqLabel = JLabel("100.0", SwingConstants.CENTER)
     private val mhzLabel = JLabel("MHz", SwingConstants.LEFT)
-    private val statusLabel = JLabel("Disconnected")
+    private val statusLabel = JLabel("Starting...")
     private val rdsLabel = JLabel("RDS: ---")
     private val rtLabel = JLabel(" ")
     private val stereoLabel = JLabel("MONO")
     private val ptyLabel = JLabel("")
-    private val hostField = JTextField("127.0.0.1", 12)
-    private val portField = JTextField("1234", 5)
-    private val connectBtn = JButton("Connect")
     private val playBtn = JButton("PLAY")
     private val volumeSlider = JSlider(0, 100, 80)
     private val bassSlider = JSlider(0, 20, 10)
@@ -55,7 +53,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR") {
 
     init {
         defaultCloseOperation = EXIT_ON_CLOSE
-        preferredSize = Dimension(600, 480)
+        preferredSize = Dimension(600, 440)
         buildUI()
         pack()
         setLocationRelativeTo(null)
@@ -65,6 +63,9 @@ class MainWindow : JFrame("FM Radio RTL-SDR") {
                 shutdown()
             }
         })
+
+        // Auto-connect on startup
+        SwingUtilities.invokeLater { autoConnect() }
     }
 
     private fun buildUI() {
@@ -73,15 +74,13 @@ class MainWindow : JFrame("FM Radio RTL-SDR") {
             background = Color(30, 30, 36)
         }
 
-        // Top: connection panel
-        val connPanel = JPanel(FlowLayout(FlowLayout.LEFT)).apply {
+        // Top: status bar (no connect button)
+        val topPanel = JPanel(FlowLayout(FlowLayout.LEFT)).apply {
             background = Color(40, 40, 48)
-            add(JLabel("Host:").apply { foreground = Color.LIGHT_GRAY })
-            add(hostField)
-            add(JLabel("Port:").apply { foreground = Color.LIGHT_GRAY })
-            add(portField)
-            add(connectBtn)
-            add(statusLabel.apply { foreground = Color(100, 200, 100) })
+            add(statusLabel.apply {
+                foreground = Color(200, 200, 100)
+                font = Font("SansSerif", Font.PLAIN, 13)
+            })
         }
 
         // Center: frequency display + controls
@@ -195,14 +194,13 @@ class MainWindow : JFrame("FM Radio RTL-SDR") {
         bottomPanel.add(volPanel)
         bottomPanel.add(eqPanel)
 
-        root.add(connPanel, BorderLayout.NORTH)
+        root.add(topPanel, BorderLayout.NORTH)
         root.add(centerPanel, BorderLayout.CENTER)
         root.add(bottomPanel, BorderLayout.SOUTH)
 
         contentPane = root
 
         // Actions
-        connectBtn.addActionListener { toggleConnect() }
         playBtn.addActionListener { togglePlayback() }
 
         // Keyboard shortcuts
@@ -216,35 +214,45 @@ class MainWindow : JFrame("FM Radio RTL-SDR") {
         updateFreqDisplay()
     }
 
-    private fun toggleConnect() {
-        if (rtlClient.isConnected) {
-            stopPlayback()
-            rtlClient.disconnect()
-            statusLabel.text = "Disconnected"
-            statusLabel.foreground = Color(200, 100, 100)
-            connectBtn.text = "Connect"
-        } else {
-            val host = hostField.text.trim()
-            val port = portField.text.trim().toIntOrNull() ?: 1234
-            statusLabel.text = "Connecting..."
-            Thread({
-                val ok = rtlClient.connect(host, port)
+    /**
+     * Auto-detect and open RTL-SDR device, then start playback.
+     */
+    private fun autoConnect() {
+        statusLabel.text = "Detecting RTL-SDR device..."
+        Thread({
+            val ok = sdr.open(0)
+            if (ok) {
+                sdr.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
+                sdr.setAutoGain(true)
+                sdr.setFrequency(currentFrequency)
+
                 SwingUtilities.invokeLater {
-                    if (ok) {
-                        statusLabel.text = "Connected (tuner=${rtlClient.tunerType})"
-                        statusLabel.foreground = Color(100, 200, 100)
-                        connectBtn.text = "Disconnect"
-                        // Set initial params
-                        rtlClient.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
-                        rtlClient.setAutoGain(true)
-                        rtlClient.setFrequency(currentFrequency)
-                    } else {
-                        statusLabel.text = "Connection failed"
-                        statusLabel.foreground = Color(255, 100, 100)
-                    }
+                    statusLabel.text = "Connected: ${sdr.deviceName} (${sdr.tunerName})"
+                    statusLabel.foreground = Color(100, 200, 100)
+                    // Auto-start playback
+                    startPlayback()
                 }
-            }, "ConnectThread").start()
-        }
+            } else {
+                SwingUtilities.invokeLater {
+                    statusLabel.text = "RTL-SDR not found"
+                    statusLabel.foreground = Color(255, 100, 100)
+                    JOptionPane.showMessageDialog(
+                        this,
+                        "RTL-SDR device not found!\n\n" +
+                            "Make sure:\n" +
+                            "1. RTL-SDR dongle is connected via USB\n" +
+                            "2. Drivers are installed:\n" +
+                            "   Windows: Zadig (WinUSB driver)\n" +
+                            "   Linux: sudo apt install librtlsdr-dev\n" +
+                            "3. No other program is using the device\n\n" +
+                            "The app needs librtlsdr.dll (Windows)\n" +
+                            "or librtlsdr.so (Linux) to work.",
+                        "FM Radio RTL-SDR",
+                        JOptionPane.ERROR_MESSAGE
+                    )
+                }
+            }
+        }, "AutoConnectThread").start()
     }
 
     private fun togglePlayback() {
@@ -252,8 +260,8 @@ class MainWindow : JFrame("FM Radio RTL-SDR") {
     }
 
     private fun startPlayback() {
-        if (!rtlClient.isConnected) {
-            statusLabel.text = "Connect to rtl_tcp first!"
+        if (!sdr.isOpen) {
+            statusLabel.text = "RTL-SDR not connected!"
             return
         }
         if (isPlaying) return
@@ -279,10 +287,10 @@ class MainWindow : JFrame("FM Radio RTL-SDR") {
             it.start()
         }
 
-        rtlClient.setFrequency(currentFrequency)
+        sdr.setFrequency(currentFrequency)
         isPlaying = true
 
-        streamingThread = rtlClient.startStreaming(65536) { iqData ->
+        streamingThread = sdr.startStreaming(65536) { iqData ->
             var audioSamples = demodulator?.demodulate(iqData)
             if (audioSamples != null && audioSamples.isNotEmpty()) {
                 val eq = equalizer
@@ -297,12 +305,12 @@ class MainWindow : JFrame("FM Radio RTL-SDR") {
         }
 
         playBtn.text = "STOP"
-        statusLabel.text = "Playing ${formatFreq(currentFrequency)} MHz"
+        statusLabel.text = "Playing ${formatFreq(currentFrequency)} MHz — ${sdr.deviceName}"
     }
 
     private fun stopPlayback() {
         isPlaying = false
-        rtlClient.stopStreaming()
+        sdr.stopStreaming()
         streamingThread = null
         audioPlayer?.stop()
         audioPlayer = null
@@ -319,13 +327,13 @@ class MainWindow : JFrame("FM Radio RTL-SDR") {
         rtLabel.text = " "
         ptyLabel.text = ""
         stereoLabel.text = "MONO"
-        if (rtlClient.isConnected) statusLabel.text = "Connected — Stopped"
+        if (sdr.isOpen) statusLabel.text = "Connected: ${sdr.deviceName} — Stopped"
     }
 
     private fun tuneFrequency(freqHz: Long) {
         val clamped = freqHz.coerceIn(87_500_000L, 108_000_000L)
         currentFrequency = clamped
-        rtlClient.setFrequency(clamped)
+        sdr.setFrequency(clamped)
         rdsDecoder?.reset()
         rdsLabel.text = "RDS: ---"
         rtLabel.text = " "
@@ -335,15 +343,16 @@ class MainWindow : JFrame("FM Radio RTL-SDR") {
     }
 
     private fun seekStation(forward: Boolean) {
-        if (!rtlClient.isConnected) return
+        if (!sdr.isOpen) return
         statusLabel.text = "Seeking..."
         val wasPlaying = isPlaying
         if (wasPlaying) stopPlayback()
 
         Thread({
             val tempDemod = FmDemodulator()
-            rtlClient.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
-            rtlClient.setAutoGain(true)
+            sdr.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
+            sdr.setAutoGain(true)
+            sdr.resetBuffer()
             val step = 100_000L
             var freq = currentFrequency + if (forward) step else -step
             var found: Long? = null
@@ -351,9 +360,9 @@ class MainWindow : JFrame("FM Radio RTL-SDR") {
             for (i in 0 until 200) {
                 if (freq > 108_000_000L) freq = 87_500_000L
                 if (freq < 87_500_000L) freq = 108_000_000L
-                rtlClient.setFrequency(freq)
+                sdr.setFrequency(freq)
                 Thread.sleep(50)
-                val samples = rtlClient.readSamples(65536)
+                val samples = sdr.readSamples(65536)
                 if (samples != null) {
                     val power = tempDemod.measureSignalStrength(samples)
                     if (power > -15f) { found = freq; break }
@@ -394,7 +403,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR") {
 
     private fun shutdown() {
         stopPlayback()
-        rtlClient.disconnect()
+        sdr.close()
     }
 }
 
