@@ -54,6 +54,15 @@
     <!-- RDS -->
     <string name="rds_no_data">No RDS</string>
 
+    <!-- Band selector -->
+    <string name="band_label_format">BAND: %s  %.1f - %.1f MHz</string>
+    <string name="dialog_band_title">Select Band</string>
+    <string name="msg_band_changed">Band: %s</string>
+
+    <!-- Media controls -->
+    <string name="msg_next_station">Next: %s</string>
+    <string name="msg_prev_station">Previous: %s</string>
+
     <!-- Content descriptions -->
     <string name="cd_freq_down">Frequency down</string>
     <string name="cd_freq_up">Frequency up</string>

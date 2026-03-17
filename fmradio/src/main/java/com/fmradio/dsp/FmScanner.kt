@@ -5,33 +5,133 @@ import com.fmradio.rtlsdr.RtlSdrDevice
 import kotlinx.coroutines.*
 
 /**
- * FM band auto-scanner. Scans 87.5 - 108.0 MHz in 100 kHz steps,
- * measures signal strength at each frequency, and returns stations found.
+ * Wideband radio scanner with configurable band presets.
+ * Supports full RTL-SDR R820T range: 24 MHz - 1766 MHz.
  */
 class FmScanner(private val device: RtlSdrDevice) {
 
     companion object {
         private const val TAG = "FmScanner"
 
-        // FM broadcast band limits (Hz)
-        const val FM_BAND_START = 87500000L   // 87.5 MHz
-        const val FM_BAND_END = 108000000L    // 108.0 MHz
-        const val FM_STEP = 100000L           // 100 kHz step
+        // Legacy FM band constants (kept for compatibility)
+        const val FM_BAND_START = 87500000L
+        const val FM_BAND_END = 108000000L
+        const val FM_STEP = 100000L
+
+        // Full RTL-SDR R820T tuner range
+        const val RTL_SDR_MIN_FREQ = 24000000L      // 24 MHz
+        const val RTL_SDR_MAX_FREQ = 1766000000L     // 1766 MHz
 
         // Signal threshold for station detection (dB)
         private const val SIGNAL_THRESHOLD = -15f
-
-        // Settling time after frequency change (ms)
         private const val SETTLE_TIME_MS = 80L
-
-        // Number of samples to read for measurement
         private const val MEASUREMENT_SAMPLES = 65536
-
-        // Number of measurements to average per frequency
         private const val MEASUREMENTS_PER_FREQ = 3
+    }
 
-        // Noise floor samples at scan start
-        private const val NOISE_FLOOR_SAMPLES = 5
+    /**
+     * Radio band definitions covering the full RTL-SDR range.
+     */
+    enum class Band(
+        val displayName: String,
+        val shortName: String,
+        val startHz: Long,
+        val endHz: Long,
+        val stepHz: Long,
+        val description: String
+    ) {
+        FM_BROADCAST(
+            "FM Radio", "FM",
+            87500000L, 108000000L, 100000L,
+            "FM Broadcast 87.5-108.0 MHz"
+        ),
+        FM_JAPAN(
+            "FM Japan", "FM-J",
+            76000000L, 95000000L, 100000L,
+            "Japanese FM 76.0-95.0 MHz"
+        ),
+        AM_SHORTWAVE(
+            "Shortwave", "SW",
+            24000000L, 30000000L, 5000L,
+            "HF Shortwave 24-30 MHz (limited)"
+        ),
+        VHF_LOW(
+            "VHF Low", "VHF-L",
+            30000000L, 50000000L, 12500L,
+            "VHF Low Band 30-50 MHz"
+        ),
+        VHF_6M(
+            "6m Amateur", "6M",
+            50000000L, 54000000L, 5000L,
+            "6 Meter Amateur Radio 50-54 MHz"
+        ),
+        TV_VHF(
+            "TV VHF", "TV-V",
+            54000000L, 88000000L, 250000L,
+            "VHF TV channels 54-88 MHz"
+        ),
+        AIR_BAND(
+            "Aviation", "AIR",
+            108000000L, 137000000L, 25000L,
+            "Aircraft AM 108-137 MHz"
+        ),
+        VHF_2M(
+            "2m Amateur", "2M",
+            144000000L, 148000000L, 12500L,
+            "2 Meter Amateur Radio 144-148 MHz"
+        ),
+        WEATHER(
+            "Weather", "WX",
+            162400000L, 162550000L, 25000L,
+            "NOAA Weather Radio 162.4-162.55 MHz"
+        ),
+        VHF_MARINE(
+            "Marine VHF", "MAR",
+            156000000L, 162000000L, 25000L,
+            "Marine VHF 156-162 MHz"
+        ),
+        PMR446(
+            "PMR446", "PMR",
+            446006250L, 446193750L, 12500L,
+            "PMR446 Walkie-Talkies 446 MHz"
+        ),
+        UHF_70CM(
+            "70cm Amateur", "70CM",
+            430000000L, 440000000L, 12500L,
+            "70 Centimeter Amateur 430-440 MHz"
+        ),
+        UHF_TV(
+            "TV UHF", "TV-U",
+            470000000L, 890000000L, 250000L,
+            "UHF TV channels 470-890 MHz"
+        ),
+        GSM900(
+            "GSM 900", "GSM9",
+            935000000L, 960000000L, 200000L,
+            "GSM 900 Downlink 935-960 MHz"
+        ),
+        GSM1800(
+            "GSM 1800", "G18",
+            1805000000L, 1880000000L, 200000L,
+            "GSM 1800 Downlink (if tuner supports)"
+        ),
+        ISM_433(
+            "ISM 433", "433",
+            433000000L, 435000000L, 10000L,
+            "ISM Band 433 MHz (sensors, remotes)"
+        ),
+        ISM_868(
+            "ISM 868", "868",
+            868000000L, 870000000L, 25000L,
+            "ISM Band 868 MHz (LoRa, IoT)"
+        ),
+        CUSTOM(
+            "Custom", "USR",
+            RTL_SDR_MIN_FREQ, RTL_SDR_MAX_FREQ, 100000L,
+            "Full range 24-1766 MHz"
+        );
+
+        val totalSteps: Int get() = ((endHz - startHz) / stepHz).toInt()
     }
 
     data class ScanResult(
@@ -39,9 +139,11 @@ class FmScanner(private val device: RtlSdrDevice) {
         val signalStrength: Float
     ) {
         val frequencyMHz: Double get() = frequencyHz / 1_000_000.0
-
         val displayFrequency: String
-            get() = String.format("%.1f", frequencyMHz)
+            get() = if (frequencyHz >= 1000000000L)
+                String.format("%.3f", frequencyMHz)
+            else
+                String.format("%.1f", frequencyMHz)
     }
 
     interface ScanListener {
@@ -57,7 +159,7 @@ class FmScanner(private val device: RtlSdrDevice) {
     private val demodulator = FmDemodulator()
 
     /**
-     * Scan the entire FM band and return found stations.
+     * Scan a frequency range and return found stations/signals.
      */
     suspend fun scan(
         listener: ScanListener,
@@ -68,58 +170,41 @@ class FmScanner(private val device: RtlSdrDevice) {
     ): List<ScanResult> = withContext(Dispatchers.IO) {
         scanning = true
         val stations = mutableListOf<ScanResult>()
-
         val totalSteps = ((endFreq - startFreq) / step).toInt()
         var currentStep = 0
 
-        Log.i(TAG, "Starting FM scan: ${startFreq/1e6} - ${endFreq/1e6} MHz, step=${step/1e3} kHz")
+        Log.i(TAG, "Starting scan: ${startFreq/1e6} - ${endFreq/1e6} MHz, step=${step/1e3} kHz")
 
         try {
-            // Stop any active streaming first
             if (device.isStreaming) {
                 device.stopStreaming()
                 delay(100)
             }
 
-            // Configure device for scanning
             device.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
             device.setAutoGain(true)
             delay(50)
 
-            // Measure noise floor at edges of band (where no stations expected)
+            // Measure noise floor
             var noiseFloor = -30f
-            val noiseFreqs = listOf(87400000L, 108100000L)
-            var noiseSum = 0f
-            var noiseMeasurements = 0
-            for (freq in noiseFreqs) {
-                device.setFrequency(freq)
-                delay(SETTLE_TIME_MS)
-                device.resetBuffer()
-                val samples = device.readSamples(MEASUREMENT_SAMPLES)
-                if (samples != null) {
-                    noiseSum += demodulator.measureSignalStrength(samples)
-                    noiseMeasurements++
-                }
-            }
-            if (noiseMeasurements > 0) {
-                noiseFloor = noiseSum / noiseMeasurements
-                Log.i(TAG, "Measured noise floor: $noiseFloor dB")
+            val noiseFreq = (startFreq - step).coerceAtLeast(RTL_SDR_MIN_FREQ)
+            device.setFrequency(noiseFreq)
+            delay(SETTLE_TIME_MS)
+            device.resetBuffer()
+            val noiseSamples = device.readSamples(MEASUREMENT_SAMPLES)
+            if (noiseSamples != null) {
+                noiseFloor = demodulator.measureSignalStrength(noiseSamples)
             }
 
-            // Use adaptive threshold: noise floor + margin
             val adaptiveThreshold = maxOf(threshold, noiseFloor + 6f)
-            Log.i(TAG, "Using scan threshold: $adaptiveThreshold dB")
+            Log.i(TAG, "Noise floor: $noiseFloor dB, threshold: $adaptiveThreshold dB")
 
             var freq = startFreq
             while (freq <= endFreq && scanning) {
-                // Set frequency
                 device.setFrequency(freq)
-
-                // Wait for PLL to settle
                 delay(SETTLE_TIME_MS)
-
-                // Clear buffer and take multiple measurements
                 device.resetBuffer()
+
                 var signalSum = 0f
                 var validMeasurements = 0
 
@@ -133,68 +218,48 @@ class FmScanner(private val device: RtlSdrDevice) {
 
                 if (validMeasurements > 0) {
                     val avgSignal = signalSum / validMeasurements
-
                     if (avgSignal > adaptiveThreshold) {
                         val result = ScanResult(freq, avgSignal)
                         stations.add(result)
-                        Log.i(TAG, "Station found: ${result.displayFrequency} MHz ($avgSignal dB)")
-
-                        withContext(Dispatchers.Main) {
-                            listener.onStationFound(result)
-                        }
+                        Log.i(TAG, "Signal found: ${result.displayFrequency} MHz ($avgSignal dB)")
+                        withContext(Dispatchers.Main) { listener.onStationFound(result) }
                     }
                 }
 
                 currentStep++
                 val progress = currentStep.toFloat() / totalSteps
-
-                withContext(Dispatchers.Main) {
-                    listener.onScanProgress(freq, progress)
-                }
+                withContext(Dispatchers.Main) { listener.onScanProgress(freq, progress) }
 
                 freq += step
             }
         } catch (e: Exception) {
             Log.e(TAG, "Scan error", e)
-            withContext(Dispatchers.Main) {
-                listener.onScanError(e.message ?: "Unknown error")
-            }
+            withContext(Dispatchers.Main) { listener.onScanError(e.message ?: "Unknown error") }
         }
 
         scanning = false
+        val mergedStations = mergeCloseStations(stations, step * 2)
 
-        // Merge close frequencies (within 200 kHz)
-        val mergedStations = mergeCloseStations(stations)
-
-        Log.i(TAG, "Scan complete. Found ${mergedStations.size} stations")
-
-        withContext(Dispatchers.Main) {
-            listener.onScanComplete(mergedStations)
-        }
-
+        Log.i(TAG, "Scan complete. Found ${mergedStations.size} signals")
+        withContext(Dispatchers.Main) { listener.onScanComplete(mergedStations) }
         mergedStations
     }
 
-    fun stopScan() {
-        scanning = false
+    /** Scan a specific Band enum */
+    suspend fun scanBand(band: Band, listener: ScanListener): List<ScanResult> {
+        return scan(listener, band.startHz, band.endHz, band.stepHz)
     }
 
+    fun stopScan() { scanning = false }
     fun isScanning(): Boolean = scanning
 
-    /**
-     * Merge stations that are within 200 kHz of each other,
-     * keeping the one with stronger signal.
-     */
-    private fun mergeCloseStations(stations: List<ScanResult>): List<ScanResult> {
+    private fun mergeCloseStations(stations: List<ScanResult>, minSpacing: Long): List<ScanResult> {
         if (stations.isEmpty()) return emptyList()
-
         val sorted = stations.sortedBy { it.frequencyHz }
         val merged = mutableListOf(sorted[0])
-
         for (i in 1 until sorted.size) {
             val last = merged.last()
-            if (sorted[i].frequencyHz - last.frequencyHz < 200000) {
-                // Keep the stronger signal
+            if (sorted[i].frequencyHz - last.frequencyHz < minSpacing) {
                 if (sorted[i].signalStrength > last.signalStrength) {
                     merged[merged.lastIndex] = sorted[i]
                 }
@@ -202,7 +267,6 @@ class FmScanner(private val device: RtlSdrDevice) {
                 merged.add(sorted[i])
             }
         }
-
         return merged
     }
 }

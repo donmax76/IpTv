@@ -67,6 +67,7 @@
                 android:layout_marginBottom="2dp">
 
                 <TextView
+                    android:id="@+id/tvBandIndicator"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="FM"
@@ -206,6 +207,7 @@
                 android:layout_marginTop="8dp">
 
                 <TextView
+                    android:id="@+id/tvBandStart"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="88"
@@ -225,6 +227,7 @@
                     android:progressBackgroundTint="@color/lcd_dim" />
 
                 <TextView
+                    android:id="@+id/tvBandEnd"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="108"
@@ -569,6 +572,19 @@
                 android:fontFamily="monospace"
                 android:background="@drawable/bg_button_metal" />
         </LinearLayout>
+
+        <!-- ========= BAND SELECTOR ========= -->
+        <Button
+            android:id="@+id/btnBand"
+            android:layout_width="match_parent"
+            android:layout_height="36dp"
+            android:text="BAND: FM Radio  87.5 - 108.0 MHz"
+            android:textColor="@color/lcd_cyan"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace"
+            android:background="@drawable/bg_button_metal"
+            android:layout_marginBottom="4dp" />
 
         <!-- Device info -->
         <TextView

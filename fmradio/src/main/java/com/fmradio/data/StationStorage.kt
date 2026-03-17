@@ -20,6 +20,7 @@ class StationStorage(context: Context) {
         private const val KEY_TREBLE = "eq_treble"
         private const val KEY_AF_ENABLED = "af_enabled"
         private const val KEY_TA_ENABLED = "ta_enabled"
+        private const val KEY_BAND = "current_band"
         const val PRESET_COUNT = 6
     }
 
@@ -128,4 +129,10 @@ class StationStorage(context: Context) {
     var taEnabled: Boolean
         get() = prefs.getBoolean(KEY_TA_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_TA_ENABLED, value).apply()
+
+    // --- Band ---
+
+    var currentBandName: String
+        get() = prefs.getString(KEY_BAND, "FM_BROADCAST") ?: "FM_BROADCAST"
+        set(value) = prefs.edit().putString(KEY_BAND, value).apply()
 }

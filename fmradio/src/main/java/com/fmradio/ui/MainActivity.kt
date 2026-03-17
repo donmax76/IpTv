@@ -35,6 +35,9 @@ class MainActivity : AppCompatActivity() {
     private var serviceBound = false
     private var scanner: FmScanner? = null
 
+    // Current band
+    private var currentBand: FmScanner.Band = FmScanner.Band.FM_BROADCAST
+
     // UI: Status
     private lateinit var tvStatus: TextView
     private lateinit var tvDeviceInfo: TextView
@@ -42,6 +45,7 @@ class MainActivity : AppCompatActivity() {
 
     // UI: LCD Display
     private lateinit var tvFrequency: TextView
+    private lateinit var tvBandIndicator: TextView
     private lateinit var tvStereoIndicator: TextView
     private lateinit var tvRdsIndicator: TextView
     private lateinit var tvTaIndicator: TextView
@@ -51,6 +55,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvRdsRt: TextView
     private lateinit var tvRdsPty: TextView
     private lateinit var seekFrequency: SeekBar
+    private lateinit var tvBandStart: TextView
+    private lateinit var tvBandEnd: TextView
 
     // UI: Controls
     private lateinit var btnSeekBack: ImageButton
@@ -75,6 +81,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnAf: Button
     private lateinit var btnTa: Button
     private lateinit var btnPty: Button
+    private lateinit var btnBand: Button
 
     // UI: Scan
     private lateinit var layoutScanning: View
@@ -92,6 +99,8 @@ class MainActivity : AppCompatActivity() {
             val binder = service as FmRadioService.LocalBinder
             radioService = binder.getService()
             serviceBound = true
+
+            radioService?.currentBand = currentBand
 
             radioService?.onFrequencyChanged = { freq ->
                 runOnUiThread {
@@ -122,8 +131,19 @@ class MainActivity : AppCompatActivity() {
                         getString(R.string.status_playing) else getString(R.string.status_connected)
                 }
             }
+            radioService?.onPlaybackStateChanged = { playing ->
+                runOnUiThread {
+                    if (playing) {
+                        btnPlayStop.setImageResource(R.drawable.ic_stop)
+                        tvStatus.text = getString(R.string.status_playing)
+                    } else {
+                        btnPlayStop.setImageResource(R.drawable.ic_play)
+                        tvStatus.text = getString(R.string.status_stopped)
+                    }
+                    updateFrequencyDisplay(radioService?.currentFrequency ?: currentFrequency)
+                }
+            }
 
-            // Restore AF/TA state
             radioService?.afEnabled = stationStorage.afEnabled
             radioService?.taEnabled = stationStorage.taEnabled
         }
@@ -145,6 +165,7 @@ class MainActivity : AppCompatActivity() {
         initViews()
         setupListeners()
         loadSavedStations()
+        restoreBand()
         restoreSettings()
 
         startRadioService()
@@ -155,13 +176,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun initViews() {
-        // Status
         tvStatus = findViewById(R.id.tvStatus)
         tvDeviceInfo = findViewById(R.id.tvDeviceInfo)
         btnConnect = findViewById(R.id.btnConnect)
 
-        // LCD
         tvFrequency = findViewById(R.id.tvFrequency)
+        tvBandIndicator = findViewById(R.id.tvBandIndicator)
         tvStereoIndicator = findViewById(R.id.tvStereoIndicator)
         tvRdsIndicator = findViewById(R.id.tvRdsIndicator)
         tvTaIndicator = findViewById(R.id.tvTaIndicator)
@@ -171,25 +191,21 @@ class MainActivity : AppCompatActivity() {
         tvRdsRt = findViewById(R.id.tvRdsRt)
         tvRdsPty = findViewById(R.id.tvRdsPty)
         seekFrequency = findViewById(R.id.seekFrequency)
+        tvBandStart = findViewById(R.id.tvBandStart)
+        tvBandEnd = findViewById(R.id.tvBandEnd)
 
-        // Controls
         btnSeekBack = findViewById(R.id.btnSeekBack)
         btnFreqDown = findViewById(R.id.btnFreqDown)
         btnPlayStop = findViewById(R.id.btnPlayStop)
         btnFreqUp = findViewById(R.id.btnFreqUp)
         btnSeekForward = findViewById(R.id.btnSeekForward)
 
-        // Presets
         presetButtons = listOf(
-            findViewById(R.id.btnPreset1),
-            findViewById(R.id.btnPreset2),
-            findViewById(R.id.btnPreset3),
-            findViewById(R.id.btnPreset4),
-            findViewById(R.id.btnPreset5),
-            findViewById(R.id.btnPreset6)
+            findViewById(R.id.btnPreset1), findViewById(R.id.btnPreset2),
+            findViewById(R.id.btnPreset3), findViewById(R.id.btnPreset4),
+            findViewById(R.id.btnPreset5), findViewById(R.id.btnPreset6)
         )
 
-        // Volume + EQ
         seekVolume = findViewById(R.id.seekVolume)
         seekBass = findViewById(R.id.seekBass)
         seekTreble = findViewById(R.id.seekTreble)
@@ -197,18 +213,16 @@ class MainActivity : AppCompatActivity() {
         tvBassValue = findViewById(R.id.tvBassValue)
         tvTrebleValue = findViewById(R.id.tvTrebleValue)
 
-        // Function buttons
         btnScan = findViewById(R.id.btnScan)
         btnAf = findViewById(R.id.btnAf)
         btnTa = findViewById(R.id.btnTa)
         btnPty = findViewById(R.id.btnPty)
+        btnBand = findViewById(R.id.btnBand)
 
-        // Scan
         layoutScanning = findViewById(R.id.layoutScanning)
         progressScan = findViewById(R.id.progressScan)
         tvScanStatus = findViewById(R.id.tvScanStatus)
 
-        // Station list
         rvStations = findViewById(R.id.rvStations)
         stationAdapter = StationAdapter(
             stations = emptyList(),
@@ -219,9 +233,18 @@ class MainActivity : AppCompatActivity() {
         rvStations.layoutManager = LinearLayoutManager(this)
         rvStations.adapter = stationAdapter
 
-        seekFrequency.max = 205
         seekVolume.max = 100
         layoutScanning.visibility = View.GONE
+    }
+
+    private fun restoreBand() {
+        val bandName = stationStorage.currentBandName
+        currentBand = try {
+            FmScanner.Band.valueOf(bandName)
+        } catch (_: Exception) {
+            FmScanner.Band.FM_BROADCAST
+        }
+        applyBand(currentBand)
     }
 
     private fun restoreSettings() {
@@ -238,10 +261,7 @@ class MainActivity : AppCompatActivity() {
         seekTreble.progress = stationStorage.trebleLevel
         tvTrebleValue.text = (seekTreble.progress - 10).toString()
 
-        // Update preset button labels
         updatePresetLabels()
-
-        // AF/TA indicator states
         updateAfIndicator(stationStorage.afEnabled)
         updateTaIndicator(stationStorage.taEnabled)
     }
@@ -253,26 +273,21 @@ class MainActivity : AppCompatActivity() {
             if (radioService?.isPlaying == true) stopPlayback() else startPlayback()
         }
 
-        btnFreqDown.setOnClickListener { setFrequency(currentFrequency - 100000) }
-        btnFreqUp.setOnClickListener { setFrequency(currentFrequency + 100000) }
+        btnFreqDown.setOnClickListener { setFrequency(currentFrequency - currentBand.stepHz) }
+        btnFreqUp.setOnClickListener { setFrequency(currentFrequency + currentBand.stepHz) }
 
         btnSeekBack.setOnClickListener {
             tvStatus.text = getString(R.string.status_seeking)
             radioService?.seekStation(forward = false)
         }
-
         btnSeekForward.setOnClickListener {
             tvStatus.text = getString(R.string.status_seeking)
             radioService?.seekStation(forward = true)
         }
 
-        // Preset buttons: short press = tune, long press = save
         presetButtons.forEachIndexed { index, btn ->
             btn.setOnClickListener { loadPreset(index) }
-            btn.setOnLongClickListener {
-                savePreset(index)
-                true
-            }
+            btn.setOnLongClickListener { savePreset(index); true }
         }
 
         seekFrequency.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -301,10 +316,7 @@ class MainActivity : AppCompatActivity() {
             override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
                 val value = progress - 10
                 tvBassValue.text = if (value > 0) "+$value" else value.toString()
-                if (fromUser) {
-                    radioService?.setBass(progress)
-                    stationStorage.bassLevel = progress
-                }
+                if (fromUser) { radioService?.setBass(progress); stationStorage.bassLevel = progress }
             }
             override fun onStartTrackingTouch(sb: SeekBar) {}
             override fun onStopTrackingTouch(sb: SeekBar) {}
@@ -314,10 +326,7 @@ class MainActivity : AppCompatActivity() {
             override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
                 val value = progress - 10
                 tvTrebleValue.text = if (value > 0) "+$value" else value.toString()
-                if (fromUser) {
-                    radioService?.setTreble(progress)
-                    stationStorage.trebleLevel = progress
-                }
+                if (fromUser) { radioService?.setTreble(progress); stationStorage.trebleLevel = progress }
             }
             override fun onStartTrackingTouch(sb: SeekBar) {}
             override fun onStopTrackingTouch(sb: SeekBar) {}
@@ -330,6 +339,52 @@ class MainActivity : AppCompatActivity() {
         btnAf.setOnClickListener { toggleAf() }
         btnTa.setOnClickListener { toggleTa() }
         btnPty.setOnClickListener { showPtyInfo() }
+        btnBand.setOnClickListener { showBandSelector() }
+    }
+
+    // --- Band Selector ---
+
+    private fun showBandSelector() {
+        val bands = FmScanner.Band.values()
+        val names = bands.map { "${it.shortName} — ${it.description}" }.toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.dialog_band_title))
+            .setItems(names) { _, which ->
+                val band = bands[which]
+                selectBand(band)
+            }
+            .show()
+    }
+
+    private fun selectBand(band: FmScanner.Band) {
+        if (radioService?.isPlaying == true) stopPlayback()
+        currentBand = band
+        stationStorage.currentBandName = band.name
+        radioService?.currentBand = band
+        applyBand(band)
+
+        // Set frequency to band start
+        val newFreq = band.startHz
+        setFrequency(newFreq)
+        showToast(getString(R.string.msg_band_changed, band.displayName))
+    }
+
+    private fun applyBand(band: FmScanner.Band) {
+        // Update LCD band indicator
+        tvBandIndicator.text = band.shortName
+
+        // Update seekbar range
+        val totalSteps = band.totalSteps
+        seekFrequency.max = totalSteps
+
+        // Update scale labels
+        tvBandStart.text = String.format("%.0f", band.startHz / 1e6)
+        tvBandEnd.text = String.format("%.0f", band.endHz / 1e6)
+
+        // Update band button text
+        btnBand.text = getString(R.string.band_label_format,
+            band.displayName, band.startHz / 1e6, band.endHz / 1e6)
     }
 
     // --- Device ---
@@ -402,7 +457,7 @@ class MainActivity : AppCompatActivity() {
     // --- Frequency ---
 
     private fun setFrequency(frequencyHz: Long) {
-        val freq = frequencyHz.coerceIn(FmScanner.FM_BAND_START, FmScanner.FM_BAND_END)
+        val freq = frequencyHz.coerceIn(currentBand.startHz, currentBand.endHz)
         currentFrequency = freq
         stationStorage.lastFrequency = freq
         updateFrequencyDisplay(freq)
@@ -442,18 +497,13 @@ class MainActivity : AppCompatActivity() {
     private fun updatePresetLabels() {
         presetButtons.forEachIndexed { index, btn ->
             val freq = stationStorage.getPreset(index)
-            btn.text = if (freq > 0) {
-                String.format("%.1f", freq / 1e6)
-            } else {
-                (index + 1).toString()
-            }
+            btn.text = if (freq > 0) String.format("%.1f", freq / 1e6)
+            else (index + 1).toString()
         }
     }
 
     private fun highlightPreset(activeIndex: Int) {
-        presetButtons.forEachIndexed { index, btn ->
-            btn.isSelected = index == activeIndex
-        }
+        presetButtons.forEachIndexed { index, btn -> btn.isSelected = index == activeIndex }
     }
 
     // --- Scan ---
@@ -467,7 +517,7 @@ class MainActivity : AppCompatActivity() {
         progressScan.progress = 0
 
         lifecycleScope.launch {
-            scanner?.scan(object : FmScanner.ScanListener {
+            scanner?.scanBand(currentBand, object : FmScanner.ScanListener {
                 override fun onScanProgress(currentFreqHz: Long, progress: Float) {
                     progressScan.progress = (progress * 100).toInt()
                     tvScanStatus.text = getString(R.string.scan_progress_format, currentFreqHz / 1e6, (progress * 100).toInt())
@@ -495,43 +545,23 @@ class MainActivity : AppCompatActivity() {
     // --- RDS Display ---
 
     private fun updateRdsDisplay(rdsData: RdsDecoder.RdsData) {
-        // RDS indicator
         tvRdsIndicator.setTextColor(if (rdsData.hasData) getColor(R.color.lcd_green) else getColor(R.color.lcd_dim))
 
-        if (rdsData.ps.isNotBlank()) {
-            tvRdsPs.text = rdsData.ps
-            tvRdsPs.visibility = View.VISIBLE
-        }
-        if (rdsData.rt.isNotBlank()) {
-            tvRdsRt.text = rdsData.rt
-            tvRdsRt.visibility = View.VISIBLE
-        }
-        if (rdsData.ptyName.isNotBlank() && rdsData.pty > 0) {
-            tvRdsPty.text = rdsData.ptyName
-            tvRdsPty.visibility = View.VISIBLE
-        }
+        if (rdsData.ps.isNotBlank()) { tvRdsPs.text = rdsData.ps; tvRdsPs.visibility = View.VISIBLE }
+        if (rdsData.rt.isNotBlank()) { tvRdsRt.text = rdsData.rt; tvRdsRt.visibility = View.VISIBLE }
+        if (rdsData.ptyName.isNotBlank() && rdsData.pty > 0) { tvRdsPty.text = rdsData.ptyName; tvRdsPty.visibility = View.VISIBLE }
 
-        // TA indicator
-        tvTaIndicator.setTextColor(
-            if (rdsData.ta) getColor(R.color.lcd_red) else getColor(R.color.lcd_dim)
-        )
-
-        // AF indicator
+        tvTaIndicator.setTextColor(if (rdsData.ta) getColor(R.color.lcd_red) else getColor(R.color.lcd_dim))
         tvAfIndicator.setTextColor(
             if (rdsData.afList.isNotEmpty() && stationStorage.afEnabled)
                 getColor(R.color.lcd_green) else getColor(R.color.lcd_dim)
         )
 
-        // Auto-save RDS name
         if (rdsData.ps.isNotBlank()) {
             val stations = stationStorage.loadStations()
             val station = stations.find { Math.abs(it.frequencyHz - currentFrequency) < 50000 }
             if (station != null && station.rdsPs != rdsData.ps) {
-                stationStorage.updateStation(station.copy(
-                    rdsPs = rdsData.ps,
-                    rdsRt = rdsData.rt,
-                    rdsPty = rdsData.ptyName
-                ))
+                stationStorage.updateStation(station.copy(rdsPs = rdsData.ps, rdsRt = rdsData.rt, rdsPty = rdsData.ptyName))
                 loadSavedStations()
             }
         }
@@ -546,9 +576,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateStereoIndicator(stereo: Boolean) {
-        tvStereoIndicator.setTextColor(
-            if (stereo) getColor(R.color.lcd_green) else getColor(R.color.lcd_dim)
-        )
+        tvStereoIndicator.setTextColor(if (stereo) getColor(R.color.lcd_green) else getColor(R.color.lcd_dim))
     }
 
     // --- AF / TA ---
@@ -577,11 +605,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun showPtyInfo() {
         val rds = radioService?.currentRdsData ?: return
-        if (rds.ptyName.isNotBlank()) {
-            showToast("PTY: ${rds.ptyName}")
-        } else {
-            showToast("No PTY data")
-        }
+        if (rds.ptyName.isNotBlank()) showToast("PTY: ${rds.ptyName}")
+        else showToast("No PTY data")
     }
 
     // --- Station management ---
@@ -628,11 +653,22 @@ class MainActivity : AppCompatActivity() {
     // --- Helpers ---
 
     private fun updateFrequencyDisplay(frequencyHz: Long) {
-        tvFrequency.text = String.format("%.1f", frequencyHz / 1_000_000.0)
+        // Adaptive format: <1000 MHz show 1 decimal, >=1000 MHz show 3 decimals
+        tvFrequency.text = if (frequencyHz >= 1000000000L)
+            String.format("%.3f", frequencyHz / 1_000_000.0)
+        else
+            String.format("%.1f", frequencyHz / 1_000_000.0)
     }
 
-    private fun frequencyToProgress(freq: Long) = ((freq - FmScanner.FM_BAND_START) / 100000).toInt()
-    private fun progressToFrequency(progress: Int) = FmScanner.FM_BAND_START + progress * 100000L
+    private fun frequencyToProgress(freq: Long): Int {
+        val step = currentBand.stepHz
+        return ((freq - currentBand.startHz) / step).toInt().coerceAtLeast(0)
+    }
+
+    private fun progressToFrequency(progress: Int): Long {
+        val step = currentBand.stepHz
+        return currentBand.startHz + progress * step
+    }
 
     private fun startRadioService() {
         val intent = Intent(this, FmRadioService::class.java)
