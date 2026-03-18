@@ -84,8 +84,6 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                        val stepHz: Long, val modulation: String, val directSampling: Int = 0)
 
     private val bands = arrayOf(
-        BandDef("FM1", 87_500_000L, 100_000_000L, 100_000L, "FM"),
-        BandDef("FM2", 100_000_000L, 108_000_000L, 100_000L, "FM"),
         BandDef("FM",  FM_MIN_HZ, FM_MAX_HZ, 100_000L, "FM"),
         BandDef("AIR", 108_000_000L, 137_000_000L, 25_000L, "AM"),
         BandDef("SW1", 3_000_000L, 10_000_000L, 5_000L, "AM", 2),
@@ -139,7 +137,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     private val btnAf = createMetallicButton("AF", 50, 36, "Alternate Frequency: auto-switch to stronger signal")
     private val btnTa = createMetallicButton("TA", 50, 36, "Traffic Announcements: auto-raise volume for traffic news")
     private val btnPty = createMetallicButton("PTY", 55, 36, "Program Type: show/filter by genre")
-    private val btnBand = createMetallicButton("FM1", 70, 36, "Switch FM band range")
+    private val btnBand = createMetallicButton("FM", 70, 36, "Switch band range")
 
     // Expandable presets list
     private val presetListModel = DefaultListModel<PresetEntry>()
