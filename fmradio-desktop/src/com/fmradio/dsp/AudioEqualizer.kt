@@ -3,19 +3,22 @@ package com.fmradio.dsp
 import kotlin.math.*
 
 /**
- * Simple 2-band equalizer (Bass/Treble) using biquad shelving filters.
+ * Stereo 2-band equalizer (Bass/Treble) using biquad shelving filters.
+ * Processes interleaved stereo samples (L,R,L,R,...) with independent L/R filter states.
  */
 class AudioEqualizer(private val sampleRate: Int = 48000) {
 
+    // Bass biquad coefficients (shared for L/R)
     private var bassB0 = 1f; private var bassB1 = 0f; private var bassB2 = 0f
     private var bassA1 = 0f; private var bassA2 = 0f
-    private var bassX1 = 0f; private var bassX2 = 0f
-    private var bassY1 = 0f; private var bassY2 = 0f
+    // Separate L/R filter states
+    private var bassLX1 = 0f; private var bassLX2 = 0f; private var bassLY1 = 0f; private var bassLY2 = 0f
+    private var bassRX1 = 0f; private var bassRX2 = 0f; private var bassRY1 = 0f; private var bassRY2 = 0f
 
     private var trebB0 = 1f; private var trebB1 = 0f; private var trebB2 = 0f
     private var trebA1 = 0f; private var trebA2 = 0f
-    private var trebX1 = 0f; private var trebX2 = 0f
-    private var trebY1 = 0f; private var trebY2 = 0f
+    private var trebLX1 = 0f; private var trebLX2 = 0f; private var trebLY1 = 0f; private var trebLY2 = 0f
+    private var trebRX1 = 0f; private var trebRX2 = 0f; private var trebRY1 = 0f; private var trebRY2 = 0f
 
     var bassGainDb: Float = 0f
         set(value) { field = value.coerceIn(-10f, 10f); computeBassCoeffs() }
@@ -63,22 +66,39 @@ class AudioEqualizer(private val sampleRate: Int = 48000) {
         return floatArrayOf(b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0)
     }
 
+    /**
+     * Process interleaved stereo samples (L,R,L,R,...) with independent L/R filter states.
+     */
     fun process(samples: ShortArray): ShortArray {
         if (abs(bassGainDb) < 0.1f && abs(trebleGainDb) < 0.1f) return samples
         val out = ShortArray(samples.size)
-        for (i in samples.indices) {
-            var x = samples[i].toFloat() / 32767f
-            var y = bassB0 * x + bassB1 * bassX1 + bassB2 * bassX2 - bassA1 * bassY1 - bassA2 * bassY2
-            bassX2 = bassX1; bassX1 = x; bassY2 = bassY1; bassY1 = y; x = y
-            y = trebB0 * x + trebB1 * trebX1 + trebB2 * trebX2 - trebA1 * trebY1 - trebA2 * trebY2
-            trebX2 = trebX1; trebX1 = x; trebY2 = trebY1; trebY1 = y
-            out[i] = (y * 32767f).coerceIn(-32767f, 32767f).toInt().toShort()
+        var i = 0
+        while (i < samples.size - 1) {
+            // Left channel
+            var xL = samples[i].toFloat() / 32767f
+            var yL = bassB0 * xL + bassB1 * bassLX1 + bassB2 * bassLX2 - bassA1 * bassLY1 - bassA2 * bassLY2
+            bassLX2 = bassLX1; bassLX1 = xL; bassLY2 = bassLY1; bassLY1 = yL; xL = yL
+            yL = trebB0 * xL + trebB1 * trebLX1 + trebB2 * trebLX2 - trebA1 * trebLY1 - trebA2 * trebLY2
+            trebLX2 = trebLX1; trebLX1 = xL; trebLY2 = trebLY1; trebLY1 = yL
+            out[i] = (yL * 32767f).coerceIn(-32767f, 32767f).toInt().toShort()
+
+            // Right channel
+            var xR = samples[i + 1].toFloat() / 32767f
+            var yR = bassB0 * xR + bassB1 * bassRX1 + bassB2 * bassRX2 - bassA1 * bassRY1 - bassA2 * bassRY2
+            bassRX2 = bassRX1; bassRX1 = xR; bassRY2 = bassRY1; bassRY1 = yR; xR = yR
+            yR = trebB0 * xR + trebB1 * trebRX1 + trebB2 * trebRX2 - trebA1 * trebRY1 - trebA2 * trebRY2
+            trebRX2 = trebRX1; trebRX1 = xR; trebRY2 = trebRY1; trebRY1 = yR
+            out[i + 1] = (yR * 32767f).coerceIn(-32767f, 32767f).toInt().toShort()
+
+            i += 2
         }
         return out
     }
 
     fun reset() {
-        bassX1 = 0f; bassX2 = 0f; bassY1 = 0f; bassY2 = 0f
-        trebX1 = 0f; trebX2 = 0f; trebY1 = 0f; trebY2 = 0f
+        bassLX1 = 0f; bassLX2 = 0f; bassLY1 = 0f; bassLY2 = 0f
+        bassRX1 = 0f; bassRX2 = 0f; bassRY1 = 0f; bassRY2 = 0f
+        trebLX1 = 0f; trebLX2 = 0f; trebLY1 = 0f; trebLY2 = 0f
+        trebRX1 = 0f; trebRX2 = 0f; trebRY1 = 0f; trebRY2 = 0f
     }
 }

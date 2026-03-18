@@ -85,7 +85,8 @@ class AmDemodulator(
     fun demodulate(iqData: ByteArray): ShortArray {
         val numIqSamples = iqData.size / 2
         val maxAudioSamples = numIqSamples / decimationFactor + 2
-        val audioOut = ShortArray(maxAudioSamples)
+        // Stereo output: duplicate mono to L and R channels
+        val audioOut = ShortArray(maxAudioSamples * 2)
         var audioCount = 0
 
         for (i in 0 until numIqSamples) {
@@ -159,10 +160,11 @@ class AmDemodulator(
 
             val gated = out * noiseGateGain
 
-            // Scale to 16-bit
-            val scaled = (gated * 28000f).coerceIn(-30000f, 30000f)
-            if (audioCount < audioOut.size) {
-                audioOut[audioCount++] = scaled.toInt().toShort()
+            // Scale to 16-bit, output as interleaved stereo (L=R for mono AM)
+            val scaled = (gated * 28000f).coerceIn(-30000f, 30000f).toInt().toShort()
+            if (audioCount + 1 < audioOut.size) {
+                audioOut[audioCount++] = scaled  // Left
+                audioOut[audioCount++] = scaled  // Right
             }
         }
 

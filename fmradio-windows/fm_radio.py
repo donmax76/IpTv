@@ -171,49 +171,85 @@ STATIONS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fm_sta
 
 
 class FmDemodulator:
-    """High-quality FM demodulation with multi-stage decimation:
-    IQ (1152kHz) → DC removal → IF LPF → ÷6 → FM discriminator (192kHz)
-    → Audio LPF → ÷4 → De-emphasis → Audio (48kHz)
+    """High-quality stereo FM demodulation based on SDR++/rtl_fm/librtlsdr.
+
+    IQ (1152kHz) → DC removal → IF LPF (120kHz) → ÷6 → FM discriminator (192kHz)
+    → Pilot PLL (19kHz lock) → Stereo decode (38kHz L-R recovery)
+    → Audio LPF (15kHz) → ÷4 → De-emphasis (50µs) → Stereo PCM (48kHz)
+
+    References:
+      - SDR++ broadcast_fm.h: PLL-locked stereo, separate L/R filters
+      - librtlsdr rtl_fm.c: fast_atan2, polar_discriminant
+      - osmocom rtl-sdr wiki: RTL2832U device parameters
     """
 
     def __init__(self, sample_rate=SAMPLE_RATE, audio_rate=AUDIO_RATE):
         self.sample_rate = sample_rate
         self.audio_rate = audio_rate
-        self.stage1_dec = 6          # 1152000 / 6 = 192000
-        self.intermediate_rate = sample_rate / self.stage1_dec
-        self.stage2_dec = int(self.intermediate_rate / audio_rate)  # 192000 / 48000 = 4
+        self.stage1_dec = 6
+        self.intermediate_rate = sample_rate / self.stage1_dec  # 192000
+        self.stage2_dec = int(self.intermediate_rate / audio_rate)  # 4
 
         # DC offset removal
         self.dc_i = 0.0
         self.dc_q = 0.0
-        self.dc_alpha = 0.995
+        self.dc_alpha = 0.9999
 
-        # IF low-pass filter (80 kHz cutoff, 64 taps, Blackman-Harris window)
-        self.if_filter = self._design_filter(64, 80e3, sample_rate)
+        # FM gain — normalize atan2 output to proper audio level
+        self.fm_gain = (self.intermediate_rate / (2 * np.pi * 75000)) * 0.7
+
+        # IF low-pass filter (120 kHz cutoff, 128 taps, Blackman-Harris)
+        self.if_filter = self._design_filter(128, 120e3, sample_rate)
         self.if_state_i = np.zeros(len(self.if_filter) - 1)
         self.if_state_q = np.zeros(len(self.if_filter) - 1)
 
-        # Audio low-pass filter (16 kHz cutoff at intermediate rate, 48 taps)
-        self.audio_filter = self._design_filter(48, 16e3, self.intermediate_rate)
-        self.audio_state = np.zeros(len(self.audio_filter) - 1)
+        # Audio low-pass filters (15 kHz cutoff, 96 taps) — for mono and diff
+        self.audio_filter = self._design_filter(96, 15e3, self.intermediate_rate)
+        self.mono_state = np.zeros(len(self.audio_filter) - 1)
+        self.diff_state = np.zeros(len(self.audio_filter) - 1)
 
-        # De-emphasis (75us time constant)
-        tau = 75e-6
+        # De-emphasis (50µs time constant for Europe/Russia)
+        tau = 50e-6
         dt = 1.0 / audio_rate
         self.deemph_alpha = dt / (tau + dt)
-        self.deemph_state = 0.0
+        self.deemph_state_l = 0.0
+        self.deemph_state_r = 0.0
 
         # Previous sample for FM discriminator
         self.prev_sample = 0 + 0j
 
+        # Pilot PLL (19 kHz, SDR++/gr-rds approach)
+        self.pilot_nco_phase = 0.0
+        self.pilot_nco_freq = 2.0 * np.pi * 19000.0 / self.intermediate_rate
+        pilot_loop_bw = 2.0 * np.pi * 5.0 / self.intermediate_rate
+        damp = 0.707
+        self.pilot_alpha = 2.0 * damp * pilot_loop_bw
+        self.pilot_beta = pilot_loop_bw ** 2
+
+        # Pilot bandpass biquad (Q=80 at 19 kHz)
+        w0 = 2.0 * np.pi * 19000.0 / self.intermediate_rate
+        bpf_q = 80.0
+        bpf_alpha = np.sin(w0) / (2.0 * bpf_q)
+        a0 = 1.0 + bpf_alpha
+        self.pilot_bpf_b0 = bpf_alpha / a0
+        self.pilot_bpf_b2 = -bpf_alpha / a0
+        self.pilot_bpf_a1 = (-2.0 * np.cos(w0)) / a0
+        self.pilot_bpf_a2 = (1.0 - bpf_alpha) / a0
+        self.pilot_bpf_state = [0.0, 0.0, 0.0, 0.0]  # x1, x2, y1, y2
+
+        # Stereo detection
+        self.is_stereo = False
+        self.pilot_strength_acc = 0.0
+        self.pilot_strength_count = 0
+        self.pilot_detect_window = int(self.intermediate_rate / 4)
+
     def _design_filter(self, numtaps, cutoff, fs):
-        """FIR lowpass with Blackman-Harris window."""
+        """FIR lowpass with Blackman-Harris window (~92 dB stopband)."""
         nyq = fs / 2.0
         fc = cutoff / nyq
         half = (numtaps - 1) / 2.0
         n = np.arange(numtaps)
         h = np.where(n == half, 2 * fc, np.sinc(2 * fc * (n - half)) * 2 * fc)
-        # Blackman-Harris window (~92 dB stopband)
         w = n / (numtaps - 1)
         window = (0.35875 - 0.48829 * np.cos(2 * np.pi * w)
                   + 0.14128 * np.cos(4 * np.pi * w)
@@ -222,12 +258,23 @@ class FmDemodulator:
         h /= np.sum(h)
         return h
 
-    def demodulate(self, iq_samples):
-        """Demodulate IQ samples to audio."""
-        if len(iq_samples) == 0:
-            return np.array([], dtype=np.float32)
+    def _pilot_bpf(self, x):
+        """Process one sample through pilot bandpass biquad."""
+        y = (self.pilot_bpf_b0 * x + self.pilot_bpf_b2 * self.pilot_bpf_state[1]
+             - self.pilot_bpf_a1 * self.pilot_bpf_state[2]
+             - self.pilot_bpf_a2 * self.pilot_bpf_state[3])
+        self.pilot_bpf_state[1] = self.pilot_bpf_state[0]
+        self.pilot_bpf_state[0] = x
+        self.pilot_bpf_state[3] = self.pilot_bpf_state[2]
+        self.pilot_bpf_state[2] = y
+        return y
 
-        # DC offset removal
+    def demodulate(self, iq_samples):
+        """Demodulate IQ samples to stereo audio (Nx2 float32 array)."""
+        if len(iq_samples) == 0:
+            return np.array([], dtype=np.float32).reshape(0, 2)
+
+        # DC offset removal (vectorized for performance)
         i_raw = iq_samples.real.astype(np.float64)
         q_raw = iq_samples.imag.astype(np.float64)
         for k in range(len(i_raw)):
@@ -241,32 +288,83 @@ class FmDemodulator:
         q_filt, self.if_state_q = lfilter(self.if_filter, 1, q_raw, zi=self.if_state_q)
         filtered = i_filt + 1j * q_filt
 
-        # Stage 1 decimation to intermediate rate
+        # Stage 1 decimation to 192 kHz
         filtered = filtered[::self.stage1_dec]
 
-        # FM discriminator
+        # FM discriminator (conjugate multiply + angle)
         shifted = filtered[1:] * np.conj(filtered[:-1])
         first = filtered[0] * np.conj(self.prev_sample)
         self.prev_sample = filtered[-1]
-        baseband = np.angle(np.concatenate([[first], shifted]))
+        raw_baseband = np.angle(np.concatenate([[first], shifted]))
 
-        # Audio low-pass filter at intermediate rate
-        baseband, self.audio_state = lfilter(
-            self.audio_filter, 1, baseband, zi=self.audio_state
-        )
+        # Process pilot PLL and stereo decoding per-sample at 192 kHz
+        n_inter = len(raw_baseband)
+        mono_signal = np.empty(n_inter)
+        diff_signal = np.empty(n_inter)
 
-        # Stage 2 decimation to audio rate
-        audio = baseband[::self.stage2_dec]
+        for k in range(n_inter):
+            bb = raw_baseband[k]
 
-        # De-emphasis filter
-        for i in range(len(audio)):
-            self.deemph_state += self.deemph_alpha * (audio[i] - self.deemph_state)
-            audio[i] = self.deemph_state
+            # Pilot PLL: bandpass → phase detector → NCO
+            pilot_sig = self._pilot_bpf(bb)
+            pilot_error = pilot_sig * np.cos(self.pilot_nco_phase)
+            self.pilot_nco_freq += self.pilot_beta * pilot_error
+            self.pilot_nco_phase += self.pilot_nco_freq + self.pilot_alpha * pilot_error
+            if self.pilot_nco_phase > 2 * np.pi:
+                self.pilot_nco_phase -= 2 * np.pi
+            elif self.pilot_nco_phase < 0:
+                self.pilot_nco_phase += 2 * np.pi
 
-        # Scale (avoid per-block normalization which causes pumping)
-        audio = np.clip(audio * 0.8, -1.0, 1.0)
+            # Pilot strength for stereo detection
+            self.pilot_strength_acc += pilot_sig * pilot_sig
+            self.pilot_strength_count += 1
+            if self.pilot_strength_count >= self.pilot_detect_window:
+                avg = self.pilot_strength_acc / self.pilot_strength_count
+                self.is_stereo = avg > 0.0005
+                self.pilot_strength_acc = 0.0
+                self.pilot_strength_count = 0
 
-        return audio.astype(np.float32)
+            # Scale for audio path
+            scaled = bb * self.fm_gain
+
+            # L+R (mono)
+            mono_signal[k] = scaled
+
+            # L-R: demodulate 38 kHz (2× pilot) DSB-SC subcarrier
+            stereo_carrier = np.cos(2.0 * self.pilot_nco_phase)
+            diff_signal[k] = scaled * stereo_carrier * 2.0
+
+        # Audio LPF for both mono and diff channels
+        mono_filt, self.mono_state = lfilter(
+            self.audio_filter, 1, mono_signal, zi=self.mono_state)
+        diff_filt, self.diff_state = lfilter(
+            self.audio_filter, 1, diff_signal, zi=self.diff_state)
+
+        # Stage 2 decimation to 48 kHz
+        mono_dec = mono_filt[::self.stage2_dec]
+        diff_dec = diff_filt[::self.stage2_dec]
+
+        # Stereo matrix: L = (L+R + L-R)/2, R = (L+R - L-R)/2
+        if self.is_stereo:
+            left = (mono_dec + diff_dec) * 0.5
+            right = (mono_dec - diff_dec) * 0.5
+        else:
+            left = mono_dec
+            right = mono_dec
+
+        # De-emphasis filter (50µs, separate L/R states)
+        for i in range(len(left)):
+            self.deemph_state_l += self.deemph_alpha * (left[i] - self.deemph_state_l)
+            left[i] = self.deemph_state_l
+            self.deemph_state_r += self.deemph_alpha * (right[i] - self.deemph_state_r)
+            right[i] = self.deemph_state_r
+
+        # Clip and return stereo (Nx2)
+        left = np.clip(left, -1.0, 1.0)
+        right = np.clip(right, -1.0, 1.0)
+        stereo = np.column_stack([left, right]).astype(np.float32)
+
+        return stereo
 
     def measure_power(self, iq_samples):
         """Measure signal power in dB."""
@@ -278,11 +376,19 @@ class FmDemodulator:
     def reset(self):
         self.if_state_i = np.zeros(len(self.if_filter) - 1)
         self.if_state_q = np.zeros(len(self.if_filter) - 1)
-        self.audio_state = np.zeros(len(self.audio_filter) - 1)
-        self.deemph_state = 0.0
+        self.mono_state = np.zeros(len(self.audio_filter) - 1)
+        self.diff_state = np.zeros(len(self.audio_filter) - 1)
+        self.deemph_state_l = 0.0
+        self.deemph_state_r = 0.0
         self.prev_sample = 0 + 0j
         self.dc_i = 0.0
         self.dc_q = 0.0
+        self.pilot_nco_phase = 0.0
+        self.pilot_nco_freq = 2.0 * np.pi * 19000.0 / self.intermediate_rate
+        self.pilot_bpf_state = [0.0, 0.0, 0.0, 0.0]
+        self.is_stereo = False
+        self.pilot_strength_acc = 0.0
+        self.pilot_strength_count = 0
 
 
 class StationStorage:
@@ -602,17 +708,17 @@ class FmRadioApp:
         stream = None
         try:
             stream = sd.OutputStream(
-                samplerate=AUDIO_RATE, channels=1, dtype='float32',
+                samplerate=AUDIO_RATE, channels=2, dtype='float32',
                 blocksize=1024
             )
             stream.start()
 
             while self.is_playing:
                 iq = self.sdr.read_samples(16384)
-                audio = self.demodulator.demodulate(iq)
-                audio = audio * self.volume
-                if len(audio) > 0:
-                    stream.write(audio.reshape(-1, 1))
+                stereo = self.demodulator.demodulate(iq)
+                stereo = stereo * self.volume
+                if len(stereo) > 0:
+                    stream.write(stereo)
         except Exception as e:
             self.root.after(0, lambda: self._handle_play_error(str(e)))
         finally:

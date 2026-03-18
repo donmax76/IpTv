@@ -4,16 +4,17 @@ import java.util.concurrent.locks.ReentrantLock
 import javax.sound.sampled.*
 
 /**
- * Desktop audio player using javax.sound.sampled with ring buffer
+ * Desktop stereo audio player using javax.sound.sampled with ring buffer
  * for smooth RTL-SDR streaming playback.
+ * Accepts interleaved stereo samples (L,R,L,R,...) from FmDemodulator.
  */
 class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
 
     companion object {
-        private const val RING_BUFFER_SAMPLES = 96000  // 2000ms
-        private const val PREFILL_SAMPLES = 4800       // 100ms prefill before playback starts
-        private const val FADE_IN_SAMPLES = 2400       // 50ms fade-in to avoid initial click
-        private const val CROSSFADE_SAMPLES = 512      // crossfade on buffer overflow
+        private const val RING_BUFFER_SAMPLES = 192000  // 2s stereo (48000 frames × 2 ch × 2)
+        private const val PREFILL_SAMPLES = 9600         // 100ms stereo
+        private const val FADE_IN_SAMPLES = 4800         // 50ms stereo
+        private const val CROSSFADE_SAMPLES = 1024       // crossfade on buffer overflow
     }
 
     private var sourceDataLine: SourceDataLine? = null
@@ -31,7 +32,6 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
     private var prefillDone = false
     private var samplesPlayed = 0L
 
-    // Smooth silence generation (ramp to zero instead of hard cut)
     private var lastOutputSample = 0
 
     fun start() {
@@ -40,12 +40,12 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
         val format = AudioFormat(
             sampleRate.toFloat(),
             16,     // bits per sample
-            1,      // mono
+            2,      // stereo
             true,   // signed
             false   // little-endian
         )
 
-        val bufSize = sampleRate * 2  // 1s buffer in bytes (16-bit mono)
+        val bufSize = sampleRate * 4  // 1s buffer in bytes (16-bit stereo)
         val info = DataLine.Info(SourceDataLine::class.java, format, bufSize)
         sourceDataLine = (AudioSystem.getLine(info) as SourceDataLine).also {
             it.open(format, bufSize)
@@ -59,12 +59,11 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
         isPlaying = true
 
         drainThread = Thread({
-            val chunkSamples = 1024
+            val chunkSamples = 2048  // 1024 stereo frames
             val chunkBytes = ByteArray(chunkSamples * 2)
             val chunk = ShortArray(chunkSamples)
 
             while (isPlaying) {
-                // Wait for prefill buffer before starting audio output
                 if (!prefillDone) {
                     lock.lock()
                     val avail = bufferedSamples
@@ -80,10 +79,11 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
                 lock.lock()
                 try { available = bufferedSamples } finally { lock.unlock() }
 
+                // Ensure even number of samples for stereo
                 val toDrain = if (available >= chunkSamples) chunkSamples
-                              else if (available >= 256) available
+                              else if (available >= 512) available and 0x7FFFFFFE
                               else {
-                                  // Buffer underflow — smooth ramp to silence instead of hard cut
+                                  // Buffer underflow — ramp to silence
                                   for (i in 0 until chunkSamples) {
                                       val fadeOut = (chunkSamples - i).toFloat() / chunkSamples
                                       val s = (lastOutputSample * fadeOut * 0.5f).toInt().coerceIn(-32767, 32767)
@@ -97,6 +97,11 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
                                   continue
                               }
 
+                if (toDrain == 0) {
+                    Thread.sleep(5)
+                    continue
+                }
+
                 lock.lock()
                 try {
                     for (i in 0 until toDrain) {
@@ -106,7 +111,7 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
                     bufferedSamples -= toDrain
                 } finally { lock.unlock() }
 
-                // Apply volume, fade-in, and convert to bytes
+                // Apply volume, fade-in, convert to bytes
                 for (i in 0 until toDrain) {
                     var fadeGain = 1.0f
                     if (samplesPlayed < FADE_IN_SAMPLES) {
@@ -130,7 +135,7 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
         drainThread?.priority = Thread.MAX_PRIORITY
         drainThread?.start()
 
-        println("Desktop audio started (${sampleRate}Hz)")
+        println("Desktop stereo audio started (${sampleRate}Hz)")
     }
 
     fun writeSamples(samples: ShortArray) {
@@ -139,18 +144,14 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
         try {
             val freeSpace = RING_BUFFER_SAMPLES - bufferedSamples
             if (samples.size > freeSpace) {
-                // Buffer full — drop oldest with smooth crossfade to avoid clicks
                 val toDrop = samples.size - freeSpace + RING_BUFFER_SAMPLES / 8
                 if (toDrop > 0 && toDrop <= bufferedSamples) {
-                    // Crossfade: blend the boundary region
                     val fadeLen = CROSSFADE_SAMPLES.coerceAtMost(bufferedSamples - toDrop)
                     val newReadPos = (readPos + toDrop) % RING_BUFFER_SAMPLES
                     for (i in 0 until fadeLen) {
                         val fadeIn = i.toFloat() / fadeLen
-                        val fadeOut = 1f - fadeIn
                         val oldIdx = (newReadPos + i) % RING_BUFFER_SAMPLES
-                        val keepSample = ringBuffer[oldIdx]
-                        ringBuffer[oldIdx] = (keepSample * fadeIn).toInt().toShort()
+                        ringBuffer[oldIdx] = (ringBuffer[oldIdx] * fadeIn).toInt().toShort()
                     }
                     readPos = newReadPos
                     bufferedSamples -= toDrop
