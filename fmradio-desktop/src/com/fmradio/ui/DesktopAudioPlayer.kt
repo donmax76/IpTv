@@ -11,6 +11,8 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
 
     companion object {
         private const val RING_BUFFER_SAMPLES = 96000  // 2000ms
+        private const val PREFILL_SAMPLES = 4800       // 100ms prefill before playback starts
+        private const val FADE_IN_SAMPLES = 2400       // 50ms fade-in to avoid initial click
     }
 
     private var sourceDataLine: SourceDataLine? = null
@@ -24,6 +26,9 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
     private var bufferedSamples = 0
     private val lock = ReentrantLock()
     private var drainThread: Thread? = null
+    @Volatile
+    private var prefillDone = false
+    private var samplesPlayed = 0L
 
     fun start() {
         if (isPlaying) return
@@ -36,7 +41,7 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
             false   // little-endian
         )
 
-        val bufSize = sampleRate  // 500ms buffer in bytes (16-bit mono)
+        val bufSize = sampleRate * 2  // 1s buffer in bytes (16-bit mono)
         val info = DataLine.Info(SourceDataLine::class.java, format, bufSize)
         sourceDataLine = (AudioSystem.getLine(info) as SourceDataLine).also {
             it.open(format, bufSize)
@@ -44,14 +49,28 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
         }
 
         writePos = 0; readPos = 0; bufferedSamples = 0
+        prefillDone = false
+        samplesPlayed = 0L
         isPlaying = true
 
         drainThread = Thread({
             val chunkSamples = 1024
-            val chunkBytes = ByteArray(chunkSamples * 2)  // 16-bit = 2 bytes per sample
+            val chunkBytes = ByteArray(chunkSamples * 2)
             val chunk = ShortArray(chunkSamples)
 
             while (isPlaying) {
+                // Wait for prefill buffer before starting audio output
+                if (!prefillDone) {
+                    lock.lock()
+                    val avail = bufferedSamples
+                    lock.unlock()
+                    if (avail < PREFILL_SAMPLES) {
+                        Thread.sleep(5)
+                        continue
+                    }
+                    prefillDone = true
+                }
+
                 val available: Int
                 lock.lock()
                 try { available = bufferedSamples } finally { lock.unlock() }
@@ -59,10 +78,10 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
                 val toDrain = if (available >= chunkSamples) chunkSamples
                               else if (available >= 256) available
                               else {
-                                  // Buffer underflow — write silence to avoid clicks
+                                  // Buffer underflow — write silence
                                   for (i in 0 until chunkSamples * 2) chunkBytes[i] = 0
                                   try { sourceDataLine?.write(chunkBytes, 0, chunkSamples * 2) } catch (_: Exception) {}
-                                  Thread.sleep(8)
+                                  Thread.sleep(5)
                                   continue
                               }
 
@@ -75,11 +94,16 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
                     bufferedSamples -= toDrain
                 } finally { lock.unlock() }
 
-                // Apply volume and convert to bytes (little-endian 16-bit)
+                // Apply volume, fade-in, and convert to bytes
                 for (i in 0 until toDrain) {
-                    val s = (chunk[i] * volume).toInt().coerceIn(-32767, 32767)
+                    var fadeGain = 1.0f
+                    if (samplesPlayed < FADE_IN_SAMPLES) {
+                        fadeGain = samplesPlayed.toFloat() / FADE_IN_SAMPLES
+                    }
+                    val s = (chunk[i] * volume * fadeGain).toInt().coerceIn(-32767, 32767)
                     chunkBytes[i * 2] = (s and 0xFF).toByte()
                     chunkBytes[i * 2 + 1] = ((s shr 8) and 0xFF).toByte()
+                    samplesPlayed++
                 }
 
                 try {
