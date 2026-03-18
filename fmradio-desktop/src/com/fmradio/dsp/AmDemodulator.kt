@@ -5,9 +5,8 @@ import kotlin.math.*
 /**
  * AM demodulator for shortwave (SW/HF) and air band reception.
  *
- * IQ samples -> DC removal -> Envelope detection -> AGC -> Audio LPF -> Decimate -> Output
- *
- * Supports AM (envelope) and DSB (double sideband) modes.
+ * IQ samples -> DC removal -> IF LPF -> Decimate -> Envelope detection -> AGC ->
+ *   Audio LPF -> DC removal -> Noise gate -> Output
  */
 class AmDemodulator(
     private val inputSampleRate: Int = 1152000,
@@ -15,19 +14,26 @@ class AmDemodulator(
 ) {
     private val decimationFactor = inputSampleRate / audioSampleRate
 
-    // DC removal
+    // DC removal on IQ input
     private var dcI = 0f
     private var dcQ = 0f
     private val dcAlpha = 0.998f
 
     // AGC (Automatic Gain Control)
-    private var agcGain = 1.0f
-    private val agcTarget = 0.3f
-    private val agcAttack = 0.01f   // fast attack
-    private val agcDecay = 0.0001f  // slow decay
+    private var agcGain = 10.0f
+    private val agcTarget = 0.4f
+    private val agcAttack = 0.005f
+    private val agcDecay = 0.0002f
 
-    // Audio low-pass filter
-    private val audioLpfOrder = 48
+    // IF low-pass filter (before decimation, at input sample rate)
+    private val ifLpfOrder = 64
+    private val ifLpfCoeffs: FloatArray
+    private var ifBufI = FloatArray(ifLpfOrder)
+    private var ifBufQ = FloatArray(ifLpfOrder)
+    private var ifBufIdx = 0
+
+    // Audio low-pass filter (after decimation, at audio sample rate)
+    private val audioLpfOrder = 32
     private val audioLpfCoeffs: FloatArray
     private var audioLpfBuf = FloatArray(audioLpfOrder)
     private var audioLpfIdx = 0
@@ -36,12 +42,22 @@ class AmDemodulator(
     private var audioDcState = 0f
     private val audioDcAlpha = 0.995f
 
+    // Noise gate
+    private var noiseFloor = 0.01f
+    private var noiseGateGain = 0f
+    private val noiseGateAttack = 0.05f
+    private val noiseGateRelease = 0.002f
+
     private var decimCounter = 0
 
     init {
-        // Audio LPF: cutoff at 5kHz for AM (narrower than FM)
-        val cutoff = 5000f / (inputSampleRate.toFloat() / 2f)
-        audioLpfCoeffs = designLowPassFilter(audioLpfOrder, cutoff)
+        // IF filter: 8 kHz cutoff at input sample rate (passes AM signal bandwidth)
+        val ifCutoff = 8000f / (inputSampleRate.toFloat() / 2f)
+        ifLpfCoeffs = designLowPassFilter(ifLpfOrder, ifCutoff)
+
+        // Audio LPF: 4 kHz cutoff at audio sample rate (smooth output)
+        val audioCutoff = 4000f / (audioSampleRate.toFloat() / 2f)
+        audioLpfCoeffs = designLowPassFilter(audioLpfOrder, audioCutoff)
     }
 
     private fun designLowPassFilter(order: Int, normalizedCutoff: Float): FloatArray {
@@ -82,8 +98,27 @@ class AmDemodulator(
             iSample -= dcI
             qSample -= dcQ
 
-            // AM envelope detection: magnitude of IQ vector
-            val envelope = sqrt(iSample * iSample + qSample * qSample)
+            // IF low-pass filter (at input rate, before decimation)
+            ifBufI[ifBufIdx] = iSample
+            ifBufQ[ifBufIdx] = qSample
+            ifBufIdx = (ifBufIdx + 1) % ifLpfOrder
+
+            // Decimate
+            decimCounter++
+            if (decimCounter < decimationFactor) continue
+            decimCounter = 0
+
+            // Apply IF filter
+            var filtI = 0f
+            var filtQ = 0f
+            for (j in 0 until ifLpfOrder) {
+                val idx = (ifBufIdx - 1 - j + ifLpfOrder) % ifLpfOrder
+                filtI += ifBufI[idx] * ifLpfCoeffs[j]
+                filtQ += ifBufQ[idx] * ifLpfCoeffs[j]
+            }
+
+            // AM envelope detection: magnitude of filtered IQ vector
+            val envelope = sqrt(filtI * filtI + filtQ * filtQ)
 
             // AGC
             val level = envelope * agcGain
@@ -92,18 +127,13 @@ class AmDemodulator(
             } else {
                 agcGain += agcDecay * (agcTarget - level)
             }
-            agcGain = agcGain.coerceIn(0.01f, 100f)
+            agcGain = agcGain.coerceIn(0.1f, 200f)
 
             val audio = envelope * agcGain
 
-            // Audio LPF
+            // Audio LPF (at audio rate)
             audioLpfBuf[audioLpfIdx] = audio
             audioLpfIdx = (audioLpfIdx + 1) % audioLpfOrder
-
-            // Decimate
-            decimCounter++
-            if (decimCounter < decimationFactor) continue
-            decimCounter = 0
 
             var filtAudio = 0f
             for (j in 0 until audioLpfOrder) {
@@ -115,8 +145,22 @@ class AmDemodulator(
             audioDcState = audioDcAlpha * audioDcState + (1 - audioDcAlpha) * filtAudio
             val out = filtAudio - audioDcState
 
+            // Noise gate: suppress output when signal is below noise floor
+            val absOut = if (out < 0) -out else out
+            if (absOut > noiseFloor * 3f) {
+                noiseGateGain += noiseGateAttack * (1f - noiseGateGain)
+            } else {
+                noiseGateGain -= noiseGateRelease * noiseGateGain
+            }
+            noiseGateGain = noiseGateGain.coerceIn(0f, 1f)
+
+            // Update noise floor estimate (slow tracking)
+            noiseFloor = 0.999f * noiseFloor + 0.001f * absOut.coerceAtMost(0.1f)
+
+            val gated = out * noiseGateGain
+
             // Scale to 16-bit
-            val scaled = (out * 30000f).coerceIn(-30000f, 30000f)
+            val scaled = (gated * 28000f).coerceIn(-30000f, 30000f)
             if (audioCount < audioOut.size) {
                 audioOut[audioCount++] = scaled.toInt().toShort()
             }
@@ -140,9 +184,11 @@ class AmDemodulator(
 
     fun reset() {
         dcI = 0f; dcQ = 0f
-        agcGain = 1.0f
+        agcGain = 10.0f
+        ifBufI = FloatArray(ifLpfOrder); ifBufQ = FloatArray(ifLpfOrder); ifBufIdx = 0
         audioLpfBuf = FloatArray(audioLpfOrder); audioLpfIdx = 0
         audioDcState = 0f
         decimCounter = 0
+        noiseFloor = 0.01f; noiseGateGain = 0f
     }
 }

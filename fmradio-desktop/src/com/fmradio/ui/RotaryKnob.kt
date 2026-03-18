@@ -90,10 +90,17 @@ class RotaryKnob(
                 if (delta > PI) delta -= 2 * PI
                 if (delta < -PI) delta += 2 * PI
 
-                val newAngle = (dragStartAngle + delta).coerceIn(minAngle, maxAngle)
+                // Ctrl+drag = fine tuning (4x slower rotation)
+                val sensitivity = if (e.isControlDown) 0.25 else 1.0
+                val newAngle = (dragStartAngle + delta * sensitivity).coerceIn(minAngle, maxAngle)
                 if (newAngle != angle) {
                     angle = newAngle
-                    val newValue = angleToValue(angle)
+                    var newValue = angleToValue(angle)
+                    // Snap to step grid
+                    if (stepSize > 1) {
+                        newValue = ((newValue + stepSize / 2) / stepSize) * stepSize
+                        newValue = newValue.coerceIn(minValue, maxValue)
+                    }
                     if (newValue != value) {
                         value = newValue
                         onValueChanged?.invoke(value)
@@ -103,7 +110,9 @@ class RotaryKnob(
             }
 
             override fun mouseWheelMoved(e: MouseWheelEvent) {
-                val delta = -e.wheelRotation.toLong() * stepSize
+                // Ctrl+scroll = fine tuning (1/10 step), normal scroll = full step
+                val actualStep = if (e.isControlDown) (stepSize / 10).coerceAtLeast(1L) else stepSize
+                val delta = -e.wheelRotation.toLong() * actualStep
                 val newValue = (value + delta).coerceIn(minValue, maxValue)
                 if (newValue != value) {
                     value = newValue

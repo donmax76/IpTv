@@ -26,8 +26,8 @@ import org.json.JSONObject
 class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     companion object {
-        const val VERSION = "1.4"
-        const val BUILD = "20260318-3"
+        const val VERSION = "1.5"
+        const val BUILD = "20260318-4"
 
         // FM band range (extended: OIRT 65.8-74 + CCIR 87.5-108)
         const val FM_MIN_HZ = 76_000_000L
@@ -149,8 +149,9 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     private val stationListModel = DefaultListModel<StationEntry>()
     private val stationList = JList(stationListModel)
 
-    // Storage file
+    // Storage files
     private val storageFile = File(System.getProperty("user.home"), ".fmradio-presets.json")
+    private val settingsFile = File(System.getProperty("user.home"), ".fmradio-settings.json")
 
     data class PresetEntry(val frequencyHz: Long, val name: String = "") {
         override fun toString() = if (name.isNotEmpty()) "$name (${formatFreq(frequencyHz)})" else "${formatFreq(frequencyHz)} MHz"
@@ -181,8 +182,9 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         rdsScrollTimer = Timer(250) { scrollRadioText() }
         rdsScrollTimer?.start()
 
-        // Load saved presets
+        // Load saved presets and settings
         loadPresetsFromFile()
+        loadSettings()
 
         // Auto-connect on startup
         SwingUtilities.invokeLater { autoConnect() }
@@ -228,11 +230,19 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         // Actions
         playBtn.addActionListener { togglePlayback() }
 
-        // Keyboard shortcuts
+        // Keyboard shortcuts: arrows = full step, Ctrl+arrows = fine step (1/10)
         rootPane.registerKeyboardAction({ tuneFrequency(currentFrequency - currentBandDef.stepHz) },
             KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, 0), JComponent.WHEN_IN_FOCUSED_WINDOW)
         rootPane.registerKeyboardAction({ tuneFrequency(currentFrequency + currentBandDef.stepHz) },
             KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, 0), JComponent.WHEN_IN_FOCUSED_WINDOW)
+        rootPane.registerKeyboardAction({
+            val fineStep = (currentBandDef.stepHz / 10).coerceAtLeast(1000L)
+            tuneFrequency(currentFrequency - fineStep)
+        }, KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, KeyEvent.CTRL_DOWN_MASK), JComponent.WHEN_IN_FOCUSED_WINDOW)
+        rootPane.registerKeyboardAction({
+            val fineStep = (currentBandDef.stepHz / 10).coerceAtLeast(1000L)
+            tuneFrequency(currentFrequency + fineStep)
+        }, KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, KeyEvent.CTRL_DOWN_MASK), JComponent.WHEN_IN_FOCUSED_WINDOW)
         rootPane.registerKeyboardAction({ togglePlayback() },
             KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), JComponent.WHEN_IN_FOCUSED_WINDOW)
 
@@ -973,6 +983,58 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     }
 
     // =========================================================================
+    //  SETTINGS PERSISTENCE
+    // =========================================================================
+
+    private fun saveSettings() {
+        try {
+            val obj = JSONObject().apply {
+                put("volume", volumeSlider.value)
+                put("bass", bassSlider.value)
+                put("treble", trebleSlider.value)
+                put("band", currentBand)
+                put("frequencyHz", currentFrequency)
+                put("afEnabled", afEnabled)
+                put("taEnabled", taEnabled)
+            }
+            settingsFile.writeText(obj.toString(2))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun loadSettings() {
+        if (!settingsFile.exists()) return
+        try {
+            val obj = JSONObject(settingsFile.readText())
+            volumeSlider.value = obj.optInt("volume", 80)
+            bassSlider.value = obj.optInt("bass", 10)
+            trebleSlider.value = obj.optInt("treble", 10)
+
+            val savedBand = obj.optInt("band", 0)
+            if (savedBand in bands.indices && savedBand != 0) {
+                // Switch to saved band (0 is default FM, already set)
+                currentBand = savedBand - 1  // switchBand() increments
+                switchBand()
+            }
+
+            val savedFreq = obj.optLong("frequencyHz", currentFrequency)
+            if (savedFreq in currentBandDef.minHz..currentBandDef.maxHz) {
+                currentFrequency = savedFreq
+                updateFreqDisplay()
+                val sliderStep = currentBandDef.stepHz.coerceAtLeast(5_000L)
+                tuningSlider.value = (currentFrequency / sliderStep).toInt()
+                tuningKnob.value = currentFrequency
+            }
+
+            if (obj.optBoolean("afEnabled", false)) toggleAf()
+            if (obj.optBoolean("taEnabled", false)) toggleTa()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    // =========================================================================
     //  FUNCTION BUTTONS
     // =========================================================================
 
@@ -1080,37 +1142,32 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     }
 
     // ---- PTY: Program Type ----
-    // Shows a popup menu with current PTY info and lets you scan for stations of a specific type
+    // Shows current station info from RDS
     private fun showPtyMenu() {
         val rds = lastRdsData
         val menu = JPopupMenu()
         menu.background = Color(0x22, 0x22, 0x33)
 
-        // Show current PTY
         val currentPty = if (rds != null && rds.ptyName.isNotBlank() && rds.ptyName != "None")
-            rds.ptyName else "Unknown"
-        val headerItem = JMenuItem("Current: $currentPty").apply {
-            foreground = CYAN
-            background = Color(0x22, 0x22, 0x33)
-            isEnabled = false
-        }
-        menu.add(headerItem)
-        menu.addSeparator()
+            rds.ptyName else "---"
+        val stationName = if (rds != null && rds.ps.isNotBlank()) rds.ps.trim() else "---"
+        val piText = if (rds != null && rds.pi != 0) String.format("%04X", rds.pi) else "---"
+        val tpText = if (rds?.tp == true) "Yes" else "No"
+        val afCount = rds?.afList?.size ?: 0
 
-        // List all PTY types with scan option
-        val popularPtys = listOf(1 to "News", 4 to "Sport", 10 to "Pop Music",
-            11 to "Rock Music", 3 to "Information", 12 to "Easy Listening",
-            14 to "Serious Classical", 24 to "Jazz", 25 to "Country", 27 to "Oldies")
-
-        for ((code, name) in popularPtys) {
-            val item = JMenuItem("Scan: $name").apply {
-                foreground = TEXT_LIGHT
+        for (line in listOf(
+            "Station: $stationName" to CYAN,
+            "Genre: $currentPty" to TEXT_LIGHT,
+            "PI Code: $piText" to TEXT_LIGHT,
+            "Traffic Program: $tpText" to TEXT_LIGHT,
+            "Alternate Freq: $afCount" to TEXT_LIGHT,
+            "Freq: ${formatFreq(currentFrequency)} MHz" to AMBER
+        )) {
+            menu.add(JMenuItem(line.first).apply {
+                foreground = line.second
                 background = Color(0x22, 0x22, 0x33)
-            }
-            item.addActionListener {
-                statusLabel.text = "PTY: looking for $name stations..."
-            }
-            menu.add(item)
+                isEnabled = false
+            })
         }
 
         menu.show(btnPty, 0, btnPty.height)
@@ -1186,31 +1243,45 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             sdr.resetBuffer()
 
             val (startHz, endHz) = bandRanges[currentBand]
-            val scanStep = if (band.modulation == "AM") band.stepHz * 2 else 100_000L
+            val scanStep = if (band.modulation == "AM") band.stepHz else 100_000L
             var freq = startHz
+
+            // First pass: collect noise floor estimate
+            sdr.setFrequency(startHz)
+            Thread.sleep(50)
+            sdr.resetBuffer()
+            val noiseSample = sdr.readSamples(65536)
+            val noiseFloor = if (noiseSample != null) {
+                (tempAmDemod?.measureSignalStrength(noiseSample)
+                    ?: tempFmDemod?.measureSignalStrength(noiseSample) ?: -30f)
+            } else -30f
+            val powerThreshold = (noiseFloor + 6f).coerceAtLeast(-18f)  // 6 dB above noise
 
             while (freq <= endHz) {
                 sdr.setFrequency(freq)
-                Thread.sleep(30)
+                Thread.sleep(50)   // longer settle time
                 sdr.resetBuffer()
-                Thread.sleep(40)
+                Thread.sleep(60)   // longer dwell time
 
-                // Read two samples for more accurate measurement
+                // Read three samples for accurate measurement
                 val samples1 = sdr.readSamples(65536)
                 val samples2 = sdr.readSamples(65536)
-                if (samples1 != null && samples2 != null) {
+                val samples3 = sdr.readSamples(65536)
+                if (samples1 != null && samples2 != null && samples3 != null) {
                     val power1 = tempAmDemod?.measureSignalStrength(samples1)
                         ?: tempFmDemod?.measureSignalStrength(samples1) ?: -50f
                     val power2 = tempAmDemod?.measureSignalStrength(samples2)
                         ?: tempFmDemod?.measureSignalStrength(samples2) ?: -50f
-                    val avgPower = (power1 + power2) / 2f
+                    val power3 = tempAmDemod?.measureSignalStrength(samples3)
+                        ?: tempFmDemod?.measureSignalStrength(samples3) ?: -50f
+                    val avgPower = (power1 + power2 + power3) / 3f
 
-                    // For FM: also check modulation quality; for AM: power threshold only
+                    // For FM: also check modulation quality; for AM: adaptive threshold
                     val isStation = if (tempFmDemod != null) {
                         val quality = tempFmDemod.measureSignalQuality(samples2)
-                        avgPower > -12f && quality > 0.005f
+                        avgPower > powerThreshold && quality > 0.003f
                     } else {
-                        avgPower > -15f
+                        avgPower > powerThreshold
                     }
 
                     if (isStation) {
@@ -1285,6 +1356,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             minimumSize = Dimension(w, h)
             maximumSize = Dimension(w, h)
             font = Font("SansSerif", Font.BOLD, 12)
+            foreground = TEXT_LIGHT
             toolTipText = tooltip
             isFocusPainted = false
             isContentAreaFilled = false
@@ -1498,13 +1570,13 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     }
 
     private fun updateSignalStrength(power: Float) {
-        // RTL-SDR 8-bit IQ: noise floor is about -20 to -30 dB, strong stations near -3 dB
+        // RTL-SDR 8-bit IQ: noise floor ~ -25 to -35 dB, strong stations ~ -3 to -8 dB
         signalStrength = when {
-            power > -5f -> 5
-            power > -8f -> 4
-            power > -12f -> 3
-            power > -18f -> 2
-            power > -25f -> 1
+            power > -6f -> 5
+            power > -10f -> 4
+            power > -15f -> 3
+            power > -20f -> 2
+            power > -28f -> 1
             else -> 0
         }
         signalPanel.repaint()
@@ -1697,7 +1769,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             sdr.setAutoGain(true)
             sdr.setDirectSampling(band.directSampling)
             sdr.resetBuffer()
-            val step = if (isAm) band.stepHz * 2 else 100_000L
+            val step = if (isAm) band.stepHz else 100_000L
             var freq = currentFrequency + if (forward) step else -step
             var found: Long? = null
 
@@ -1707,18 +1779,22 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                 if (freq > bandMax) freq = bandMin
                 if (freq < bandMin) freq = bandMax
                 sdr.setFrequency(freq)
-                Thread.sleep(30)
+                Thread.sleep(50)
                 sdr.resetBuffer()
-                Thread.sleep(40)
-                val samples = sdr.readSamples(65536)
-                if (samples != null) {
-                    val power = tempAmDemod?.measureSignalStrength(samples)
-                        ?: tempFmDemod?.measureSignalStrength(samples) ?: -50f
+                Thread.sleep(60)
+                val samples1 = sdr.readSamples(65536)
+                val samples2 = sdr.readSamples(65536)
+                if (samples1 != null && samples2 != null) {
+                    val power1 = tempAmDemod?.measureSignalStrength(samples1)
+                        ?: tempFmDemod?.measureSignalStrength(samples1) ?: -50f
+                    val power2 = tempAmDemod?.measureSignalStrength(samples2)
+                        ?: tempFmDemod?.measureSignalStrength(samples2) ?: -50f
+                    val power = (power1 + power2) / 2f
                     val isStation = if (tempFmDemod != null) {
-                        val quality = tempFmDemod.measureSignalQuality(samples)
-                        power > -12f && quality > 0.005f
+                        val quality = tempFmDemod.measureSignalQuality(samples2)
+                        power > -15f && quality > 0.003f
                     } else {
-                        power > -15f
+                        power > -18f
                     }
                     if (isStation) { found = freq; break }
                 }
@@ -1745,6 +1821,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     }
 
     private fun shutdown() {
+        saveSettings()
         rdsScrollTimer?.stop()
         stopPlayback()
         sdr.close()

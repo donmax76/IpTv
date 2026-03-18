@@ -163,13 +163,12 @@ class FmDemodulator(
                 filtAudio += audioLpfBuf[idx] * audioLpfCoeffs[j]
             }
 
-            // Two-stage de-emphasis filter (gentler, reduces ringing)
+            // Single-stage de-emphasis filter (50us, natural FM sound)
             deEmphasisState1 += deEmphasisAlpha1 * (filtAudio - deEmphasisState1)
-            deEmphasisState2 += deEmphasisAlpha2 * (deEmphasisState1 - deEmphasisState2)
-            val audio = deEmphasisState2
+            val audio = deEmphasisState1
 
             // Scale to 16-bit PCM with smooth soft limiter (tanh-like)
-            val raw = audio * 22000f
+            val raw = audio * 28000f
             val absRaw = if (raw < 0) -raw else raw
             val scaled = if (absRaw > 16000f) {
                 val over = (absRaw - 16000f) / 16000f

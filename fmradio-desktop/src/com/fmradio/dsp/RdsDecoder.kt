@@ -4,6 +4,9 @@ import kotlin.math.*
 
 /**
  * RDS (Radio Data System) decoder - Desktop version (no Android dependencies).
+ *
+ * Extracts PS (station name), RT (radio text), PTY (program type),
+ * AF (alternate frequencies), TA/TP (traffic) from FM broadcast.
  */
 class RdsDecoder(private val sampleRate: Int = 192000) {
 
@@ -39,20 +42,31 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     interface RdsListener { fun onRdsData(data: RdsData) }
     var listener: RdsListener? = null
 
+    // 57 kHz carrier recovery
     private var carrierPhase = 0.0
     private val carrierIncrement = 2.0 * PI * RDS_CARRIER_FREQ / sampleRate
-    private val rdsLpfOrder = 48
+
+    // RDS bandpass filter (wider, higher order for better selectivity)
+    private val rdsLpfOrder = 96
     private val rdsLpfCoeffs: FloatArray
     private var rdsLpfBufI = FloatArray(rdsLpfOrder)
     private var rdsLpfBufQ = FloatArray(rdsLpfOrder)
     private var rdsLpfIdx = 0
-    private val rdsDecimation = 10
+
+    // Decimation to lower rate for bit recovery
+    private val rdsDecimation = 8
     private val rdsRate = sampleRate / rdsDecimation
     private var rdsDecimCounter = 0
+
+    // Bit clock recovery
     private val samplesPerBit = rdsRate.toFloat() / RDS_BITRATE.toFloat()
     private var clockPhase = 0f
     private var prevRdsSample = 0f
+
+    // Differential decoding
     private var prevBit = 0
+
+    // Block sync
     private var bitBuffer = 0L
     private var bitCount = 0
     private var synced = false
@@ -60,6 +74,8 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private var goodBlocks = 0
     private var badBlocks = 0
     private val groupData = IntArray(4)
+
+    // RDS data fields
     private val psChars = CharArray(8) { ' ' }
     private val rtChars = CharArray(64) { ' ' }
     private var rtLength = 0
@@ -71,8 +87,12 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private val afFrequencies = mutableSetOf<Float>()
     @Volatile private var dataChanged = false
 
+    // Signal level tracking for adaptive thresholds
+    private var rdsSignalLevel = 0f
+
     init {
-        val cutoff = 2400f / (sampleRate.toFloat() / 2f)
+        // Wider filter: 3 kHz cutoff for better RDS signal capture
+        val cutoff = 3000f / (sampleRate.toFloat() / 2f)
         rdsLpfCoeffs = designRdsFilter(rdsLpfOrder, cutoff)
     }
 
@@ -82,7 +102,9 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             val n = i - mid
             coeffs[i] = if (n == 0) normalizedCutoff
             else sin(PI.toFloat() * normalizedCutoff * n) / (PI.toFloat() * n)
-            coeffs[i] *= 0.54f - 0.46f * cos(2 * PI.toFloat() * i / (order - 1))
+            // Blackman window (better stopband than Hamming)
+            val w = i.toFloat() / (order - 1).toFloat()
+            coeffs[i] *= 0.42f - 0.5f * cos(2 * PI.toFloat() * w) + 0.08f * cos(4 * PI.toFloat() * w)
             sum += coeffs[i]
         }
         for (i in coeffs.indices) coeffs[i] /= sum
@@ -95,17 +117,30 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             val sinC = sin(carrierPhase).toFloat()
             carrierPhase += carrierIncrement
             if (carrierPhase > 2 * PI) carrierPhase -= 2 * PI
+
+            // Mix down from 57 kHz
             rdsLpfBufI[rdsLpfIdx] = sample * cosC
             rdsLpfBufQ[rdsLpfIdx] = sample * sinC
             rdsLpfIdx = (rdsLpfIdx + 1) % rdsLpfOrder
+
             rdsDecimCounter++
             if (rdsDecimCounter < rdsDecimation) continue
             rdsDecimCounter = 0
+
+            // Apply LPF
             var filtI = 0f
+            var filtQ = 0f
             for (j in 0 until rdsLpfOrder) {
                 val idx = (rdsLpfIdx - 1 - j + rdsLpfOrder) % rdsLpfOrder
                 filtI += rdsLpfBufI[idx] * rdsLpfCoeffs[j]
+                filtQ += rdsLpfBufQ[idx] * rdsLpfCoeffs[j]
             }
+
+            // Track signal level
+            val mag = sqrt(filtI * filtI + filtQ * filtQ)
+            rdsSignalLevel = 0.999f * rdsSignalLevel + 0.001f * mag
+
+            // Use I channel for BPSK demodulation
             processRdsSample(filtI)
         }
     }
@@ -115,13 +150,17 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         if (clockPhase >= samplesPerBit) {
             clockPhase -= samplesPerBit
             val bit = if (sample > 0) 1 else 0
-            val decodedBit = bit xor prevBit
+            val decodedBit = bit xor prevBit  // NRZI differential decoding
             prevBit = bit
             processBit(decodedBit)
         }
+
+        // Clock recovery: adjust phase on zero crossings
         if ((sample > 0 && prevRdsSample <= 0) || (sample < 0 && prevRdsSample >= 0)) {
             val error = clockPhase - samplesPerBit / 2
-            clockPhase -= error * 0.1f
+            // Proportional correction with clamped gain
+            val correction = (error * 0.15f).coerceIn(-samplesPerBit * 0.25f, samplesPerBit * 0.25f)
+            clockPhase -= correction
         }
         prevRdsSample = sample
     }
@@ -129,6 +168,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private fun processBit(bit: Int) {
         bitBuffer = ((bitBuffer shl 1) or bit.toLong()) and 0x3FFFFFFL
         bitCount++
+
         if (!synced) {
             if (bitCount >= 26) {
                 val syndrome = calcSyndrome(bitBuffer, 26)
@@ -149,9 +189,12 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 if (syndrome == expectedOffset) {
                     groupData[blockIndex] = ((bitBuffer shr 10) and 0xFFFF).toInt()
                     goodBlocks++
+                    badBlocks = (badBlocks - 1).coerceAtLeast(0)  // reward good blocks
                 } else {
                     badBlocks++
-                    if (badBlocks > 10) { synced = false; bitCount = 0; return }
+                    if (badBlocks > 20) {  // more tolerant before losing sync
+                        synced = false; bitCount = 0; return
+                    }
                 }
                 blockIndex++; bitCount = 0
                 if (blockIndex >= 4) {
@@ -256,6 +299,6 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         for (i in psChars.indices) psChars[i] = ' '
         for (i in rtChars.indices) rtChars[i] = ' '
         rtLength = 0; piCode = 0; ptyCode = 0; tpFlag = false; taFlag = false; msFlag = false
-        afFrequencies.clear(); dataChanged = false
+        afFrequencies.clear(); dataChanged = false; rdsSignalLevel = 0f
     }
 }

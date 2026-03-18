@@ -13,6 +13,7 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
         private const val RING_BUFFER_SAMPLES = 96000  // 2000ms
         private const val PREFILL_SAMPLES = 4800       // 100ms prefill before playback starts
         private const val FADE_IN_SAMPLES = 2400       // 50ms fade-in to avoid initial click
+        private const val CROSSFADE_SAMPLES = 512      // crossfade on buffer overflow
     }
 
     private var sourceDataLine: SourceDataLine? = null
@@ -29,6 +30,9 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
     @Volatile
     private var prefillDone = false
     private var samplesPlayed = 0L
+
+    // Smooth silence generation (ramp to zero instead of hard cut)
+    private var lastOutputSample = 0
 
     fun start() {
         if (isPlaying) return
@@ -51,6 +55,7 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
         writePos = 0; readPos = 0; bufferedSamples = 0
         prefillDone = false
         samplesPlayed = 0L
+        lastOutputSample = 0
         isPlaying = true
 
         drainThread = Thread({
@@ -78,8 +83,15 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
                 val toDrain = if (available >= chunkSamples) chunkSamples
                               else if (available >= 256) available
                               else {
-                                  // Buffer underflow — write silence
-                                  for (i in 0 until chunkSamples * 2) chunkBytes[i] = 0
+                                  // Buffer underflow — smooth ramp to silence instead of hard cut
+                                  for (i in 0 until chunkSamples) {
+                                      val fadeOut = (chunkSamples - i).toFloat() / chunkSamples
+                                      val s = (lastOutputSample * fadeOut * 0.5f).toInt().coerceIn(-32767, 32767)
+                                      chunkBytes[i * 2] = (s and 0xFF).toByte()
+                                      chunkBytes[i * 2 + 1] = ((s shr 8) and 0xFF).toByte()
+                                      lastOutputSample = s
+                                  }
+                                  lastOutputSample = 0
                                   try { sourceDataLine?.write(chunkBytes, 0, chunkSamples * 2) } catch (_: Exception) {}
                                   Thread.sleep(5)
                                   continue
@@ -103,6 +115,7 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
                     val s = (chunk[i] * volume * fadeGain).toInt().coerceIn(-32767, 32767)
                     chunkBytes[i * 2] = (s and 0xFF).toByte()
                     chunkBytes[i * 2 + 1] = ((s shr 8) and 0xFF).toByte()
+                    lastOutputSample = s
                     samplesPlayed++
                 }
 
@@ -126,10 +139,20 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
         try {
             val freeSpace = RING_BUFFER_SAMPLES - bufferedSamples
             if (samples.size > freeSpace) {
-                // Buffer full — drop oldest samples smoothly
-                val toDrop = samples.size - freeSpace + RING_BUFFER_SAMPLES / 4
+                // Buffer full — drop oldest with smooth crossfade to avoid clicks
+                val toDrop = samples.size - freeSpace + RING_BUFFER_SAMPLES / 8
                 if (toDrop > 0 && toDrop <= bufferedSamples) {
-                    readPos = (readPos + toDrop) % RING_BUFFER_SAMPLES
+                    // Crossfade: blend the boundary region
+                    val fadeLen = CROSSFADE_SAMPLES.coerceAtMost(bufferedSamples - toDrop)
+                    val newReadPos = (readPos + toDrop) % RING_BUFFER_SAMPLES
+                    for (i in 0 until fadeLen) {
+                        val fadeIn = i.toFloat() / fadeLen
+                        val fadeOut = 1f - fadeIn
+                        val oldIdx = (newReadPos + i) % RING_BUFFER_SAMPLES
+                        val keepSample = ringBuffer[oldIdx]
+                        ringBuffer[oldIdx] = (keepSample * fadeIn).toInt().toShort()
+                    }
+                    readPos = newReadPos
                     bufferedSamples -= toDrop
                 }
             }
