@@ -16,6 +16,8 @@ fi
 LIB_DIR="$SCRIPT_DIR/lib"
 JNA_VERSION="5.14.0"
 JNA_JAR="$LIB_DIR/jna-${JNA_VERSION}.jar"
+JSON_VERSION="20231013"
+JSON_JAR="$LIB_DIR/json-${JSON_VERSION}.jar"
 
 echo "=== Building FM Radio Desktop ==="
 rm -rf "$OUT_DIR"
@@ -29,19 +31,27 @@ if [ ! -f "$JNA_JAR" ]; then
         "https://repo1.maven.org/maven2/net/java/dev/jna/jna/${JNA_VERSION}/jna-${JNA_VERSION}.jar"
 fi
 
+# Download org.json if not present
+if [ ! -f "$JSON_JAR" ]; then
+    echo "=== Downloading org.json ${JSON_VERSION} ==="
+    curl -fSL -o "$JSON_JAR" \
+        "https://repo1.maven.org/maven2/org/json/json/${JSON_VERSION}/json-${JSON_VERSION}.jar"
+fi
+
 echo "=== Compiling Kotlin sources ==="
 "$KOTLINC" \
     -jvm-target 11 \
     -nowarn \
-    -classpath "$JNA_JAR" \
+    -classpath "$JNA_JAR:$JSON_JAR" \
     $(find "$SRC_DIR" -name "*.kt" -type f) \
     -d "$OUT_DIR/classes" 2>&1
 
 echo "=== Creating JAR ==="
 cd "$OUT_DIR/classes"
 
-# Extract JNA classes into output for fat jar
+# Extract JNA and JSON classes into output for fat jar
 jar xf "$JNA_JAR"
+jar xf "$JSON_JAR"
 rm -rf META-INF
 
 # Create manifest
