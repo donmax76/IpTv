@@ -10,7 +10,7 @@ import javax.sound.sampled.*
 class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
 
     companion object {
-        private const val RING_BUFFER_SAMPLES = 48000  // 1000ms
+        private const val RING_BUFFER_SAMPLES = 96000  // 2000ms
     }
 
     private var sourceDataLine: SourceDataLine? = null
@@ -36,7 +36,7 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
             false   // little-endian
         )
 
-        val bufSize = sampleRate * 2 / 4  // 250ms buffer in bytes (16-bit mono)
+        val bufSize = sampleRate  // 500ms buffer in bytes (16-bit mono)
         val info = DataLine.Info(SourceDataLine::class.java, format, bufSize)
         sourceDataLine = (AudioSystem.getLine(info) as SourceDataLine).also {
             it.open(format, bufSize)

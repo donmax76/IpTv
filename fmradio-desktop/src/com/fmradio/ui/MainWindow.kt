@@ -25,8 +25,12 @@ import org.json.JSONObject
 class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     companion object {
-        const val VERSION = "1.2"
-        const val BUILD = "20260318-1"
+        const val VERSION = "1.3"
+        const val BUILD = "20260318-2"
+
+        // FM band range (extended: OIRT 65.8-74 + CCIR 87.5-108)
+        const val FM_MIN_HZ = 76_000_000L
+        const val FM_MAX_HZ = 108_000_000L
 
         // Color palette (matches Android)
         val BG_TOP = Color(0x1A, 0x1A, 0x2E)
@@ -72,8 +76,6 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     private var currentFrequency = 100_000_000L  // 100.0 MHz
     private val stepHz = 100_000L  // 100 kHz step
     private var signalStrength = 0  // 0..5
-    private var afEnabled = false
-    private var taEnabled = false
 
     // RDS scrolling state
     private var radioText = ""
@@ -96,12 +98,11 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     private val bassValueLabel = JLabel("0 dB")
     private val trebleValueLabel = JLabel("0 dB")
 
+    // Frequency tuning slider (76.0 - 108.0 MHz, step 0.1 MHz)
+    private val tuningSlider = JSlider((FM_MIN_HZ / 100_000).toInt(), (FM_MAX_HZ / 100_000).toInt(), 1000)
+
     // Function buttons
-    private val btnScan = createMetallicButton("SCAN", 70, 36, "Auto-scan for stations")
-    private val btnAf = createMetallicButton("AF", 50, 36, "Alternate Frequency")
-    private val btnTa = createMetallicButton("TA", 50, 36, "Traffic Announcements")
-    private val btnPty = createMetallicButton("PTY", 55, 36, "Program Type")
-    private val btnBand = createMetallicButton("BAND: FM", 110, 36, "Select band")
+    private val btnScan = createMetallicButton("SCAN", 80, 36, "Auto-scan for stations")
 
     // Expandable presets list
     private val presetListModel = DefaultListModel<PresetEntry>()
@@ -277,32 +278,53 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         tuneRow.add(freqUpBtn)
         tuneRow.add(seekFwdBtn)
 
-        // Function buttons row: SCAN | AF | TA | PTY | BAND
-        val funcRow = JPanel(FlowLayout(FlowLayout.CENTER, 6, 0)).apply {
+        // Frequency tuning slider row
+        val tuningRow = JPanel(BorderLayout(8, 0)).apply {
             isOpaque = false
-            border = EmptyBorder(2, 0, 0, 0)
+            border = EmptyBorder(4, 12, 0, 12)
         }
 
+        val tuningMinLabel = JLabel("${FM_MIN_HZ / 1_000_000}").apply {
+            font = Font("Monospaced", Font.PLAIN, 11)
+            foreground = TEXT_DIM
+        }
+        val tuningMaxLabel = JLabel("${FM_MAX_HZ / 1_000_000}").apply {
+            font = Font("Monospaced", Font.PLAIN, 11)
+            foreground = TEXT_DIM
+        }
+        styleSlider(tuningSlider, FREQ_GREEN)
+        tuningSlider.preferredSize = Dimension(400, 36)
+        tuningSlider.value = (currentFrequency / 100_000).toInt()
+        var tuningSliderUpdating = false
+        tuningSlider.addChangeListener {
+            if (!tuningSliderUpdating) {
+                val freqHz = tuningSlider.value.toLong() * 100_000
+                tuneFrequency(freqHz)
+            }
+        }
+
+        tuningRow.add(tuningMinLabel, BorderLayout.WEST)
+        tuningRow.add(tuningSlider, BorderLayout.CENTER)
+        tuningRow.add(tuningMaxLabel, BorderLayout.EAST)
+
+        // Function buttons row: SCAN only
+        val funcRow = JPanel(FlowLayout(FlowLayout.CENTER, 8, 0)).apply {
+            isOpaque = false
+            border = EmptyBorder(4, 0, 0, 0)
+        }
         btnScan.addActionListener { startScan() }
-        btnAf.addActionListener { toggleAf() }
-        btnTa.addActionListener { toggleTa() }
-        btnPty.addActionListener { showPtyInfo() }
-        btnBand.addActionListener { /* band selection - FM only for now */ }
-
         funcRow.add(btnScan)
-        funcRow.add(btnAf)
-        funcRow.add(btnTa)
-        funcRow.add(btnPty)
-        funcRow.add(btnBand)
 
-        // Bottom part of left panel: tune row + func buttons
+        // Bottom part of left panel: tune row + slider + scan
         val bottomControls = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             isOpaque = false
         }
         tuneRow.alignmentX = Component.CENTER_ALIGNMENT
+        tuningRow.alignmentX = Component.CENTER_ALIGNMENT
         funcRow.alignmentX = Component.CENTER_ALIGNMENT
         bottomControls.add(tuneRow)
+        bottomControls.add(tuningRow)
         bottomControls.add(funcRow)
 
         panel.add(freqDisplayPanel, BorderLayout.CENTER)
@@ -903,27 +925,6 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     //  FUNCTION BUTTONS
     // =========================================================================
 
-    private fun toggleAf() {
-        afEnabled = !afEnabled
-        btnAf.foreground = if (afEnabled) FREQ_GREEN else AMBER
-        statusLabel.text = "AF: ${if (afEnabled) "ON" else "OFF"}"
-    }
-
-    private fun toggleTa() {
-        taEnabled = !taEnabled
-        btnTa.foreground = if (taEnabled) FREQ_GREEN else AMBER
-        statusLabel.text = "TA: ${if (taEnabled) "ON" else "OFF"}"
-    }
-
-    private fun showPtyInfo() {
-        val ptyText = ptyLabel.text
-        if (ptyText.isNotBlank()) {
-            statusLabel.text = "PTY: $ptyText"
-        } else {
-            statusLabel.text = "No PTY data"
-        }
-    }
-
     private fun startScan() {
         if (!sdr.isOpen) {
             statusLabel.text = "Connect RTL-SDR first!"
@@ -934,6 +935,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
         statusLabel.text = "Scanning FM band..."
         stationListModel.clear()
+        btnScan.isEnabled = false
 
         Thread({
             val tempDemod = FmDemodulator()
@@ -941,20 +943,30 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             sdr.setAutoGain(true)
             sdr.resetBuffer()
 
-            val startHz = 87_500_000L
-            val endHz = 108_000_000L
+            val startHz = FM_MIN_HZ
+            val endHz = FM_MAX_HZ
             val scanStep = 100_000L
             var freq = startHz
 
             while (freq <= endHz) {
                 sdr.setFrequency(freq)
-                Thread.sleep(50)
-                val samples = sdr.readSamples(65536)
-                if (samples != null) {
-                    val power = tempDemod.measureSignalStrength(samples)
-                    if (power > -15f) {
+                Thread.sleep(30)
+                sdr.resetBuffer()
+                Thread.sleep(40)
+
+                // Read two samples for more accurate measurement
+                val samples1 = sdr.readSamples(65536)
+                val samples2 = sdr.readSamples(65536)
+                if (samples1 != null && samples2 != null) {
+                    val power1 = tempDemod.measureSignalStrength(samples1)
+                    val power2 = tempDemod.measureSignalStrength(samples2)
+                    val avgPower = (power1 + power2) / 2f
+                    val quality = tempDemod.measureSignalQuality(samples2)
+
+                    // Station detection: need both sufficient power AND modulation activity
+                    if (avgPower > -12f && quality > 0.005f) {
                         val foundFreq = freq
-                        val foundPower = power
+                        val foundPower = avgPower
                         SwingUtilities.invokeLater {
                             stationListModel.addElement(StationEntry(foundFreq, signalStrength = foundPower))
                         }
@@ -969,6 +981,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             }
 
             SwingUtilities.invokeLater {
+                btnScan.isEnabled = true
                 statusLabel.text = "Scan complete: ${stationListModel.size()} stations found"
                 if (wasPlaying) startPlayback()
             }
@@ -1178,12 +1191,27 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     private fun formatFreq(hz: Long): String = String.format("%.1f", hz / 1_000_000.0)
 
     private fun updateRds(data: RdsDecoder.RdsData) {
-        if (data.ps.isNotBlank()) rdsLabel.text = data.ps.trim()
+        if (data.ps.isNotBlank()) {
+            rdsLabel.text = data.ps.trim()
+            rdsLabel.foreground = CYAN
+        }
         if (data.rt.isNotBlank()) {
             radioText = data.rt
             radioTextScrollPos = 0
         }
-        if (data.ptyName.isNotBlank()) ptyLabel.text = "[${data.ptyName}]"
+        if (data.ptyName.isNotBlank() && data.ptyName != "None") {
+            ptyLabel.text = data.ptyName
+        }
+        // Update station name in stations list if RDS PS is available
+        if (data.ps.isNotBlank()) {
+            for (i in 0 until stationListModel.size()) {
+                val station = stationListModel.getElementAt(i)
+                if (station.frequencyHz == currentFrequency && station.name.isBlank()) {
+                    stationListModel.set(i, station.copy(name = data.ps.trim()))
+                    break
+                }
+            }
+        }
     }
 
     private fun scrollRadioText() {
@@ -1201,11 +1229,11 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     private fun updateSignalStrength(power: Float) {
         signalStrength = when {
-            power > -5f -> 5
-            power > -10f -> 4
-            power > -15f -> 3
-            power > -25f -> 2
-            power > -35f -> 1
+            power > -3f -> 5
+            power > -6f -> 4
+            power > -9f -> 3
+            power > -12f -> 2
+            power > -18f -> 1
             else -> 0
         }
         signalPanel.repaint()
@@ -1333,7 +1361,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     }
 
     private fun tuneFrequency(freqHz: Long) {
-        val clamped = freqHz.coerceIn(87_500_000L, 108_000_000L)
+        val clamped = freqHz.coerceIn(FM_MIN_HZ, FM_MAX_HZ)
         currentFrequency = clamped
         sdr.setFrequency(clamped)
         rdsDecoder?.reset()
@@ -1342,6 +1370,8 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         ptyLabel.text = ""
         radioText = ""
         updateFreqDisplay()
+        // Update tuning slider without triggering listener loop
+        tuningSlider.value = (clamped / 100_000).toInt()
         // Refresh lists to update selected highlight
         presetList.repaint()
         stationList.repaint()
@@ -1363,15 +1393,23 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             var freq = currentFrequency + if (forward) step else -step
             var found: Long? = null
 
-            for (i in 0 until 200) {
-                if (freq > 108_000_000L) freq = 87_500_000L
-                if (freq < 87_500_000L) freq = 108_000_000L
+            val totalSteps = ((FM_MAX_HZ - FM_MIN_HZ) / step).toInt()
+            for (i in 0 until totalSteps) {
+                if (freq > FM_MAX_HZ) freq = FM_MIN_HZ
+                if (freq < FM_MIN_HZ) freq = FM_MAX_HZ
                 sdr.setFrequency(freq)
-                Thread.sleep(50)
+                Thread.sleep(30)
+                sdr.resetBuffer()
+                Thread.sleep(40)
                 val samples = sdr.readSamples(65536)
                 if (samples != null) {
                     val power = tempDemod.measureSignalStrength(samples)
-                    if (power > -15f) { found = freq; break }
+                    val quality = tempDemod.measureSignalQuality(samples)
+                    if (power > -12f && quality > 0.005f) { found = freq; break }
+                }
+                val f = freq
+                SwingUtilities.invokeLater {
+                    statusLabel.text = "Seeking: ${formatFreq(f)} MHz"
                 }
                 freq += if (forward) step else -step
             }
@@ -1380,6 +1418,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                 if (found != null) {
                     currentFrequency = found
                     updateFreqDisplay()
+                    tuningSlider.value = (found / 100_000).toInt()
                     statusLabel.text = "Found: ${formatFreq(found)} MHz"
                 } else {
                     statusLabel.text = "No station found"

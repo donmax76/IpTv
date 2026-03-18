@@ -66,8 +66,8 @@ class FmDemodulator(
         val singleAlpha = dt / (tau + dt)
         deEmphasisAlpha1 = singleAlpha * 0.6f
         deEmphasisAlpha2 = singleAlpha * 0.4f
-        ifLpfCoeffs = designLowPassFilter(ifLpfOrder, 80000f / inputSampleRate)
-        audioLpfCoeffs = designLowPassFilter(audioLpfOrder, 16000f / intermediateRate)
+        ifLpfCoeffs = designLowPassFilter(ifLpfOrder, 100000f / inputSampleRate)
+        audioLpfCoeffs = designLowPassFilter(audioLpfOrder, 15000f / intermediateRate)
     }
 
     private fun designLowPassFilter(order: Int, normalizedCutoff: Float): FloatArray {
@@ -169,9 +169,9 @@ class FmDemodulator(
             val audio = deEmphasisState2
 
             // Scale to 16-bit PCM with soft limiting to prevent distortion
-            val raw = audio * 16000f
-            val scaled = if (raw > 20000f) 20000f + (raw - 20000f) * 0.3f
-                         else if (raw < -20000f) -20000f + (raw + 20000f) * 0.3f
+            val raw = audio * 28000f
+            val scaled = if (raw > 24000f) 24000f + (raw - 24000f) * 0.2f
+                         else if (raw < -24000f) -24000f + (raw + 24000f) * 0.2f
                          else raw
             val clamped = scaled.coerceIn(-32000f, 32000f)
             if (audioCount < audioOut.size) {
@@ -189,14 +189,51 @@ class FmDemodulator(
     fun measureSignalStrength(iqData: ByteArray): Float {
         if (iqData.isEmpty()) return -100f
         var powerSum = 0.0
+        var peakPower = 0.0
         val numSamples = iqData.size / 2
         for (i in 0 until numSamples) {
             val iVal = (iqData[i * 2].toInt() and 0xFF) / 127.5f - 1f
             val qVal = (iqData[i * 2 + 1].toInt() and 0xFF) / 127.5f - 1f
-            powerSum += (iVal * iVal + qVal * qVal).toDouble()
+            val p = (iVal * iVal + qVal * qVal).toDouble()
+            powerSum += p
+            if (p > peakPower) peakPower = p
         }
         val avgPower = powerSum / numSamples
-        return (10 * log10(avgPower + 1e-10)).toFloat()
+        // Use combination of average power and peak-to-average ratio for better station detection
+        val dbPower = (10 * log10(avgPower + 1e-10)).toFloat()
+        return dbPower
+    }
+
+    /**
+     * Measure signal quality by checking modulation activity.
+     * Real FM stations have consistent modulation; noise does not.
+     */
+    fun measureSignalQuality(iqData: ByteArray): Float {
+        if (iqData.size < 4) return 0f
+        val numSamples = iqData.size / 2
+        var prevI = 0f; var prevQ = 0f
+        var phaseVariance = 0.0
+        var phaseMean = 0.0
+        var count = 0
+
+        for (i in 0 until numSamples) {
+            val iVal = (iqData[i * 2].toInt() and 0xFF) / 127.5f - 1f
+            val qVal = (iqData[i * 2 + 1].toInt() and 0xFF) / 127.5f - 1f
+            if (i > 0) {
+                val realProd = iVal * prevI + qVal * prevQ
+                val imagProd = qVal * prevI - iVal * prevQ
+                val phase = atan2(imagProd, realProd)
+                phaseMean += phase
+                phaseVariance += phase * phase
+                count++
+            }
+            prevI = iVal; prevQ = qVal
+        }
+        if (count == 0) return 0f
+        phaseMean /= count
+        phaseVariance = phaseVariance / count - phaseMean * phaseMean
+        // FM stations have higher phase variance (modulation) than noise
+        return phaseVariance.toFloat()
     }
 
     fun reset() {
