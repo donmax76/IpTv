@@ -169,6 +169,7 @@ class FmScanner(private val device: RtlSdrDevice) {
         threshold: Float = SIGNAL_THRESHOLD
     ): List<ScanResult> = withContext(Dispatchers.IO) {
         scanning = true
+        isBusy = true
         val stations = mutableListOf<ScanResult>()
         val totalSteps = ((endFreq - startFreq) / step).toInt()
         var currentStep = 0
@@ -238,6 +239,7 @@ class FmScanner(private val device: RtlSdrDevice) {
         }
 
         scanning = false
+        isBusy = false
         val mergedStations = mergeCloseStations(stations, step * 2)
 
         Log.i(TAG, "Scan complete. Found ${mergedStations.size} signals")
@@ -250,8 +252,29 @@ class FmScanner(private val device: RtlSdrDevice) {
         return scan(listener, band.startHz, band.endHz, band.stepHz)
     }
 
-    fun stopScan() { scanning = false }
+    fun stopScan() {
+        scanning = false
+    }
+
+    /** Stop scan and wait for the scan coroutine to fully exit */
+    suspend fun stopScanAndWait() {
+        scanning = false
+        // Give the scan loop time to exit (it may be blocking on USB read)
+        withContext(Dispatchers.IO) {
+            var waitMs = 0
+            while (isBusy && waitMs < 2000) {
+                delay(50)
+                waitMs += 50
+            }
+        }
+    }
+
     fun isScanning(): Boolean = scanning
+
+    /** True while the scan coroutine is actively using the device */
+    @Volatile
+    var isBusy = false
+        private set
 
     private fun mergeCloseStations(stations: List<ScanResult>, minSpacing: Long): List<ScanResult> {
         if (stations.isEmpty()) return emptyList()

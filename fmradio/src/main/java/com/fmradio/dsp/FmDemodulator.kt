@@ -33,14 +33,16 @@ class FmDemodulator(
     private var prevI = 0f
     private var prevQ = 0f
 
-    // De-emphasis filter state (75us for US/Europe FM broadcast) — two-stage for gentler response
-    private var deEmphasisState1 = 0f
-    private var deEmphasisState2 = 0f
-    private val deEmphasisAlpha1: Float
-    private val deEmphasisAlpha2: Float
+    // De-emphasis filter (75us for US FM broadcast) — proper bilinear transform IIR
+    // H(s) = 1/(tau*s + 1), bilinear transform to z-domain
+    private var deEmphPrevX = 0f  // x[n-1]
+    private var deEmphPrevY = 0f  // y[n-1]
+    private val deEmphB0: Float   // feedforward coefficients
+    private val deEmphB1: Float
+    private val deEmphA1: Float   // feedback coefficient (negated)
 
     // Stage 1: IF low-pass FIR filter (before first decimation)
-    private val ifLpfOrder = 96
+    private val ifLpfOrder = 128
     private val ifLpfCoeffs: FloatArray
     private var ifBufI = FloatArray(ifLpfOrder)
     private var ifBufQ = FloatArray(ifLpfOrder)
@@ -72,13 +74,18 @@ class FmDemodulator(
         private set
 
     init {
-        // De-emphasis: 75us time constant, split into two gentler stages to reduce ringing
-        val tau = 75e-6f
-        val dt = 1f / audioSampleRate
-        val singleAlpha = dt / (tau + dt)
-        // Two-stage: each stage uses sqrt of the single-stage response
-        deEmphasisAlpha1 = singleAlpha * 0.6f
-        deEmphasisAlpha2 = singleAlpha * 0.4f
+        // De-emphasis: 75us time constant, bilinear transform (GNU Radio method)
+        // H(s) = 1/(tau*s + 1), mapped to z-domain via bilinear transform
+        val tau = 75e-6
+        val fs = audioSampleRate.toDouble()
+        val wc = 1.0 / tau                          // analog corner frequency
+        val wca = 2.0 * fs * tan(wc / (2.0 * fs))   // pre-warped frequency
+        val k = -wca / (2.0 * fs)
+        val p1 = (1.0 + k) / (1.0 - k)
+        val b0d = -k / (1.0 - k)
+        deEmphB0 = b0d.toFloat()
+        deEmphB1 = b0d.toFloat()  // b1 = b0 * (-z1) = b0 * 1 = b0
+        deEmphA1 = p1.toFloat()  // feedback: y[n] = b0*x + b1*x1 + p1*y1
 
         // IF LPF: cutoff at ~80kHz (relative to input rate) — pass FM signal, reject neighbors
         ifLpfCoeffs = designLowPassFilter(ifLpfOrder, 80000f / inputSampleRate)
@@ -205,10 +212,11 @@ class FmDemodulator(
                 filtAudio += audioLpfBuf[idx] * audioLpfCoeffs[j]
             }
 
-            // Two-stage de-emphasis filter (gentler, reduces ringing)
-            deEmphasisState1 += deEmphasisAlpha1 * (filtAudio - deEmphasisState1)
-            deEmphasisState2 += deEmphasisAlpha2 * (deEmphasisState1 - deEmphasisState2)
-            val audio = deEmphasisState2
+            // De-emphasis IIR filter (bilinear transform, proper -6dB/octave rolloff)
+            val deEmphOut = deEmphB0 * filtAudio + deEmphB1 * deEmphPrevX + deEmphA1 * deEmphPrevY
+            deEmphPrevX = filtAudio
+            deEmphPrevY = deEmphOut
+            val audio = deEmphOut
 
             // Scale to 16-bit PCM with soft limiting to prevent distortion
             val raw = audio * 16000f
@@ -252,8 +260,8 @@ class FmDemodulator(
     fun reset() {
         prevI = 0f
         prevQ = 0f
-        deEmphasisState1 = 0f
-        deEmphasisState2 = 0f
+        deEmphPrevX = 0f
+        deEmphPrevY = 0f
         dcI = 0f
         dcQ = 0f
         ifBufI = FloatArray(ifLpfOrder)

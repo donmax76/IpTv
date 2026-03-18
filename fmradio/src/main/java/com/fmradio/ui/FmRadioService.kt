@@ -209,6 +209,9 @@ class FmRadioService : Service() {
         currentFrequency = frequencyHz
         device?.setFrequency(frequencyHz)
 
+        // Reset DSP state to clear stale filter data from previous frequency
+        demodulator?.reset()
+        device?.resetBuffer()
         rdsDecoder?.reset()
         currentRdsData = RdsDecoder.RdsData()
 

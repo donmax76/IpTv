@@ -14,10 +14,12 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
 
     companion object {
         private const val TAG = "AudioPlayer"
-        // Ring buffer: ~1.5s of audio at 48kHz (mono 16-bit) — larger for car USB jitter
-        private const val RING_BUFFER_SAMPLES = 72000  // 72000 samples = 1500ms
-        private const val LOW_WATERMARK = 7200   // start feeding when 150ms buffered
-        private const val HIGH_WATERMARK = 60000  // pause accepting when 1250ms buffered
+        // Ring buffer: ~1s of audio at 48kHz mono
+        private const val RING_BUFFER_SAMPLES = 48000
+        // Start draining as soon as we have one chunk ready (~21ms)
+        private const val LOW_WATERMARK = 1024
+        // Pause accepting when buffer is 80% full
+        private const val HIGH_WATERMARK = 38400
     }
 
     private var audioTrack: AudioTrack? = null
@@ -42,8 +44,8 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             AudioFormat.CHANNEL_OUT_MONO,
             AudioFormat.ENCODING_PCM_16BIT
         )
-        // Use 8x minimum buffer for smooth streaming on car head units
-        val bufferSize = minBufSize * 8
+        // Use 4x minimum buffer for smooth streaming
+        val bufferSize = minBufSize * 4
 
         audioTrack = AudioTrack.Builder()
             .setAudioAttributes(
@@ -100,8 +102,8 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                     } catch (e: Exception) {
                         Log.e(TAG, "Error writing audio", e)
                     }
-                } else if (available > 0 && available >= LOW_WATERMARK) {
-                    // Drain what we have
+                } else if (available > 0) {
+                    // Drain whatever we have to avoid gaps
                     val toDrain = available
                     val partial = ShortArray(toDrain)
                     lock.lock()
@@ -120,8 +122,8 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                         Log.e(TAG, "Error writing audio", e)
                     }
                 } else {
-                    // Not enough data, sleep briefly
-                    try { Thread.sleep(5) } catch (_: InterruptedException) { break }
+                    // No data, sleep briefly
+                    try { Thread.sleep(2) } catch (_: InterruptedException) { break }
                 }
             }
         }, "FmAudioDrain")
@@ -135,10 +137,9 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         if (!isPlaying) return
         lock.lock()
         try {
-            // If ring buffer is almost full, drop oldest samples to prevent blocking
+            // If ring buffer would overflow, drop oldest samples
             val spaceNeeded = samples.size
             if (bufferedSamples + spaceNeeded > RING_BUFFER_SAMPLES) {
-                // Drop oldest to make room
                 val toDrop = (bufferedSamples + spaceNeeded) - RING_BUFFER_SAMPLES
                 readPos = (readPos + toDrop) % RING_BUFFER_SAMPLES
                 bufferedSamples -= toDrop
@@ -165,12 +166,18 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         try { playbackThread?.join(500) } catch (_: InterruptedException) {}
         playbackThread = null
         try {
+            audioTrack?.pause()
+            audioTrack?.flush()
             audioTrack?.stop()
             audioTrack?.release()
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping audio", e)
         }
         audioTrack = null
+        // Clear ring buffer state
+        writePos = 0
+        readPos = 0
+        bufferedSamples = 0
         Log.i(TAG, "Audio playback stopped")
     }
 

@@ -13,11 +13,11 @@
         android:orientation="horizontal"
         android:padding="6dp">
 
-        <!-- ======== LEFT PANEL: Radio Controls (65% via weight 65) ======== -->
+        <!-- ======== LEFT PANEL: Radio Controls (takes remaining space) ======== -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="65"
+            android:layout_weight="1"
             android:orientation="vertical"
             android:background="@drawable/bg_car_radio"
             android:padding="10dp"
@@ -415,11 +415,10 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- ======== RIGHT PANEL: Station List (35% via weight 35) ======== -->
+        <!-- ======== RIGHT PANEL: Station List (fixed width, does not grow) ======== -->
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="280dp"
             android:layout_height="match_parent"
-            android:layout_weight="35"
             android:orientation="vertical"
             android:background="@drawable/bg_car_radio"
             android:padding="8dp"

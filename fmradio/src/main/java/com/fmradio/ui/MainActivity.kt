@@ -461,12 +461,33 @@ class MainActivity : Activity() {
 
     private fun tuneToStation(station: RadioStation) {
         setFrequency(station.frequencyHz)
-        if (radioService?.isPlaying != true) startPlayback()
+        if (radioService?.isPlaying != true) {
+            // Ensure scanner is not still using the device
+            val sc = scanner
+            if (sc != null && sc.isBusy) {
+                activityScope.launch {
+                    sc.stopScanAndWait()
+                    withContext(Dispatchers.Main) { startPlayback() }
+                }
+            } else {
+                startPlayback()
+            }
+        }
     }
 
     private fun tuneToPreset(preset: PresetItem) {
         setFrequency(preset.frequencyHz)
-        if (radioService?.isPlaying != true && rtlSdrDevice != null) startPlayback()
+        if (radioService?.isPlaying != true && rtlSdrDevice != null) {
+            val sc = scanner
+            if (sc != null && sc.isBusy) {
+                activityScope.launch {
+                    sc.stopScanAndWait()
+                    withContext(Dispatchers.Main) { startPlayback() }
+                }
+            } else {
+                startPlayback()
+            }
+        }
         presetAdapter.setSelectedFrequency(preset.frequencyHz)
     }
 
