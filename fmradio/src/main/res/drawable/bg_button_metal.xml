@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#44FFFFFF">
+    <item>
+        <layer-list>
+            <!-- Outer edge -->
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="#FF18181E" />
+                    <corners android:radius="10dp" />
+                </shape>
+            </item>
+            <!-- Metallic gradient body - more premium -->
+            <item android:left="1dp" android:top="1dp" android:right="1dp" android:bottom="1dp">
+                <shape android:shape="rectangle">
+                    <gradient
+                        android:startColor="#FF505060"
+                        android:centerColor="@color/button_metal"
+                        android:endColor="#FF242430"
+                        android:angle="270" />
+                    <corners android:radius="9dp" />
+                </shape>
+            </item>
+            <!-- Subtle highlight line at top -->
+            <item android:left="2dp" android:top="1dp" android:right="2dp" android:bottom="0dp">
+                <shape android:shape="rectangle">
+                    <gradient
+                        android:startColor="#18FFFFFF"
+                        android:endColor="#00000000"
+                        android:angle="270" />
+                    <corners android:radius="9dp" />
+                    <size android:height="2dp" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+</ripple>

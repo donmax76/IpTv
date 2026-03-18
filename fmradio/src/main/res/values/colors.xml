@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Car radio theme - dark premium -->
+    <color name="background_dark">#FF050508</color>
+    <color name="surface_dark">#FF0E0E12</color>
+    <color name="surface_light">#FF1C1C24</color>
+    <color name="surface_lcd">#FF061828</color>
+
+    <!-- LCD display colors - brighter and more vivid -->
+    <color name="lcd_green">#FF00FF88</color>
+    <color name="lcd_amber">#FFFFC107</color>
+    <color name="lcd_cyan">#FF00EFFF</color>
+    <color name="lcd_red">#FFFF1744</color>
+    <color name="lcd_dim">#FF163028</color>
+    <color name="lcd_blue">#FF448AFF</color>
+    <color name="lcd_white">#FFEAF6FF</color>
+
+    <!-- Glow colors for premium effects -->
+    <color name="glow_green">#7700FF88</color>
+    <color name="glow_green_strong">#AA00FF88</color>
+    <color name="glow_green_soft">#3300FF88</color>
+    <color name="glow_cyan">#5500EFFF</color>
+    <color name="glow_cyan_soft">#2200EFFF</color>
+    <color name="glow_amber">#55FFC107</color>
+    <color name="glow_amber_soft">#22FFC107</color>
+    <color name="glow_blue">#55448AFF</color>
+    <color name="glow_blue_soft">#22448AFF</color>
+
+    <!-- Accent colors -->
+    <color name="accent_green">#FF00E676</color>
+    <color name="accent_orange">#FFFF9100</color>
+    <color name="accent_blue">#FF448AFF</color>
+    <color name="accent_red">#FFFF5252</color>
+
+    <!-- Text -->
+    <color name="text_primary">#FFFFFFFF</color>
+    <color name="text_secondary">#FFB0BEC5</color>
+    <color name="text_hint">#FF78909C</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!-- Buttons -->
+    <color name="star_yellow">#FFFFD600</color>
+    <color name="button_circle">#FF1A3050</color>
+    <color name="button_play">#FF00C853</color>
+    <color name="button_play_glow">#8800C853</color>
+    <color name="button_metal">#FF363640</color>
+    <color name="button_metal_light">#FF484858</color>
+    <color name="button_metal_pressed">#FF585868</color>
+    <color name="button_preset">#FF1A1A22</color>
+    <color name="button_preset_active">#FF003D33</color>
+    <color name="station_selected">#44448AFF</color>
+
+    <!-- Gradient for car radio bezel -->
+    <color name="bezel_top">#FF404048</color>
+    <color name="bezel_mid">#FF2A2A32</color>
+    <color name="bezel_bottom">#FF101018</color>
+    <color name="bezel_highlight">#FF58585F</color>
+
+    <!-- Version label -->
+    <color name="version_text">#44FFFFFF</color>
+</resources>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.FmRadio" parent="android:Theme.Material.NoActionBar">
+        <item name="android:colorPrimary">@color/accent_blue</item>
+        <item name="android:colorAccent">@color/accent_green</item>
+        <item name="android:colorBackground">@color/background_dark</item>
+        <item name="android:statusBarColor">#00000000</item>
+        <item name="android:navigationBarColor">#00000000</item>
+        <item name="android:windowTranslucentStatus">true</item>
+        <item name="android:windowTranslucentNavigation">true</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:keepScreenOn">true</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <item name="android:immersive">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+    </style>
+</resources>

@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FM Radio RTL-SDR</string>
+
+    <!-- Status -->
+    <string name="status_disconnected">RTL-SDR: Disconnected</string>
+    <string name="status_connecting">Connecting…</string>
+    <string name="status_connected">RTL-SDR: Connected</string>
+    <string name="status_no_device">No RTL-SDR device found</string>
+    <string name="status_permission_denied">USB permission denied</string>
+    <string name="status_connection_failed">Connection failed</string>
+    <string name="status_playing">Playing</string>
+    <string name="status_stopped">Stopped</string>
+    <string name="status_seeking">Seeking…</string>
+
+    <!-- Buttons -->
+    <string name="btn_connect">Connect</string>
+    <string name="btn_disconnect">Disconnect</string>
+    <string name="btn_scan">SCAN</string>
+    <string name="btn_stop_scan">STOP</string>
+    <string name="btn_save">Save</string>
+    <string name="btn_cancel">Cancel</string>
+
+    <!-- Labels -->
+    <string name="label_saved_stations">STATIONS</string>
+
+    <!-- Messages -->
+    <string name="msg_connect_rtlsdr">Connect an RTL-SDR device via USB</string>
+    <string name="msg_usb_permission_needed">USB permission is required for RTL-SDR</string>
+    <string name="msg_device_connected">RTL-SDR device connected!</string>
+    <string name="msg_connection_failed">Failed to open RTL-SDR device</string>
+    <string name="msg_connect_first">Connect RTL-SDR device first</string>
+    <string name="msg_scan_complete">Scan complete! Found %d stations</string>
+    <string name="msg_scan_error">Scan error: %s</string>
+    <string name="msg_preset_saved" formatted="false">Preset %d: %.1f FM saved</string>
+    <string name="msg_preset_empty" formatted="false">Preset %d is empty — long press to save</string>
+    <string name="msg_no_station_found">No station found</string>
+
+    <!-- Scan -->
+    <string name="scan_progress_format" formatted="false">Scanning %.1f MHz (%d%%)</string>
+
+    <!-- Device info -->
+    <string name="device_info_format" formatted="false">%s | %s</string>
+
+    <!-- Options -->
+    <string name="option_rename">Rename</string>
+    <string name="option_delete">Delete</string>
+    <string name="option_toggle_favorite">Toggle Favorite</string>
+
+    <!-- Dialogs -->
+    <string name="dialog_rename_title">Rename Station</string>
+    <string name="hint_station_name">Station name</string>
+
+    <!-- RDS -->
+    <string name="rds_no_data">No RDS</string>
+
+    <!-- Band selector -->
+    <string name="band_label_format" formatted="false">BAND: %s  %.1f - %.1f MHz</string>
+    <string name="dialog_band_title">Select Band</string>
+    <string name="msg_band_changed">Band: %s</string>
+
+    <!-- Media controls -->
+    <string name="msg_next_station">Next: %s</string>
+    <string name="msg_prev_station">Previous: %s</string>
+
+    <!-- Content descriptions -->
+    <string name="cd_freq_down">Frequency down</string>
+    <string name="cd_freq_up">Frequency up</string>
+    <string name="cd_play_stop">Play / Stop</string>
+    <string name="cd_volume">Volume</string>
+    <string name="cd_favorite">Favorite</string>
+    <string name="cd_seek_back">Seek previous station</string>
+    <string name="cd_seek_forward">Seek next station</string>
+</resources>
