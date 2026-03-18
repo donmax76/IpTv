@@ -1638,8 +1638,10 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         val sampleRate = FmDemodulator.RECOMMENDED_SAMPLE_RATE
         val isAm = band.modulation == "AM"
 
-        // Configure direct sampling for HF/SW bands
+        // Ensure clean RTL-SDR state on every start (fixes slow audio after stop/play)
+        sdr.setSampleRate(sampleRate)
         sdr.setDirectSampling(band.directSampling)
+        sdr.setMaxGain()
 
         if (isAm) {
             amDemodulator = AmDemodulator(inputSampleRate = sampleRate, audioSampleRate = 48000)
@@ -1655,7 +1657,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                     }
                 }
             }
-            demodulator?.widebandListener = { wb -> rdsDecoder?.process(wb) }
+            demodulator?.widebandListener = { wb, pilotPhase -> rdsDecoder?.process(wb, pilotPhase) }
         }
 
         equalizer = AudioEqualizer(48000).also {
@@ -1669,6 +1671,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         }
 
         sdr.setFrequency(currentFrequency)
+        sdr.resetBuffer()  // flush stale USB data before streaming
         isPlaying = true
 
         streamingThread = sdr.startStreaming(131072) { iqData ->
@@ -1735,6 +1738,10 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         val clamped = freqHz.coerceIn(band.minHz, band.maxHz)
         currentFrequency = clamped
         sdr.setFrequency(clamped)
+        // Reset both demodulator and RDS on frequency change
+        // Prevents phase discontinuity artifacts and stale filter state
+        demodulator?.reset()
+        amDemodulator?.reset()
         rdsDecoder?.reset()
         rdsLabel.text = "---"
         rtLabel.text = " "
