@@ -24,7 +24,7 @@ class FmDemodulator(
     // DC removal (fast-settling IIR)
     private var dcI = 0f
     private var dcQ = 0f
-    private val dcAlpha = 0.995f  // faster settling than 0.999
+    private val dcAlpha = 0.999f
 
     // FM discriminator state
     private var prevI = 0f
@@ -63,12 +63,6 @@ class FmDemodulator(
     @Volatile
     var isStereo = false
         private set
-
-    // Audio AGC to stabilize output level
-    private var audioAgcGain = 1.5f
-    private val audioAgcTarget = 0.55f
-    private val audioAgcAttack = 0.001f   // slower attack — less pumping
-    private val audioAgcDecay = 0.0003f   // slow decay — stable level
 
     // Output smoothing (prevents inter-chunk clicks)
     private var lastOutputSample = 0f
@@ -193,32 +187,16 @@ class FmDemodulator(
             deEmphasisState += deEmphasisAlpha * (filtAudio - deEmphasisState)
             var audio = deEmphasisState
 
-            // Audio-level AGC: stabilize output volume (prevents waves)
-            val absAudio = if (audio < 0) -audio else audio
-            if (absAudio * audioAgcGain > audioAgcTarget) {
-                audioAgcGain -= audioAgcAttack * (absAudio * audioAgcGain - audioAgcTarget)
-            } else {
-                audioAgcGain += audioAgcDecay * (audioAgcTarget - absAudio * audioAgcGain)
-            }
-            audioAgcGain = audioAgcGain.coerceIn(0.8f, 8.0f)
-            audio *= audioAgcGain
+            // Scale to 16-bit with soft limiter (tanh prevents harsh clipping)
+            val raw = audio * 30000f
+            val limited = 30000f * tanh(raw / 30000f)
 
-            // Scale to 16-bit with gentle soft clipping (only clips near max)
-            val raw = audio * 32000f
-            val absRaw = if (raw < 0) -raw else raw
-            val scaled = if (absRaw > 28000f) {
-                // Soft clip only the top 12.5% — preserves dynamics
-                val over = (absRaw - 28000f) / 4000f
-                val compressed = 28000f + 3500f * (over / (1f + over))
-                if (raw < 0) -compressed else compressed
-            } else raw
-
-            // Gentle smoothing to prevent inter-sample clicks
-            val smoothed = 0.97f * scaled + 0.03f * lastOutputSample
+            // Minimal smoothing to prevent inter-chunk clicks
+            val smoothed = 0.98f * limited + 0.02f * lastOutputSample
             lastOutputSample = smoothed
 
             if (audioCount < audioOut.size) {
-                audioOut[audioCount++] = smoothed.toInt().coerceIn(-32500, 32500).toShort()
+                audioOut[audioCount++] = smoothed.toInt().coerceIn(-32767, 32767).toShort()
             }
         }
 
@@ -287,6 +265,6 @@ class FmDemodulator(
         audioLpfBuf = FloatArray(audioLpfOrder); audioLpfIdx = 0
         stage1Counter = 0; stage2Counter = 0
         pilotPhase = 0.0; pilotEnergy = 0f; pilotSampleCount = 0; isStereo = false
-        audioAgcGain = 1.0f; lastOutputSample = 0f
+        lastOutputSample = 0f
     }
 }
