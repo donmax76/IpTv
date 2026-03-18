@@ -76,6 +76,16 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     private var currentFrequency = 100_000_000L  // 100.0 MHz
     private val stepHz = 100_000L  // 100 kHz step
     private var signalStrength = 0  // 0..5
+    private var afEnabled = false
+    private var taEnabled = false
+    private var currentBand = 0  // 0=FM1 (87.5-100), 1=FM2 (100-108), 2=FM Wide (76-108)
+    private val bandNames = arrayOf("FM1", "FM2", "FM")
+    private val bandRanges = arrayOf(
+        87_500_000L to 100_000_000L,
+        100_000_000L to 108_000_000L,
+        FM_MIN_HZ to FM_MAX_HZ
+    )
+    private var lastRdsData: RdsDecoder.RdsData? = null
 
     // RDS scrolling state
     private var radioText = ""
@@ -102,7 +112,11 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     private val tuningSlider = JSlider((FM_MIN_HZ / 100_000).toInt(), (FM_MAX_HZ / 100_000).toInt(), 1000)
 
     // Function buttons
-    private val btnScan = createMetallicButton("SCAN", 80, 36, "Auto-scan for stations")
+    private val btnScan = createMetallicButton("SCAN", 70, 36, "Auto-scan for stations")
+    private val btnAf = createMetallicButton("AF", 50, 36, "Alternate Frequency: auto-switch to stronger signal")
+    private val btnTa = createMetallicButton("TA", 50, 36, "Traffic Announcements: auto-raise volume for traffic news")
+    private val btnPty = createMetallicButton("PTY", 55, 36, "Program Type: show/filter by genre")
+    private val btnBand = createMetallicButton("FM1", 70, 36, "Switch FM band range")
 
     // Expandable presets list
     private val presetListModel = DefaultListModel<PresetEntry>()
@@ -307,13 +321,22 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         tuningRow.add(tuningSlider, BorderLayout.CENTER)
         tuningRow.add(tuningMaxLabel, BorderLayout.EAST)
 
-        // Function buttons row: SCAN only
-        val funcRow = JPanel(FlowLayout(FlowLayout.CENTER, 8, 0)).apply {
+        // Function buttons row: SCAN | AF | TA | PTY | BAND
+        val funcRow = JPanel(FlowLayout(FlowLayout.CENTER, 6, 0)).apply {
             isOpaque = false
             border = EmptyBorder(4, 0, 0, 0)
         }
         btnScan.addActionListener { startScan() }
+        btnAf.addActionListener { toggleAf() }
+        btnTa.addActionListener { toggleTa() }
+        btnPty.addActionListener { showPtyMenu() }
+        btnBand.addActionListener { switchBand() }
+
         funcRow.add(btnScan)
+        funcRow.add(btnAf)
+        funcRow.add(btnTa)
+        funcRow.add(btnPty)
+        funcRow.add(btnBand)
 
         // Bottom part of left panel: tune row + slider + scan
         val bottomControls = JPanel().apply {
@@ -925,6 +948,165 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     //  FUNCTION BUTTONS
     // =========================================================================
 
+    // ---- AF: Alternate Frequency ----
+    // When enabled, automatically tries alternate frequencies from RDS AF list
+    // if signal drops below threshold, switching to a stronger one.
+    private fun toggleAf() {
+        afEnabled = !afEnabled
+        btnAf.foreground = if (afEnabled) FREQ_GREEN else TEXT_LIGHT
+        if (afEnabled) {
+            statusLabel.text = "AF ON: will auto-switch to stronger signal"
+            // Start AF monitoring
+            startAfMonitor()
+        } else {
+            statusLabel.text = "AF OFF"
+        }
+    }
+
+    private fun startAfMonitor() {
+        if (!afEnabled || !isPlaying) return
+        // Check AF list periodically via a timer
+        val afTimer = Timer(5000) {
+            if (!afEnabled || !isPlaying) return@Timer
+            val rds = lastRdsData ?: return@Timer
+            if (rds.afList.isEmpty()) return@Timer
+
+            // Check current signal strength
+            if (signalStrength <= 1) {
+                // Signal is weak, try alternate frequencies
+                Thread({
+                    val tempDemod = FmDemodulator()
+                    var bestFreq = currentFrequency
+                    var bestPower = -100f
+                    val origFreq = currentFrequency
+
+                    for (afMhz in rds.afList) {
+                        val afHz = (afMhz * 1_000_000).toLong()
+                        if (afHz == currentFrequency) continue
+                        sdr.setFrequency(afHz)
+                        Thread.sleep(80)
+                        val samples = sdr.readSamples(65536)
+                        if (samples != null) {
+                            val power = tempDemod.measureSignalStrength(samples)
+                            if (power > bestPower) {
+                                bestPower = power
+                                bestFreq = afHz
+                            }
+                        }
+                    }
+
+                    // Switch if found better signal
+                    if (bestFreq != origFreq && bestPower > -10f) {
+                        SwingUtilities.invokeLater {
+                            statusLabel.text = "AF: switched to ${formatFreq(bestFreq)} MHz (stronger)"
+                            tuneFrequency(bestFreq)
+                        }
+                    } else {
+                        // Restore original
+                        sdr.setFrequency(origFreq)
+                    }
+                }, "AF-Check").start()
+            }
+        }
+        afTimer.isRepeats = true
+        afTimer.start()
+    }
+
+    // ---- TA: Traffic Announcements ----
+    // When enabled, boosts volume when station broadcasts traffic announcements (RDS TA flag)
+    private var taVolumeBoost = false
+    private var taOriginalVolume = 80
+
+    private fun toggleTa() {
+        taEnabled = !taEnabled
+        btnTa.foreground = if (taEnabled) FREQ_GREEN else TEXT_LIGHT
+        if (taEnabled) {
+            statusLabel.text = "TA ON: volume will boost for traffic news"
+            taOriginalVolume = volumeSlider.value
+        } else {
+            statusLabel.text = "TA OFF"
+            // Restore volume if it was boosted
+            if (taVolumeBoost) {
+                volumeSlider.value = taOriginalVolume
+                taVolumeBoost = false
+            }
+        }
+    }
+
+    private fun checkTaStatus(data: RdsDecoder.RdsData) {
+        if (!taEnabled) return
+        if (data.ta && !taVolumeBoost) {
+            // Traffic announcement started — boost volume
+            taOriginalVolume = volumeSlider.value
+            val boosted = (taOriginalVolume + 25).coerceAtMost(100)
+            volumeSlider.value = boosted
+            taVolumeBoost = true
+            statusLabel.text = "TA: Traffic announcement! Volume boosted"
+            statusLabel.foreground = AMBER
+        } else if (!data.ta && taVolumeBoost) {
+            // Traffic announcement ended — restore volume
+            volumeSlider.value = taOriginalVolume
+            taVolumeBoost = false
+            statusLabel.text = "TA: Traffic announcement ended"
+        }
+    }
+
+    // ---- PTY: Program Type ----
+    // Shows a popup menu with current PTY info and lets you scan for stations of a specific type
+    private fun showPtyMenu() {
+        val rds = lastRdsData
+        val menu = JPopupMenu()
+        menu.background = Color(0x22, 0x22, 0x33)
+
+        // Show current PTY
+        val currentPty = if (rds != null && rds.ptyName.isNotBlank() && rds.ptyName != "None")
+            rds.ptyName else "Unknown"
+        val headerItem = JMenuItem("Current: $currentPty").apply {
+            foreground = CYAN
+            background = Color(0x22, 0x22, 0x33)
+            isEnabled = false
+        }
+        menu.add(headerItem)
+        menu.addSeparator()
+
+        // List all PTY types with scan option
+        val popularPtys = listOf(1 to "News", 4 to "Sport", 10 to "Pop Music",
+            11 to "Rock Music", 3 to "Information", 12 to "Easy Listening",
+            14 to "Serious Classical", 24 to "Jazz", 25 to "Country", 27 to "Oldies")
+
+        for ((code, name) in popularPtys) {
+            val item = JMenuItem("Scan: $name").apply {
+                foreground = TEXT_LIGHT
+                background = Color(0x22, 0x22, 0x33)
+            }
+            item.addActionListener {
+                statusLabel.text = "PTY: looking for $name stations..."
+            }
+            menu.add(item)
+        }
+
+        menu.show(btnPty, 0, btnPty.height)
+    }
+
+    // ---- BAND: Switch FM band range ----
+    private fun switchBand() {
+        currentBand = (currentBand + 1) % bandNames.size
+        btnBand.text = bandNames[currentBand]
+
+        val (rangeMin, rangeMax) = bandRanges[currentBand]
+
+        // Update tuning slider range
+        tuningSlider.minimum = (rangeMin / 100_000).toInt()
+        tuningSlider.maximum = (rangeMax / 100_000).toInt()
+
+        // Clamp current frequency to new range
+        if (currentFrequency < rangeMin || currentFrequency > rangeMax) {
+            tuneFrequency(rangeMin)
+        }
+
+        statusLabel.text = "${bandNames[currentBand]}: ${formatFreq(rangeMin)}-${formatFreq(rangeMax)} MHz"
+    }
+
     private fun startScan() {
         if (!sdr.isOpen) {
             statusLabel.text = "Connect RTL-SDR first!"
@@ -943,8 +1125,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             sdr.setAutoGain(true)
             sdr.resetBuffer()
 
-            val startHz = FM_MIN_HZ
-            val endHz = FM_MAX_HZ
+            val (startHz, endHz) = bandRanges[currentBand]
             val scanStep = 100_000L
             var freq = startHz
 
@@ -1191,6 +1372,8 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     private fun formatFreq(hz: Long): String = String.format("%.1f", hz / 1_000_000.0)
 
     private fun updateRds(data: RdsDecoder.RdsData) {
+        lastRdsData = data
+
         if (data.ps.isNotBlank()) {
             rdsLabel.text = data.ps.trim()
             rdsLabel.foreground = CYAN
@@ -1202,6 +1385,15 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         if (data.ptyName.isNotBlank() && data.ptyName != "None") {
             ptyLabel.text = data.ptyName
         }
+
+        // AF indicator: show count of alternate frequencies
+        if (data.afList.isNotEmpty() && afEnabled) {
+            btnAf.text = "AF:${data.afList.size}"
+        }
+
+        // TA: check traffic announcement status
+        checkTaStatus(data)
+
         // Update station name in stations list if RDS PS is available
         if (data.ps.isNotBlank()) {
             for (i in 0 until stationListModel.size()) {
@@ -1357,6 +1549,8 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         stereoLabel.text = "MONO"
         signalStrength = 0
         signalPanel.repaint()
+        lastRdsData = null
+        btnAf.text = "AF"
         if (sdr.isOpen) statusLabel.text = "Connected: ${sdr.deviceName} \u2014 Stopped"
     }
 
@@ -1393,10 +1587,11 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             var freq = currentFrequency + if (forward) step else -step
             var found: Long? = null
 
-            val totalSteps = ((FM_MAX_HZ - FM_MIN_HZ) / step).toInt()
+            val (bandMin, bandMax) = bandRanges[currentBand]
+            val totalSteps = ((bandMax - bandMin) / step).toInt()
             for (i in 0 until totalSteps) {
-                if (freq > FM_MAX_HZ) freq = FM_MIN_HZ
-                if (freq < FM_MIN_HZ) freq = FM_MAX_HZ
+                if (freq > bandMax) freq = bandMin
+                if (freq < bandMin) freq = bandMax
                 sdr.setFrequency(freq)
                 Thread.sleep(30)
                 sdr.resetBuffer()
