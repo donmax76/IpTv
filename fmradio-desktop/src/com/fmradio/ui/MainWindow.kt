@@ -27,7 +27,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     companion object {
         const val VERSION = "1.6"
-        const val BUILD = "20260318-5"
+        const val BUILD = "20260318-6"
 
         // FM band range (extended: OIRT 65.8-74 + CCIR 87.5-108)
         const val FM_MIN_HZ = 76_000_000L
@@ -179,8 +179,8 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             }
         })
 
-        // Start RDS scroll timer
-        rdsScrollTimer = Timer(250) { scrollRadioText() }
+        // Start RDS scroll timer (faster for smoother reading)
+        rdsScrollTimer = Timer(180) { scrollRadioText() }
         rdsScrollTimer?.start()
 
         // Load saved presets and settings
@@ -487,7 +487,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         }
         val rdsBottomRow = JPanel(BorderLayout()).apply { isOpaque = false }
         rtLabel.apply {
-            font = Font("Monospaced", Font.PLAIN, 14)
+            font = Font("Monospaced", Font.PLAIN, 15)
             foreground = TEXT_LIGHT
         }
         ptyLabel.apply {
@@ -522,15 +522,17 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             border = EmptyBorder(10, 10, 10, 10)
         }
 
-        val innerPanel = JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        val innerPanel = JPanel(GridBagLayout()).apply {
             isOpaque = false
+        }
+        val gc = GridBagConstraints().apply {
+            gridx = 0; fill = GridBagConstraints.HORIZONTAL; weightx = 1.0
         }
 
         // ---- PRESETS SECTION ----
         val presetsHeader = JPanel(BorderLayout()).apply {
             isOpaque = false
-            maximumSize = Dimension(Int.MAX_VALUE, 30)
+            preferredSize = Dimension(0, 30)
         }
         val presetsLabel = JLabel("PRESETS \u25BC").apply {
             font = Font("SansSerif", Font.BOLD, 14)
@@ -558,7 +560,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             viewport.isOpaque = false
             border = EmptyBorder(4, 0, 4, 0)
             verticalScrollBar.unitIncrement = 16
-            preferredSize = Dimension(0, 160)
+            minimumSize = Dimension(0, 60)
         }
 
         // Preset click handlers
@@ -641,18 +643,17 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             }
         })
 
-        presetsHeader.alignmentX = Component.LEFT_ALIGNMENT
-        presetScroll.alignmentX = Component.LEFT_ALIGNMENT
-        stationsHeader.alignmentX = Component.LEFT_ALIGNMENT
-        stationScroll.alignmentX = Component.LEFT_ALIGNMENT
-
-        innerPanel.add(presetsHeader)
-        innerPanel.add(Box.createVerticalStrut(4))
-        innerPanel.add(presetScroll)
-        innerPanel.add(Box.createVerticalStrut(8))
-        innerPanel.add(stationsHeader)
-        innerPanel.add(Box.createVerticalStrut(4))
-        innerPanel.add(stationScroll)
+        // Layout: presets header + scroll (40%), stations header + scroll (60%)
+        gc.gridy = 0; gc.weighty = 0.0; gc.insets = Insets(0, 0, 4, 0)
+        innerPanel.add(presetsHeader, gc)
+        gc.gridy = 1; gc.weighty = 0.4; gc.fill = GridBagConstraints.BOTH
+        innerPanel.add(presetScroll, gc)
+        gc.gridy = 2; gc.weighty = 0.0; gc.fill = GridBagConstraints.HORIZONTAL
+        gc.insets = Insets(8, 0, 4, 0)
+        innerPanel.add(stationsHeader, gc)
+        gc.gridy = 3; gc.weighty = 0.6; gc.fill = GridBagConstraints.BOTH
+        gc.insets = Insets(0, 0, 0, 0)
+        innerPanel.add(stationScroll, gc)
 
         panel.add(innerPanel, BorderLayout.CENTER)
         return panel
@@ -1561,12 +1562,12 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     }
 
     private fun scrollRadioText() {
-        if (radioText.isBlank() || radioText.length <= 30) {
+        if (radioText.isBlank() || radioText.length <= 50) {
             if (radioText.isNotBlank()) rtLabel.text = radioText
             return
         }
         val display = radioText + "     " + radioText
-        val window = 38
+        val window = 55
         val end = (radioTextScrollPos + window).coerceAtMost(display.length)
         rtLabel.text = display.substring(radioTextScrollPos, end)
         radioTextScrollPos++
@@ -1596,6 +1597,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             val ok = sdr.open(0)
             if (ok) {
                 sdr.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
+                sdr.setOffsetTuning(true)  // Eliminate DC spike noise (like SDR# Offset Tuning)
                 sdr.setMaxGain()  // query tuner for max supported gain
                 sdr.setFrequency(currentFrequency)
 
@@ -1645,6 +1647,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
         // Ensure clean RTL-SDR state on every start (fixes slow audio after stop/play)
         sdr.setSampleRate(sampleRate)
+        sdr.setOffsetTuning(true)  // DC spike elimination
         sdr.setDirectSampling(band.directSampling)
         sdr.setMaxGain()
 

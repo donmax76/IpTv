@@ -11,10 +11,10 @@ import javax.sound.sampled.*
 class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
 
     companion object {
-        private const val RING_BUFFER_SAMPLES = 192000  // 2s stereo (48000 frames × 2 ch × 2)
-        private const val PREFILL_SAMPLES = 9600         // 100ms stereo
+        private const val RING_BUFFER_SAMPLES = 384000  // 4s stereo (48000 frames × 2 ch × 4)
+        private const val PREFILL_SAMPLES = 19200        // 200ms stereo — enough to absorb USB jitter
         private const val FADE_IN_SAMPLES = 4800         // 50ms stereo
-        private const val CROSSFADE_SAMPLES = 1024       // crossfade on buffer overflow
+        private const val CROSSFADE_SAMPLES = 2048       // crossfade on buffer overflow
     }
 
     private var sourceDataLine: SourceDataLine? = null
@@ -45,7 +45,7 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
             false   // little-endian
         )
 
-        val bufSize = sampleRate * 4  // 1s buffer in bytes (16-bit stereo)
+        val bufSize = sampleRate * 8  // 2s buffer in bytes (16-bit stereo) — prevents underruns
         val info = DataLine.Info(SourceDataLine::class.java, format, bufSize)
         sourceDataLine = (AudioSystem.getLine(info) as SourceDataLine).also {
             it.open(format, bufSize)
@@ -59,7 +59,7 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
         isPlaying = true
 
         drainThread = Thread({
-            val chunkSamples = 2048  // 1024 stereo frames
+            val chunkSamples = 4096  // 2048 stereo frames — larger chunks reduce overhead
             val chunkBytes = ByteArray(chunkSamples * 2)
             val chunk = ShortArray(chunkSamples)
 

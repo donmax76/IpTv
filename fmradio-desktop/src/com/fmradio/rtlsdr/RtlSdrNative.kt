@@ -30,6 +30,8 @@ class RtlSdrNative {
         fun rtlsdr_set_agc_mode(dev: Pointer, on: Int): Int
         fun rtlsdr_set_direct_sampling(dev: Pointer, on: Int): Int
         fun rtlsdr_set_bias_tee(dev: Pointer, on: Int): Int
+        fun rtlsdr_set_offset_tuning(dev: Pointer, on: Int): Int
+        fun rtlsdr_get_offset_tuning(dev: Pointer): Int
         fun rtlsdr_get_tuner_type(dev: Pointer): Int
         fun rtlsdr_reset_buffer(dev: Pointer): Int
         fun rtlsdr_read_sync(dev: Pointer, buf: ByteArray, len: Int, nRead: IntByReference): Int
@@ -174,6 +176,22 @@ class RtlSdrNative {
     fun setDirectSampling(mode: Int) {
         val dev = devPtr ?: return
         lib?.rtlsdr_set_direct_sampling(dev, mode)
+    }
+
+    /**
+     * Enable offset tuning (IF mode) to eliminate DC spike at center frequency.
+     * Reduces noise and improves reception quality — like SDR# "Offset Tuning" checkbox.
+     * Works best with E4000 tuner but also helps R820T.
+     */
+    fun setOffsetTuning(enabled: Boolean) {
+        val dev = devPtr ?: return
+        val l = lib ?: return
+        try {
+            val ret = l.rtlsdr_set_offset_tuning(dev, if (enabled) 1 else 0)
+            println("Offset tuning: ${if (enabled) "ON" else "OFF"} (ret=$ret)")
+        } catch (e: Exception) {
+            println("Offset tuning not supported: ${e.message}")
+        }
     }
 
     fun resetBuffer() {
