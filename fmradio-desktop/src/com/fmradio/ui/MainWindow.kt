@@ -1238,7 +1238,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             val tempFmDemod = if (band.modulation == "FM") FmDemodulator() else null
             val tempAmDemod = if (band.modulation == "AM") AmDemodulator() else null
             sdr.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
-            sdr.setGain(400)  // 40.0 dB manual gain
+            sdr.setAutoGain(true)
             sdr.setDirectSampling(band.directSampling)
             sdr.resetBuffer()
 
@@ -1592,9 +1592,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             val ok = sdr.open(0)
             if (ok) {
                 sdr.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
-                // Use high manual gain for better signal reception
-                // Auto-gain often underperforms on RTL-SDR
-                sdr.setGain(400)  // 40.0 dB — strong for FM/AM
+                sdr.setAutoGain(true)
                 sdr.setFrequency(currentFrequency)
 
                 SwingUtilities.invokeLater {
@@ -1768,7 +1766,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             val tempFmDemod = if (!isAm) FmDemodulator() else null
             val tempAmDemod = if (isAm) AmDemodulator() else null
             sdr.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
-            sdr.setGain(400)  // 40.0 dB manual gain
+            sdr.setAutoGain(true)
             sdr.setDirectSampling(band.directSampling)
             sdr.resetBuffer()
             val step = if (isAm) band.stepHz else 100_000L

@@ -6,36 +6,20 @@ import java.awt.event.MouseEvent
 import java.awt.event.MouseWheelEvent
 import java.awt.geom.Ellipse2D
 import java.awt.geom.Line2D
-import java.awt.geom.RoundRectangle2D
 import javax.swing.JComponent
 import kotlin.math.*
 
 /**
- * Metallic rotary knob for smooth manual frequency tuning.
- * Emulates a real radio tuning knob with:
- * - Brushed metal appearance with 3D shading
- * - Notch markers around the edge
- * - Smooth drag rotation
- * - Mouse wheel support
- * - Momentum/inertia for smooth feel
+ * Realistic 3D rotary tuning knob.
+ *
+ * Inspired by high-end audio equipment — brushed aluminum body,
+ * ribbed grip edge, top-lit metallic shading, glowing indicator.
  */
 class RotaryKnob(
     private var minValue: Long = 0L,
     private var maxValue: Long = 1000L,
     initialValue: Long = 500L
 ) : JComponent() {
-
-    // Colors (lighter theme)
-    private val knobOuterRing = Color(0x68, 0x68, 0x82)
-    private val knobBodyTop = Color(0x82, 0x82, 0x98)
-    private val knobBodyBottom = Color(0x48, 0x48, 0x5E)
-    private val knobHighlight = Color(0xBB, 0xBB, 0xDD)
-    private val knobShadow = Color(0x24, 0x24, 0x38)
-    private val notchColor = Color(0x58, 0x58, 0x72)
-    private val indicatorColor = Color(0x00, 0xFF, 0x80)
-    private val indicatorGlow = Color(0x00, 0xFF, 0x80, 70)
-    private val grooveColor = Color(0x60, 0x60, 0x78)
-    private val grooveHighlight = Color(0x98, 0x98, 0xB8)
 
     var value: Long = initialValue.coerceIn(minValue, maxValue)
         set(v) {
@@ -50,16 +34,15 @@ class RotaryKnob(
     var onValueChanged: ((Long) -> Unit)? = null
 
     // Rotation state
-    private var angle = valueToAngle(initialValue)  // radians, 0 = top
-    private val minAngle = -2.4  // ~-137 degrees (7 o'clock)
-    private val maxAngle = 2.4   // ~137 degrees (5 o'clock)
+    private var angle = valueToAngle(initialValue)
+    private val minAngle = -2.4
+    private val maxAngle = 2.4
 
     // Drag state
     private var isDragging = false
     private var dragStartAngle = 0.0
     private var dragStartMouseAngle = 0.0
 
-    // Step for mouse wheel
     var stepSize: Long = 1L
 
     init {
@@ -86,17 +69,14 @@ class RotaryKnob(
                 val currentMouseAngle = getMouseAngle(e)
                 var delta = currentMouseAngle - dragStartMouseAngle
 
-                // Handle wrapping around -PI/PI boundary
                 if (delta > PI) delta -= 2 * PI
                 if (delta < -PI) delta += 2 * PI
 
-                // Ctrl+drag = fine tuning (4x slower rotation)
                 val sensitivity = if (e.isControlDown) 0.25 else 1.0
                 val newAngle = (dragStartAngle + delta * sensitivity).coerceIn(minAngle, maxAngle)
                 if (newAngle != angle) {
                     angle = newAngle
                     var newValue = angleToValue(angle)
-                    // Snap to step grid
                     if (stepSize > 1) {
                         newValue = ((newValue + stepSize / 2) / stepSize) * stepSize
                         newValue = newValue.coerceIn(minValue, maxValue)
@@ -110,7 +90,6 @@ class RotaryKnob(
             }
 
             override fun mouseWheelMoved(e: MouseWheelEvent) {
-                // Ctrl+scroll = fine tuning (1/10 step), normal scroll = full step
                 val actualStep = if (e.isControlDown) (stepSize / 10).coerceAtLeast(1L) else stepSize
                 val delta = -e.wheelRotation.toLong() * actualStep
                 val newValue = (value + delta).coerceIn(minValue, maxValue)
@@ -157,105 +136,160 @@ class RotaryKnob(
         val g2 = g as Graphics2D
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
         g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+        g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE)
 
         val size = minOf(width, height)
         val cx = width / 2.0f
         val cy = height / 2.0f
-        val radius = size / 2.0f - 8
+        val outerRadius = size / 2.0f - 6
 
-        // --- Outer shadow/glow ---
-        if (isDragging) {
-            g2.color = Color(0x00, 0xFF, 0x80, 20)
-            g2.fill(Ellipse2D.Float(cx - radius - 6, cy - radius - 6,
-                (radius + 6) * 2, (radius + 6) * 2))
+        // ===== 1. DROP SHADOW =====
+        val shadowAlpha = if (isDragging) 35 else 25
+        for (s in 3 downTo 1) {
+            g2.color = Color(0, 0, 0, shadowAlpha - s * 6)
+            g2.fill(Ellipse2D.Float(
+                cx - outerRadius - s + 2, cy - outerRadius - s + 3,
+                (outerRadius + s) * 2, (outerRadius + s) * 2))
         }
 
-        // --- Outer ring (bezel) ---
-        val outerGrad = RadialGradientPaint(
-            cx, cy, radius + 4,
-            floatArrayOf(0.0f, 0.85f, 1.0f),
-            arrayOf(Color(0x60, 0x60, 0x78), Color(0x40, 0x40, 0x58), knobShadow)
+        // ===== 2. OUTER BEZEL (dark ring) =====
+        val bezelGrad = RadialGradientPaint(
+            cx, cy - outerRadius * 0.2f, outerRadius * 1.3f,
+            floatArrayOf(0.0f, 0.7f, 0.9f, 1.0f),
+            arrayOf(Color(0x58, 0x58, 0x6E), Color(0x40, 0x40, 0x56), Color(0x30, 0x30, 0x44), Color(0x20, 0x20, 0x30))
         )
-        g2.paint = outerGrad
-        g2.fill(Ellipse2D.Float(cx - radius - 4, cy - radius - 4,
-            (radius + 4) * 2, (radius + 4) * 2))
+        g2.paint = bezelGrad
+        g2.fill(Ellipse2D.Float(cx - outerRadius, cy - outerRadius,
+            outerRadius * 2, outerRadius * 2))
 
-        // --- Notch marks around the dial ---
-        val numNotches = 31
-        for (i in 0 until numNotches) {
-            val frac = i.toDouble() / (numNotches - 1)
-            val notchAngle = minAngle + frac * (maxAngle - minAngle)
-            val r1 = radius + 1
-            val r2 = radius - 4
-            val x1 = cx + r1 * sin(notchAngle).toFloat()
-            val y1 = cy - r1 * cos(notchAngle).toFloat()
-            val x2 = cx + r2 * sin(notchAngle).toFloat()
-            val y2 = cy - r2 * cos(notchAngle).toFloat()
-            g2.color = if (i % 5 == 0) grooveHighlight else notchColor
-            g2.stroke = BasicStroke(if (i % 5 == 0) 1.8f else 0.8f)
+        // ===== 3. RIBBED GRIP EDGE (vertical lines around circumference) =====
+        val gripRadius = outerRadius - 1.5f
+        val innerGripRadius = outerRadius - 8f
+        val numRibs = 60
+        g2.stroke = BasicStroke(1.0f)
+        for (i in 0 until numRibs) {
+            val ribAngle = 2.0 * PI * i / numRibs
+            val x1 = cx + gripRadius * sin(ribAngle).toFloat()
+            val y1 = cy - gripRadius * cos(ribAngle).toFloat()
+            val x2 = cx + innerGripRadius * sin(ribAngle).toFloat()
+            val y2 = cy - innerGripRadius * cos(ribAngle).toFloat()
+            // Alternate light/dark for 3D ribbed effect
+            val shade = if (i % 2 == 0) 0x50 else 0x38
+            g2.color = Color(shade, shade, shade + 0x14, 180)
             g2.draw(Line2D.Float(x1, y1, x2, y2))
         }
 
-        // --- Knob body (brushed metal) ---
-        val knobRadius = radius - 8
-        val bodyGrad = RadialGradientPaint(
-            cx - knobRadius * 0.3f, cy - knobRadius * 0.3f, knobRadius * 2,
-            floatArrayOf(0.0f, 0.4f, 0.8f, 1.0f),
-            arrayOf(knobHighlight, knobBodyTop, knobBodyBottom, knobShadow)
-        )
-        g2.paint = bodyGrad
-        g2.fill(Ellipse2D.Float(cx - knobRadius, cy - knobRadius,
-            knobRadius * 2, knobRadius * 2))
-
-        // --- Concentric grooves (brushed metal texture) ---
-        g2.stroke = BasicStroke(0.5f)
-        for (r in generateSequence(knobRadius * 0.3f) { it + 3f }.takeWhile { it < knobRadius - 3 }) {
-            g2.color = Color(0xFF, 0xFF, 0xFF, 8)
-            g2.draw(Ellipse2D.Float(cx - r, cy - r, r * 2, r * 2))
+        // ===== 4. SCALE MARKERS around the outside =====
+        val markerOuterR = outerRadius + 2
+        val markerInnerR = outerRadius - 3
+        val numMarkers = 21
+        for (i in 0 until numMarkers) {
+            val frac = i.toDouble() / (numMarkers - 1)
+            val markAngle = minAngle + frac * (maxAngle - minAngle)
+            val isMajor = i % 5 == 0
+            val r1 = if (isMajor) markerOuterR else markerOuterR - 1
+            val r2 = if (isMajor) markerInnerR - 2 else markerInnerR
+            val x1 = cx + r1 * sin(markAngle).toFloat()
+            val y1 = cy - r1 * cos(markAngle).toFloat()
+            val x2 = cx + r2 * sin(markAngle).toFloat()
+            val y2 = cy - r2 * cos(markAngle).toFloat()
+            g2.color = if (isMajor) Color(0xAA, 0xAA, 0xC0) else Color(0x66, 0x66, 0x80)
+            g2.stroke = BasicStroke(if (isMajor) 2.0f else 1.0f)
+            g2.draw(Line2D.Float(x1, y1, x2, y2))
         }
 
-        // --- Edge highlight (top-left light source) ---
-        val highlightGrad = RadialGradientPaint(
-            cx - knobRadius * 0.35f, cy - knobRadius * 0.35f, knobRadius * 1.2f,
-            floatArrayOf(0.0f, 0.5f, 1.0f),
-            arrayOf(Color(0xFF, 0xFF, 0xFF, 50), Color(0xFF, 0xFF, 0xFF, 15), Color(0, 0, 0, 0))
+        // ===== 5. KNOB BODY (brushed aluminum) =====
+        val bodyRadius = outerRadius - 10
+        // Main body: radial gradient simulating top-left light source
+        val bodyGrad = RadialGradientPaint(
+            cx - bodyRadius * 0.3f, cy - bodyRadius * 0.4f,
+            bodyRadius * 2.2f,
+            floatArrayOf(0.0f, 0.25f, 0.55f, 0.85f, 1.0f),
+            arrayOf(
+                Color(0xC8, 0xC8, 0xD8),  // bright highlight
+                Color(0xA0, 0xA0, 0xB4),  // light metal
+                Color(0x78, 0x78, 0x8E),  // mid metal
+                Color(0x50, 0x50, 0x64),  // dark side
+                Color(0x38, 0x38, 0x4A)   // shadow edge
+            )
         )
-        g2.paint = highlightGrad
-        g2.fill(Ellipse2D.Float(cx - knobRadius, cy - knobRadius,
-            knobRadius * 2, knobRadius * 2))
+        g2.paint = bodyGrad
+        g2.fill(Ellipse2D.Float(cx - bodyRadius, cy - bodyRadius,
+            bodyRadius * 2, bodyRadius * 2))
 
-        // --- Knob edge ring ---
-        g2.color = Color(0x55, 0x55, 0x70, 180)
-        g2.stroke = BasicStroke(2f)
-        g2.draw(Ellipse2D.Float(cx - knobRadius + 1, cy - knobRadius + 1,
-            (knobRadius - 1) * 2, (knobRadius - 1) * 2))
+        // ===== 6. CONCENTRIC BRUSHED TEXTURE =====
+        g2.stroke = BasicStroke(0.4f)
+        var r = bodyRadius * 0.25f
+        while (r < bodyRadius - 2) {
+            g2.color = Color(0xFF, 0xFF, 0xFF, 10)
+            g2.draw(Ellipse2D.Float(cx - r, cy - r, r * 2, r * 2))
+            r += 2.5f
+        }
 
-        // --- Indicator line (pointer) ---
-        val pointerInner = knobRadius * 0.25f
-        val pointerOuter = knobRadius - 4
+        // ===== 7. TOP HIGHLIGHT (specular reflection) =====
+        val specGrad = RadialGradientPaint(
+            cx - bodyRadius * 0.25f, cy - bodyRadius * 0.35f,
+            bodyRadius * 0.8f,
+            floatArrayOf(0.0f, 0.4f, 1.0f),
+            arrayOf(Color(0xFF, 0xFF, 0xFF, 80), Color(0xFF, 0xFF, 0xFF, 20), Color(0, 0, 0, 0))
+        )
+        g2.paint = specGrad
+        g2.fill(Ellipse2D.Float(cx - bodyRadius, cy - bodyRadius,
+            bodyRadius * 2, bodyRadius * 2))
+
+        // ===== 8. EDGE RING (metallic border) =====
+        g2.color = Color(0x50, 0x50, 0x66, 200)
+        g2.stroke = BasicStroke(1.8f)
+        g2.draw(Ellipse2D.Float(cx - bodyRadius + 0.5f, cy - bodyRadius + 0.5f,
+            (bodyRadius - 0.5f) * 2, (bodyRadius - 0.5f) * 2))
+
+        // ===== 9. INDICATOR LINE (green pointer with glow) =====
+        val pointerInner = bodyRadius * 0.2f
+        val pointerOuter = bodyRadius - 3
         val pxI = cx + pointerInner * sin(angle).toFloat()
         val pyI = cy - pointerInner * cos(angle).toFloat()
         val pxO = cx + pointerOuter * sin(angle).toFloat()
         val pyO = cy - pointerOuter * cos(angle).toFloat()
 
-        // Glow
-        g2.color = indicatorGlow
-        g2.stroke = BasicStroke(5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+        // Glow (wider, transparent)
+        g2.color = Color(0x00, 0xFF, 0x80, if (isDragging) 90 else 50)
+        g2.stroke = BasicStroke(6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
         g2.draw(Line2D.Float(pxI, pyI, pxO, pyO))
 
-        // Main line
-        g2.color = indicatorColor
-        g2.stroke = BasicStroke(2.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+        // Mid glow
+        g2.color = Color(0x00, 0xFF, 0x80, if (isDragging) 140 else 100)
+        g2.stroke = BasicStroke(3.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
         g2.draw(Line2D.Float(pxI, pyI, pxO, pyO))
 
-        // --- Center cap ---
-        val capRadius = knobRadius * 0.18f
+        // Core line (bright)
+        g2.color = Color(0x00, 0xFF, 0x80)
+        g2.stroke = BasicStroke(2.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+        g2.draw(Line2D.Float(pxI, pyI, pxO, pyO))
+
+        // ===== 10. CENTER CAP (domed, metallic) =====
+        val capRadius = bodyRadius * 0.22f
+        // Cap base
         val capGrad = RadialGradientPaint(
-            cx - capRadius * 0.3f, cy - capRadius * 0.3f, capRadius * 1.5f,
-            floatArrayOf(0.0f, 0.6f, 1.0f),
-            arrayOf(Color(0x90, 0x90, 0xAA), Color(0x55, 0x55, 0x70), Color(0x30, 0x30, 0x45))
+            cx - capRadius * 0.3f, cy - capRadius * 0.4f, capRadius * 1.8f,
+            floatArrayOf(0.0f, 0.35f, 0.7f, 1.0f),
+            arrayOf(
+                Color(0xBB, 0xBB, 0xCC),
+                Color(0x88, 0x88, 0x9C),
+                Color(0x55, 0x55, 0x68),
+                Color(0x35, 0x35, 0x48)
+            )
         )
         g2.paint = capGrad
         g2.fill(Ellipse2D.Float(cx - capRadius, cy - capRadius, capRadius * 2, capRadius * 2))
+        // Cap edge
+        g2.color = Color(0x44, 0x44, 0x58, 180)
+        g2.stroke = BasicStroke(1.2f)
+        g2.draw(Ellipse2D.Float(cx - capRadius + 0.5f, cy - capRadius + 0.5f,
+            (capRadius - 0.5f) * 2, (capRadius - 0.5f) * 2))
+        // Cap specular dot
+        val dotR = capRadius * 0.25f
+        g2.color = Color(0xFF, 0xFF, 0xFF, 60)
+        g2.fill(Ellipse2D.Float(cx - dotR - capRadius * 0.15f, cy - dotR - capRadius * 0.2f,
+            dotR * 2, dotR * 2))
     }
 }

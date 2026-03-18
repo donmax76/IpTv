@@ -65,10 +65,10 @@ class FmDemodulator(
         private set
 
     // Audio AGC to stabilize output level
-    private var audioAgcGain = 1.0f
-    private val audioAgcTarget = 0.35f
-    private val audioAgcAttack = 0.002f
-    private val audioAgcDecay = 0.0005f
+    private var audioAgcGain = 1.5f
+    private val audioAgcTarget = 0.55f
+    private val audioAgcAttack = 0.001f   // slower attack — less pumping
+    private val audioAgcDecay = 0.0003f   // slow decay — stable level
 
     // Output smoothing (prevents inter-chunk clicks)
     private var lastOutputSample = 0f
@@ -200,23 +200,25 @@ class FmDemodulator(
             } else {
                 audioAgcGain += audioAgcDecay * (audioAgcTarget - absAudio * audioAgcGain)
             }
-            audioAgcGain = audioAgcGain.coerceIn(0.5f, 5.0f)
+            audioAgcGain = audioAgcGain.coerceIn(0.8f, 8.0f)
             audio *= audioAgcGain
 
-            // Smooth soft limiter (tanh approximation, no hard knee)
-            val raw = audio * 30000f
-            val scaled = if (raw > 0) {
-                30000f * tanh(raw / 30000f)
-            } else {
-                -30000f * tanh(-raw / 30000f)
-            }
+            // Scale to 16-bit with gentle soft clipping (only clips near max)
+            val raw = audio * 32000f
+            val absRaw = if (raw < 0) -raw else raw
+            val scaled = if (absRaw > 28000f) {
+                // Soft clip only the top 12.5% — preserves dynamics
+                val over = (absRaw - 28000f) / 4000f
+                val compressed = 28000f + 3500f * (over / (1f + over))
+                if (raw < 0) -compressed else compressed
+            } else raw
 
             // Gentle smoothing to prevent inter-sample clicks
-            val smoothed = 0.95f * scaled + 0.05f * lastOutputSample
+            val smoothed = 0.97f * scaled + 0.03f * lastOutputSample
             lastOutputSample = smoothed
 
             if (audioCount < audioOut.size) {
-                audioOut[audioCount++] = smoothed.toInt().coerceIn(-32000, 32000).toShort()
+                audioOut[audioCount++] = smoothed.toInt().coerceIn(-32500, 32500).toShort()
             }
         }
 
