@@ -74,6 +74,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     // State
     @Volatile private var isPlaying = false
+    @Volatile private var isSeeking = false
     private var currentFrequency = 100_000_000L  // 100.0 MHz
     private var signalStrength = 0  // 0..5
     private var afEnabled = false
@@ -312,10 +313,10 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
         stylePlayButton(playBtn)
 
-        seekBackBtn.addActionListener { seekStation(false) }
-        freqDownBtn.addActionListener { tuneFrequency(currentFrequency - currentBandDef.stepHz) }
-        freqUpBtn.addActionListener { tuneFrequency(currentFrequency + currentBandDef.stepHz) }
-        seekFwdBtn.addActionListener { seekStation(true) }
+        seekBackBtn.addActionListener { if (isSeeking) cancelScan() else seekStation(false) }
+        freqDownBtn.addActionListener { if (isSeeking) cancelScan() else tuneFrequency(currentFrequency - currentBandDef.stepHz) }
+        freqUpBtn.addActionListener { if (isSeeking) cancelScan() else tuneFrequency(currentFrequency + currentBandDef.stepHz) }
+        seekFwdBtn.addActionListener { if (isSeeking) cancelScan() else seekStation(true) }
 
         // Setup rotary knob
         tuningKnob.stepSize = currentBandDef.stepHz
@@ -1624,6 +1625,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     }
 
     private fun togglePlayback() {
+        if (isSeeking) { cancelScan(); return }
         if (isPlaying) stopPlayback() else startPlayback()
     }
 
@@ -1761,9 +1763,15 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         }
     }
 
+    private fun cancelScan() {
+        isSeeking = false
+        statusLabel.text = "Scan cancelled"
+    }
+
     private fun seekStation(forward: Boolean) {
-        if (!sdr.isOpen) return
-        statusLabel.text = "Seeking..."
+        if (!sdr.isOpen || isSeeking) return
+        isSeeking = true
+        statusLabel.text = "Seeking... (press any control to cancel)"
         val wasPlaying = isPlaying
         if (wasPlaying) stopPlayback()
 
@@ -1773,7 +1781,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             val tempFmDemod = if (!isAm) FmDemodulator() else null
             val tempAmDemod = if (isAm) AmDemodulator() else null
             sdr.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
-            sdr.setMaxGain()  // query tuner for max supported gain
+            sdr.setMaxGain()
             sdr.setDirectSampling(band.directSampling)
             sdr.resetBuffer()
             val step = if (isAm) band.stepHz else 100_000L
@@ -1783,12 +1791,19 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             val (bandMin, bandMax) = bandRanges[currentBand]
             val totalSteps = ((bandMax - bandMin) / step).toInt()
             for (i in 0 until totalSteps) {
+                // Check for cancellation
+                if (!isSeeking) break
+
                 if (freq > bandMax) freq = bandMin
                 if (freq < bandMin) freq = bandMax
                 sdr.setFrequency(freq)
                 Thread.sleep(50)
                 sdr.resetBuffer()
                 Thread.sleep(60)
+
+                // Check for cancellation after sleeps
+                if (!isSeeking) break
+
                 val samples1 = sdr.readSamples(65536)
                 val samples2 = sdr.readSamples(65536)
                 if (samples1 != null && samples2 != null) {
@@ -1807,14 +1822,18 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                 }
                 val f = freq
                 SwingUtilities.invokeLater {
-                    statusLabel.text = "Seeking: ${formatFreq(f)} MHz"
+                    if (isSeeking) statusLabel.text = "Seeking: ${formatFreq(f)} MHz"
                 }
                 freq += if (forward) step else -step
             }
 
+            val wasCancelled = !isSeeking
+            isSeeking = false
             val sliderStep = band.stepHz.coerceAtLeast(5_000L)
             SwingUtilities.invokeLater {
-                if (found != null) {
+                if (wasCancelled) {
+                    statusLabel.text = "Scan cancelled"
+                } else if (found != null) {
                     currentFrequency = found
                     updateFreqDisplay()
                     tuningSlider.value = (found / sliderStep).toInt()
