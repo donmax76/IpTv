@@ -15,6 +15,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.*
 import com.fmradio.R
+import com.fmradio.data.PresetItem
 import com.fmradio.data.RadioStation
 import com.fmradio.data.StationStorage
 import com.fmradio.dsp.FmScanner
@@ -58,7 +59,13 @@ class MainActivity : Activity() {
     private lateinit var btnFreqUp: ImageButton
     private lateinit var btnSeekForward: ImageButton
 
-    private lateinit var presetButtons: List<Button>
+    private lateinit var lvPresets: ListView
+    private lateinit var presetAdapter: PresetAdapter
+    private lateinit var btnAddPreset: Button
+    private lateinit var tvPresetsHeader: TextView
+    private lateinit var tvStationsHeader: TextView
+    private var presetsExpanded = true
+    private var stationsExpanded = true
 
     private lateinit var seekVolume: SeekBar
     private lateinit var seekBass: SeekBar
@@ -191,11 +198,18 @@ class MainActivity : Activity() {
         btnFreqUp = findViewById(R.id.btnFreqUp)
         btnSeekForward = findViewById(R.id.btnSeekForward)
 
-        presetButtons = listOf(
-            findViewById(R.id.btnPreset1), findViewById(R.id.btnPreset2),
-            findViewById(R.id.btnPreset3), findViewById(R.id.btnPreset4),
-            findViewById(R.id.btnPreset5), findViewById(R.id.btnPreset6)
+        lvPresets = findViewById(R.id.lvPresets)
+        btnAddPreset = findViewById(R.id.btnAddPreset)
+        tvPresetsHeader = findViewById(R.id.tvPresetsHeader)
+        tvStationsHeader = findViewById(R.id.tvStationsHeader)
+
+        presetAdapter = PresetAdapter(
+            presets = emptyList(),
+            onPresetClick = { tuneToPreset(it) },
+            onPresetLongClick = { showPresetOptions(it) },
+            onDeleteClick = { deletePreset(it) }
         )
+        lvPresets.adapter = presetAdapter
 
         seekVolume = findViewById(R.id.seekVolume)
         seekBass = findViewById(R.id.seekBass)
@@ -251,7 +265,7 @@ class MainActivity : Activity() {
         seekTreble.progress = stationStorage.trebleLevel
         tvTrebleValue.text = (seekTreble.progress - 10).toString()
 
-        updatePresetLabels()
+        loadPresetsList()
         updateAfIndicator(stationStorage.afEnabled)
         updateTaIndicator(stationStorage.taEnabled)
     }
@@ -273,9 +287,18 @@ class MainActivity : Activity() {
             radioService?.seekStation(forward = true)
         }
 
-        presetButtons.forEachIndexed { index, btn ->
-            btn.setOnClickListener { loadPreset(index) }
-            btn.setOnLongClickListener { savePreset(index); true }
+        btnAddPreset.setOnClickListener { addCurrentFrequencyToPresets() }
+
+        tvPresetsHeader.setOnClickListener {
+            presetsExpanded = !presetsExpanded
+            lvPresets.visibility = if (presetsExpanded) View.VISIBLE else View.GONE
+            tvPresetsHeader.text = "PRESETS ${if (presetsExpanded) "▼" else "▶"}"
+        }
+
+        tvStationsHeader.setOnClickListener {
+            stationsExpanded = !stationsExpanded
+            lvStations.visibility = if (stationsExpanded) View.VISIBLE else View.GONE
+            tvStationsHeader.text = "STATIONS ${if (stationsExpanded) "▼" else "▶"}"
         }
 
         seekFrequency.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -441,33 +464,45 @@ class MainActivity : Activity() {
         if (radioService?.isPlaying != true) startPlayback()
     }
 
-    private fun loadPreset(index: Int) {
-        val freq = stationStorage.getPreset(index)
-        if (freq > 0) {
-            setFrequency(freq)
-            if (radioService?.isPlaying != true && rtlSdrDevice != null) startPlayback()
-            highlightPreset(index)
-        } else {
-            showToast(getString(R.string.msg_preset_empty, index + 1))
+    private fun tuneToPreset(preset: PresetItem) {
+        setFrequency(preset.frequencyHz)
+        if (radioService?.isPlaying != true && rtlSdrDevice != null) startPlayback()
+        presetAdapter.setSelectedFrequency(preset.frequencyHz)
+    }
+
+    private fun addCurrentFrequencyToPresets() {
+        stationStorage.addPresetItem(currentFrequency)
+        loadPresetsList()
+        presetAdapter.setSelectedFrequency(currentFrequency)
+        showToast(String.format("Preset saved: %.1f MHz", currentFrequency / 1e6))
+    }
+
+    private fun deletePreset(preset: PresetItem) {
+        stationStorage.removePresetItem(preset.frequencyHz)
+        loadPresetsList()
+    }
+
+    private fun showPresetOptions(preset: PresetItem) {
+        val editText = EditText(this).apply {
+            setText(preset.name)
+            hint = "Preset name"
         }
+        AlertDialog.Builder(this)
+            .setTitle("${preset.displayFrequency} MHz")
+            .setView(editText)
+            .setPositiveButton("Save") { _, _ ->
+                val name = editText.text.toString().trim()
+                stationStorage.renamePresetItem(preset.frequencyHz, name)
+                loadPresetsList()
+            }
+            .setNeutralButton("Delete") { _, _ -> deletePreset(preset) }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
-    private fun savePreset(index: Int) {
-        stationStorage.setPreset(index, currentFrequency)
-        updatePresetLabels()
-        highlightPreset(index)
-        showToast(getString(R.string.msg_preset_saved, index + 1, currentFrequency / 1e6))
-    }
-
-    private fun updatePresetLabels() {
-        presetButtons.forEachIndexed { index, btn ->
-            val freq = stationStorage.getPreset(index)
-            btn.text = if (freq > 0) String.format("%.1f", freq / 1e6) else (index + 1).toString()
-        }
-    }
-
-    private fun highlightPreset(activeIndex: Int) {
-        presetButtons.forEachIndexed { index, btn -> btn.isSelected = index == activeIndex }
+    private fun loadPresetsList() {
+        presetAdapter.updatePresets(stationStorage.loadPresets())
+        presetAdapter.setSelectedFrequency(currentFrequency)
     }
 
     private fun startScan() {

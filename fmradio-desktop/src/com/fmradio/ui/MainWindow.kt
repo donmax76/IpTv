@@ -7,31 +7,32 @@ import com.fmradio.rtlsdr.RtlSdrNative
 import java.awt.*
 import java.awt.event.*
 import java.awt.geom.RoundRectangle2D
+import java.io.File
 import javax.swing.*
 import javax.swing.border.EmptyBorder
-import javax.swing.border.CompoundBorder
 import javax.swing.border.LineBorder
 import javax.swing.plaf.basic.BasicSliderUI
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * FM Radio RTL-SDR — Desktop (Windows/Linux/Mac)
  * Uses librtlsdr directly via JNA — no rtl_tcp server needed.
  * Auto-detects and opens RTL-SDR device on startup.
  *
- * Premium car radio head unit UI.
+ * Premium car radio head unit UI — unified design with Android version.
  */
 class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     companion object {
         const val VERSION = "1.2"
-        const val BUILD = "20260317-3"
+        const val BUILD = "20260318-1"
 
-        // Color palette
+        // Color palette (matches Android)
         val BG_TOP = Color(0x1A, 0x1A, 0x2E)
         val BG_BOTTOM = Color(0x0D, 0x0D, 0x1A)
         val FREQ_GREEN = Color(0x00, 0xFF, 0x80)
         val FREQ_GREEN_DIM = Color(0x00, 0x80, 0x40)
-        val FREQ_GLOW = Color(0x00, 0xFF, 0x80, 40)
         val CYAN = Color(0x00, 0xE5, 0xFF)
         val CYAN_DIM = Color(0x00, 0x72, 0x80)
         val AMBER = Color(0xFF, 0xC8, 0x00)
@@ -52,6 +53,8 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         val SIGNAL_GREEN = Color(0x00, 0xE0, 0x70)
         val SIGNAL_YELLOW = Color(0xFF, 0xD0, 0x00)
         val SIGNAL_RED = Color(0xFF, 0x40, 0x40)
+        val LIST_ITEM_BG = Color(0x14, 0x14, 0x26)
+        val LIST_ITEM_SELECTED = Color(0x1E, 0x2E, 0x1E)
     }
 
     // RTL-SDR direct access
@@ -69,6 +72,8 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     private var currentFrequency = 100_000_000L  // 100.0 MHz
     private val stepHz = 100_000L  // 100 kHz step
     private var signalStrength = 0  // 0..5
+    private var afEnabled = false
+    private var taEnabled = false
 
     // RDS scrolling state
     private var radioText = ""
@@ -91,18 +96,41 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     private val bassValueLabel = JLabel("0 dB")
     private val trebleValueLabel = JLabel("0 dB")
 
-    // Presets
-    private val presetFreqs = longArrayOf(
-        87_500_000, 91_000_000, 95_000_000,
-        100_000_000, 104_000_000, 107_000_000
-    )
-    private val presetButtons = Array(6) { JButton("P${it + 1}") }
+    // Function buttons
+    private val btnScan = createMetallicButton("SCAN", 70, 36, "Auto-scan for stations")
+    private val btnAf = createMetallicButton("AF", 50, 36, "Alternate Frequency")
+    private val btnTa = createMetallicButton("TA", 50, 36, "Traffic Announcements")
+    private val btnPty = createMetallicButton("PTY", 55, 36, "Program Type")
+    private val btnBand = createMetallicButton("BAND: FM", 110, 36, "Select band")
+
+    // Expandable presets list
+    private val presetListModel = DefaultListModel<PresetEntry>()
+    private val presetList = JList(presetListModel)
+    private var presetsExpanded = true
+    private var stationsExpanded = true
+
+    // Stations list (found by scan)
+    private val stationListModel = DefaultListModel<StationEntry>()
+    private val stationList = JList(stationListModel)
+
+    // Storage file
+    private val storageFile = File(System.getProperty("user.home"), ".fmradio-presets.json")
+
+    data class PresetEntry(val frequencyHz: Long, val name: String = "") {
+        override fun toString() = if (name.isNotEmpty()) "$name (${formatFreq(frequencyHz)})" else "${formatFreq(frequencyHz)} MHz"
+        companion object {
+            fun formatFreq(hz: Long) = String.format("%.1f", hz / 1_000_000.0)
+        }
+    }
+
+    data class StationEntry(val frequencyHz: Long, val name: String = "", val signalStrength: Float = 0f) {
+        override fun toString() = if (name.isNotEmpty()) "$name (${String.format("%.1f", frequencyHz / 1e6)})" else "${String.format("%.1f", frequencyHz / 1e6)} MHz"
+    }
 
     init {
         defaultCloseOperation = EXIT_ON_CLOSE
-        preferredSize = Dimension(900, 520)
+        preferredSize = Dimension(1100, 600)
         minimumSize = Dimension(900, 520)
-        isResizable = false
         buildUI()
         pack()
         setLocationRelativeTo(null)
@@ -117,41 +145,47 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         rdsScrollTimer = Timer(250) { scrollRadioText() }
         rdsScrollTimer?.start()
 
+        // Load saved presets
+        loadPresetsFromFile()
+
         // Auto-connect on startup
         SwingUtilities.invokeLater { autoConnect() }
     }
 
     // =========================================================================
-    //  UI CONSTRUCTION
+    //  UI CONSTRUCTION — Unified layout matching Android
     // =========================================================================
 
     private fun buildUI() {
         val root = GradientPanel(BG_TOP, BG_BOTTOM).apply {
             layout = BorderLayout(0, 0)
-            border = EmptyBorder(14, 18, 10, 18)
+            border = EmptyBorder(10, 12, 8, 12)
         }
 
         // ---- Top: status bar ----
         val topBar = createStatusBar()
 
-        // ---- Main content: left display area + right controls ----
-        val mainContent = JPanel(BorderLayout(16, 0)).apply { isOpaque = false }
+        // ---- Main content: left controls (65%) + right lists (35%) ----
+        val mainContent = JPanel(GridBagLayout()).apply { isOpaque = false }
+        val gbc = GridBagConstraints()
 
-        // Left side: frequency display, RDS, signal
-        val displayPanel = createDisplayPanel()
+        // Left side: frequency display + controls + function buttons
+        val leftPanel = createLeftPanel()
+        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0.65; gbc.weighty = 1.0
+        gbc.fill = GridBagConstraints.BOTH; gbc.insets = Insets(0, 0, 0, 6)
+        mainContent.add(leftPanel, gbc)
 
-        // Right side: controls column
-        val controlsPanel = createControlsPanel()
+        // Right side: presets list + stations list
+        val rightPanel = createRightPanel()
+        gbc.gridx = 1; gbc.weightx = 0.35; gbc.insets = Insets(0, 6, 0, 0)
+        mainContent.add(rightPanel, gbc)
 
-        mainContent.add(displayPanel, BorderLayout.CENTER)
-        mainContent.add(controlsPanel, BorderLayout.EAST)
-
-        // ---- Bottom: presets row ----
-        val presetsRow = createPresetsPanel()
+        // ---- Bottom: Volume + Bass + Treble bar (like Android) ----
+        val bottomBar = createBottomEqBar()
 
         root.add(topBar, BorderLayout.NORTH)
         root.add(mainContent, BorderLayout.CENTER)
-        root.add(presetsRow, BorderLayout.SOUTH)
+        root.add(bottomBar, BorderLayout.SOUTH)
 
         contentPane = root
 
@@ -172,7 +206,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     private fun createStatusBar(): JPanel {
         val bar = JPanel(BorderLayout(10, 0)).apply {
             isOpaque = false
-            border = EmptyBorder(0, 0, 10, 0)
+            border = EmptyBorder(0, 0, 8, 0)
         }
 
         statusLabel.apply {
@@ -213,19 +247,78 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         return bar
     }
 
-    private fun createDisplayPanel(): JPanel {
-        val panel = JPanel(BorderLayout(0, 8)).apply { isOpaque = false }
+    private fun createLeftPanel(): JPanel {
+        val panel = JPanel(BorderLayout(0, 6)).apply { isOpaque = false }
 
-        // ---- Frequency display area (dark inset panel) ----
+        // LCD display area
+        val freqDisplayPanel = createFreqDisplay()
+
+        // Tuning controls row
+        val tuneRow = JPanel(FlowLayout(FlowLayout.CENTER, 12, 0)).apply {
+            isOpaque = false
+            border = EmptyBorder(8, 0, 4, 0)
+        }
+
+        val seekBackBtn = createMetallicButton("\u23EA", 50, 50, "Seek Back")
+        val freqDownBtn = createMetallicButton("-0.1", 50, 50, "Freq Down")
+        val freqUpBtn = createMetallicButton("+0.1", 50, 50, "Freq Up")
+        val seekFwdBtn = createMetallicButton("\u23E9", 50, 50, "Seek Forward")
+
+        stylePlayButton(playBtn)
+
+        seekBackBtn.addActionListener { seekStation(false) }
+        freqDownBtn.addActionListener { tuneFrequency(currentFrequency - stepHz) }
+        freqUpBtn.addActionListener { tuneFrequency(currentFrequency + stepHz) }
+        seekFwdBtn.addActionListener { seekStation(true) }
+
+        tuneRow.add(seekBackBtn)
+        tuneRow.add(freqDownBtn)
+        tuneRow.add(playBtn)
+        tuneRow.add(freqUpBtn)
+        tuneRow.add(seekFwdBtn)
+
+        // Function buttons row: SCAN | AF | TA | PTY | BAND
+        val funcRow = JPanel(FlowLayout(FlowLayout.CENTER, 6, 0)).apply {
+            isOpaque = false
+            border = EmptyBorder(2, 0, 0, 0)
+        }
+
+        btnScan.addActionListener { startScan() }
+        btnAf.addActionListener { toggleAf() }
+        btnTa.addActionListener { toggleTa() }
+        btnPty.addActionListener { showPtyInfo() }
+        btnBand.addActionListener { /* band selection - FM only for now */ }
+
+        funcRow.add(btnScan)
+        funcRow.add(btnAf)
+        funcRow.add(btnTa)
+        funcRow.add(btnPty)
+        funcRow.add(btnBand)
+
+        // Bottom part of left panel: tune row + func buttons
+        val bottomControls = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
+        }
+        tuneRow.alignmentX = Component.CENTER_ALIGNMENT
+        funcRow.alignmentX = Component.CENTER_ALIGNMENT
+        bottomControls.add(tuneRow)
+        bottomControls.add(funcRow)
+
+        panel.add(freqDisplayPanel, BorderLayout.CENTER)
+        panel.add(bottomControls, BorderLayout.SOUTH)
+
+        return panel
+    }
+
+    private fun createFreqDisplay(): JPanel {
         val freqDisplayPanel = object : JPanel(BorderLayout(0, 6)) {
             override fun paintComponent(g: Graphics) {
                 val g2 = g as Graphics2D
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                // Inset background
                 val bg = GradientPaint(0f, 0f, Color(0x0A, 0x0A, 0x18), 0f, height.toFloat(), Color(0x10, 0x10, 0x20))
                 g2.paint = bg
                 g2.fill(RoundRectangle2D.Float(0f, 0f, width.toFloat(), height.toFloat(), 18f, 18f))
-                // Border
                 g2.color = PANEL_BORDER
                 g2.stroke = BasicStroke(1.5f)
                 g2.draw(RoundRectangle2D.Float(0.5f, 0.5f, width - 1f, height - 1f, 18f, 18f))
@@ -243,14 +336,11 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             foreground = FREQ_GREEN
         }
 
-        // Wrap freq label to draw glow
         val freqGlowPanel = object : JPanel(BorderLayout()) {
             override fun paintComponent(g: Graphics) {
-                // Draw glow behind the text
                 val g2 = g as Graphics2D
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
                 g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
-                // Glow effect: multiple layers
                 val text = freqLabel.text
                 val fm = g2.getFontMetrics(freqLabel.font)
                 val tx = (width - fm.stringWidth(text)) / 2
@@ -269,7 +359,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             add(freqLabel, BorderLayout.CENTER)
         }
 
-        // Right side info column: MHz, stereo, signal
+        // Right side info: MHz, stereo, signal
         val infoColumn = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             isOpaque = false
@@ -281,13 +371,11 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             foreground = FREQ_GREEN_DIM
             alignmentX = Component.LEFT_ALIGNMENT
         }
-
         stereoLabel.apply {
             font = Font("Monospaced", Font.BOLD, 16)
             foreground = AMBER
             alignmentX = Component.LEFT_ALIGNMENT
         }
-
         signalPanel.apply {
             alignmentX = Component.LEFT_ALIGNMENT
             preferredSize = Dimension(80, 22)
@@ -309,12 +397,10 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             isOpaque = false
             border = EmptyBorder(6, 0, 0, 0)
         }
-
         rdsLabel.apply {
             font = Font("SansSerif", Font.BOLD, 24)
             foreground = CYAN
         }
-
         val rdsBottomRow = JPanel(BorderLayout()).apply { isOpaque = false }
         rtLabel.apply {
             font = Font("Monospaced", Font.PLAIN, 14)
@@ -326,46 +412,17 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         }
         rdsBottomRow.add(rtLabel, BorderLayout.CENTER)
         rdsBottomRow.add(ptyLabel, BorderLayout.EAST)
-
         rdsArea.add(rdsLabel, BorderLayout.NORTH)
         rdsArea.add(rdsBottomRow, BorderLayout.CENTER)
 
         freqDisplayPanel.add(freqRow, BorderLayout.CENTER)
         freqDisplayPanel.add(rdsArea, BorderLayout.SOUTH)
 
-        // ---- Tuning controls row ----
-        val tuneRow = JPanel(FlowLayout(FlowLayout.CENTER, 12, 0)).apply {
-            isOpaque = false
-            border = EmptyBorder(10, 0, 0, 0)
-        }
-
-        val seekBackBtn = createMetallicButton("\u23EA", 50, 50, "Seek Back")
-        val freqDownBtn = createMetallicButton("-0.1", 50, 50, "Freq Down")
-        val freqUpBtn = createMetallicButton("+0.1", 50, 50, "Freq Up")
-        val seekFwdBtn = createMetallicButton("\u23E9", 50, 50, "Seek Forward")
-
-        // Play button: large green
-        stylePlayButton(playBtn)
-
-        seekBackBtn.addActionListener { seekStation(false) }
-        freqDownBtn.addActionListener { tuneFrequency(currentFrequency - stepHz) }
-        freqUpBtn.addActionListener { tuneFrequency(currentFrequency + stepHz) }
-        seekFwdBtn.addActionListener { seekStation(true) }
-
-        tuneRow.add(seekBackBtn)
-        tuneRow.add(freqDownBtn)
-        tuneRow.add(playBtn)
-        tuneRow.add(freqUpBtn)
-        tuneRow.add(seekFwdBtn)
-
-        panel.add(freqDisplayPanel, BorderLayout.CENTER)
-        panel.add(tuneRow, BorderLayout.SOUTH)
-
-        return panel
+        return freqDisplayPanel
     }
 
-    private fun createControlsPanel(): JPanel {
-        val panel = object : JPanel() {
+    private fun createRightPanel(): JPanel {
+        val panel = object : JPanel(BorderLayout(0, 0)) {
             override fun paintComponent(g: Graphics) {
                 val g2 = g as Graphics2D
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
@@ -377,132 +434,545 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                 g2.draw(RoundRectangle2D.Float(0.5f, 0.5f, width - 1f, height - 1f, 16f, 16f))
             }
         }.apply {
+            isOpaque = false
+            border = EmptyBorder(10, 10, 10, 10)
+        }
+
+        val innerPanel = JPanel().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             isOpaque = false
-            border = EmptyBorder(16, 16, 16, 16)
-            preferredSize = Dimension(220, 0)
+        }
+
+        // ---- PRESETS SECTION ----
+        val presetsHeader = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            maximumSize = Dimension(Int.MAX_VALUE, 30)
+        }
+        val presetsLabel = JLabel("PRESETS \u25BC").apply {
+            font = Font("SansSerif", Font.BOLD, 14)
+            foreground = CYAN
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        }
+        val addPresetBtn = createMetallicButton("+", 32, 26, "Save current frequency as preset")
+        addPresetBtn.font = Font("SansSerif", Font.BOLD, 16)
+
+        presetsHeader.add(presetsLabel, BorderLayout.CENTER)
+        presetsHeader.add(addPresetBtn, BorderLayout.EAST)
+
+        // Preset list
+        presetList.apply {
+            isOpaque = false
+            background = Color(0, 0, 0, 0)
+            foreground = TEXT_LIGHT
+            font = Font("Monospaced", Font.PLAIN, 14)
+            selectionMode = ListSelectionModel.SINGLE_SELECTION
+            fixedCellHeight = 40
+            cellRenderer = PresetCellRenderer()
+        }
+        val presetScroll = JScrollPane(presetList).apply {
+            isOpaque = false
+            viewport.isOpaque = false
+            border = EmptyBorder(4, 0, 4, 0)
+            verticalScrollBar.unitIncrement = 16
+            preferredSize = Dimension(0, 160)
+        }
+
+        // Preset click handlers
+        presetList.addMouseListener(object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                val index = presetList.locationToIndex(e.point)
+                if (index < 0) return
+                val preset = presetListModel.getElementAt(index)
+                if (e.button == MouseEvent.BUTTON1) {
+                    tuneFrequency(preset.frequencyHz)
+                } else if (e.button == MouseEvent.BUTTON3) {
+                    showPresetContextMenu(e, preset, index)
+                }
+            }
+        })
+
+        addPresetBtn.addActionListener {
+            addPreset(currentFrequency)
+        }
+
+        // Toggle presets expand/collapse
+        presetsLabel.addMouseListener(object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                presetsExpanded = !presetsExpanded
+                presetScroll.isVisible = presetsExpanded
+                presetsLabel.text = "PRESETS ${if (presetsExpanded) "\u25BC" else "\u25B6"}"
+                panel.revalidate()
+            }
+        })
+
+        // ---- STATIONS SECTION ----
+        val stationsHeader = JPanel(BorderLayout()).apply {
+            isOpaque = false
+            maximumSize = Dimension(Int.MAX_VALUE, 30)
+        }
+        val stationsLabel = JLabel("STATIONS \u25BC").apply {
+            font = Font("SansSerif", Font.BOLD, 14)
+            foreground = AMBER
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+        }
+        stationsHeader.add(stationsLabel, BorderLayout.CENTER)
+
+        // Station list
+        stationList.apply {
+            isOpaque = false
+            background = Color(0, 0, 0, 0)
+            foreground = TEXT_LIGHT
+            font = Font("Monospaced", Font.PLAIN, 14)
+            selectionMode = ListSelectionModel.SINGLE_SELECTION
+            fixedCellHeight = 44
+            cellRenderer = StationCellRenderer()
+        }
+        val stationScroll = JScrollPane(stationList).apply {
+            isOpaque = false
+            viewport.isOpaque = false
+            border = EmptyBorder(4, 0, 4, 0)
+            verticalScrollBar.unitIncrement = 16
+        }
+
+        stationList.addMouseListener(object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                val index = stationList.locationToIndex(e.point)
+                if (index < 0) return
+                val station = stationListModel.getElementAt(index)
+                if (e.button == MouseEvent.BUTTON1) {
+                    tuneFrequency(station.frequencyHz)
+                } else if (e.button == MouseEvent.BUTTON3) {
+                    showStationContextMenu(e, station, index)
+                }
+            }
+        })
+
+        // Toggle stations expand/collapse
+        stationsLabel.addMouseListener(object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                stationsExpanded = !stationsExpanded
+                stationScroll.isVisible = stationsExpanded
+                stationsLabel.text = "STATIONS ${if (stationsExpanded) "\u25BC" else "\u25B6"}"
+                panel.revalidate()
+            }
+        })
+
+        presetsHeader.alignmentX = Component.LEFT_ALIGNMENT
+        presetScroll.alignmentX = Component.LEFT_ALIGNMENT
+        stationsHeader.alignmentX = Component.LEFT_ALIGNMENT
+        stationScroll.alignmentX = Component.LEFT_ALIGNMENT
+
+        innerPanel.add(presetsHeader)
+        innerPanel.add(Box.createVerticalStrut(4))
+        innerPanel.add(presetScroll)
+        innerPanel.add(Box.createVerticalStrut(8))
+        innerPanel.add(stationsHeader)
+        innerPanel.add(Box.createVerticalStrut(4))
+        innerPanel.add(stationScroll)
+
+        panel.add(innerPanel, BorderLayout.CENTER)
+        return panel
+    }
+
+    private fun createBottomEqBar(): JPanel {
+        val bar = JPanel(FlowLayout(FlowLayout.CENTER, 8, 0)).apply {
+            isOpaque = false
+            border = EmptyBorder(8, 0, 0, 0)
+        }
+
+        // Wrap in a styled panel
+        val styledBar = object : JPanel(FlowLayout(FlowLayout.CENTER, 12, 4)) {
+            override fun paintComponent(g: Graphics) {
+                val g2 = g as Graphics2D
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                val bg = GradientPaint(0f, 0f, Color(0x14, 0x14, 0x26), 0f, height.toFloat(), Color(0x0E, 0x0E, 0x1C))
+                g2.paint = bg
+                g2.fill(RoundRectangle2D.Float(0f, 0f, width.toFloat(), height.toFloat(), 14f, 14f))
+                g2.color = PANEL_BORDER
+                g2.stroke = BasicStroke(1.2f)
+                g2.draw(RoundRectangle2D.Float(0.5f, 0.5f, width - 1f, height - 1f, 14f, 14f))
+            }
+        }.apply {
+            isOpaque = false
+            border = EmptyBorder(6, 16, 8, 16)
         }
 
         // Volume
-        val volLabel = JLabel("VOLUME").apply {
-            font = Font("SansSerif", Font.BOLD, 12)
-            foreground = TEXT_DIM
-            alignmentX = Component.LEFT_ALIGNMENT
+        val volLabel = JLabel("VOL").apply {
+            font = Font("SansSerif", Font.BOLD, 13)
+            foreground = AMBER
         }
-
         styleSlider(volumeSlider, SLIDER_FILL)
-        volumeSlider.alignmentX = Component.LEFT_ALIGNMENT
-        volumeSlider.maximumSize = Dimension(Int.MAX_VALUE, 36)
+        volumeSlider.preferredSize = Dimension(140, 30)
+        val volValueLabel = JLabel("${volumeSlider.value}").apply {
+            font = Font("Monospaced", Font.BOLD, 13)
+            foreground = AMBER
+            preferredSize = Dimension(28, 20)
+        }
         volumeSlider.addChangeListener {
             audioPlayer?.setVolume(volumeSlider.value / 100f)
+            volValueLabel.text = "${volumeSlider.value}"
         }
 
-        val volValueLabel = JLabel("${volumeSlider.value}%").apply {
-            font = Font("Monospaced", Font.BOLD, 13)
-            foreground = TEXT_LIGHT
-            alignmentX = Component.LEFT_ALIGNMENT
-        }
-        volumeSlider.addChangeListener {
-            volValueLabel.text = "${volumeSlider.value}%"
+        // Separator
+        val sep1 = JPanel().apply {
+            preferredSize = Dimension(1, 20)
+            background = TEXT_DIM
+            isOpaque = true
         }
 
         // Bass
         val bassLabel = JLabel("BASS").apply {
-            font = Font("SansSerif", Font.BOLD, 12)
-            foreground = TEXT_DIM
-            alignmentX = Component.LEFT_ALIGNMENT
+            font = Font("SansSerif", Font.BOLD, 13)
+            foreground = CYAN
         }
-
-        styleSlider(bassSlider, Color(0xFF, 0x80, 0x40))
-        bassSlider.alignmentX = Component.LEFT_ALIGNMENT
-        bassSlider.maximumSize = Dimension(Int.MAX_VALUE, 36)
+        styleSlider(bassSlider, Color(0x00, 0xE5, 0xFF))
+        bassSlider.preferredSize = Dimension(100, 30)
+        bassValueLabel.apply {
+            font = Font("Monospaced", Font.BOLD, 13)
+            foreground = CYAN
+            preferredSize = Dimension(40, 20)
+        }
         bassSlider.addChangeListener {
             val db = bassSlider.value - 10
             equalizer?.bassGainDb = db.toFloat()
-            bassValueLabel.text = "${if (db >= 0) "+" else ""}$db dB"
+            bassValueLabel.text = "${if (db >= 0) "+" else ""}$db"
         }
-        bassValueLabel.apply {
-            font = Font("Monospaced", Font.BOLD, 13)
-            foreground = TEXT_LIGHT
-            alignmentX = Component.LEFT_ALIGNMENT
+
+        // Separator
+        val sep2 = JPanel().apply {
+            preferredSize = Dimension(1, 20)
+            background = TEXT_DIM
+            isOpaque = true
         }
 
         // Treble
-        val trebleLabel = JLabel("TREBLE").apply {
-            font = Font("SansSerif", Font.BOLD, 12)
-            foreground = TEXT_DIM
-            alignmentX = Component.LEFT_ALIGNMENT
+        val trebleLabel = JLabel("TREB").apply {
+            font = Font("SansSerif", Font.BOLD, 13)
+            foreground = CYAN
         }
-
-        styleSlider(trebleSlider, Color(0x60, 0xA0, 0xFF))
-        trebleSlider.alignmentX = Component.LEFT_ALIGNMENT
-        trebleSlider.maximumSize = Dimension(Int.MAX_VALUE, 36)
+        styleSlider(trebleSlider, Color(0x00, 0xE5, 0xFF))
+        trebleSlider.preferredSize = Dimension(100, 30)
+        trebleValueLabel.apply {
+            font = Font("Monospaced", Font.BOLD, 13)
+            foreground = CYAN
+            preferredSize = Dimension(40, 20)
+        }
         trebleSlider.addChangeListener {
             val db = trebleSlider.value - 10
             equalizer?.trebleGainDb = db.toFloat()
-            trebleValueLabel.text = "${if (db >= 0) "+" else ""}$db dB"
-        }
-        trebleValueLabel.apply {
-            font = Font("Monospaced", Font.BOLD, 13)
-            foreground = TEXT_LIGHT
-            alignmentX = Component.LEFT_ALIGNMENT
+            trebleValueLabel.text = "${if (db >= 0) "+" else ""}$db"
         }
 
-        panel.add(volLabel)
-        panel.add(Box.createVerticalStrut(4))
-        panel.add(volumeSlider)
-        panel.add(volValueLabel)
-        panel.add(Box.createVerticalStrut(18))
-        panel.add(bassLabel)
-        panel.add(Box.createVerticalStrut(4))
-        panel.add(bassSlider)
-        panel.add(bassValueLabel)
-        panel.add(Box.createVerticalStrut(18))
-        panel.add(trebleLabel)
-        panel.add(Box.createVerticalStrut(4))
-        panel.add(trebleSlider)
-        panel.add(trebleValueLabel)
-        panel.add(Box.createVerticalGlue())
+        styledBar.add(volLabel)
+        styledBar.add(volumeSlider)
+        styledBar.add(volValueLabel)
+        styledBar.add(sep1)
+        styledBar.add(bassLabel)
+        styledBar.add(bassSlider)
+        styledBar.add(bassValueLabel)
+        styledBar.add(sep2)
+        styledBar.add(trebleLabel)
+        styledBar.add(trebleSlider)
+        styledBar.add(trebleValueLabel)
 
-        return panel
+        bar.add(styledBar)
+        return bar
     }
 
-    private fun createPresetsPanel(): JPanel {
-        val wrapper = JPanel(BorderLayout(0, 0)).apply {
-            isOpaque = false
-            border = EmptyBorder(12, 0, 0, 0)
-        }
+    // =========================================================================
+    //  PRESET / STATION LIST RENDERERS
+    // =========================================================================
 
-        val presetRow = JPanel(FlowLayout(FlowLayout.CENTER, 10, 0)).apply {
-            isOpaque = false
-        }
-
-        val label = JLabel("PRESETS").apply {
-            font = Font("SansSerif", Font.BOLD, 12)
-            foreground = TEXT_DIM
-            border = EmptyBorder(0, 0, 0, 8)
-        }
-        presetRow.add(label)
-
-        for (i in 0 until 6) {
-            val btn = presetButtons[i]
-            stylePresetButton(btn, i)
-            btn.addActionListener { tuneFrequency(presetFreqs[i]) }
-            btn.addMouseListener(object : MouseAdapter() {
-                override fun mouseClicked(e: MouseEvent) {
-                    if (e.button == MouseEvent.BUTTON3) {
-                        presetFreqs[i] = currentFrequency
-                        updatePresetLabels()
-                        statusLabel.text = "Preset ${i + 1} saved: ${formatFreq(currentFrequency)} MHz"
+    private inner class PresetCellRenderer : ListCellRenderer<PresetEntry> {
+        override fun getListCellRendererComponent(
+            list: JList<out PresetEntry>, value: PresetEntry, index: Int,
+            isSelected: Boolean, cellHasFocus: Boolean
+        ): Component {
+            return object : JPanel(BorderLayout(8, 0)) {
+                init {
+                    isOpaque = false
+                    border = EmptyBorder(4, 8, 4, 8)
+                }
+                override fun paintComponent(g: Graphics) {
+                    val g2 = g as Graphics2D
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                    val bg = if (value.frequencyHz == currentFrequency) LIST_ITEM_SELECTED else LIST_ITEM_BG
+                    g2.color = bg
+                    g2.fill(RoundRectangle2D.Float(0f, 0f, width.toFloat(), height.toFloat(), 10f, 10f))
+                    if (isSelected) {
+                        g2.color = CYAN_DIM
+                        g2.stroke = BasicStroke(1.2f)
+                        g2.draw(RoundRectangle2D.Float(0.5f, 0.5f, width - 1f, height - 1f, 10f, 10f))
                     }
                 }
-            })
-            presetRow.add(btn)
-        }
-        updatePresetLabels()
+            }.apply {
+                val indexLabel = JLabel("P${index + 1}").apply {
+                    font = Font("SansSerif", Font.PLAIN, 11)
+                    foreground = TEXT_DIM
+                    preferredSize = Dimension(28, 20)
+                }
+                val freqLabel = JLabel("${PresetEntry.formatFreq(value.frequencyHz)} MHz").apply {
+                    font = Font("Monospaced", Font.BOLD, 14)
+                    foreground = if (value.frequencyHz == currentFrequency) FREQ_GREEN else TEXT_LIGHT
+                }
+                val nameLabel = JLabel(value.name).apply {
+                    font = Font("SansSerif", Font.PLAIN, 12)
+                    foreground = AMBER
+                }
 
-        wrapper.add(presetRow, BorderLayout.CENTER)
-        return wrapper
+                val textPanel = JPanel().apply {
+                    layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                    isOpaque = false
+                }
+                textPanel.add(freqLabel)
+                if (value.name.isNotEmpty()) textPanel.add(nameLabel)
+
+                add(indexLabel, BorderLayout.WEST)
+                add(textPanel, BorderLayout.CENTER)
+            }
+        }
+    }
+
+    private inner class StationCellRenderer : ListCellRenderer<StationEntry> {
+        override fun getListCellRendererComponent(
+            list: JList<out StationEntry>, value: StationEntry, index: Int,
+            isSelected: Boolean, cellHasFocus: Boolean
+        ): Component {
+            return object : JPanel(BorderLayout(8, 0)) {
+                init {
+                    isOpaque = false
+                    border = EmptyBorder(4, 8, 4, 8)
+                }
+                override fun paintComponent(g: Graphics) {
+                    val g2 = g as Graphics2D
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+                    val bg = if (value.frequencyHz == currentFrequency) LIST_ITEM_SELECTED else LIST_ITEM_BG
+                    g2.color = bg
+                    g2.fill(RoundRectangle2D.Float(0f, 0f, width.toFloat(), height.toFloat(), 10f, 10f))
+                    if (isSelected) {
+                        g2.color = AMBER
+                        g2.stroke = BasicStroke(1.2f)
+                        g2.draw(RoundRectangle2D.Float(0.5f, 0.5f, width - 1f, height - 1f, 10f, 10f))
+                    }
+                }
+            }.apply {
+                val freqLabel = JLabel("${String.format("%.1f", value.frequencyHz / 1e6)} MHz").apply {
+                    font = Font("Monospaced", Font.BOLD, 14)
+                    foreground = if (value.frequencyHz == currentFrequency) FREQ_GREEN else TEXT_LIGHT
+                }
+                val nameLabel = JLabel(if (value.name.isNotEmpty()) value.name else "---").apply {
+                    font = Font("SansSerif", Font.PLAIN, 12)
+                    foreground = AMBER
+                }
+                val signalLabel = JLabel(getSignalBars(value.signalStrength)).apply {
+                    font = Font("Monospaced", Font.PLAIN, 12)
+                    foreground = SIGNAL_GREEN
+                }
+
+                val textPanel = JPanel().apply {
+                    layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                    isOpaque = false
+                }
+                textPanel.add(freqLabel)
+                textPanel.add(nameLabel)
+
+                add(textPanel, BorderLayout.CENTER)
+                add(signalLabel, BorderLayout.EAST)
+            }
+        }
+
+        private fun getSignalBars(strength: Float): String = when {
+            strength > -5f -> "\u2588\u2588\u2588\u2588\u2588"
+            strength > -10f -> "\u2588\u2588\u2588\u2588"
+            strength > -15f -> "\u2588\u2588\u2588"
+            strength > -20f -> "\u2588\u2588"
+            else -> "\u2588"
+        }
+    }
+
+    // =========================================================================
+    //  PRESET / STATION CONTEXT MENUS
+    // =========================================================================
+
+    private fun showPresetContextMenu(e: MouseEvent, preset: PresetEntry, index: Int) {
+        val menu = JPopupMenu()
+        menu.background = Color(0x22, 0x22, 0x33)
+
+        val renameItem = JMenuItem("Rename").apply {
+            foreground = TEXT_LIGHT
+            background = Color(0x22, 0x22, 0x33)
+        }
+        renameItem.addActionListener {
+            val name = JOptionPane.showInputDialog(this, "Preset name:", preset.name)
+            if (name != null) {
+                presetListModel.set(index, preset.copy(name = name.trim()))
+                savePresetsToFile()
+            }
+        }
+
+        val deleteItem = JMenuItem("Delete").apply {
+            foreground = RED_SOFT
+            background = Color(0x22, 0x22, 0x33)
+        }
+        deleteItem.addActionListener {
+            presetListModel.remove(index)
+            savePresetsToFile()
+        }
+
+        menu.add(renameItem)
+        menu.add(deleteItem)
+        menu.show(e.component, e.x, e.y)
+    }
+
+    private fun showStationContextMenu(e: MouseEvent, station: StationEntry, index: Int) {
+        val menu = JPopupMenu()
+        menu.background = Color(0x22, 0x22, 0x33)
+
+        val saveAsPreset = JMenuItem("Save as Preset").apply {
+            foreground = CYAN
+            background = Color(0x22, 0x22, 0x33)
+        }
+        saveAsPreset.addActionListener {
+            addPreset(station.frequencyHz, station.name)
+        }
+
+        val deleteItem = JMenuItem("Delete").apply {
+            foreground = RED_SOFT
+            background = Color(0x22, 0x22, 0x33)
+        }
+        deleteItem.addActionListener {
+            stationListModel.remove(index)
+        }
+
+        menu.add(saveAsPreset)
+        menu.add(deleteItem)
+        menu.show(e.component, e.x, e.y)
+    }
+
+    // =========================================================================
+    //  PRESET STORAGE (JSON file)
+    // =========================================================================
+
+    private fun addPreset(frequencyHz: Long, name: String = "") {
+        // Remove duplicate
+        for (i in presetListModel.size() - 1 downTo 0) {
+            if (presetListModel.getElementAt(i).frequencyHz == frequencyHz) {
+                presetListModel.remove(i)
+            }
+        }
+        presetListModel.addElement(PresetEntry(frequencyHz, name))
+        savePresetsToFile()
+        statusLabel.text = "Preset saved: ${formatFreq(frequencyHz)} MHz"
+    }
+
+    private fun savePresetsToFile() {
+        try {
+            val arr = JSONArray()
+            for (i in 0 until presetListModel.size()) {
+                val p = presetListModel.getElementAt(i)
+                arr.put(JSONObject().apply {
+                    put("frequencyHz", p.frequencyHz)
+                    put("name", p.name)
+                })
+            }
+            storageFile.writeText(arr.toString(2))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun loadPresetsFromFile() {
+        presetListModel.clear()
+        if (!storageFile.exists()) return
+        try {
+            val arr = JSONArray(storageFile.readText())
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                presetListModel.addElement(PresetEntry(
+                    frequencyHz = obj.getLong("frequencyHz"),
+                    name = obj.optString("name", "")
+                ))
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    // =========================================================================
+    //  FUNCTION BUTTONS
+    // =========================================================================
+
+    private fun toggleAf() {
+        afEnabled = !afEnabled
+        btnAf.foreground = if (afEnabled) FREQ_GREEN else AMBER
+        statusLabel.text = "AF: ${if (afEnabled) "ON" else "OFF"}"
+    }
+
+    private fun toggleTa() {
+        taEnabled = !taEnabled
+        btnTa.foreground = if (taEnabled) FREQ_GREEN else AMBER
+        statusLabel.text = "TA: ${if (taEnabled) "ON" else "OFF"}"
+    }
+
+    private fun showPtyInfo() {
+        val ptyText = ptyLabel.text
+        if (ptyText.isNotBlank()) {
+            statusLabel.text = "PTY: $ptyText"
+        } else {
+            statusLabel.text = "No PTY data"
+        }
+    }
+
+    private fun startScan() {
+        if (!sdr.isOpen) {
+            statusLabel.text = "Connect RTL-SDR first!"
+            return
+        }
+        val wasPlaying = isPlaying
+        if (wasPlaying) stopPlayback()
+
+        statusLabel.text = "Scanning FM band..."
+        stationListModel.clear()
+
+        Thread({
+            val tempDemod = FmDemodulator()
+            sdr.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
+            sdr.setAutoGain(true)
+            sdr.resetBuffer()
+
+            val startHz = 87_500_000L
+            val endHz = 108_000_000L
+            val scanStep = 100_000L
+            var freq = startHz
+
+            while (freq <= endHz) {
+                sdr.setFrequency(freq)
+                Thread.sleep(50)
+                val samples = sdr.readSamples(65536)
+                if (samples != null) {
+                    val power = tempDemod.measureSignalStrength(samples)
+                    if (power > -15f) {
+                        val foundFreq = freq
+                        val foundPower = power
+                        SwingUtilities.invokeLater {
+                            stationListModel.addElement(StationEntry(foundFreq, signalStrength = foundPower))
+                        }
+                    }
+                }
+                val progress = ((freq - startHz).toFloat() / (endHz - startHz) * 100).toInt()
+                val f = freq
+                SwingUtilities.invokeLater {
+                    statusLabel.text = "Scanning: ${formatFreq(f)} MHz ($progress%)"
+                }
+                freq += scanStep
+            }
+
+            SwingUtilities.invokeLater {
+                statusLabel.text = "Scan complete: ${stationListModel.size()} stations found"
+                if (wasPlaying) startPlayback()
+            }
+        }, "ScanThread").start()
     }
 
     // =========================================================================
@@ -531,16 +1001,13 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                 g2.paint = grad
                 g2.fill(RoundRectangle2D.Float(1f, 1f, width - 2f, height - 2f, 14f, 14f))
 
-                // highlight line at top
                 g2.color = Color(255, 255, 255, if (hover) 30 else 18)
                 g2.fillRect(4, 2, width - 8, 1)
 
-                // border
                 g2.color = if (hover) Color(0x77, 0x77, 0x99) else BTN_BORDER
                 g2.stroke = BasicStroke(1.3f)
                 g2.draw(RoundRectangle2D.Float(0.5f, 0.5f, width - 1f, height - 1f, 14f, 14f))
 
-                // text
                 g2.font = font
                 g2.color = if (hover) Color.WHITE else TEXT_LIGHT
                 val fm = g2.fontMetrics
@@ -553,7 +1020,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             preferredSize = Dimension(w, h)
             minimumSize = Dimension(w, h)
             maximumSize = Dimension(w, h)
-            font = Font("SansSerif", Font.BOLD, 16)
+            font = Font("SansSerif", Font.BOLD, 12)
             toolTipText = tooltip
             isFocusPainted = false
             isContentAreaFilled = false
@@ -564,46 +1031,6 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     }
 
     private fun stylePlayButton(btn: JButton) {
-        val playButton = object : JButton() {
-            var hover = false
-
-            init {
-                addMouseListener(object : MouseAdapter() {
-                    override fun mouseEntered(e: MouseEvent) { hover = true; repaint() }
-                    override fun mouseExited(e: MouseEvent) { hover = false; repaint() }
-                })
-            }
-
-            override fun paintComponent(g: Graphics) {
-                val g2 = g as Graphics2D
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
-
-                val bg = if (hover) GREEN_BTN_HOVER else GREEN_BTN
-                val grad = GradientPaint(0f, 0f, bg.brighter(), 0f, height.toFloat(), bg.darker())
-                g2.paint = grad
-                g2.fill(RoundRectangle2D.Float(1f, 1f, width - 2f, height - 2f, 20f, 20f))
-
-                // glow ring
-                g2.color = Color(0x00, 0xFF, 0x80, if (hover) 50 else 25)
-                g2.stroke = BasicStroke(3f)
-                g2.draw(RoundRectangle2D.Float(0f, 0f, width - 1f, height - 1f, 22f, 22f))
-
-                // border
-                g2.color = Color(0x00, 0xA0, 0x50)
-                g2.stroke = BasicStroke(1.5f)
-                g2.draw(RoundRectangle2D.Float(1f, 1f, width - 2.5f, height - 2.5f, 20f, 20f))
-
-                // text
-                g2.font = font
-                g2.color = Color.WHITE
-                val fm = g2.fontMetrics
-                val tx = (width - fm.stringWidth(getText())) / 2
-                val ty = (height + fm.ascent - fm.descent) / 2
-                g2.drawString(getText(), tx, ty)
-            }
-        }
-        // We cannot replace playBtn reference, so style it directly instead
         btn.apply {
             text = "\u25B6"
             preferredSize = Dimension(70, 70)
@@ -616,7 +1043,6 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             isBorderPainted = false
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
 
-            // Custom paint via UI override
             setUI(object : javax.swing.plaf.basic.BasicButtonUI() {
                 var hover = false
 
@@ -639,84 +1065,20 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                     g2.paint = grad
                     g2.fill(RoundRectangle2D.Float(1f, 1f, w - 2f, h - 2f, 20f, 20f))
 
-                    // glow ring
                     g2.color = Color(0x00, 0xFF, 0x80, if (hover) 50 else 25)
                     g2.stroke = BasicStroke(3f)
                     g2.draw(RoundRectangle2D.Float(0f, 0f, w - 1f, h - 1f, 22f, 22f))
 
-                    // border
                     g2.color = Color(0x00, 0xA0, 0x50)
                     g2.stroke = BasicStroke(1.5f)
                     g2.draw(RoundRectangle2D.Float(1f, 1f, w - 2.5f, h - 2.5f, 20f, 20f))
 
-                    // text
                     val b = c as AbstractButton
                     g2.font = b.font
                     g2.color = Color.WHITE
                     val fm = g2.fontMetrics
                     val tx = (w - fm.stringWidth(b.text)) / 2
                     val ty = (h + fm.ascent - fm.descent) / 2
-                    g2.drawString(b.text, tx, ty)
-                }
-            })
-        }
-    }
-
-    private fun stylePresetButton(btn: JButton, index: Int) {
-        btn.apply {
-            preferredSize = Dimension(100, 44)
-            minimumSize = Dimension(100, 44)
-            font = Font("Monospaced", Font.BOLD, 14)
-            toolTipText = "Click: tune | Right-click: save to P${index + 1}"
-            isFocusPainted = false
-            isContentAreaFilled = false
-            isBorderPainted = false
-            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-
-            setUI(object : javax.swing.plaf.basic.BasicButtonUI() {
-                var hover = false
-
-                override fun installListeners(b: AbstractButton) {
-                    super.installListeners(b)
-                    b.addMouseListener(object : MouseAdapter() {
-                        override fun mouseEntered(e: MouseEvent) { hover = true; b.repaint() }
-                        override fun mouseExited(e: MouseEvent) { hover = false; b.repaint() }
-                    })
-                }
-
-                override fun paint(g: Graphics, c: JComponent) {
-                    val g2 = g as Graphics2D
-                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                    g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
-                    val w = c.width; val h = c.height
-
-                    val top = if (hover) BTN_HOVER_TOP else BTN_TOP
-                    val bot = if (hover) BTN_HOVER_BOTTOM else BTN_BOTTOM
-                    val grad = GradientPaint(0f, 0f, top, 0f, h.toFloat(), bot)
-                    g2.paint = grad
-                    g2.fill(RoundRectangle2D.Float(1f, 1f, w - 2f, h - 2f, 12f, 12f))
-
-                    // highlight
-                    g2.color = Color(255, 255, 255, if (hover) 25 else 12)
-                    g2.fillRect(3, 2, w - 6, 1)
-
-                    // border
-                    g2.color = if (hover) CYAN_DIM else BTN_BORDER
-                    g2.stroke = BasicStroke(1.2f)
-                    g2.draw(RoundRectangle2D.Float(0.5f, 0.5f, w - 1f, h - 1f, 12f, 12f))
-
-                    // Preset number small
-                    g2.font = Font("SansSerif", Font.PLAIN, 9)
-                    g2.color = TEXT_DIM
-                    g2.drawString("P${index + 1}", 6, 12)
-
-                    // Frequency text
-                    val b = c as AbstractButton
-                    g2.font = b.font
-                    g2.color = if (hover) CYAN else TEXT_LIGHT
-                    val fm = g2.fontMetrics
-                    val tx = (w - fm.stringWidth(b.text)) / 2
-                    val ty = (h + fm.ascent - fm.descent) / 2 + 2
                     g2.drawString(b.text, tx, ty)
                 }
             })
@@ -734,11 +1096,9 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                     val trackBounds = trackRect
                     val cy = trackBounds.y + trackBounds.height / 2
                     val th = 6
-                    // Background track
                     g2.color = SLIDER_TRACK
                     g2.fill(RoundRectangle2D.Float(trackBounds.x.toFloat(), (cy - th / 2).toFloat(),
                         trackBounds.width.toFloat(), th.toFloat(), th.toFloat(), th.toFloat()))
-                    // Fill track
                     val fillWidth = thumbRect.x - trackBounds.x + thumbRect.width / 2
                     g2.color = fillColor
                     g2.fill(RoundRectangle2D.Float(trackBounds.x.toFloat(), (cy - th / 2).toFloat(),
@@ -752,15 +1112,12 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                     val size = 18
                     val x = r.x + r.width / 2 - size / 2
                     val y = r.y + r.height / 2 - size / 2
-                    // Shadow
                     g2.color = Color(0, 0, 0, 50)
                     g2.fillOval(x + 1, y + 1, size, size)
-                    // Thumb
                     val grad = GradientPaint(x.toFloat(), y.toFloat(), Color(0xDD, 0xDD, 0xEE),
                         x.toFloat(), (y + size).toFloat(), Color(0x99, 0x99, 0xAA))
                     g2.paint = grad
                     g2.fillOval(x, y, size, size)
-                    // Inner dot
                     g2.color = fillColor
                     g2.fillOval(x + size / 2 - 3, y + size / 2 - 3, 6, 6)
                 }
@@ -774,7 +1131,6 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     //  CUSTOM PANELS
     // =========================================================================
 
-    /** Gradient background panel. */
     private class GradientPanel(val topColor: Color, val bottomColor: Color) : JPanel() {
         init { isOpaque = false }
         override fun paintComponent(g: Graphics) {
@@ -785,7 +1141,6 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         }
     }
 
-    /** Signal strength bar display. */
     inner class SignalStrengthPanel : JPanel() {
         init { isOpaque = false }
 
@@ -844,12 +1199,6 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         if (radioTextScrollPos >= radioText.length + 5) radioTextScrollPos = 0
     }
 
-    private fun updatePresetLabels() {
-        for (i in 0 until 6) {
-            presetButtons[i].text = formatFreq(presetFreqs[i])
-        }
-    }
-
     private fun updateSignalStrength(power: Float) {
         signalStrength = when {
             power > -5f -> 5
@@ -863,12 +1212,9 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     }
 
     // =========================================================================
-    //  FUNCTIONAL CODE (autoConnect, playback, tuning, seek, shutdown)
+    //  FUNCTIONAL CODE
     // =========================================================================
 
-    /**
-     * Auto-detect and open RTL-SDR device, then start playback.
-     */
     private fun autoConnect() {
         statusLabel.text = "Detecting RTL-SDR device..."
         Thread({
@@ -881,7 +1227,6 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                 SwingUtilities.invokeLater {
                     statusLabel.text = "Connected: ${sdr.deviceName} (${sdr.tunerName})"
                     statusLabel.foreground = Color(100, 200, 100)
-                    // Auto-start playback
                     startPlayback()
                 }
             } else {
@@ -997,6 +1342,9 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         ptyLabel.text = ""
         radioText = ""
         updateFreqDisplay()
+        // Refresh lists to update selected highlight
+        presetList.repaint()
+        stationList.repaint()
         if (isPlaying) statusLabel.text = "Playing ${formatFreq(clamped)} MHz"
     }
 
@@ -1056,7 +1404,6 @@ fun main() {
         UIManager.setLookAndFeel(UIManager.getCrossPlatformLookAndFeelClassName())
     } catch (_: Exception) {}
 
-    // Set dark defaults for tooltips and dialogs
     UIManager.put("ToolTip.background", Color(0x22, 0x22, 0x33))
     UIManager.put("ToolTip.foreground", Color(0xCC, 0xCC, 0xDD))
     UIManager.put("ToolTip.border", LineBorder(Color(0x44, 0x44, 0x66), 1))

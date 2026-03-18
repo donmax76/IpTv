@@ -18,6 +18,7 @@ class StationStorage(context: Context) {
         private const val KEY_AF_ENABLED = "af_enabled"
         private const val KEY_TA_ENABLED = "ta_enabled"
         private const val KEY_BAND = "current_band"
+        private const val KEY_PRESETS_LIST = "presets_list"
         const val PRESET_COUNT = 6
     }
 
@@ -146,4 +147,66 @@ class StationStorage(context: Context) {
     var currentBandName: String
         get() = prefs.getString(KEY_BAND, "FM_BROADCAST") ?: "FM_BROADCAST"
         set(value) = prefs.edit().putString(KEY_BAND, value).apply()
+
+    // ---- Expandable presets list (unlimited) ----
+
+    fun loadPresets(): MutableList<PresetItem> {
+        val json = prefs.getString(KEY_PRESETS_LIST, null)
+        if (json != null) {
+            return try {
+                val arr = JSONArray(json)
+                (0 until arr.length()).map { i ->
+                    val obj = arr.getJSONObject(i)
+                    PresetItem(
+                        frequencyHz = obj.getLong("frequencyHz"),
+                        name = obj.optString("name", "")
+                    )
+                }.toMutableList()
+            } catch (_: Exception) { migrateOldPresets() }
+        }
+        return migrateOldPresets()
+    }
+
+    fun savePresets(presets: List<PresetItem>) {
+        val arr = JSONArray()
+        for (p in presets) {
+            arr.put(JSONObject().apply {
+                put("frequencyHz", p.frequencyHz)
+                put("name", p.name)
+            })
+        }
+        prefs.edit().putString(KEY_PRESETS_LIST, arr.toString()).apply()
+    }
+
+    fun addPresetItem(frequencyHz: Long, name: String = "") {
+        val presets = loadPresets()
+        presets.removeAll { it.frequencyHz == frequencyHz }
+        presets.add(PresetItem(frequencyHz, name))
+        savePresets(presets)
+    }
+
+    fun removePresetItem(frequencyHz: Long) {
+        val presets = loadPresets()
+        presets.removeAll { it.frequencyHz == frequencyHz }
+        savePresets(presets)
+    }
+
+    fun renamePresetItem(frequencyHz: Long, newName: String) {
+        val presets = loadPresets()
+        val idx = presets.indexOfFirst { it.frequencyHz == frequencyHz }
+        if (idx >= 0) {
+            presets[idx] = presets[idx].copy(name = newName)
+            savePresets(presets)
+        }
+    }
+
+    private fun migrateOldPresets(): MutableList<PresetItem> {
+        val list = mutableListOf<PresetItem>()
+        for (i in 0 until PRESET_COUNT) {
+            val freq = getPreset(i)
+            if (freq > 0) list.add(PresetItem(freq))
+        }
+        if (list.isNotEmpty()) savePresets(list)
+        return list
+    }
 }

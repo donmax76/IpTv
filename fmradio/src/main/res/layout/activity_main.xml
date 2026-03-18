@@ -343,91 +343,6 @@
                     android:contentDescription="@string/cd_seek_forward" />
             </LinearLayout>
 
-            <!-- ========= PRESETS ========= -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginBottom="4dp">
-
-                <Button
-                    android:id="@+id/btnPreset1"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
-                    android:layout_weight="1"
-                    android:text="1"
-                    android:textColor="@color/lcd_amber"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:fontFamily="monospace"
-                    android:background="@drawable/bg_preset_button"
-                    android:layout_marginEnd="3dp" />
-
-                <Button
-                    android:id="@+id/btnPreset2"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
-                    android:layout_weight="1"
-                    android:text="2"
-                    android:textColor="@color/lcd_amber"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:fontFamily="monospace"
-                    android:background="@drawable/bg_preset_button"
-                    android:layout_marginEnd="3dp" />
-
-                <Button
-                    android:id="@+id/btnPreset3"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
-                    android:layout_weight="1"
-                    android:text="3"
-                    android:textColor="@color/lcd_amber"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:fontFamily="monospace"
-                    android:background="@drawable/bg_preset_button"
-                    android:layout_marginEnd="3dp" />
-
-                <Button
-                    android:id="@+id/btnPreset4"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
-                    android:layout_weight="1"
-                    android:text="4"
-                    android:textColor="@color/lcd_amber"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:fontFamily="monospace"
-                    android:background="@drawable/bg_preset_button"
-                    android:layout_marginEnd="3dp" />
-
-                <Button
-                    android:id="@+id/btnPreset5"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
-                    android:layout_weight="1"
-                    android:text="5"
-                    android:textColor="@color/lcd_amber"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:fontFamily="monospace"
-                    android:background="@drawable/bg_preset_button"
-                    android:layout_marginEnd="3dp" />
-
-                <Button
-                    android:id="@+id/btnPreset6"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
-                    android:layout_weight="1"
-                    android:text="6"
-                    android:textColor="@color/lcd_amber"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:fontFamily="monospace"
-                    android:background="@drawable/bg_preset_button" />
-            </LinearLayout>
-
             <!-- Function buttons: SCAN | AF | TA | PTY | BAND -->
             <LinearLayout
                 android:layout_width="match_parent"
@@ -510,21 +425,64 @@
             android:padding="8dp"
             android:layout_marginStart="4dp">
 
-            <!-- Stations header -->
+            <!-- ======= PRESETS SECTION (expandable) ======= -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:layout_marginBottom="6dp">
+                android:layout_marginBottom="4dp">
 
                 <TextView
+                    android:id="@+id/tvPresetsHeader"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="@string/label_saved_stations"
+                    android:text="PRESETS ▼"
+                    android:textColor="@color/lcd_cyan"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace" />
+
+                <Button
+                    android:id="@+id/btnAddPreset"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:text="+"
+                    android:textColor="@color/lcd_green"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:background="@drawable/bg_button_metal"
+                    android:padding="0dp" />
+            </LinearLayout>
+
+            <ListView
+                android:id="@+id/lvPresets"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:clipToPadding="false"
+                android:divider="@android:color/transparent"
+                android:dividerHeight="2dp"
+                android:scrollbarThumbVertical="@color/lcd_dim" />
+
+            <!-- ======= STATIONS SECTION ======= -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="6dp"
+                android:layout_marginBottom="4dp">
+
+                <TextView
+                    android:id="@+id/tvStationsHeader"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="STATIONS ▼"
                     android:textColor="@color/lcd_amber"
-                    android:textSize="16sp"
+                    android:textSize="14sp"
                     android:textStyle="bold"
                     android:fontFamily="monospace" />
             </LinearLayout>
