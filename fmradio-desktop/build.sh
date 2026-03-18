@@ -13,19 +13,36 @@ if [ ! -f "$KOTLINC" ]; then
     KOTLINC="$(which kotlinc 2>/dev/null || echo kotlinc)"
 fi
 
+LIB_DIR="$SCRIPT_DIR/lib"
+JNA_VERSION="5.14.0"
+JNA_JAR="$LIB_DIR/jna-${JNA_VERSION}.jar"
+
 echo "=== Building FM Radio Desktop ==="
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR/classes"
+mkdir -p "$LIB_DIR"
+
+# Download JNA if not present
+if [ ! -f "$JNA_JAR" ]; then
+    echo "=== Downloading JNA ${JNA_VERSION} ==="
+    curl -fSL -o "$JNA_JAR" \
+        "https://repo1.maven.org/maven2/net/java/dev/jna/jna/${JNA_VERSION}/jna-${JNA_VERSION}.jar"
+fi
 
 echo "=== Compiling Kotlin sources ==="
 "$KOTLINC" \
     -jvm-target 11 \
     -nowarn \
+    -classpath "$JNA_JAR" \
     $(find "$SRC_DIR" -name "*.kt" -type f) \
     -d "$OUT_DIR/classes" 2>&1
 
 echo "=== Creating JAR ==="
 cd "$OUT_DIR/classes"
+
+# Extract JNA classes into output for fat jar
+jar xf "$JNA_JAR"
+rm -rf META-INF
 
 # Create manifest
 mkdir -p META-INF
