@@ -258,7 +258,10 @@ class FmRadioService : Service() {
         isPlaying = true
         var lastStereo = false
 
-        streamingJob = dev.startStreaming(65536) { iqData ->
+        // Full USB reset to ensure clean state (critical after scan/seek)
+        dev.fullReset()
+
+        streamingJob = dev.startStreaming(262144) { iqData ->
             var audioSamples = demodulator?.demodulate(iqData)
             if (audioSamples != null && audioSamples.isNotEmpty()) {
                 val eq = equalizer
@@ -344,6 +347,9 @@ class FmRadioService : Service() {
                     freq += if (forward) step else -step
                 }
 
+                // Full USB reset after seek to restore clean state
+                dev.fullReset()
+
                 withContext(Dispatchers.Main) {
                     if (found != null) {
                         currentFrequency = found
@@ -354,6 +360,7 @@ class FmRadioService : Service() {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Seek error", e)
+                dev.fullReset()
                 withContext(Dispatchers.Main) {
                     onSeekComplete?.invoke(null)
                     if (wasPlaying) startPlayback()

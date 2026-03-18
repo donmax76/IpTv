@@ -240,6 +240,14 @@ class FmScanner(private val device: RtlSdrDevice) {
 
         scanning = false
         isBusy = false
+
+        // Full USB reset after scan to ensure clean state for playback
+        try {
+            device.fullReset()
+        } catch (e: Exception) {
+            Log.w(TAG, "Full reset after scan failed", e)
+        }
+
         val mergedStations = mergeCloseStations(stations, step * 2)
 
         Log.i(TAG, "Scan complete. Found ${mergedStations.size} signals")

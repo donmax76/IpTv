@@ -28,10 +28,11 @@ class FmDemodulator(
     private val intermediateRate: Int = inputSampleRate / stage1Decimation  // 192000
     private val stage2Decimation: Int = intermediateRate / audioSampleRate  // 4
 
-    // DC removal (IIR high-pass, ~30 Hz cutoff at input rate)
+    // DC removal (IIR high-pass)
+    // Use faster alpha for quicker convergence on frequency change
     private var dcI = 0f
     private var dcQ = 0f
-    private val dcAlpha = 0.9999f
+    private val dcAlpha = 0.9995f  // ~50 Hz cutoff at 1.152 MHz — converges in ~2000 samples (~2ms)
 
     // FM discriminator state
     private var prevI = 0f
@@ -90,17 +91,22 @@ class FmDemodulator(
     var isStereo = false
         private set
 
-    // Squelch based on signal quality
+    // Squelch based on signal quality — faster response
     private var signalQualityAcc = 0.0
     private var signalQualityCount = 0
-    private var squelchOpen = true
+    private var squelchOpen = false  // Start closed to avoid initial burst of noise
     private var squelchLevel = 0f
-    private val squelchAttack = 0.05f
-    private val squelchRelease = 0.002f
+    private val squelchAttack = 0.03f   // ~33ms to open (smooth fade-in)
+    private val squelchRelease = 0.02f  // ~50ms to close (fast mute on noise)
 
     // Warmup: discard first N intermediate samples to flush stale filter state
     private var warmupSamples = 0
-    private val warmupThreshold = intermediateRate / 4
+    private val warmupThreshold = intermediateRate / 2  // 0.5s warmup for filter settling
+
+    // Crossfade for seamless muting during frequency change
+    private var muteRamp = 0f  // 0 = muted, 1 = full volume
+    private val muteRampUp = 0.005f   // ~200 audio samples to reach full volume
+    private val muteRampDown = 0.05f  // ~20 audio samples to mute
 
     // ========== rtl_fm LUT atan2 (for maximum performance) ==========
     private val atanLutSize = 131072
@@ -214,7 +220,7 @@ class FmDemodulator(
             var iSample = (iqData[i * 2].toInt() and 0xFF) / 127.5f - 1f
             var qSample = (iqData[i * 2 + 1].toInt() and 0xFF) / 127.5f - 1f
 
-            // DC removal
+            // DC removal (IIR high-pass)
             dcI = dcAlpha * dcI + (1 - dcAlpha) * iSample
             dcQ = dcAlpha * dcQ + (1 - dcAlpha) * qSample
             iSample -= dcI
@@ -247,7 +253,7 @@ class FmDemodulator(
 
             val rawBaseband = fastAtan2(imagProd, realProd)
 
-            // Warmup: skip initial samples
+            // Warmup: skip initial samples to let filters settle
             if (warmupSamples < warmupThreshold) {
                 warmupSamples++
                 val pilotSig = pilotBpf(rawBaseband.toDouble())
@@ -281,7 +287,7 @@ class FmDemodulator(
             val absBaseband = abs(rawBaseband)
             signalQualityAcc += absBaseband
             signalQualityCount++
-            if (signalQualityCount >= intermediateRate / 8) {
+            if (signalQualityCount >= intermediateRate / 16) {
                 val avgModulation = signalQualityAcc / signalQualityCount
                 squelchOpen = avgModulation > 0.05 && avgModulation < 2.0
                 signalQualityAcc = 0.0
@@ -346,13 +352,19 @@ class FmDemodulator(
             deEmphasisStateL += deEmphasisAlpha * (left - deEmphasisStateL)
             deEmphasisStateR += deEmphasisAlpha * (right - deEmphasisStateR)
 
-            // Apply squelch
+            // Apply squelch with smooth level
             val outL = deEmphasisStateL * squelchLevel
             val outR = deEmphasisStateR * squelchLevel
 
+            // Mute ramp for seamless frequency change (avoids initial burst)
+            if (muteRamp < 1f) {
+                muteRamp = (muteRamp + muteRampUp).coerceAtMost(1f)
+            }
+
             // Scale to 16-bit PCM
-            val sampleL = (outL * 24000f).toInt().coerceIn(-32767, 32767)
-            val sampleR = (outR * 24000f).toInt().coerceIn(-32767, 32767)
+            val gain = muteRamp * 24000f
+            val sampleL = (outL * gain).toInt().coerceIn(-32767, 32767)
+            val sampleR = (outR * gain).toInt().coerceIn(-32767, 32767)
 
             if (audioCount + 1 < audioOut.size) {
                 audioOut[audioCount++] = sampleL.toShort()
@@ -421,7 +433,8 @@ class FmDemodulator(
         pilotStrength = 0f; pilotStrengthAcc = 0f; pilotStrengthCount = 0
         isStereo = false
         signalQualityAcc = 0.0; signalQualityCount = 0
-        squelchOpen = true; squelchLevel = 0f
+        squelchOpen = false; squelchLevel = 0f
         warmupSamples = 0
+        muteRamp = 0f  // Start muted, ramp up smoothly
     }
 }

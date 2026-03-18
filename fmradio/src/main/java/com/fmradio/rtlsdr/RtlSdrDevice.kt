@@ -391,14 +391,32 @@ class RtlSdrDevice(private val context: Context) {
 
     fun startStreaming(bufferSize: Int = 16384, callback: (ByteArray) -> Unit): Job {
         isStreaming = true
+
+        // Full USB FIFO reset before starting stream
+        resetBuffer()
+
+        // Discard first read to flush stale data from USB pipe
+        val discardBuf = ByteArray(bufferSize)
+        try {
+            val ep = bulkEndpoint
+            if (ep != null) {
+                usbConnection?.bulkTransfer(ep, discardBuf, discardBuf.size, 200)
+            }
+        } catch (_: Exception) {}
+
+        // Reset FIFO again for clean start
         resetBuffer()
 
         return CoroutineScope(Dispatchers.IO).launch {
-            Log.i(TAG, "Streaming started")
+            Log.i(TAG, "Streaming started (bufSize=$bufferSize)")
             while (isStreaming && isActive) {
                 val data = readSamples(bufferSize)
                 if (data != null && data.isNotEmpty()) {
-                    callback(data)
+                    try {
+                        callback(data)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Streaming callback error", e)
+                    }
                 }
             }
             Log.i(TAG, "Streaming stopped")
@@ -407,6 +425,42 @@ class RtlSdrDevice(private val context: Context) {
 
     fun stopStreaming() {
         isStreaming = false
+    }
+
+    /**
+     * Full device reset: flush USB FIFO, re-init endpoint.
+     * Call after scan or any operation that leaves USB in bad state.
+     */
+    fun fullReset(): Boolean {
+        if (!isOpen) return false
+        return try {
+            // Stop any ongoing transfers
+            isStreaming = false
+            Thread.sleep(50)
+
+            // Reset USB FIFO multiple times to ensure clean state
+            resetBuffer()
+            Thread.sleep(10)
+            resetBuffer()
+
+            // Discard any stale data in USB pipe
+            val ep = bulkEndpoint
+            if (ep != null) {
+                val discardBuf = ByteArray(ep.maxPacketSize * 32)
+                // Read and discard with short timeout
+                for (i in 0 until 3) {
+                    val read = usbConnection?.bulkTransfer(ep, discardBuf, discardBuf.size, 100) ?: -1
+                    if (read <= 0) break
+                }
+            }
+
+            resetBuffer()
+            Log.i(TAG, "Full USB reset completed")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during full reset", e)
+            false
+        }
     }
 
     fun close() {
