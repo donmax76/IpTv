@@ -1301,6 +1301,9 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                 freq += scanStep
             }
 
+            // Full USB reset after scan to restore clean state
+            sdr.fullReset()
+
             SwingUtilities.invokeLater {
                 btnScan.isEnabled = true
                 btnScan.foreground = TEXT_LIGHT  // reset color
@@ -1673,10 +1676,11 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         }
 
         sdr.setFrequency(currentFrequency)
-        sdr.resetBuffer()  // flush stale USB data before streaming
+        // Full USB reset to flush stale data (critical after scan/seek)
+        sdr.fullReset()
         isPlaying = true
 
-        streamingThread = sdr.startStreaming(131072) { iqData ->
+        streamingThread = sdr.startStreaming(262144) { iqData ->
             var audioSamples = if (isAm) {
                 amDemodulator?.demodulate(iqData)
             } else {
@@ -1740,6 +1744,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         val clamped = freqHz.coerceIn(band.minHz, band.maxHz)
         currentFrequency = clamped
         sdr.setFrequency(clamped)
+        sdr.resetBuffer()  // flush stale IQ data from previous frequency
         // Reset both demodulator and RDS on frequency change
         // Prevents phase discontinuity artifacts and stale filter state
         demodulator?.reset()
@@ -1826,6 +1831,9 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                 }
                 freq += if (forward) step else -step
             }
+
+            // Full USB reset after seek to restore clean state for playback
+            sdr.fullReset()
 
             val wasCancelled = !isSeeking
             isSeeking = false

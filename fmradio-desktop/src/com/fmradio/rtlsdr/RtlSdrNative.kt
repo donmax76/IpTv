@@ -182,6 +182,33 @@ class RtlSdrNative {
     }
 
     /**
+     * Full USB reset: flush FIFO + discard stale data.
+     * Call after scan/seek before restarting streaming.
+     */
+    fun fullReset() {
+        val dev = devPtr ?: return
+        val l = lib ?: return
+        isStreaming = false
+        Thread.sleep(50)
+
+        // Reset USB FIFO
+        l.rtlsdr_reset_buffer(dev)
+        Thread.sleep(10)
+        l.rtlsdr_reset_buffer(dev)
+
+        // Discard stale data (short reads with small buffer)
+        val discardBuf = ByteArray(65536)
+        val nRead = IntByReference()
+        for (i in 0 until 3) {
+            val ret = l.rtlsdr_read_sync(dev, discardBuf, discardBuf.size, nRead)
+            if (ret != 0 || nRead.value <= 0) break
+        }
+
+        l.rtlsdr_reset_buffer(dev)
+        println("Full USB reset completed")
+    }
+
+    /**
      * Read IQ samples synchronously. Returns raw unsigned 8-bit IQ interleaved data.
      */
     fun readSamples(length: Int): ByteArray? {
@@ -202,13 +229,27 @@ class RtlSdrNative {
      */
     fun startStreaming(bufferSize: Int = 65536, callback: (ByteArray) -> Unit): Thread {
         isStreaming = true
+
+        // Full USB flush before streaming to prevent stale data / noise burst
         resetBuffer()
+        // Discard first read to flush USB pipe
+        val discardBuf = ByteArray(bufferSize)
+        val nRead = IntByReference()
+        try {
+            devPtr?.let { lib?.rtlsdr_read_sync(it, discardBuf, discardBuf.size, nRead) }
+        } catch (_: Exception) {}
+        resetBuffer()
+
         val thread = Thread({
-            println("Streaming started (direct USB)")
+            println("Streaming started (direct USB, buf=$bufferSize)")
             while (isStreaming && isOpen) {
                 val data = readSamples(bufferSize)
                 if (data != null && data.isNotEmpty()) {
-                    callback(data)
+                    try {
+                        callback(data)
+                    } catch (e: Exception) {
+                        println("Streaming callback error: ${e.message}")
+                    }
                 } else {
                     Thread.sleep(1)
                 }
