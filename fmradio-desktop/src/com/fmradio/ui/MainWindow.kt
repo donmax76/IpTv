@@ -26,40 +26,40 @@ import org.json.JSONObject
 class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     companion object {
-        const val VERSION = "1.5"
-        const val BUILD = "20260318-4"
+        const val VERSION = "1.6"
+        const val BUILD = "20260318-5"
 
         // FM band range (extended: OIRT 65.8-74 + CCIR 87.5-108)
         const val FM_MIN_HZ = 76_000_000L
         const val FM_MAX_HZ = 108_000_000L
 
-        // Color palette (matches Android)
-        val BG_TOP = Color(0x1A, 0x1A, 0x2E)
-        val BG_BOTTOM = Color(0x0D, 0x0D, 0x1A)
+        // Color palette — lighter theme, readable text
+        val BG_TOP = Color(0x2A, 0x2A, 0x40)
+        val BG_BOTTOM = Color(0x1C, 0x1C, 0x30)
         val FREQ_GREEN = Color(0x00, 0xFF, 0x80)
-        val FREQ_GREEN_DIM = Color(0x00, 0x80, 0x40)
+        val FREQ_GREEN_DIM = Color(0x00, 0xA0, 0x50)
         val CYAN = Color(0x00, 0xE5, 0xFF)
-        val CYAN_DIM = Color(0x00, 0x72, 0x80)
-        val AMBER = Color(0xFF, 0xC8, 0x00)
+        val CYAN_DIM = Color(0x00, 0x90, 0xAA)
+        val AMBER = Color(0xFF, 0xD0, 0x20)
         val RED_SOFT = Color(0xFF, 0x64, 0x64)
         val GREEN_BTN = Color(0x00, 0xC8, 0x64)
         val GREEN_BTN_HOVER = Color(0x00, 0xE0, 0x78)
-        val PANEL_BG = Color(0x12, 0x12, 0x22)
-        val PANEL_BORDER = Color(0x30, 0x30, 0x50)
-        val BTN_TOP = Color(0x3A, 0x3A, 0x55)
-        val BTN_BOTTOM = Color(0x22, 0x22, 0x38)
-        val BTN_BORDER = Color(0x55, 0x55, 0x78)
-        val BTN_HOVER_TOP = Color(0x50, 0x50, 0x70)
-        val BTN_HOVER_BOTTOM = Color(0x30, 0x30, 0x4C)
-        val TEXT_DIM = Color(0x88, 0x88, 0xA0)
-        val TEXT_LIGHT = Color(0xCC, 0xCC, 0xDD)
-        val SLIDER_TRACK = Color(0x30, 0x30, 0x50)
+        val PANEL_BG = Color(0x22, 0x22, 0x36)
+        val PANEL_BORDER = Color(0x48, 0x48, 0x68)
+        val BTN_TOP = Color(0x50, 0x50, 0x6C)
+        val BTN_BOTTOM = Color(0x38, 0x38, 0x50)
+        val BTN_BORDER = Color(0x68, 0x68, 0x88)
+        val BTN_HOVER_TOP = Color(0x64, 0x64, 0x82)
+        val BTN_HOVER_BOTTOM = Color(0x44, 0x44, 0x5E)
+        val TEXT_DIM = Color(0xA0, 0xA0, 0xB8)
+        val TEXT_LIGHT = Color(0xE8, 0xE8, 0xF0)
+        val SLIDER_TRACK = Color(0x40, 0x40, 0x60)
         val SLIDER_FILL = Color(0x00, 0xB0, 0x60)
         val SIGNAL_GREEN = Color(0x00, 0xE0, 0x70)
         val SIGNAL_YELLOW = Color(0xFF, 0xD0, 0x00)
         val SIGNAL_RED = Color(0xFF, 0x40, 0x40)
-        val LIST_ITEM_BG = Color(0x14, 0x14, 0x26)
-        val LIST_ITEM_SELECTED = Color(0x1E, 0x2E, 0x1E)
+        val LIST_ITEM_BG = Color(0x24, 0x24, 0x3A)
+        val LIST_ITEM_SELECTED = Color(0x2E, 0x3E, 0x2E)
     }
 
     // RTL-SDR direct access
@@ -273,10 +273,10 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             override fun paintComponent(g: Graphics) {
                 val g2 = g as Graphics2D
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                val grad = GradientPaint(0f, 0f, Color(0x40, 0x40, 0x60, 0), width * 0.2f, 0f, PANEL_BORDER)
+                val grad = GradientPaint(0f, 0f, Color(0x48, 0x48, 0x68, 0), width * 0.2f, 0f, PANEL_BORDER)
                 g2.paint = grad
                 g2.fillRect(0, 0, width / 2, height)
-                val grad2 = GradientPaint(width * 0.5f, 0f, PANEL_BORDER, width.toFloat(), 0f, Color(0x40, 0x40, 0x60, 0))
+                val grad2 = GradientPaint(width * 0.5f, 0f, PANEL_BORDER, width.toFloat(), 0f, Color(0x48, 0x48, 0x68, 0))
                 g2.paint = grad2
                 g2.fillRect(width / 2, 0, width / 2, height)
             }
@@ -399,7 +399,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             override fun paintComponent(g: Graphics) {
                 val g2 = g as Graphics2D
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                val bg = GradientPaint(0f, 0f, Color(0x0A, 0x0A, 0x18), 0f, height.toFloat(), Color(0x10, 0x10, 0x20))
+                val bg = GradientPaint(0f, 0f, Color(0x14, 0x14, 0x24), 0f, height.toFloat(), Color(0x1A, 0x1A, 0x2C))
                 g2.paint = bg
                 g2.fill(RoundRectangle2D.Float(0f, 0f, width.toFloat(), height.toFloat(), 18f, 18f))
                 g2.color = PANEL_BORDER
@@ -509,7 +509,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             override fun paintComponent(g: Graphics) {
                 val g2 = g as Graphics2D
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                val bg = GradientPaint(0f, 0f, Color(0x14, 0x14, 0x26), 0f, height.toFloat(), Color(0x0E, 0x0E, 0x1C))
+                val bg = GradientPaint(0f, 0f, Color(0x22, 0x22, 0x38), 0f, height.toFloat(), Color(0x1A, 0x1A, 0x2E))
                 g2.paint = bg
                 g2.fill(RoundRectangle2D.Float(0f, 0f, width.toFloat(), height.toFloat(), 16f, 16f))
                 g2.color = PANEL_BORDER
@@ -668,7 +668,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             override fun paintComponent(g: Graphics) {
                 val g2 = g as Graphics2D
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                val bg = GradientPaint(0f, 0f, Color(0x14, 0x14, 0x26), 0f, height.toFloat(), Color(0x0E, 0x0E, 0x1C))
+                val bg = GradientPaint(0f, 0f, Color(0x22, 0x22, 0x38), 0f, height.toFloat(), Color(0x1A, 0x1A, 0x2E))
                 g2.paint = bg
                 g2.fill(RoundRectangle2D.Float(0f, 0f, width.toFloat(), height.toFloat(), 14f, 14f))
                 g2.color = PANEL_BORDER
@@ -880,11 +880,11 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     private fun showPresetContextMenu(e: MouseEvent, preset: PresetEntry, index: Int) {
         val menu = JPopupMenu()
-        menu.background = Color(0x22, 0x22, 0x33)
+        menu.background = Color(0x30, 0x30, 0x44)
 
         val renameItem = JMenuItem("Rename").apply {
             foreground = TEXT_LIGHT
-            background = Color(0x22, 0x22, 0x33)
+            background = Color(0x30, 0x30, 0x44)
         }
         renameItem.addActionListener {
             val name = JOptionPane.showInputDialog(this, "Preset name:", preset.name)
@@ -896,7 +896,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
         val deleteItem = JMenuItem("Delete").apply {
             foreground = RED_SOFT
-            background = Color(0x22, 0x22, 0x33)
+            background = Color(0x30, 0x30, 0x44)
         }
         deleteItem.addActionListener {
             presetListModel.remove(index)
@@ -910,11 +910,11 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     private fun showStationContextMenu(e: MouseEvent, station: StationEntry, index: Int) {
         val menu = JPopupMenu()
-        menu.background = Color(0x22, 0x22, 0x33)
+        menu.background = Color(0x30, 0x30, 0x44)
 
         val saveAsPreset = JMenuItem("Save as Preset").apply {
             foreground = CYAN
-            background = Color(0x22, 0x22, 0x33)
+            background = Color(0x30, 0x30, 0x44)
         }
         saveAsPreset.addActionListener {
             addPreset(station.frequencyHz, station.name)
@@ -922,7 +922,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
         val deleteItem = JMenuItem("Delete").apply {
             foreground = RED_SOFT
-            background = Color(0x22, 0x22, 0x33)
+            background = Color(0x30, 0x30, 0x44)
         }
         deleteItem.addActionListener {
             stationListModel.remove(index)
@@ -1146,7 +1146,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     private fun showPtyMenu() {
         val rds = lastRdsData
         val menu = JPopupMenu()
-        menu.background = Color(0x22, 0x22, 0x33)
+        menu.background = Color(0x30, 0x30, 0x44)
 
         val currentPty = if (rds != null && rds.ptyName.isNotBlank() && rds.ptyName != "None")
             rds.ptyName else "---"
@@ -1165,7 +1165,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         )) {
             menu.add(JMenuItem(line.first).apply {
                 foreground = line.second
-                background = Color(0x22, 0x22, 0x33)
+                background = Color(0x30, 0x30, 0x44)
                 isEnabled = false
             })
         }
@@ -1238,7 +1238,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             val tempFmDemod = if (band.modulation == "FM") FmDemodulator() else null
             val tempAmDemod = if (band.modulation == "AM") AmDemodulator() else null
             sdr.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
-            sdr.setAutoGain(true)
+            sdr.setGain(400)  // 40.0 dB manual gain
             sdr.setDirectSampling(band.directSampling)
             sdr.resetBuffer()
 
@@ -1492,7 +1492,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                 val x = i * (barW + gap) + 2
                 val y = height - barH - 2
                 val color = when {
-                    i >= signalStrength -> Color(0x30, 0x30, 0x50)
+                    i >= signalStrength -> Color(0x40, 0x40, 0x60)
                     i < 2 -> SIGNAL_GREEN
                     i < 4 -> SIGNAL_YELLOW
                     else -> SIGNAL_RED
@@ -1592,7 +1592,9 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             val ok = sdr.open(0)
             if (ok) {
                 sdr.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
-                sdr.setAutoGain(true)
+                // Use high manual gain for better signal reception
+                // Auto-gain often underperforms on RTL-SDR
+                sdr.setGain(400)  // 40.0 dB — strong for FM/AM
                 sdr.setFrequency(currentFrequency)
 
                 SwingUtilities.invokeLater {
@@ -1766,7 +1768,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             val tempFmDemod = if (!isAm) FmDemodulator() else null
             val tempAmDemod = if (isAm) AmDemodulator() else null
             sdr.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
-            sdr.setAutoGain(true)
+            sdr.setGain(400)  // 40.0 dB manual gain
             sdr.setDirectSampling(band.directSampling)
             sdr.resetBuffer()
             val step = if (isAm) band.stepHz else 100_000L
@@ -1836,12 +1838,12 @@ fun main() {
         UIManager.setLookAndFeel(UIManager.getCrossPlatformLookAndFeelClassName())
     } catch (_: Exception) {}
 
-    UIManager.put("ToolTip.background", Color(0x22, 0x22, 0x33))
-    UIManager.put("ToolTip.foreground", Color(0xCC, 0xCC, 0xDD))
-    UIManager.put("ToolTip.border", LineBorder(Color(0x44, 0x44, 0x66), 1))
-    UIManager.put("OptionPane.background", Color(0x1A, 0x1A, 0x2E))
-    UIManager.put("Panel.background", Color(0x1A, 0x1A, 0x2E))
-    UIManager.put("OptionPane.messageForeground", Color(0xCC, 0xCC, 0xDD))
+    UIManager.put("ToolTip.background", Color(0x30, 0x30, 0x44))
+    UIManager.put("ToolTip.foreground", Color(0xE8, 0xE8, 0xF0))
+    UIManager.put("ToolTip.border", LineBorder(Color(0x50, 0x50, 0x70), 1))
+    UIManager.put("OptionPane.background", Color(0x2A, 0x2A, 0x40))
+    UIManager.put("Panel.background", Color(0x2A, 0x2A, 0x40))
+    UIManager.put("OptionPane.messageForeground", Color(0xE8, 0xE8, 0xF0))
 
     SwingUtilities.invokeLater {
         MainWindow().isVisible = true

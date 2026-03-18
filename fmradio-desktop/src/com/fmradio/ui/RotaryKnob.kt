@@ -25,17 +25,17 @@ class RotaryKnob(
     initialValue: Long = 500L
 ) : JComponent() {
 
-    // Colors
-    private val knobOuterRing = Color(0x55, 0x55, 0x70)
-    private val knobBodyTop = Color(0x70, 0x70, 0x88)
-    private val knobBodyBottom = Color(0x38, 0x38, 0x4C)
-    private val knobHighlight = Color(0xAA, 0xAA, 0xCC)
-    private val knobShadow = Color(0x18, 0x18, 0x28)
-    private val notchColor = Color(0x44, 0x44, 0x5C)
-    private val indicatorColor = Color(0x00, 0xFF, 0x80)  // green pointer
-    private val indicatorGlow = Color(0x00, 0xFF, 0x80, 60)
-    private val grooveColor = Color(0x50, 0x50, 0x68)
-    private val grooveHighlight = Color(0x88, 0x88, 0xA8)
+    // Colors (lighter theme)
+    private val knobOuterRing = Color(0x68, 0x68, 0x82)
+    private val knobBodyTop = Color(0x82, 0x82, 0x98)
+    private val knobBodyBottom = Color(0x48, 0x48, 0x5E)
+    private val knobHighlight = Color(0xBB, 0xBB, 0xDD)
+    private val knobShadow = Color(0x24, 0x24, 0x38)
+    private val notchColor = Color(0x58, 0x58, 0x72)
+    private val indicatorColor = Color(0x00, 0xFF, 0x80)
+    private val indicatorGlow = Color(0x00, 0xFF, 0x80, 70)
+    private val grooveColor = Color(0x60, 0x60, 0x78)
+    private val grooveHighlight = Color(0x98, 0x98, 0xB8)
 
     var value: Long = initialValue.coerceIn(minValue, maxValue)
         set(v) {

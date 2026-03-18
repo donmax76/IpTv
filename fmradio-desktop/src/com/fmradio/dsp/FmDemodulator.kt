@@ -7,7 +7,7 @@ import kotlin.math.*
  *
  * IQ samples (1152 kHz) -> DC removal -> IF LPF -> Decimate /6 -> FM discriminator (192 kHz)
  *   -> Wideband baseband output (for RDS decoder at 192 kHz)
- *   -> Audio LPF -> Decimate /4 -> De-emphasis -> Output audio (48 kHz)
+ *   -> Audio LPF -> Decimate /4 -> De-emphasis -> Soft limiter -> Output audio (48 kHz)
  */
 class FmDemodulator(
     private val inputSampleRate: Int = RECOMMENDED_SAMPLE_RATE,
@@ -21,24 +21,27 @@ class FmDemodulator(
     private val intermediateRate: Int = inputSampleRate / stage1Decimation
     private val stage2Decimation: Int = intermediateRate / audioSampleRate
 
+    // DC removal (fast-settling IIR)
     private var dcI = 0f
     private var dcQ = 0f
-    private val dcAlpha = 0.999f
+    private val dcAlpha = 0.995f  // faster settling than 0.999
 
+    // FM discriminator state
     private var prevI = 0f
     private var prevQ = 0f
 
-    private var deEmphasisState1 = 0f
-    private var deEmphasisState2 = 0f
-    private val deEmphasisAlpha1: Float
-    private val deEmphasisAlpha2: Float
+    // De-emphasis filter (50us, single stage)
+    private var deEmphasisState = 0f
+    private val deEmphasisAlpha: Float
 
+    // IF low-pass filter (before stage 1 decimation)
     private val ifLpfOrder = 96
     private val ifLpfCoeffs: FloatArray
     private var ifBufI = FloatArray(ifLpfOrder)
     private var ifBufQ = FloatArray(ifLpfOrder)
     private var ifBufIdx = 0
 
+    // Audio low-pass filter (before stage 2 decimation)
     private val audioLpfOrder = 64
     private val audioLpfCoeffs: FloatArray
     private var audioLpfBuf = FloatArray(audioLpfOrder)
@@ -47,8 +50,10 @@ class FmDemodulator(
     private var stage1Counter = 0
     private var stage2Counter = 0
 
+    // Wideband output for RDS
     var widebandListener: ((FloatArray) -> Unit)? = null
 
+    // Stereo pilot tone detection
     private var pilotPhase = 0.0
     private val pilotIncrement = 2.0 * PI * 19000.0 / intermediateRate
     private var pilotEnergy = 0f
@@ -59,14 +64,24 @@ class FmDemodulator(
     var isStereo = false
         private set
 
+    // Audio AGC to stabilize output level
+    private var audioAgcGain = 1.0f
+    private val audioAgcTarget = 0.35f
+    private val audioAgcAttack = 0.002f
+    private val audioAgcDecay = 0.0005f
+
+    // Output smoothing (prevents inter-chunk clicks)
+    private var lastOutputSample = 0f
+
     init {
         // De-emphasis: 50us time constant (Europe/Russia standard)
         val tau = 50e-6f
         val dt = 1f / audioSampleRate
-        val singleAlpha = dt / (tau + dt)
-        deEmphasisAlpha1 = singleAlpha
-        deEmphasisAlpha2 = singleAlpha * 0.5f  // second stage for extra smoothing
+        deEmphasisAlpha = dt / (tau + dt)
+
+        // IF filter: 100 kHz cutoff at input rate (wide enough for FM signal + RDS)
         ifLpfCoeffs = designLowPassFilter(ifLpfOrder, 100000f / inputSampleRate)
+        // Audio filter: 15 kHz cutoff at intermediate rate
         audioLpfCoeffs = designLowPassFilter(audioLpfOrder, 15000f / intermediateRate)
     }
 
@@ -81,6 +96,7 @@ class FmDemodulator(
             } else {
                 sin(2 * PI.toFloat() * normalizedCutoff * n) / (PI.toFloat() * n)
             }
+            // Blackman-Harris window
             val w = i.toFloat() / (order - 1).toFloat()
             val a0 = 0.35875f; val a1 = 0.48829f; val a2 = 0.14128f; val a3 = 0.01168f
             coeffs[i] *= a0 - a1 * cos(2 * PI.toFloat() * w) +
@@ -106,19 +122,23 @@ class FmDemodulator(
             var iSample = (iqData[i * 2].toInt() and 0xFF) / 127.5f - 1f
             var qSample = (iqData[i * 2 + 1].toInt() and 0xFF) / 127.5f - 1f
 
+            // DC removal
             dcI = dcAlpha * dcI + (1 - dcAlpha) * iSample
             dcQ = dcAlpha * dcQ + (1 - dcAlpha) * qSample
             iSample -= dcI
             qSample -= dcQ
 
+            // Store in IF filter buffer
             ifBufI[ifBufIdx] = iSample
             ifBufQ[ifBufIdx] = qSample
             ifBufIdx = (ifBufIdx + 1) % ifLpfOrder
 
+            // Stage 1 decimation
             stage1Counter++
             if (stage1Counter < stage1Decimation) continue
             stage1Counter = 0
 
+            // Apply IF LPF
             var filtI = 0f
             var filtQ = 0f
             for (j in 0 until ifLpfOrder) {
@@ -127,6 +147,7 @@ class FmDemodulator(
                 filtQ += ifBufQ[idx] * ifLpfCoeffs[j]
             }
 
+            // FM discriminator (complex conjugate multiplication + atan2)
             val realProd = filtI * prevI + filtQ * prevQ
             val imagProd = filtQ * prevI - filtI * prevQ
             prevI = filtI
@@ -134,6 +155,7 @@ class FmDemodulator(
 
             val baseband = atan2(imagProd, realProd) / PI.toFloat()
 
+            // Pilot tone detection for stereo indicator
             val pilotCorr = baseband * cos(pilotPhase).toFloat()
             pilotPhase += pilotIncrement
             if (pilotPhase > 2 * PI) pilotPhase -= 2 * PI
@@ -146,38 +168,55 @@ class FmDemodulator(
                 pilotSampleCount = 0
             }
 
+            // Wideband output for RDS decoder (at 192 kHz)
             if (widebandBuf != null && wbCount < widebandBuf.size) {
                 widebandBuf[wbCount++] = baseband
             }
 
+            // Audio low-pass filter
             audioLpfBuf[audioLpfIdx] = baseband
             audioLpfIdx = (audioLpfIdx + 1) % audioLpfOrder
 
+            // Stage 2 decimation
             stage2Counter++
             if (stage2Counter < stage2Decimation) continue
             stage2Counter = 0
 
+            // Apply audio LPF
             var filtAudio = 0f
             for (j in 0 until audioLpfOrder) {
                 val idx = (audioLpfIdx - 1 - j + audioLpfOrder) % audioLpfOrder
                 filtAudio += audioLpfBuf[idx] * audioLpfCoeffs[j]
             }
 
-            // Single-stage de-emphasis filter (50us, natural FM sound)
-            deEmphasisState1 += deEmphasisAlpha1 * (filtAudio - deEmphasisState1)
-            val audio = deEmphasisState1
+            // De-emphasis filter (50us)
+            deEmphasisState += deEmphasisAlpha * (filtAudio - deEmphasisState)
+            var audio = deEmphasisState
 
-            // Scale to 16-bit PCM with smooth soft limiter (tanh-like)
-            val raw = audio * 28000f
-            val absRaw = if (raw < 0) -raw else raw
-            val scaled = if (absRaw > 16000f) {
-                val over = (absRaw - 16000f) / 16000f
-                val compressed = 16000f + 14000f * (over / (1f + over))
-                if (raw < 0) -compressed else compressed
-            } else raw
-            val clamped = scaled.coerceIn(-30000f, 30000f)
+            // Audio-level AGC: stabilize output volume (prevents waves)
+            val absAudio = if (audio < 0) -audio else audio
+            if (absAudio * audioAgcGain > audioAgcTarget) {
+                audioAgcGain -= audioAgcAttack * (absAudio * audioAgcGain - audioAgcTarget)
+            } else {
+                audioAgcGain += audioAgcDecay * (audioAgcTarget - absAudio * audioAgcGain)
+            }
+            audioAgcGain = audioAgcGain.coerceIn(0.5f, 5.0f)
+            audio *= audioAgcGain
+
+            // Smooth soft limiter (tanh approximation, no hard knee)
+            val raw = audio * 30000f
+            val scaled = if (raw > 0) {
+                30000f * tanh(raw / 30000f)
+            } else {
+                -30000f * tanh(-raw / 30000f)
+            }
+
+            // Gentle smoothing to prevent inter-sample clicks
+            val smoothed = 0.95f * scaled + 0.05f * lastOutputSample
+            lastOutputSample = smoothed
+
             if (audioCount < audioOut.size) {
-                audioOut[audioCount++] = clamped.toInt().toShort()
+                audioOut[audioCount++] = smoothed.toInt().coerceIn(-32000, 32000).toShort()
             }
         }
 
@@ -188,22 +227,25 @@ class FmDemodulator(
         return if (audioCount == audioOut.size) audioOut else audioOut.copyOf(audioCount)
     }
 
+    private fun tanh(x: Float): Float {
+        // Fast tanh approximation
+        if (x > 3f) return 1f
+        if (x < -3f) return -1f
+        val x2 = x * x
+        return x * (27f + x2) / (27f + 9f * x2)
+    }
+
     fun measureSignalStrength(iqData: ByteArray): Float {
         if (iqData.isEmpty()) return -100f
         var powerSum = 0.0
-        var peakPower = 0.0
         val numSamples = iqData.size / 2
         for (i in 0 until numSamples) {
             val iVal = (iqData[i * 2].toInt() and 0xFF) / 127.5f - 1f
             val qVal = (iqData[i * 2 + 1].toInt() and 0xFF) / 127.5f - 1f
-            val p = (iVal * iVal + qVal * qVal).toDouble()
-            powerSum += p
-            if (p > peakPower) peakPower = p
+            powerSum += (iVal * iVal + qVal * qVal).toDouble()
         }
         val avgPower = powerSum / numSamples
-        // Use combination of average power and peak-to-average ratio for better station detection
-        val dbPower = (10 * log10(avgPower + 1e-10)).toFloat()
-        return dbPower
+        return (10 * log10(avgPower + 1e-10)).toFloat()
     }
 
     /**
@@ -234,15 +276,15 @@ class FmDemodulator(
         if (count == 0) return 0f
         phaseMean /= count
         phaseVariance = phaseVariance / count - phaseMean * phaseMean
-        // FM stations have higher phase variance (modulation) than noise
         return phaseVariance.toFloat()
     }
 
     fun reset() {
-        prevI = 0f; prevQ = 0f; deEmphasisState1 = 0f; deEmphasisState2 = 0f; dcI = 0f; dcQ = 0f
+        prevI = 0f; prevQ = 0f; deEmphasisState = 0f; dcI = 0f; dcQ = 0f
         ifBufI = FloatArray(ifLpfOrder); ifBufQ = FloatArray(ifLpfOrder); ifBufIdx = 0
         audioLpfBuf = FloatArray(audioLpfOrder); audioLpfIdx = 0
         stage1Counter = 0; stage2Counter = 0
         pilotPhase = 0.0; pilotEnergy = 0f; pilotSampleCount = 0; isStereo = false
+        audioAgcGain = 1.0f; lastOutputSample = 0f
     }
 }
