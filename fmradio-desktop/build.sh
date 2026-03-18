@@ -49,9 +49,29 @@ echo "=== Compiling Kotlin sources ==="
 echo "=== Creating JAR ==="
 cd "$OUT_DIR/classes"
 
-# Extract JNA and JSON classes into output for fat jar
+# Extract dependencies into output for fat jar
 jar xf "$JNA_JAR"
 jar xf "$JSON_JAR"
+
+# Include Kotlin stdlib
+KOTLINC_DIR="$(dirname "$(dirname "$KOTLINC")")"
+KOTLIN_STDLIB="$KOTLINC_DIR/lib/kotlin-stdlib.jar"
+KOTLIN_STDLIB_JDK8="$KOTLINC_DIR/lib/kotlin-stdlib-jdk8.jar"
+KOTLIN_STDLIB_JDK7="$KOTLINC_DIR/lib/kotlin-stdlib-jdk7.jar"
+
+if [ -f "$KOTLIN_STDLIB" ]; then
+    jar xf "$KOTLIN_STDLIB"
+    echo "  Included: kotlin-stdlib.jar"
+fi
+if [ -f "$KOTLIN_STDLIB_JDK8" ]; then
+    jar xf "$KOTLIN_STDLIB_JDK8"
+    echo "  Included: kotlin-stdlib-jdk8.jar"
+fi
+if [ -f "$KOTLIN_STDLIB_JDK7" ]; then
+    jar xf "$KOTLIN_STDLIB_JDK7"
+    echo "  Included: kotlin-stdlib-jdk7.jar"
+fi
+
 rm -rf META-INF
 
 # Create manifest
@@ -66,12 +86,17 @@ jar cfm "$OUT_DIR/$JAR_NAME" META-INF/MANIFEST.MF .
 echo "=== BUILD COMPLETE ==="
 echo "JAR: $OUT_DIR/$JAR_NAME"
 ls -lh "$OUT_DIR/$JAR_NAME"
+
+# Copy to project root (next to FmRadio.exe)
+cp "$OUT_DIR/$JAR_NAME" "$SCRIPT_DIR/../$JAR_NAME"
+echo "Copied to: $SCRIPT_DIR/../$JAR_NAME"
+
 echo ""
 echo "To run:"
 echo "  java -jar $OUT_DIR/$JAR_NAME"
 echo ""
 echo "Or on Windows:"
-echo "  java -jar fmradio-desktop.jar"
+echo "  Double-click FmRadio.exe (with fmradio-desktop.jar in same folder)"
 echo ""
 echo "Prerequisites:"
 echo "  1. Install RTL-SDR drivers (Zadig + librtlsdr)"
