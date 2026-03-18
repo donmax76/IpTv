@@ -208,8 +208,8 @@ class FmDemodulator(
 
             // Scale to 16-bit PCM — direct linear scaling, no compression
             // After proper fmGain scaling, audio peaks at ~±0.8
-            // Multiply by 40000 to use most of 16-bit range (±32000 peak)
-            val sample = (deEmphasisState * 40000f).toInt().coerceIn(-32767, 32767)
+            // Scale to comfortable listening level (~70% of 16-bit range)
+            val sample = (deEmphasisState * 24000f).toInt().coerceIn(-32767, 32767)
 
             if (audioCount < audioOut.size) {
                 audioOut[audioCount++] = sample.toShort()
