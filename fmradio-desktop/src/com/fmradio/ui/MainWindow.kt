@@ -1,5 +1,6 @@
 package com.fmradio.ui
 
+import com.fmradio.dsp.AmDemodulator
 import com.fmradio.dsp.AudioEqualizer
 import com.fmradio.dsp.FmDemodulator
 import com.fmradio.dsp.RdsDecoder
@@ -74,17 +75,28 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     // State
     @Volatile private var isPlaying = false
     private var currentFrequency = 100_000_000L  // 100.0 MHz
-    private val stepHz = 100_000L  // 100 kHz step
     private var signalStrength = 0  // 0..5
     private var afEnabled = false
     private var taEnabled = false
-    private var currentBand = 0  // 0=FM1 (87.5-100), 1=FM2 (100-108), 2=FM Wide (76-108)
-    private val bandNames = arrayOf("FM1", "FM2", "FM")
-    private val bandRanges = arrayOf(
-        87_500_000L to 100_000_000L,
-        100_000_000L to 108_000_000L,
-        FM_MIN_HZ to FM_MAX_HZ
+
+    // Band definitions: name, min Hz, max Hz, step Hz, modulation ("FM" or "AM"), direct sampling mode
+    data class BandDef(val name: String, val minHz: Long, val maxHz: Long,
+                       val stepHz: Long, val modulation: String, val directSampling: Int = 0)
+
+    private val bands = arrayOf(
+        BandDef("FM1", 87_500_000L, 100_000_000L, 100_000L, "FM"),
+        BandDef("FM2", 100_000_000L, 108_000_000L, 100_000L, "FM"),
+        BandDef("FM",  FM_MIN_HZ, FM_MAX_HZ, 100_000L, "FM"),
+        BandDef("AIR", 108_000_000L, 137_000_000L, 25_000L, "AM"),
+        BandDef("SW1", 3_000_000L, 10_000_000L, 5_000L, "AM", 2),
+        BandDef("SW2", 10_000_000L, 30_000_000L, 5_000L, "AM", 2)
     )
+    private var currentBand = 0
+    private val bandNames get() = bands.map { it.name }.toTypedArray()
+    private val bandRanges get() = bands.map { it.minHz to it.maxHz }.toTypedArray()
+    private val currentBandDef get() = bands[currentBand]
+
+    private var amDemodulator: AmDemodulator? = null
     private var lastRdsData: RdsDecoder.RdsData? = null
 
     // RDS scrolling state
@@ -208,9 +220,9 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         playBtn.addActionListener { togglePlayback() }
 
         // Keyboard shortcuts
-        rootPane.registerKeyboardAction({ tuneFrequency(currentFrequency - stepHz) },
+        rootPane.registerKeyboardAction({ tuneFrequency(currentFrequency - currentBandDef.stepHz) },
             KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, 0), JComponent.WHEN_IN_FOCUSED_WINDOW)
-        rootPane.registerKeyboardAction({ tuneFrequency(currentFrequency + stepHz) },
+        rootPane.registerKeyboardAction({ tuneFrequency(currentFrequency + currentBandDef.stepHz) },
             KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, 0), JComponent.WHEN_IN_FOCUSED_WINDOW)
         rootPane.registerKeyboardAction({ togglePlayback() },
             KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), JComponent.WHEN_IN_FOCUSED_WINDOW)
@@ -282,8 +294,8 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         stylePlayButton(playBtn)
 
         seekBackBtn.addActionListener { seekStation(false) }
-        freqDownBtn.addActionListener { tuneFrequency(currentFrequency - stepHz) }
-        freqUpBtn.addActionListener { tuneFrequency(currentFrequency + stepHz) }
+        freqDownBtn.addActionListener { tuneFrequency(currentFrequency - currentBandDef.stepHz) }
+        freqUpBtn.addActionListener { tuneFrequency(currentFrequency + currentBandDef.stepHz) }
         seekFwdBtn.addActionListener { seekStation(true) }
 
         tuneRow.add(seekBackBtn)
@@ -312,7 +324,8 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         var tuningSliderUpdating = false
         tuningSlider.addChangeListener {
             if (!tuningSliderUpdating) {
-                val freqHz = tuningSlider.value.toLong() * 100_000
+                val sliderStep = currentBandDef.stepHz.coerceAtLeast(5_000L)
+                val freqHz = tuningSlider.value.toLong() * sliderStep
                 tuneFrequency(freqHz)
             }
         }
@@ -1088,23 +1101,35 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         menu.show(btnPty, 0, btnPty.height)
     }
 
-    // ---- BAND: Switch FM band range ----
+    // ---- BAND: Switch band range ----
     private fun switchBand() {
-        currentBand = (currentBand + 1) % bandNames.size
-        btnBand.text = bandNames[currentBand]
+        val wasPlaying = isPlaying
+        if (wasPlaying) stopPlayback()
 
-        val (rangeMin, rangeMax) = bandRanges[currentBand]
+        currentBand = (currentBand + 1) % bands.size
+        val band = currentBandDef
+        btnBand.text = band.name
 
-        // Update tuning slider range
-        tuningSlider.minimum = (rangeMin / 100_000).toInt()
-        tuningSlider.maximum = (rangeMax / 100_000).toInt()
+        // Update tuning slider range (use band step for slider resolution)
+        val sliderStep = band.stepHz.coerceAtLeast(5_000L)
+        tuningSlider.minimum = (band.minHz / sliderStep).toInt()
+        tuningSlider.maximum = (band.maxHz / sliderStep).toInt()
 
-        // Clamp current frequency to new range
-        if (currentFrequency < rangeMin || currentFrequency > rangeMax) {
-            tuneFrequency(rangeMin)
+        // Configure direct sampling for HF/SW bands
+        if (sdr.isOpen) {
+            sdr.setDirectSampling(band.directSampling)
         }
 
-        statusLabel.text = "${bandNames[currentBand]}: ${formatFreq(rangeMin)}-${formatFreq(rangeMax)} MHz"
+        // Set frequency to band start
+        currentFrequency = band.minHz
+        if (sdr.isOpen) sdr.setFrequency(currentFrequency)
+        updateFreqDisplay()
+        tuningSlider.value = (currentFrequency / sliderStep).toInt()
+
+        val modStr = if (band.modulation == "AM") "AM" else "FM"
+        statusLabel.text = "${band.name}: ${formatFreq(band.minHz)}-${formatFreq(band.maxHz)} MHz ($modStr)"
+
+        if (wasPlaying) startPlayback()
     }
 
     private fun startScan() {
@@ -1115,18 +1140,22 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         val wasPlaying = isPlaying
         if (wasPlaying) stopPlayback()
 
-        statusLabel.text = "Scanning FM band..."
+        val band = currentBandDef
+        val modStr = if (band.modulation == "AM") "AM" else "FM"
+        statusLabel.text = "Scanning ${band.name} band ($modStr)..."
         stationListModel.clear()
         btnScan.isEnabled = false
 
         Thread({
-            val tempDemod = FmDemodulator()
+            val tempFmDemod = if (band.modulation == "FM") FmDemodulator() else null
+            val tempAmDemod = if (band.modulation == "AM") AmDemodulator() else null
             sdr.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
             sdr.setAutoGain(true)
+            sdr.setDirectSampling(band.directSampling)
             sdr.resetBuffer()
 
             val (startHz, endHz) = bandRanges[currentBand]
-            val scanStep = 100_000L
+            val scanStep = if (band.modulation == "AM") band.stepHz * 2 else 100_000L
             var freq = startHz
 
             while (freq <= endHz) {
@@ -1139,13 +1168,21 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                 val samples1 = sdr.readSamples(65536)
                 val samples2 = sdr.readSamples(65536)
                 if (samples1 != null && samples2 != null) {
-                    val power1 = tempDemod.measureSignalStrength(samples1)
-                    val power2 = tempDemod.measureSignalStrength(samples2)
+                    val power1 = tempAmDemod?.measureSignalStrength(samples1)
+                        ?: tempFmDemod?.measureSignalStrength(samples1) ?: -50f
+                    val power2 = tempAmDemod?.measureSignalStrength(samples2)
+                        ?: tempFmDemod?.measureSignalStrength(samples2) ?: -50f
                     val avgPower = (power1 + power2) / 2f
-                    val quality = tempDemod.measureSignalQuality(samples2)
 
-                    // Station detection: need both sufficient power AND modulation activity
-                    if (avgPower > -12f && quality > 0.005f) {
+                    // For FM: also check modulation quality; for AM: power threshold only
+                    val isStation = if (tempFmDemod != null) {
+                        val quality = tempFmDemod.measureSignalQuality(samples2)
+                        avgPower > -12f && quality > 0.005f
+                    } else {
+                        avgPower > -15f
+                    }
+
+                    if (isStation) {
                         val foundFreq = freq
                         val foundPower = avgPower
                         SwingUtilities.invokeLater {
@@ -1366,7 +1403,15 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     // =========================================================================
 
     private fun updateFreqDisplay() {
-        freqLabel.text = formatFreq(currentFrequency)
+        val band = currentBandDef
+        if (band.modulation == "AM" && currentFrequency < 50_000_000L) {
+            // Show kHz for shortwave bands
+            freqLabel.text = String.format("%.1f", currentFrequency / 1_000.0)
+            mhzLabel.text = "kHz"
+        } else {
+            freqLabel.text = formatFreq(currentFrequency)
+            mhzLabel.text = "MHz"
+        }
     }
 
     private fun formatFreq(hz: Long): String = String.format("%.1f", hz / 1_000_000.0)
@@ -1483,16 +1528,29 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         }
         if (isPlaying) return
 
+        val band = currentBandDef
         val sampleRate = FmDemodulator.RECOMMENDED_SAMPLE_RATE
-        demodulator = FmDemodulator(inputSampleRate = sampleRate, audioSampleRate = 48000)
-        rdsDecoder = RdsDecoder(sampleRate / 6).also { rds ->
-            rds.listener = object : RdsDecoder.RdsListener {
-                override fun onRdsData(data: RdsDecoder.RdsData) {
-                    SwingUtilities.invokeLater { updateRds(data) }
+        val isAm = band.modulation == "AM"
+
+        // Configure direct sampling for HF/SW bands
+        sdr.setDirectSampling(band.directSampling)
+
+        if (isAm) {
+            amDemodulator = AmDemodulator(inputSampleRate = sampleRate, audioSampleRate = 48000)
+            demodulator = null
+            rdsDecoder = null
+        } else {
+            demodulator = FmDemodulator(inputSampleRate = sampleRate, audioSampleRate = 48000)
+            amDemodulator = null
+            rdsDecoder = RdsDecoder(sampleRate / 6).also { rds ->
+                rds.listener = object : RdsDecoder.RdsListener {
+                    override fun onRdsData(data: RdsDecoder.RdsData) {
+                        SwingUtilities.invokeLater { updateRds(data) }
+                    }
                 }
             }
+            demodulator?.widebandListener = { wb -> rdsDecoder?.process(wb) }
         }
-        demodulator?.widebandListener = { wb -> rdsDecoder?.process(wb) }
 
         equalizer = AudioEqualizer(48000).also {
             it.bassGainDb = (bassSlider.value - 10).toFloat()
@@ -1508,23 +1566,32 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         isPlaying = true
 
         streamingThread = sdr.startStreaming(65536) { iqData ->
-            var audioSamples = demodulator?.demodulate(iqData)
+            var audioSamples = if (isAm) {
+                amDemodulator?.demodulate(iqData)
+            } else {
+                demodulator?.demodulate(iqData)
+            }
             if (audioSamples != null && audioSamples.isNotEmpty()) {
                 val eq = equalizer
                 if (eq != null) audioSamples = eq.process(audioSamples)
                 audioPlayer?.writeSamples(audioSamples)
             }
-            val stereoNow = demodulator?.isStereo == true
-            val power = demodulator?.measureSignalStrength(iqData) ?: -50f
+            val power = if (isAm) {
+                amDemodulator?.measureSignalStrength(iqData) ?: -50f
+            } else {
+                demodulator?.measureSignalStrength(iqData) ?: -50f
+            }
+            val stereoNow = if (!isAm) demodulator?.isStereo == true else false
             SwingUtilities.invokeLater {
-                stereoLabel.text = if (stereoNow) "STEREO" else "MONO"
-                stereoLabel.foreground = if (stereoNow) FREQ_GREEN else AMBER
+                stereoLabel.text = if (isAm) "AM" else if (stereoNow) "STEREO" else "MONO"
+                stereoLabel.foreground = if (isAm) CYAN else if (stereoNow) FREQ_GREEN else AMBER
                 updateSignalStrength(power)
             }
         }
 
         playBtn.text = "\u25A0"
-        statusLabel.text = "Playing ${formatFreq(currentFrequency)} MHz \u2014 ${sdr.deviceName}"
+        val modStr = if (isAm) "AM" else "FM"
+        statusLabel.text = "Playing ${formatFreq(currentFrequency)} MHz ($modStr) \u2014 ${sdr.deviceName}"
     }
 
     private fun stopPlayback() {
@@ -1536,6 +1603,8 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         demodulator?.widebandListener = null
         demodulator?.reset()
         demodulator = null
+        amDemodulator?.reset()
+        amDemodulator = null
         rdsDecoder?.reset()
         rdsDecoder = null
         equalizer?.reset()
@@ -1555,7 +1624,8 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     }
 
     private fun tuneFrequency(freqHz: Long) {
-        val clamped = freqHz.coerceIn(FM_MIN_HZ, FM_MAX_HZ)
+        val band = currentBandDef
+        val clamped = freqHz.coerceIn(band.minHz, band.maxHz)
         currentFrequency = clamped
         sdr.setFrequency(clamped)
         rdsDecoder?.reset()
@@ -1565,11 +1635,15 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         radioText = ""
         updateFreqDisplay()
         // Update tuning slider without triggering listener loop
-        tuningSlider.value = (clamped / 100_000).toInt()
+        val sliderStep = band.stepHz.coerceAtLeast(5_000L)
+        tuningSlider.value = (clamped / sliderStep).toInt()
         // Refresh lists to update selected highlight
         presetList.repaint()
         stationList.repaint()
-        if (isPlaying) statusLabel.text = "Playing ${formatFreq(clamped)} MHz"
+        if (isPlaying) {
+            val modStr = if (band.modulation == "AM") "AM" else "FM"
+            statusLabel.text = "Playing ${formatFreq(clamped)} MHz ($modStr)"
+        }
     }
 
     private fun seekStation(forward: Boolean) {
@@ -1579,11 +1653,15 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         if (wasPlaying) stopPlayback()
 
         Thread({
-            val tempDemod = FmDemodulator()
+            val band = currentBandDef
+            val isAm = band.modulation == "AM"
+            val tempFmDemod = if (!isAm) FmDemodulator() else null
+            val tempAmDemod = if (isAm) AmDemodulator() else null
             sdr.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
             sdr.setAutoGain(true)
+            sdr.setDirectSampling(band.directSampling)
             sdr.resetBuffer()
-            val step = 100_000L
+            val step = if (isAm) band.stepHz * 2 else 100_000L
             var freq = currentFrequency + if (forward) step else -step
             var found: Long? = null
 
@@ -1598,9 +1676,15 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                 Thread.sleep(40)
                 val samples = sdr.readSamples(65536)
                 if (samples != null) {
-                    val power = tempDemod.measureSignalStrength(samples)
-                    val quality = tempDemod.measureSignalQuality(samples)
-                    if (power > -12f && quality > 0.005f) { found = freq; break }
+                    val power = tempAmDemod?.measureSignalStrength(samples)
+                        ?: tempFmDemod?.measureSignalStrength(samples) ?: -50f
+                    val isStation = if (tempFmDemod != null) {
+                        val quality = tempFmDemod.measureSignalQuality(samples)
+                        power > -12f && quality > 0.005f
+                    } else {
+                        power > -15f
+                    }
+                    if (isStation) { found = freq; break }
                 }
                 val f = freq
                 SwingUtilities.invokeLater {
@@ -1609,11 +1693,12 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                 freq += if (forward) step else -step
             }
 
+            val sliderStep = band.stepHz.coerceAtLeast(5_000L)
             SwingUtilities.invokeLater {
                 if (found != null) {
                     currentFrequency = found
                     updateFreqDisplay()
-                    tuningSlider.value = (found / 100_000).toInt()
+                    tuningSlider.value = (found / sliderStep).toInt()
                     statusLabel.text = "Found: ${formatFreq(found)} MHz"
                 } else {
                     statusLabel.text = "No station found"

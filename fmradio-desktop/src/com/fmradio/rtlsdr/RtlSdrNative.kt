@@ -130,6 +130,16 @@ class RtlSdrNative {
         l.rtlsdr_set_tuner_gain(dev, gainTenths)
     }
 
+    /**
+     * Enable direct sampling for HF/shortwave reception (0-28 MHz).
+     * mode: 0=disabled (normal), 1=I-ADC, 2=Q-ADC
+     * For most RTL-SDR dongles, mode 2 (Q-ADC) works best.
+     */
+    fun setDirectSampling(mode: Int) {
+        val dev = devPtr ?: return
+        lib?.rtlsdr_set_direct_sampling(dev, mode)
+    }
+
     fun resetBuffer() {
         val dev = devPtr ?: return
         lib?.rtlsdr_reset_buffer(dev)
