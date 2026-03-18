@@ -57,8 +57,14 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
                 try { available = bufferedSamples } finally { lock.unlock() }
 
                 val toDrain = if (available >= chunkSamples) chunkSamples
-                              else if (available >= 100) available
-                              else { Thread.sleep(5); continue }
+                              else if (available >= 256) available
+                              else {
+                                  // Buffer underflow — write silence to avoid clicks
+                                  for (i in 0 until chunkSamples * 2) chunkBytes[i] = 0
+                                  try { sourceDataLine?.write(chunkBytes, 0, chunkSamples * 2) } catch (_: Exception) {}
+                                  Thread.sleep(8)
+                                  continue
+                              }
 
                 lock.lock()
                 try {
@@ -94,10 +100,14 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
         if (!isPlaying) return
         lock.lock()
         try {
-            if (bufferedSamples + samples.size > RING_BUFFER_SAMPLES) {
-                val toDrop = (bufferedSamples + samples.size) - RING_BUFFER_SAMPLES
-                readPos = (readPos + toDrop) % RING_BUFFER_SAMPLES
-                bufferedSamples -= toDrop
+            val freeSpace = RING_BUFFER_SAMPLES - bufferedSamples
+            if (samples.size > freeSpace) {
+                // Buffer full — drop oldest samples smoothly
+                val toDrop = samples.size - freeSpace + RING_BUFFER_SAMPLES / 4
+                if (toDrop > 0 && toDrop <= bufferedSamples) {
+                    readPos = (readPos + toDrop) % RING_BUFFER_SAMPLES
+                    bufferedSamples -= toDrop
+                }
             }
             for (s in samples) {
                 ringBuffer[writePos] = s

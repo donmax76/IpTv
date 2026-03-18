@@ -60,12 +60,12 @@ class FmDemodulator(
         private set
 
     init {
-        // De-emphasis: 75us time constant, split into two gentler stages to reduce ringing
-        val tau = 75e-6f
+        // De-emphasis: 50us time constant (Europe/Russia standard)
+        val tau = 50e-6f
         val dt = 1f / audioSampleRate
         val singleAlpha = dt / (tau + dt)
-        deEmphasisAlpha1 = singleAlpha * 0.6f
-        deEmphasisAlpha2 = singleAlpha * 0.4f
+        deEmphasisAlpha1 = singleAlpha
+        deEmphasisAlpha2 = singleAlpha * 0.5f  // second stage for extra smoothing
         ifLpfCoeffs = designLowPassFilter(ifLpfOrder, 100000f / inputSampleRate)
         audioLpfCoeffs = designLowPassFilter(audioLpfOrder, 15000f / intermediateRate)
     }
@@ -168,12 +168,15 @@ class FmDemodulator(
             deEmphasisState2 += deEmphasisAlpha2 * (deEmphasisState1 - deEmphasisState2)
             val audio = deEmphasisState2
 
-            // Scale to 16-bit PCM with soft limiting to prevent distortion
-            val raw = audio * 28000f
-            val scaled = if (raw > 24000f) 24000f + (raw - 24000f) * 0.2f
-                         else if (raw < -24000f) -24000f + (raw + 24000f) * 0.2f
-                         else raw
-            val clamped = scaled.coerceIn(-32000f, 32000f)
+            // Scale to 16-bit PCM with smooth soft limiter (tanh-like)
+            val raw = audio * 22000f
+            val absRaw = if (raw < 0) -raw else raw
+            val scaled = if (absRaw > 16000f) {
+                val over = (absRaw - 16000f) / 16000f
+                val compressed = 16000f + 14000f * (over / (1f + over))
+                if (raw < 0) -compressed else compressed
+            } else raw
+            val clamped = scaled.coerceIn(-30000f, 30000f)
             if (audioCount < audioOut.size) {
                 audioOut[audioCount++] = clamped.toInt().toShort()
             }
