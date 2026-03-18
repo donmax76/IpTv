@@ -116,11 +116,28 @@ class RtlSdrNative {
         lib?.rtlsdr_set_center_freq(dev, frequencyHz.toInt())
     }
 
+    /**
+     * Get list of supported tuner gain values (in tenths of dB).
+     * E.g. for R820T: [0, 9, 14, 27, 37, 77, 87, 125, 144, 157, 166, 197,
+     *                   207, 229, 254, 280, 297, 328, 338, 364, 372, 386,
+     *                   402, 421, 434, 439, 445, 480, 496]
+     */
+    fun getSupportedGains(): IntArray {
+        val dev = devPtr ?: return intArrayOf()
+        val l = lib ?: return intArrayOf()
+        val count = l.rtlsdr_get_tuner_gains(dev, null)
+        if (count <= 0) return intArrayOf()
+        val gains = IntArray(count)
+        l.rtlsdr_get_tuner_gains(dev, gains)
+        return gains
+    }
+
     fun setAutoGain(enabled: Boolean) {
         val dev = devPtr ?: return
         val l = lib ?: return
-        l.rtlsdr_set_tuner_gain_mode(dev, if (enabled) 0 else 1) // 0=auto
+        l.rtlsdr_set_tuner_gain_mode(dev, if (enabled) 0 else 1)
         l.rtlsdr_set_agc_mode(dev, if (enabled) 1 else 0)
+        println("Gain mode: ${if (enabled) "auto" else "manual"}")
     }
 
     fun setGain(gainTenths: Int) {
@@ -128,6 +145,25 @@ class RtlSdrNative {
         val l = lib ?: return
         l.rtlsdr_set_tuner_gain_mode(dev, 1) // manual
         l.rtlsdr_set_tuner_gain(dev, gainTenths)
+        println("Tuner gain set to: ${gainTenths / 10.0} dB")
+    }
+
+    /**
+     * Set gain to maximum supported by the tuner.
+     * Returns the actual gain value set (in tenths of dB), or -1 on failure.
+     */
+    fun setMaxGain(): Int {
+        val gains = getSupportedGains()
+        if (gains.isEmpty()) {
+            println("WARNING: Could not query tuner gains, using auto-gain")
+            setAutoGain(true)
+            return -1
+        }
+        val maxGain = gains.max()
+        println("Supported gains: ${gains.map { it / 10.0 }} dB")
+        println("Setting maximum gain: ${maxGain / 10.0} dB")
+        setGain(maxGain)
+        return maxGain
     }
 
     /**

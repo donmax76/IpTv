@@ -162,11 +162,10 @@ class FmDemodulator(
             prevQ = filtQ
 
             // atan2 gives instantaneous phase difference in radians [-π, π]
-            // Scale by fmGain to normalize for ±75 kHz deviation
-            val baseband = atan2(imagProd, realProd) * fmGain
+            val rawBaseband = atan2(imagProd, realProd)
 
-            // Pilot tone detection for stereo indicator
-            val pilotCorr = baseband * cos(pilotPhase).toFloat()
+            // Pilot tone detection on raw signal (19 kHz)
+            val pilotCorr = rawBaseband * cos(pilotPhase).toFloat()
             pilotPhase += pilotIncrement
             if (pilotPhase > 2 * PI) pilotPhase -= 2 * PI
             pilotEnergy += pilotCorr * pilotCorr
@@ -178,10 +177,14 @@ class FmDemodulator(
                 pilotSampleCount = 0
             }
 
-            // Wideband output for RDS decoder (at 192 kHz)
+            // Wideband output for RDS decoder (at 192 kHz) — raw, unscaled
+            // RDS needs full bandwidth with 57kHz subcarrier intact
             if (widebandBuf != null && wbCount < widebandBuf.size) {
-                widebandBuf[wbCount++] = baseband
+                widebandBuf[wbCount++] = rawBaseband
             }
+
+            // Scale for audio path: normalize ±75kHz deviation to proper level
+            val baseband = rawBaseband * fmGain
 
             // Audio low-pass filter — anti-alias before stage 2 decimation
             audioLpfBuf[audioLpfIdx] = baseband

@@ -1238,7 +1238,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             val tempFmDemod = if (band.modulation == "FM") FmDemodulator() else null
             val tempAmDemod = if (band.modulation == "AM") AmDemodulator() else null
             sdr.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
-            sdr.setGain(496)  // 49.6 dB — max gain for R820T tuner
+            sdr.setMaxGain()  // query tuner for max supported gain
             sdr.setDirectSampling(band.directSampling)
             sdr.resetBuffer()
 
@@ -1592,7 +1592,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             val ok = sdr.open(0)
             if (ok) {
                 sdr.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
-                sdr.setGain(496)  // 49.6 dB — max gain for R820T tuner
+                sdr.setMaxGain()  // query tuner for max supported gain
                 sdr.setFrequency(currentFrequency)
 
                 SwingUtilities.invokeLater {
@@ -1671,7 +1671,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         sdr.setFrequency(currentFrequency)
         isPlaying = true
 
-        streamingThread = sdr.startStreaming(65536) { iqData ->
+        streamingThread = sdr.startStreaming(131072) { iqData ->
             var audioSamples = if (isAm) {
                 amDemodulator?.demodulate(iqData)
             } else {
@@ -1766,7 +1766,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             val tempFmDemod = if (!isAm) FmDemodulator() else null
             val tempAmDemod = if (isAm) AmDemodulator() else null
             sdr.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
-            sdr.setGain(496)  // 49.6 dB — max gain for R820T tuner
+            sdr.setMaxGain()  // query tuner for max supported gain
             sdr.setDirectSampling(band.directSampling)
             sdr.resetBuffer()
             val step = if (isAm) band.stepHz else 100_000L
