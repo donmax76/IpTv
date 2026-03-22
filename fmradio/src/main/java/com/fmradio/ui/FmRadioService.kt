@@ -244,8 +244,8 @@ class FmRadioService : Service() {
             }
         }
 
-        demodulator?.widebandListener = { widebandSamples ->
-            rdsDecoder?.process(widebandSamples)
+        demodulator?.widebandListener = { widebandSamples, pilotPhase ->
+            rdsDecoder?.process(widebandSamples, pilotPhase)
         }
 
         equalizer = AudioEqualizer(48000)

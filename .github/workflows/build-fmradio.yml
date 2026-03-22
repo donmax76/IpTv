@@ -2,7 +2,7 @@ name: Build FM Radio
 
 on:
   push:
-    branches: [ 'claude/fm-radio-app-*', 'main', 'master' ]
+    branches: [ 'claude/fm-radio-app-*', 'claude/rebuild-apk-sync-audio-*', 'main', 'master' ]
   workflow_dispatch:
 
 jobs:
@@ -308,8 +308,8 @@ jobs:
 
   create-release:
     name: Create Release
-    needs: [build-windows-portable]
-    if: always() && needs.build-windows-portable.result == 'success'
+    needs: [build-android-apk, build-windows-portable]
+    if: always() && (needs.build-android-apk.result == 'success' || needs.build-windows-portable.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -324,10 +324,14 @@ jobs:
       - name: Prepare release files
         run: |
           mkdir release
-          cp artifacts/FmRadio-Windows-Portable/FmRadio-Windows-Portable.zip release/
+          cp artifacts/FmRadio-Windows-Portable/FmRadio-Windows-Portable.zip release/ 2>/dev/null || true
           # EXE is optional - copy if exists
           if [ -f artifacts/FmRadio-Windows/FmRadio.exe ]; then
             cp artifacts/FmRadio-Windows/FmRadio.exe release/
+          fi
+          # APK - copy if exists
+          if [ -f artifacts/FmRadio-debug.apk/fmradio-debug.apk ]; then
+            cp artifacts/FmRadio-debug.apk/fmradio-debug.apk release/FmRadio.apk
           fi
 
       - name: Delete old release
@@ -339,7 +343,13 @@ jobs:
 
       - name: Create Release
         run: |
-          FILES="release/FmRadio-Windows-Portable.zip"
+          FILES=""
+          if [ -f release/FmRadio.apk ]; then
+            FILES="$FILES release/FmRadio.apk"
+          fi
+          if [ -f release/FmRadio-Windows-Portable.zip ]; then
+            FILES="$FILES release/FmRadio-Windows-Portable.zip"
+          fi
           if [ -f release/FmRadio.exe ]; then
             FILES="$FILES release/FmRadio.exe"
           fi
@@ -348,6 +358,7 @@ jobs:
             --notes "Автоматическая сборка FM Radio.
 
           **Скачать:**
+          - **FmRadio.apk** — Android-приложение (RTL-SDR через USB OTG)
           - **FmRadio-Windows-Portable.zip** — портативная версия (Python внутри, ничего не надо ставить)
           - **FmRadio.exe** — EXE версия (нужен Python на ПК)
 

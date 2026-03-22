@@ -4,25 +4,19 @@ import android.util.Log
 import kotlin.math.*
 
 /**
- * RDS (Radio Data System) decoder.
+ * RDS (Radio Data System) decoder — pilot-locked carrier approach.
  *
- * Receives wideband FM baseband at 192 kHz and extracts:
- * - PS (Programme Service name) — 8-char station name
- * - RT (RadioText) — up to 64-char text
- * - PTY (Programme Type) — genre code
- * - PI (Programme Identification) — station ID
+ * Uses 3× pilot phase from the FM demodulator's PLL for the 57 kHz
+ * RDS carrier, ensuring frequency lock even with RTL-SDR oscillator offset.
+ * This is the same approach used in SDR#, gr-rds, and other professional decoders.
  *
- * Signal chain:
- *   Baseband (192 kHz) → BPF 57kHz → BPSK demod → Clock recovery (1187.5 bps)
- *   → Differential decode → Block sync → Group decode → RDS data
+ * Extracts: PS (station name), RT (radio text), PTY (program type),
+ * AF (alternate frequencies), TA/TP (traffic announcements).
  */
 class RdsDecoder(private val sampleRate: Int = 192000) {
 
     companion object {
         private const val TAG = "RdsDecoder"
-
-        // RDS subcarrier frequency
-        private const val RDS_CARRIER_FREQ = 57000.0
 
         // RDS bit rate
         private const val RDS_BITRATE = 1187.5
@@ -70,25 +64,27 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
 
     var listener: RdsListener? = null
 
-    // 57 kHz carrier oscillator
-    private var carrierPhase = 0.0
-    private val carrierIncrement = 2.0 * PI * RDS_CARRIER_FREQ / sampleRate
-
-    // Bandpass filter around 57 kHz (actually implemented as mix-to-baseband + LPF)
-    private val rdsLpfOrder = 48
+    // RDS bandpass filter (after carrier mix-down)
+    // Blackman-Harris window for better stopband rejection (~92 dB vs ~43 dB Hamming)
+    private val rdsLpfOrder = 96
     private val rdsLpfCoeffs: FloatArray
     private var rdsLpfBufI = FloatArray(rdsLpfOrder)
     private var rdsLpfBufQ = FloatArray(rdsLpfOrder)
     private var rdsLpfIdx = 0
 
-    // Decimation from 192 kHz to ~19 kHz for bit-level processing
-    // 192000 / 10 = 19200, which gives ~16 samples per bit (19200/1187.5 ≈ 16.17)
-    private val rdsDecimation = 10
-    private val rdsRate = sampleRate / rdsDecimation  // 19200 Hz
+    // Decimation from 192 kHz to 24 kHz — more samples per bit for better clock recovery
+    private val rdsDecimation = 8
+    private val rdsRate = sampleRate / rdsDecimation  // 24000
     private var rdsDecimCounter = 0
 
-    // Clock recovery (bit synchronization)
-    private val samplesPerBit = rdsRate.toFloat() / RDS_BITRATE.toFloat() // ~16.17
+    // Matched filter for RDS symbol shaping (root raised cosine-like, improves SNR)
+    private val matchedFilterOrder = 20
+    private val matchedFilter: FloatArray
+    private var matchedBuf = FloatArray(matchedFilterOrder)
+    private var matchedBufIdx = 0
+
+    // Bit clock recovery (PLL-based)
+    private val samplesPerBit = rdsRate.toFloat() / RDS_BITRATE.toFloat()  // ~20.2
     private var clockPhase = 0f
     private var prevRdsSample = 0f
 
@@ -108,10 +104,20 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     // Group data (4 blocks × 16 bits)
     private val groupData = IntArray(4)
 
-    // RDS decoded fields
+    // PS consistency checking — require 2 identical receptions before accepting
     private val psChars = CharArray(8) { ' ' }
+    private val psPending = CharArray(8) { ' ' }
+    private val psConfirmed = CharArray(8) { ' ' }
+    private val psHitCount = IntArray(4)
+    private val PS_CONFIRM_THRESHOLD = 2
+
+    // RT data
     private val rtChars = CharArray(64) { ' ' }
+    private val rtPending = CharArray(64) { ' ' }
     private var rtLength = 0
+    private var rtConfirmedLength = 0
+
+    // RDS decoded fields
     private var piCode = 0
     private var ptyCode = 0
     private var tpFlag = false
@@ -121,25 +127,47 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     @Volatile
     private var dataChanged = false
 
+    // Fallback 57 kHz NCO (used when no pilot phase is available)
+    private var fallbackCarrierPhase = 0.0
+    private val fallbackCarrierInc = 2.0 * PI * 57000.0 / sampleRate
+
     init {
-        // Low-pass filter for RDS baseband (cutoff ~2.4 kHz, RDS bandwidth is ±2 kHz)
-        val cutoff = 2400f / (sampleRate.toFloat() / 2f) // Relative to Nyquist
-        rdsLpfCoeffs = designRdsFilter(rdsLpfOrder, cutoff)
+        // RDS LPF: 2.5 kHz cutoff with Blackman-Harris window
+        // RDS signal bandwidth is ±2 kHz around 57 kHz subcarrier
+        val cutoff = 2500f / sampleRate
+        rdsLpfCoeffs = designLowPassFilter(rdsLpfOrder, cutoff)
+
+        // Simple matched filter (approximate RRC, improves SNR)
+        matchedFilter = FloatArray(matchedFilterOrder)
+        val mid = matchedFilterOrder / 2
+        var sum = 0f
+        for (i in 0 until matchedFilterOrder) {
+            val n = i - mid
+            matchedFilter[i] = if (n == 0) 1f
+            else sin(PI.toFloat() * n / (samplesPerBit / 2)) / (PI.toFloat() * n)
+            val w = 0.5f * (1f - cos(2f * PI.toFloat() * i / (matchedFilterOrder - 1)))
+            matchedFilter[i] *= w
+            sum += abs(matchedFilter[i])
+        }
+        for (i in matchedFilter.indices) matchedFilter[i] /= sum
     }
 
-    private fun designRdsFilter(order: Int, normalizedCutoff: Float): FloatArray {
+    private fun designLowPassFilter(order: Int, normalizedCutoff: Float): FloatArray {
         val coeffs = FloatArray(order)
         val mid = order / 2
         var sum = 0f
         for (i in 0 until order) {
             val n = i - mid
             coeffs[i] = if (n == 0) {
-                normalizedCutoff
+                2 * normalizedCutoff
             } else {
-                sin(PI.toFloat() * normalizedCutoff * n) / (PI.toFloat() * n)
+                sin(2 * PI.toFloat() * normalizedCutoff * n) / (PI.toFloat() * n)
             }
-            // Hamming window
-            coeffs[i] *= 0.54f - 0.46f * cos(2 * PI.toFloat() * i / (order - 1))
+            // Blackman-Harris window (same as main demodulator) — ~92 dB stopband
+            val w = i.toFloat() / (order - 1).toFloat()
+            val a0 = 0.35875f; val a1 = 0.48829f; val a2 = 0.14128f; val a3 = 0.01168f
+            coeffs[i] *= a0 - a1 * cos(2 * PI.toFloat() * w) +
+                    a2 * cos(4 * PI.toFloat() * w) - a3 * cos(6 * PI.toFloat() * w)
             sum += coeffs[i]
         }
         for (i in coeffs.indices) coeffs[i] /= sum
@@ -147,23 +175,27 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     }
 
     /**
-     * Process wideband baseband samples at 192 kHz.
-     * Called from FmDemodulator's wideband listener.
+     * Process wideband baseband samples with pilot-locked carrier.
+     * @param baseband Raw FM baseband at 192 kHz
+     * @param pilotPhase Current pilot PLL phase from FmDemodulator (19 kHz, radians)
      */
-    fun process(baseband: FloatArray) {
-        for (sample in baseband) {
-            // Mix down 57 kHz subcarrier to baseband (complex multiply)
-            val cosCarrier = cos(carrierPhase).toFloat()
-            val sinCarrier = sin(carrierPhase).toFloat()
-            carrierPhase += carrierIncrement
-            if (carrierPhase > 2 * PI) carrierPhase -= 2 * PI
+    fun process(baseband: FloatArray, pilotPhase: Double) {
+        // RDS carrier = 3 × pilot frequency (57 kHz = 3 × 19 kHz)
+        val pilotInc = 2.0 * PI * 19000.0 / sampleRate
+        var rdsCarrierPhase = pilotPhase * 3.0
 
-            val mixedI = sample * cosCarrier
-            val mixedQ = sample * sinCarrier
+        for (idx in baseband.indices) {
+            val sample = baseband[idx]
 
-            // Low-pass filter
-            rdsLpfBufI[rdsLpfIdx] = mixedI
-            rdsLpfBufQ[rdsLpfIdx] = mixedQ
+            // Generate 57 kHz carrier from 3× pilot phase
+            val cosC = cos(rdsCarrierPhase).toFloat()
+            val sinC = sin(rdsCarrierPhase).toFloat()
+            rdsCarrierPhase += pilotInc * 3.0
+            if (rdsCarrierPhase > 2 * PI) rdsCarrierPhase -= 2 * PI
+
+            // Mix down to baseband
+            rdsLpfBufI[rdsLpfIdx] = sample * cosC
+            rdsLpfBufQ[rdsLpfIdx] = sample * sinC
             rdsLpfIdx = (rdsLpfIdx + 1) % rdsLpfOrder
 
             // Decimate
@@ -171,20 +203,64 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             if (rdsDecimCounter < rdsDecimation) continue
             rdsDecimCounter = 0
 
-            // Compute filtered signal
+            // Apply RDS lowpass filter
+            var filtI = 0f
+            for (j in 0 until rdsLpfOrder) {
+                val jIdx = (rdsLpfIdx - 1 - j + rdsLpfOrder) % rdsLpfOrder
+                filtI += rdsLpfBufI[jIdx] * rdsLpfCoeffs[j]
+            }
+
+            // Apply matched filter for better symbol detection
+            matchedBuf[matchedBufIdx] = filtI
+            matchedBufIdx = (matchedBufIdx + 1) % matchedFilterOrder
+            var matched = 0f
+            for (j in 0 until matchedFilterOrder) {
+                val jIdx = (matchedBufIdx - 1 - j + matchedFilterOrder) % matchedFilterOrder
+                matched += matchedBuf[jIdx] * matchedFilter[j]
+            }
+
+            processRdsSample(matched)
+        }
+    }
+
+    /**
+     * Process wideband baseband samples with fallback free-running NCO.
+     * Use this overload when pilot phase is not available.
+     */
+    fun process(baseband: FloatArray) {
+        for (sample in baseband) {
+            val cosCarrier = cos(fallbackCarrierPhase).toFloat()
+            val sinCarrier = sin(fallbackCarrierPhase).toFloat()
+            fallbackCarrierPhase += fallbackCarrierInc
+            if (fallbackCarrierPhase > 2 * PI) fallbackCarrierPhase -= 2 * PI
+
+            rdsLpfBufI[rdsLpfIdx] = sample * cosCarrier
+            rdsLpfBufQ[rdsLpfIdx] = sample * sinCarrier
+            rdsLpfIdx = (rdsLpfIdx + 1) % rdsLpfOrder
+
+            rdsDecimCounter++
+            if (rdsDecimCounter < rdsDecimation) continue
+            rdsDecimCounter = 0
+
             var filtI = 0f
             for (j in 0 until rdsLpfOrder) {
                 val idx = (rdsLpfIdx - 1 - j + rdsLpfOrder) % rdsLpfOrder
                 filtI += rdsLpfBufI[idx] * rdsLpfCoeffs[j]
             }
 
-            // BPSK: use real part for bit detection
-            processRdsSample(filtI)
+            matchedBuf[matchedBufIdx] = filtI
+            matchedBufIdx = (matchedBufIdx + 1) % matchedFilterOrder
+            var matched = 0f
+            for (j in 0 until matchedFilterOrder) {
+                val jIdx = (matchedBufIdx - 1 - j + matchedFilterOrder) % matchedFilterOrder
+                matched += matchedBuf[jIdx] * matchedFilter[j]
+            }
+
+            processRdsSample(matched)
         }
     }
 
     private fun processRdsSample(sample: Float) {
-        // Clock recovery using Gardner timing error detector
         clockPhase += 1f
 
         if (clockPhase >= samplesPerBit) {
@@ -200,11 +276,11 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             processBit(decodedBit)
         }
 
-        // Zero-crossing detector for clock adjustment
+        // Clock recovery: adjust phase on zero crossings with clamped correction
         if ((sample > 0 && prevRdsSample <= 0) || (sample < 0 && prevRdsSample >= 0)) {
-            // Adjust clock phase based on zero crossing position
             val error = clockPhase - samplesPerBit / 2
-            clockPhase -= error * 0.1f  // PLL bandwidth
+            val correction = (error * 0.12f).coerceIn(-samplesPerBit * 0.2f, samplesPerBit * 0.2f)
+            clockPhase -= correction
         }
         prevRdsSample = sample
     }
@@ -219,16 +295,14 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             // Try to find sync by checking syndrome on every bit
             if (bitCount >= 26) {
                 val syndrome = calcSyndrome(bitBuffer, 26)
-                when (syndrome) {
-                    OFFSET_A -> {
-                        synced = true
-                        blockIndex = 0
-                        groupData[0] = ((bitBuffer shr 10) and 0xFFFF).toInt()
-                        blockIndex = 1
-                        bitCount = 0
-                        goodBlocks = 1
-                        badBlocks = 0
-                    }
+                if (syndrome == OFFSET_A) {
+                    synced = true
+                    blockIndex = 0
+                    groupData[0] = ((bitBuffer shr 10) and 0xFFFF).toInt()
+                    blockIndex = 1
+                    bitCount = 0
+                    goodBlocks = 1
+                    badBlocks = 0
                 }
             }
         } else {
@@ -237,7 +311,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 val expectedOffset = when (blockIndex) {
                     0 -> OFFSET_A
                     1 -> OFFSET_B
-                    2 -> if (isGroupTypeB()) OFFSET_CP else OFFSET_C
+                    2 -> if (groupData[1] and 0x0800 != 0) OFFSET_CP else OFFSET_C
                     3 -> OFFSET_D
                     else -> OFFSET_A
                 }
@@ -246,9 +320,12 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 if (syndrome == expectedOffset) {
                     groupData[blockIndex] = ((bitBuffer shr 10) and 0xFFFF).toInt()
                     goodBlocks++
+                    // Heal bad block counter on good reception
+                    badBlocks = (badBlocks - 1).coerceAtLeast(0)
                 } else {
                     badBlocks++
-                    if (badBlocks > 10) {
+                    // More tolerant: stay synced through noise bursts
+                    if (badBlocks > 20) {
                         synced = false
                         bitCount = 0
                         return
@@ -259,7 +336,8 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 bitCount = 0
 
                 if (blockIndex >= 4) {
-                    if (goodBlocks >= 2) {
+                    // Stricter: require 3 of 4 valid blocks
+                    if (goodBlocks >= 3) {
                         decodeGroup()
                     }
                     blockIndex = 0
@@ -267,11 +345,6 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 }
             }
         }
-    }
-
-    private fun isGroupTypeB(): Boolean {
-        // Check version B flag in block B
-        return groupData[1] and 0x0800 != 0
     }
 
     private fun calcSyndrome(data: Long, bits: Int): Int {
@@ -285,6 +358,10 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             }
         }
         return reg
+    }
+
+    private fun isValidRdsChar(c: Char): Boolean {
+        return c.code in 0x20..0x7E  // Printable ASCII
     }
 
     private fun decodeGroup() {
@@ -330,6 +407,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     }
 
     // Group 0: Programme Service name (2 chars per group) + Alternative Frequencies
+    // Uses consistency checking: character pair must be received identically twice
     private fun decodeGroup0(blockB: Int, blockC: Int, blockD: Int, versionB: Boolean) {
         val segmentAddr = blockB and 0x03
         val pos = segmentAddr * 2
@@ -338,21 +416,32 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         val c1 = ((blockD shr 8) and 0xFF).toChar()
         val c2 = (blockD and 0xFF).toChar()
 
-        if (c1.isValidRdsChar() && c2.isValidRdsChar()) {
-            if (psChars[pos] != c1 || psChars[pos + 1] != c2) {
-                psChars[pos] = c1
-                psChars[pos + 1] = c2
-                dataChanged = true
-                Log.d(TAG, "PS update: ${String(psChars).trim()}")
+        if (isValidRdsChar(c1) && isValidRdsChar(c2)) {
+            // Consistency checking: require PS_CONFIRM_THRESHOLD identical receptions
+            if (psPending[pos] == c1 && psPending[pos + 1] == c2) {
+                psHitCount[segmentAddr]++
+            } else {
+                psPending[pos] = c1
+                psPending[pos + 1] = c2
+                psHitCount[segmentAddr] = 1
+            }
+
+            if (psHitCount[segmentAddr] >= PS_CONFIRM_THRESHOLD) {
+                if (psConfirmed[pos] != c1 || psConfirmed[pos + 1] != c2) {
+                    psConfirmed[pos] = c1
+                    psConfirmed[pos + 1] = c2
+                    psChars[pos] = c1
+                    psChars[pos + 1] = c2
+                    dataChanged = true
+                    Log.d(TAG, "PS update: ${String(psChars).trim()}")
+                }
             }
         }
 
         // AF (Alternative Frequencies) from block C in version A
         if (!versionB) {
-            val af1code = (blockC shr 8) and 0xFF
-            val af2code = blockC and 0xFF
-            decodeAfCode(af1code)
-            decodeAfCode(af2code)
+            decodeAfCode((blockC shr 8) and 0xFF)
+            decodeAfCode(blockC and 0xFF)
         }
     }
 
@@ -365,13 +454,11 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 Log.d(TAG, "AF: $freqMHz MHz")
             }
         }
-        // Codes 224-249: number of AFs to follow (variant info), 250=LF/MF filler
-        // We ignore these
     }
 
     // Group 2: RadioText (4 chars per group in version A, 2 in version B)
+    // Only triggers dataChanged when at least one valid character is found
     private fun decodeGroup2(blockB: Int, blockC: Int, blockD: Int, versionB: Boolean) {
-        val textAB = (blockB shr 4) and 0x01
         val segmentAddr = blockB and 0x0F
 
         if (!versionB) {
@@ -383,13 +470,16 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 val c3 = ((blockD shr 8) and 0xFF).toChar()
                 val c4 = (blockD and 0xFF).toChar()
 
-                if (c1.isValidRdsChar()) rtChars[pos] = c1
-                if (c2.isValidRdsChar()) rtChars[pos + 1] = c2
-                if (c3.isValidRdsChar()) rtChars[pos + 2] = c3
-                if (c4.isValidRdsChar()) rtChars[pos + 3] = c4
+                var anyValid = false
+                if (isValidRdsChar(c1)) { rtChars[pos] = c1; anyValid = true }
+                if (isValidRdsChar(c2)) { rtChars[pos + 1] = c2; anyValid = true }
+                if (isValidRdsChar(c3)) { rtChars[pos + 2] = c3; anyValid = true }
+                if (isValidRdsChar(c4)) { rtChars[pos + 3] = c4; anyValid = true }
 
-                rtLength = maxOf(rtLength, pos + 4)
-                dataChanged = true
+                if (anyValid) {
+                    rtLength = maxOf(rtLength, pos + 4)
+                    dataChanged = true
+                }
             }
         } else {
             // Version B: 2 chars per segment
@@ -398,17 +488,16 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 val c1 = ((blockD shr 8) and 0xFF).toChar()
                 val c2 = (blockD and 0xFF).toChar()
 
-                if (c1.isValidRdsChar()) rtChars[pos] = c1
-                if (c2.isValidRdsChar()) rtChars[pos + 1] = c2
+                var anyValid = false
+                if (isValidRdsChar(c1)) { rtChars[pos] = c1; anyValid = true }
+                if (isValidRdsChar(c2)) { rtChars[pos + 1] = c2; anyValid = true }
 
-                rtLength = maxOf(rtLength, pos + 2)
-                dataChanged = true
+                if (anyValid) {
+                    rtLength = maxOf(rtLength, pos + 2)
+                    dataChanged = true
+                }
             }
         }
-    }
-
-    private fun Char.isValidRdsChar(): Boolean {
-        return this.code in 0x20..0x7E  // Printable ASCII
     }
 
     private fun notifyListener() {
@@ -437,11 +526,12 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     }
 
     fun reset() {
-        carrierPhase = 0.0
         rdsLpfBufI = FloatArray(rdsLpfOrder)
         rdsLpfBufQ = FloatArray(rdsLpfOrder)
         rdsLpfIdx = 0
         rdsDecimCounter = 0
+        matchedBuf = FloatArray(matchedFilterOrder)
+        matchedBufIdx = 0
         clockPhase = 0f
         prevRdsSample = 0f
         prevBit = 0
@@ -453,8 +543,13 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         badBlocks = 0
         for (i in groupData.indices) groupData[i] = 0
         for (i in psChars.indices) psChars[i] = ' '
+        for (i in psPending.indices) psPending[i] = ' '
+        for (i in psConfirmed.indices) psConfirmed[i] = ' '
+        for (i in psHitCount.indices) psHitCount[i] = 0
         for (i in rtChars.indices) rtChars[i] = ' '
+        for (i in rtPending.indices) rtPending[i] = ' '
         rtLength = 0
+        rtConfirmedLength = 0
         piCode = 0
         ptyCode = 0
         tpFlag = false
@@ -462,5 +557,6 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         msFlag = false
         afFrequencies.clear()
         dataChanged = false
+        fallbackCarrierPhase = 0.0
     }
 }
