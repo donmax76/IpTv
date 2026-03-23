@@ -361,6 +361,13 @@ jobs:
 
       - name: Create Release
         run: |
+          # Build version info from git
+          VERSION_HASH=$(git rev-parse --short=7 HEAD)
+          VERSION_DATE=$(date -u +%Y-%m-%d\ %H:%M\ UTC)
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+          BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+          RECENT_COMMITS=$(git log --oneline -10 --no-decorate)
+
           FILES=""
           if [ -f release/FmRadio.apk ]; then
             FILES="$FILES release/FmRadio.apk"
@@ -377,16 +384,29 @@ jobs:
           if [ -f release/TVViewer.apk ]; then
             FILES="$FILES release/TVViewer.apk"
           fi
+
+          NOTES=$(cat <<NOTES_EOF
+          ## FM Radio — сборка #${COMMIT_COUNT} (${VERSION_HASH})
+          **Дата:** ${VERSION_DATE}
+          **Ветка:** \`${BRANCH_NAME}\`
+          **Коммит:** \`${VERSION_HASH}\`
+
+          ### Скачать:
+          - **FmRadio.apk** — Android debug (RTL-SDR через USB OTG)
+          - **FmRadio-release.apk** — Android release
+          - **FmRadio-Windows-Portable.zip** — Windows портативная версия
+          - **TVViewer.apk** — TV Viewer
+
+          ### Последние изменения:
+          \`\`\`
+          ${RECENT_COMMITS}
+          \`\`\`
+          NOTES_EOF
+          )
+
           gh release create latest \
-            --title "FM Radio - Latest Build" \
-            --notes "Автоматическая сборка FM Radio.
-
-          **Скачать:**
-          - **FmRadio.apk** — Android-приложение (RTL-SDR через USB OTG)
-          - **FmRadio-Windows-Portable.zip** — портативная версия (Python внутри, ничего не надо ставить)
-          - **FmRadio.exe** — EXE версия (нужен Python на ПК)
-
-          Распакуй ZIP и запусти **FmRadio.bat**" \
+            --title "FM Radio — сборка #${COMMIT_COUNT} (${VERSION_HASH})" \
+            --notes "$NOTES" \
             --latest \
             $FILES
         env:

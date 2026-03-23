@@ -3,6 +3,27 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Auto-version from git: versionCode = commit count, versionName = "2.0-<hash>-<date>"
+fun gitVersionCode(): Int {
+    return try {
+        val process = ProcessBuilder("git", "rev-list", "--count", "HEAD")
+            .directory(projectDir).redirectErrorStream(true).start()
+        process.inputStream.bufferedReader().readText().trim().toIntOrNull() ?: 8
+    } catch (_: Exception) { 8 }
+}
+
+fun gitVersionName(): String {
+    return try {
+        val hash = ProcessBuilder("git", "rev-parse", "--short=7", "HEAD")
+            .directory(projectDir).redirectErrorStream(true).start()
+            .inputStream.bufferedReader().readText().trim()
+        val date = ProcessBuilder("git", "log", "-1", "--format=%cd", "--date=format:%Y%m%d-%H%M")
+            .directory(projectDir).redirectErrorStream(true).start()
+            .inputStream.bufferedReader().readText().trim()
+        "2.0-$hash-$date"
+    } catch (_: Exception) { "2.0-unknown" }
+}
+
 android {
     namespace = "com.fmradio"
     compileSdk = 34
@@ -11,8 +32,8 @@ android {
         applicationId = "com.fmradio.rtlsdr"
         minSdk = 21
         targetSdk = 34
-        versionCode = 7
-        versionName = "1.7-build20260323"
+        versionCode = gitVersionCode()
+        versionName = gitVersionName()
     }
 
     buildTypes {
