@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- RTL-SDR v1/v2 (Realtek RTL2832U) -->
+    <usb-device vendor-id="3034" product-id="10296" />
+    <!-- RTL-SDR Blog V3 -->
+    <usb-device vendor-id="3034" product-id="10290" />
+    <!-- Generic RTL2832U -->
+    <usb-device vendor-id="3034" product-id="10295" />
+    <!-- RTL-SDR with R820T tuner -->
+    <usb-device vendor-id="7040" product-id="8456" />
+    <!-- Nooelec RTL-SDR -->
+    <usb-device vendor-id="7040" product-id="8457" />
+    <!-- RTL-SDR v2 alternative PID -->
+    <usb-device vendor-id="3034" product-id="10298" />
+</resources>

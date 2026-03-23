@@ -1,0 +1,660 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:background="#FF050508"
+    android:padding="6dp">
+
+    <!-- ======== LEFT SIDE: Radio Controls + Volume Bar ======== -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginEnd="4dp">
+
+        <!-- ======== Radio Controls Panel ======== -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:background="@drawable/bg_car_radio"
+            android:padding="10dp">
+
+            <!-- Top bar: Status + indicators + version -->
+            <RelativeLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp">
+
+                <TextView
+                    android:id="@+id/tvStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentStart="true"
+                    android:layout_centerVertical="true"
+                    android:text="@string/status_disconnected"
+                    android:textColor="@color/text_hint"
+                    android:textSize="14sp"
+                    android:fontFamily="monospace"
+                    android:singleLine="true" />
+
+                <TextView
+                    android:id="@+id/tvDeviceInfo"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_toStartOf="@+id/tvVersion"
+                    android:layout_centerVertical="true"
+                    android:layout_marginEnd="12dp"
+                    android:textColor="@color/text_hint"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace" />
+
+                <TextView
+                    android:id="@+id/tvVersion"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
+                    android:text="v1.6"
+                    android:textColor="@color/version_text"
+                    android:textSize="11sp"
+                    android:fontFamily="monospace" />
+            </RelativeLayout>
+
+            <!-- ========= LCD DISPLAY ========= -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:background="@drawable/bg_lcd_display"
+                android:paddingStart="18dp"
+                android:paddingEnd="18dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="6dp">
+
+                <!-- LCD top row: Band + Stereo + RDS + TA + AF + Signal -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:id="@+id/tvBandIndicator"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="FM"
+                        android:textColor="@color/lcd_amber"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:fontFamily="monospace" />
+
+                    <TextView
+                        android:id="@+id/tvStereoIndicator"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="STEREO"
+                        android:textColor="@color/lcd_dim"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:fontFamily="monospace"
+                        android:layout_marginStart="14dp" />
+
+                    <TextView
+                        android:id="@+id/tvRdsIndicator"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="RDS"
+                        android:textColor="@color/lcd_dim"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:fontFamily="monospace"
+                        android:layout_marginStart="14dp" />
+
+                    <TextView
+                        android:id="@+id/tvTaIndicator"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="TA"
+                        android:textColor="@color/lcd_dim"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:fontFamily="monospace"
+                        android:layout_marginStart="14dp" />
+
+                    <TextView
+                        android:id="@+id/tvAfIndicator"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="AF"
+                        android:textColor="@color/lcd_dim"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:fontFamily="monospace"
+                        android:layout_marginStart="14dp" />
+
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+
+                    <TextView
+                        android:id="@+id/tvSignalBars"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="▁▃▅▇"
+                        android:textColor="@color/lcd_green"
+                        android:textSize="14sp"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+
+                <!-- Big frequency display -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:orientation="horizontal"
+                    android:gravity="center">
+
+                    <TextView
+                        android:id="@+id/tvFrequency"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="100.0"
+                        android:textColor="@color/lcd_green"
+                        android:textSize="96sp"
+                        android:fontFamily="monospace"
+                        android:textStyle="bold"
+                        android:includeFontPadding="false"
+                        android:shadowColor="@color/glow_green_strong"
+                        android:shadowDx="0"
+                        android:shadowDy="0"
+                        android:shadowRadius="20" />
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginStart="8dp"
+                        android:gravity="start">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="MHz"
+                            android:textColor="@color/lcd_amber"
+                            android:textSize="20sp"
+                            android:fontFamily="monospace" />
+
+                        <!-- RDS: Station name (PS) inline -->
+                        <TextView
+                            android:id="@+id/tvRdsPs"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textColor="@color/lcd_cyan"
+                            android:textSize="24sp"
+                            android:textStyle="bold"
+                            android:fontFamily="monospace"
+                            android:shadowColor="@color/glow_cyan"
+                            android:shadowDx="0"
+                            android:shadowDy="0"
+                            android:shadowRadius="12"
+                            android:visibility="gone" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- RDS RadioText + PTY row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:id="@+id/tvRdsRt"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:textColor="@color/lcd_amber"
+                        android:textSize="14sp"
+                        android:fontFamily="monospace"
+                        android:maxLines="1"
+                        android:ellipsize="marquee"
+                        android:marqueeRepeatLimit="marquee_forever"
+                        android:singleLine="true"
+                        android:visibility="gone" />
+
+                    <TextView
+                        android:id="@+id/tvRdsPty"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/lcd_dim"
+                        android:textSize="13sp"
+                        android:fontFamily="monospace"
+                        android:layout_marginStart="10dp"
+                        android:visibility="gone" />
+                </LinearLayout>
+
+                <!-- Frequency scale bar -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="4dp">
+
+                    <TextView
+                        android:id="@+id/tvBandStart"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="88"
+                        android:textColor="@color/lcd_dim"
+                        android:textSize="13sp"
+                        android:fontFamily="monospace" />
+
+                    <SeekBar
+                        android:id="@+id/seekFrequency"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="6dp"
+                        android:layout_marginEnd="6dp"
+                        android:minHeight="32dp"
+                        android:progressTint="@color/lcd_green"
+                        android:thumbTint="@color/lcd_green"
+                        android:progressBackgroundTint="@color/lcd_dim" />
+
+                    <TextView
+                        android:id="@+id/tvBandEnd"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="108"
+                        android:textColor="@color/lcd_dim"
+                        android:textSize="13sp"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ========= MAIN CONTROLS ROW ========= -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:layout_marginTop="8dp"
+                android:layout_marginBottom="6dp">
+
+                <ImageButton
+                    android:id="@+id/btnSeekBack"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:src="@drawable/ic_seek_back"
+                    android:background="@drawable/bg_seek_button"
+                    android:scaleType="centerInside"
+                    android:padding="12dp"
+                    android:contentDescription="@string/cd_seek_back" />
+
+                <ImageButton
+                    android:id="@+id/btnFreqDown"
+                    android:layout_width="52dp"
+                    android:layout_height="52dp"
+                    android:src="@drawable/ic_skip_previous"
+                    android:background="@drawable/bg_button_metal"
+                    android:scaleType="centerInside"
+                    android:padding="12dp"
+                    android:contentDescription="@string/cd_freq_down"
+                    android:layout_marginStart="10dp" />
+
+                <ImageButton
+                    android:id="@+id/btnPlayStop"
+                    android:layout_width="80dp"
+                    android:layout_height="80dp"
+                    android:src="@drawable/ic_play"
+                    android:background="@drawable/bg_button_play"
+                    android:scaleType="centerInside"
+                    android:padding="18dp"
+                    android:contentDescription="@string/cd_play_stop"
+                    android:layout_marginStart="14dp"
+                    android:layout_marginEnd="14dp" />
+
+                <ImageButton
+                    android:id="@+id/btnFreqUp"
+                    android:layout_width="52dp"
+                    android:layout_height="52dp"
+                    android:src="@drawable/ic_skip_next"
+                    android:background="@drawable/bg_button_metal"
+                    android:scaleType="centerInside"
+                    android:padding="12dp"
+                    android:contentDescription="@string/cd_freq_up"
+                    android:layout_marginEnd="10dp" />
+
+                <ImageButton
+                    android:id="@+id/btnSeekForward"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:src="@drawable/ic_seek_forward"
+                    android:background="@drawable/bg_seek_button"
+                    android:scaleType="centerInside"
+                    android:padding="12dp"
+                    android:contentDescription="@string/cd_seek_forward" />
+            </LinearLayout>
+
+            <!-- Function buttons: SCAN | AF | TA | PTY | BAND -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/btnScan"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:text="SCAN"
+                    android:textColor="@color/lcd_amber"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:background="@drawable/bg_button_metal"
+                    android:layout_marginEnd="3dp" />
+
+                <Button
+                    android:id="@+id/btnAf"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:text="AF"
+                    android:textColor="@color/lcd_amber"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:background="@drawable/bg_button_metal"
+                    android:layout_marginEnd="3dp" />
+
+                <Button
+                    android:id="@+id/btnTa"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:text="TA"
+                    android:textColor="@color/lcd_amber"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:background="@drawable/bg_button_metal"
+                    android:layout_marginEnd="3dp" />
+
+                <Button
+                    android:id="@+id/btnPty"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:text="PTY"
+                    android:textColor="@color/lcd_amber"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:background="@drawable/bg_button_metal"
+                    android:layout_marginEnd="3dp" />
+
+                <Button
+                    android:id="@+id/btnBand"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="2"
+                    android:text="BAND: FM"
+                    android:textColor="@color/lcd_cyan"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:background="@drawable/bg_button_metal" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- ========= BOTTOM BAR: Volume + EQ (under radio controls only) ========= -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:background="@drawable/bg_car_radio"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="10dp"
+            android:gravity="center_vertical"
+            android:layout_marginTop="4dp">
+
+            <!-- Volume -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="VOL"
+                android:textColor="@color/lcd_amber"
+                android:textSize="13sp"
+                android:fontFamily="monospace"
+                android:textStyle="bold" />
+
+            <SeekBar
+                android:id="@+id/seekVolume"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="3"
+                android:layout_marginStart="6dp"
+                android:layout_marginEnd="6dp"
+                android:minHeight="36dp"
+                android:progressTint="@color/lcd_amber"
+                android:thumbTint="@color/lcd_amber"
+                android:progressBackgroundTint="@color/lcd_dim" />
+
+            <TextView
+                android:id="@+id/tvVolumeValue"
+                android:layout_width="28dp"
+                android:layout_height="wrap_content"
+                android:text="80"
+                android:textColor="@color/lcd_amber"
+                android:textSize="13sp"
+                android:fontFamily="monospace"
+                android:gravity="end" />
+
+            <!-- Separator -->
+            <View
+                android:layout_width="1dp"
+                android:layout_height="20dp"
+                android:background="@color/lcd_dim"
+                android:layout_marginStart="14dp"
+                android:layout_marginEnd="14dp" />
+
+            <!-- Bass -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="BASS"
+                android:textColor="@color/lcd_cyan"
+                android:textSize="13sp"
+                android:fontFamily="monospace"
+                android:textStyle="bold" />
+
+            <SeekBar
+                android:id="@+id/seekBass"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="2"
+                android:max="20"
+                android:progress="10"
+                android:layout_marginStart="6dp"
+                android:layout_marginEnd="6dp"
+                android:minHeight="36dp"
+                android:progressTint="@color/lcd_cyan"
+                android:thumbTint="@color/lcd_cyan"
+                android:progressBackgroundTint="@color/lcd_dim" />
+
+            <TextView
+                android:id="@+id/tvBassValue"
+                android:layout_width="28dp"
+                android:layout_height="wrap_content"
+                android:text="0"
+                android:textColor="@color/lcd_cyan"
+                android:textSize="13sp"
+                android:fontFamily="monospace"
+                android:gravity="end" />
+
+            <!-- Separator -->
+            <View
+                android:layout_width="1dp"
+                android:layout_height="20dp"
+                android:background="@color/lcd_dim"
+                android:layout_marginStart="14dp"
+                android:layout_marginEnd="14dp" />
+
+            <!-- Treble -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="TREB"
+                android:textColor="@color/lcd_cyan"
+                android:textSize="13sp"
+                android:fontFamily="monospace"
+                android:textStyle="bold" />
+
+            <SeekBar
+                android:id="@+id/seekTreble"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="2"
+                android:max="20"
+                android:progress="10"
+                android:layout_marginStart="6dp"
+                android:layout_marginEnd="6dp"
+                android:minHeight="36dp"
+                android:progressTint="@color/lcd_cyan"
+                android:thumbTint="@color/lcd_cyan"
+                android:progressBackgroundTint="@color/lcd_dim" />
+
+            <TextView
+                android:id="@+id/tvTrebleValue"
+                android:layout_width="28dp"
+                android:layout_height="wrap_content"
+                android:text="0"
+                android:textColor="@color/lcd_cyan"
+                android:textSize="13sp"
+                android:fontFamily="monospace"
+                android:gravity="end" />
+
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- ======== RIGHT PANEL: Presets + Stations (full height) ======== -->
+    <LinearLayout
+        android:layout_width="280dp"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:background="@drawable/bg_car_radio"
+        android:padding="8dp"
+        android:layout_marginStart="4dp">
+
+        <!-- ======= PRESETS SECTION ======= -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="4dp">
+
+            <TextView
+                android:id="@+id/tvPresetsHeader"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="PRESETS ▼"
+                android:textColor="@color/lcd_cyan"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace" />
+
+            <Button
+                android:id="@+id/btnAddPreset"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:text="+"
+                android:textColor="@color/lcd_green"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:background="@drawable/bg_button_metal"
+                android:padding="0dp" />
+        </LinearLayout>
+
+        <ListView
+            android:id="@+id/lvPresets"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:divider="@android:color/transparent"
+            android:dividerHeight="2dp"
+            android:scrollbarThumbVertical="@color/lcd_dim" />
+
+        <!-- ======= STATIONS SECTION ======= -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="4dp">
+
+            <TextView
+                android:id="@+id/tvStationsHeader"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="STATIONS ▼"
+                android:textColor="@color/lcd_amber"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace" />
+        </LinearLayout>
+
+        <!-- Scan progress (hidden by default) -->
+        <LinearLayout
+            android:id="@+id/layoutScanning"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone"
+            android:layout_marginBottom="4dp">
+
+            <ProgressBar
+                android:id="@+id/progressScan"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:max="100"
+                android:progressTint="@color/lcd_green" />
+
+            <TextView
+                android:id="@+id/tvScanStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp"
+                android:fontFamily="monospace"
+                android:gravity="center" />
+        </LinearLayout>
+
+        <!-- Station list -->
+        <ListView
+            android:id="@+id/lvStations"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:divider="@android:color/transparent"
+            android:dividerHeight="2dp"
+            android:scrollbarThumbVertical="@color/lcd_dim" />
+    </LinearLayout>
+
+</LinearLayout>
