@@ -1,0 +1,393 @@
+name: Build FM Radio
+
+on:
+  push:
+    branches: [ 'claude/fm-radio-app-*', 'claude/rebuild-apk-sync-audio-*', 'main', 'master' ]
+  workflow_dispatch:
+
+jobs:
+  build-android-apk:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Build FM Radio APK (debug + release)
+        run: |
+          chmod +x gradlew
+          ./gradlew :fmradio:assembleDebug :fmradio:assembleRelease :app:assembleDebug
+
+      - name: Upload FM Radio Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: FmRadio-debug.apk
+          path: fmradio/build/outputs/apk/debug/fmradio-debug.apk
+
+      - name: Upload FM Radio Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: FmRadio-release.apk
+          path: fmradio/build/outputs/apk/release/fmradio-release-unsigned.apk
+
+      - name: Upload TVViewer Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TVViewer-debug.apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+  build-windows-exe:
+    name: Build Windows EXE
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install setuptools "pyrtlsdr==0.3.0" numpy scipy sounddevice pyinstaller
+
+      - name: Build EXE
+        working-directory: fmradio-windows
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --onefile --windowed `
+            --name "FmRadio" `
+            --hidden-import "rtlsdr" `
+            --hidden-import "pkg_resources" `
+            --hidden-import "numpy" `
+            --hidden-import "scipy.signal" `
+            --hidden-import "scipy.spatial" `
+            --hidden-import "scipy.fft" `
+            --hidden-import "scipy.linalg" `
+            --hidden-import "scipy.special" `
+            --hidden-import "sounddevice" `
+            --hidden-import "_sounddevice_data" `
+            --collect-data "sounddevice" `
+            fm_radio.py
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: FmRadio-Windows
+          path: fmradio-windows/dist/FmRadio.exe
+
+  build-windows-portable:
+    name: Build Windows Portable ZIP
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up full Python (for tkinter files)
+        uses: actions/setup-python@v5
+        id: fullpython
+        with:
+          python-version: '3.10'
+
+      - name: Download Python embeddable
+        shell: pwsh
+        run: |
+          $pythonVersion = "3.10.11"
+          $url = "https://www.python.org/ftp/python/$pythonVersion/python-$pythonVersion-embed-amd64.zip"
+          Invoke-WebRequest -Uri $url -OutFile python-embed.zip
+
+      - name: Create portable structure
+        shell: pwsh
+        run: |
+          $out = "fmradio-portable"
+          $pyDir = "$out/python"
+          New-Item -ItemType Directory -Path $pyDir -Force
+          Expand-Archive -Path python-embed.zip -DestinationPath $pyDir -Force
+
+          # Enable site-packages in embeddable Python
+          $pth = Get-ChildItem "$pyDir/python*._pth" | Select-Object -First 1
+          @("python310.zip", ".", "Lib", "Lib/site-packages", "DLLs", "import site") | Set-Content $pth.FullName
+
+          New-Item -ItemType Directory -Path "$pyDir/Lib/site-packages" -Force
+          New-Item -ItemType Directory -Path "$pyDir/DLLs" -Force
+
+      - name: Copy tkinter from full Python
+        shell: pwsh
+        run: |
+          $fullPython = "${{ steps.fullpython.outputs.python-path }}"
+          $fullDir = Split-Path $fullPython
+          $pyDir = "fmradio-portable/python"
+
+          # Copy tkinter Python package
+          Copy-Item -Path "$fullDir/Lib/tkinter" -Destination "$pyDir/Lib/tkinter" -Recurse -Force
+
+          # Copy _tkinter.pyd and related DLLs
+          Copy-Item "$fullDir/DLLs/_tkinter.pyd" "$pyDir/DLLs/" -Force
+          Get-ChildItem "$fullDir/DLLs/tcl*.dll" | Copy-Item -Destination "$pyDir/DLLs/" -Force
+          Get-ChildItem "$fullDir/DLLs/tk*.dll" | Copy-Item -Destination "$pyDir/DLLs/" -Force
+
+          # Copy tcl/tk library data
+          if (Test-Path "$fullDir/tcl") {
+            Copy-Item -Path "$fullDir/tcl" -Destination "$pyDir/tcl" -Recurse -Force
+          }
+
+          # Copy zlib (needed by tkinter)
+          if (Test-Path "$fullDir/DLLs/zlib*.pyd") {
+            Get-ChildItem "$fullDir/DLLs/zlib*.pyd" | Copy-Item -Destination "$pyDir/DLLs/" -Force
+          }
+
+          Write-Host "tkinter files copied successfully"
+          Write-Host "DLLs contents:"
+          Get-ChildItem "$pyDir/DLLs/" | ForEach-Object { Write-Host "  $($_.Name)" }
+
+      - name: Install pip and dependencies
+        shell: pwsh
+        run: |
+          $pyDir = "fmradio-portable/python"
+          Invoke-WebRequest -Uri "https://bootstrap.pypa.io/get-pip.py" -OutFile "$pyDir/get-pip.py"
+          & "$pyDir/python.exe" "$pyDir/get-pip.py" --no-warn-script-location --quiet
+          Remove-Item "$pyDir/get-pip.py"
+          & "$pyDir/python.exe" -m pip install setuptools numpy scipy sounddevice "pyrtlsdr==0.3.0" `
+            --target "$pyDir/Lib/site-packages" `
+            --no-warn-script-location --quiet
+
+          # Patch pyrtlsdr to not require pkg_resources at all
+          $rtlsdrInit = "$pyDir/Lib/site-packages/rtlsdr/__init__.py"
+          if (Test-Path $rtlsdrInit) {
+            $content = Get-Content $rtlsdrInit -Raw
+            # Replace pkg_resources version lookup with hardcoded version
+            $content = $content -replace 'from pkg_resources import get_distribution', '# patched: removed pkg_resources dependency'
+            $content = $content -replace "get_distribution\(['""]pyrtlsdr['""]\)\.version", "'0.3.0'"
+            $content = $content -replace '__version__\s*=\s*get_distribution\([^)]+\)\.version', "__version__ = '0.3.0'"
+            Set-Content $rtlsdrInit -Value $content
+            Write-Host "Patched pyrtlsdr __init__.py to remove pkg_resources dependency"
+            Write-Host "--- Patched content (first 20 lines) ---"
+            Get-Content $rtlsdrInit -TotalCount 20 | ForEach-Object { Write-Host $_ }
+          }
+
+      - name: Download librtlsdr native DLL
+        shell: pwsh
+        run: |
+          $pyDir = "fmradio-portable/python"
+          # Download RTL-SDR Blog drivers (includes rtlsdr.dll for Windows x64)
+          $rtlUrl = "https://github.com/rtlsdrblog/rtl-sdr-blog/releases/latest/download/Release.zip"
+          Invoke-WebRequest -Uri $rtlUrl -OutFile rtl-sdr.zip
+          Expand-Archive rtl-sdr.zip -DestinationPath rtl-sdr-extract -Force
+          # Use x64 DLLs
+          $x64Dir = Get-ChildItem -Path rtl-sdr-extract -Recurse -Directory -Filter "x64" | Select-Object -First 1
+          if (-not $x64Dir) {
+            # Fallback: search for rtlsdr.dll anywhere
+            $x64Dir = Get-ChildItem -Path rtl-sdr-extract -Recurse -Filter "rtlsdr.dll" | Select-Object -First 1
+            $srcDir = $x64Dir.DirectoryName
+          } else {
+            $srcDir = $x64Dir.FullName
+          }
+          # Copy all DLLs to python dir AND DLLs dir (both on PATH via bat launcher)
+          Get-ChildItem "$srcDir/*.dll" | Copy-Item -Destination "$pyDir/" -Force
+          Get-ChildItem "$srcDir/*.dll" | Copy-Item -Destination "$pyDir/DLLs/" -Force
+          # Ensure librtlsdr.dll exists (pyrtlsdr looks for this name)
+          if (Test-Path "$srcDir/rtlsdr.dll") {
+            Copy-Item "$srcDir/rtlsdr.dll" "$pyDir/librtlsdr.dll" -Force
+            Copy-Item "$srcDir/rtlsdr.dll" "$pyDir/DLLs/librtlsdr.dll" -Force
+          }
+          Write-Host "RTL-SDR DLLs in python/:"
+          Get-ChildItem "$pyDir/*.dll" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.Name) ($($_.Length) bytes)" }
+          Write-Host "RTL-SDR DLLs in python/DLLs/:"
+          Get-ChildItem "$pyDir/DLLs/*.dll" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.Name) ($($_.Length) bytes)" }
+          Remove-Item rtl-sdr.zip, rtl-sdr-extract -Recurse -Force
+
+      - name: Verify packages installed
+        shell: pwsh
+        run: |
+          $pyDir = "fmradio-portable/python"
+
+          # List what's actually in site-packages
+          Write-Host "=== site-packages contents ==="
+          Get-ChildItem "$pyDir/Lib/site-packages" -Directory | ForEach-Object { Write-Host "  $($_.Name)" }
+
+          # Check core packages with find_spec (non-blocking info)
+          & "$pyDir/python.exe" -c @"
+          import importlib.util, sys, os
+          print('sys.path:', sys.path)
+
+          ok = True
+          for pkg in ['numpy', 'scipy', 'sounddevice', 'rtlsdr']:
+              spec = importlib.util.find_spec(pkg)
+              if spec:
+                  print(f'  OK: {pkg} -> {spec.origin}')
+              else:
+                  print(f'  MISSING: {pkg}')
+                  ok = False
+
+          # Check setuptools/pkg_resources (optional - app has shim fallback)
+          try:
+              import pkg_resources
+              print(f'  OK: pkg_resources')
+          except ImportError:
+              print(f'  INFO: pkg_resources not available (app has built-in shim)')
+
+          # Verify numpy actually works
+          import numpy as np
+          print(f'  numpy {np.__version__} functional')
+
+          # Verify rtlsdr.dll exists on disk
+          script_dir = os.path.dirname(os.path.abspath(sys.executable))
+          for d in [script_dir, os.path.join(script_dir, 'DLLs')]:
+              for name in ['rtlsdr.dll', 'librtlsdr.dll']:
+                  p = os.path.join(d, name)
+                  if os.path.isfile(p):
+                      print(f'  DLL: {p} ({os.path.getsize(p)} bytes)')
+
+          if not ok:
+              sys.exit(1)
+          print('Core packages verified OK')
+          "@
+
+      - name: Copy application files
+        shell: pwsh
+        run: |
+          $out = "fmradio-portable"
+          Copy-Item "fmradio-windows/fm_radio.py" "$out/fm_radio.py"
+          if (Test-Path "fmradio-windows/fm_stations.json") {
+            Copy-Item "fmradio-windows/fm_stations.json" "$out/fm_stations.json"
+          }
+
+          # Create launcher
+          @"
+          @echo off
+          setlocal
+          title FM Radio RTL-SDR - Portable
+          color 0A
+
+          set "TCL_LIBRARY=%~dp0python\tcl\tcl8.6"
+          set "TK_LIBRARY=%~dp0python\tcl\tk8.6"
+          set "PATH=%~dp0python\DLLs;%~dp0python;%PATH%"
+
+          echo.
+          echo  ============================================
+          echo   FM Radio RTL-SDR v1.0
+          echo   Portable Edition (Python included)
+          echo  ============================================
+          echo  NOTE: Connect RTL-SDR device before starting!
+          echo  If not detected, install WinUSB driver via Zadig:
+          echo    https://zadig.akeo.ie
+          echo.
+
+          REM Check if dependencies are installed (use find_spec to avoid DLL load issues)
+          "%~dp0python\python.exe" -c "import importlib.util; missing=[p for p in ['setuptools','numpy','scipy','sounddevice','rtlsdr'] if not importlib.util.find_spec(p)]; exit(1 if missing else 0)" 2>nul
+          if %errorlevel% neq 0 (
+              echo  [*] Installing missing dependencies...
+              "%~dp0python\python.exe" -m pip install --upgrade setuptools "pyrtlsdr==0.3.0" numpy scipy sounddevice --target "%~dp0python\Lib\site-packages" --no-warn-script-location --quiet
+              if %errorlevel% neq 0 (
+                  echo  [ERROR] Failed to install dependencies. Check internet connection.
+                  pause
+                  exit /b 1
+              )
+              echo  [OK] Dependencies installed.
+              echo.
+          ) else (
+              echo  [OK] All dependencies found.
+              echo.
+          )
+
+          echo  [*] Starting FM Radio...
+          echo.
+          "%~dp0python\python.exe" "%~dp0fm_radio.py"
+          if %errorlevel% neq 0 (
+              echo.
+              echo  [ERROR] Application exited with error. See above.
+              pause
+          )
+          "@ | Set-Content "$out/FmRadio.bat"
+
+      - name: Create ZIP archive
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "fmradio-portable" -DestinationPath "FmRadio-Windows-Portable.zip" -Force
+
+      - name: Upload Portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: FmRadio-Windows-Portable
+          path: FmRadio-Windows-Portable.zip
+
+  create-release:
+    name: Create Release
+    needs: [build-android-apk, build-windows-portable]
+    if: always() && (needs.build-android-apk.result == 'success' || needs.build-windows-portable.result == 'success')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release files
+        run: |
+          mkdir release
+          cp artifacts/FmRadio-Windows-Portable/FmRadio-Windows-Portable.zip release/ 2>/dev/null || true
+          # EXE is optional - copy if exists
+          if [ -f artifacts/FmRadio-Windows/FmRadio.exe ]; then
+            cp artifacts/FmRadio-Windows/FmRadio.exe release/
+          fi
+          # APKs - copy if exist
+          if [ -f artifacts/FmRadio-debug.apk/fmradio-debug.apk ]; then
+            cp artifacts/FmRadio-debug.apk/fmradio-debug.apk release/FmRadio.apk
+          fi
+          if [ -f artifacts/FmRadio-release.apk/fmradio-release-unsigned.apk ]; then
+            cp artifacts/FmRadio-release.apk/fmradio-release-unsigned.apk release/FmRadio-release.apk
+          fi
+          if [ -f artifacts/TVViewer-debug.apk/app-debug.apk ]; then
+            cp artifacts/TVViewer-debug.apk/app-debug.apk release/TVViewer.apk
+          fi
+
+      - name: Delete old release
+        run: |
+          gh release delete latest --yes 2>/dev/null || true
+          git push origin :refs/tags/latest 2>/dev/null || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Release
+        run: |
+          FILES=""
+          if [ -f release/FmRadio.apk ]; then
+            FILES="$FILES release/FmRadio.apk"
+          fi
+          if [ -f release/FmRadio-Windows-Portable.zip ]; then
+            FILES="$FILES release/FmRadio-Windows-Portable.zip"
+          fi
+          if [ -f release/FmRadio.exe ]; then
+            FILES="$FILES release/FmRadio.exe"
+          fi
+          if [ -f release/FmRadio-release.apk ]; then
+            FILES="$FILES release/FmRadio-release.apk"
+          fi
+          if [ -f release/TVViewer.apk ]; then
+            FILES="$FILES release/TVViewer.apk"
+          fi
+          gh release create latest \
+            --title "FM Radio - Latest Build" \
+            --notes "Автоматическая сборка FM Radio.
+
+          **Скачать:**
+          - **FmRadio.apk** — Android-приложение (RTL-SDR через USB OTG)
+          - **FmRadio-Windows-Portable.zip** — портативная версия (Python внутри, ничего не надо ставить)
+          - **FmRadio.exe** — EXE версия (нужен Python на ПК)
+
+          Распакуй ZIP и запусти **FmRadio.bat**" \
+            --latest \
+            $FILES
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

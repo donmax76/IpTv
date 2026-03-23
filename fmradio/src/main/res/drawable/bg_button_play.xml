@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Outer glow - larger and more visible -->
+    <item android:left="-6dp" android:top="-6dp" android:right="-6dp" android:bottom="-6dp">
+        <shape android:shape="oval">
+            <solid android:color="@color/button_play_glow" />
+        </shape>
+    </item>
+    <!-- Second glow ring -->
+    <item android:left="-3dp" android:top="-3dp" android:right="-3dp" android:bottom="-3dp">
+        <shape android:shape="oval">
+            <solid android:color="#4400C853" />
+        </shape>
+    </item>
+    <!-- Dark ring -->
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="#FF080808" />
+        </shape>
+    </item>
+    <!-- Metallic edge -->
+    <item android:left="2dp" android:top="2dp" android:right="2dp" android:bottom="2dp">
+        <shape android:shape="oval">
+            <gradient
+                android:startColor="#FF606060"
+                android:endColor="#FF202020"
+                android:angle="315" />
+        </shape>
+    </item>
+    <!-- Main green button with vivid gradient -->
+    <item android:left="4dp" android:top="4dp" android:right="4dp" android:bottom="4dp">
+        <shape android:shape="oval">
+            <gradient
+                android:startColor="#FF00FF70"
+                android:centerColor="#FF00D050"
+                android:endColor="#FF008830"
+                android:angle="315" />
+        </shape>
+    </item>
+</layer-list>
