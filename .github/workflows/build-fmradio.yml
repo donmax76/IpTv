@@ -21,16 +21,28 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Build FM Radio APK
+      - name: Build FM Radio APK (debug + release)
         run: |
           chmod +x gradlew
-          ./gradlew :fmradio:assembleDebug
+          ./gradlew :fmradio:assembleDebug :fmradio:assembleRelease :app:assembleDebug
 
-      - name: Upload APK
+      - name: Upload FM Radio Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: FmRadio-debug.apk
           path: fmradio/build/outputs/apk/debug/fmradio-debug.apk
+
+      - name: Upload FM Radio Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: FmRadio-release.apk
+          path: fmradio/build/outputs/apk/release/fmradio-release-unsigned.apk
+
+      - name: Upload TVViewer Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TVViewer-debug.apk
+          path: app/build/outputs/apk/debug/app-debug.apk
 
   build-windows-exe:
     name: Build Windows EXE
@@ -329,9 +341,15 @@ jobs:
           if [ -f artifacts/FmRadio-Windows/FmRadio.exe ]; then
             cp artifacts/FmRadio-Windows/FmRadio.exe release/
           fi
-          # APK - copy if exists
+          # APKs - copy if exist
           if [ -f artifacts/FmRadio-debug.apk/fmradio-debug.apk ]; then
             cp artifacts/FmRadio-debug.apk/fmradio-debug.apk release/FmRadio.apk
+          fi
+          if [ -f artifacts/FmRadio-release.apk/fmradio-release-unsigned.apk ]; then
+            cp artifacts/FmRadio-release.apk/fmradio-release-unsigned.apk release/FmRadio-release.apk
+          fi
+          if [ -f artifacts/TVViewer-debug.apk/app-debug.apk ]; then
+            cp artifacts/TVViewer-debug.apk/app-debug.apk release/TVViewer.apk
           fi
 
       - name: Delete old release
@@ -352,6 +370,12 @@ jobs:
           fi
           if [ -f release/FmRadio.exe ]; then
             FILES="$FILES release/FmRadio.exe"
+          fi
+          if [ -f release/FmRadio-release.apk ]; then
+            FILES="$FILES release/FmRadio-release.apk"
+          fi
+          if [ -f release/TVViewer.apk ]; then
+            FILES="$FILES release/TVViewer.apk"
           fi
           gh release create latest \
             --title "FM Radio - Latest Build" \

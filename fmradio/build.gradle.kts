@@ -11,8 +11,8 @@ android {
         applicationId = "com.fmradio.rtlsdr"
         minSdk = 21
         targetSdk = 34
-        versionCode = 6
-        versionName = "1.6-build20260318"
+        versionCode = 7
+        versionName = "1.7-build20260323"
     }
 
     buildTypes {
