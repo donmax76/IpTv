@@ -372,10 +372,10 @@ class FmRadioService : Service() {
                     if (freq < currentBand.startHz) freq = currentBand.endHz
 
                     dev.setFrequency(freq)
-                    delay(60)
+                    delay(20)
                     dev.resetBuffer()
 
-                    val samples = dev.readSamples(65536)
+                    val samples = dev.readSamples(16384)
                     if (samples != null) {
                         val power = tempDemod.measureSignalStrength(samples)
                         if (power > SEEK_THRESHOLD) {

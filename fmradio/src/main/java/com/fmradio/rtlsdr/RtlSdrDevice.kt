@@ -495,7 +495,7 @@ class RtlSdrDevice(private val context: Context) {
                 // R820T: LNA AGC on (reg 0x05 bit 4 = 0 for auto)
                 i2cWrite(tunerI2CAddr, 0x05, byteArrayOf(0x00.toByte()))
                 // R820T: Mixer AGC on (reg 0x07 bit 4 = 0 for auto)
-                i2cWrite(tunerI2CAddr, 0x07, byteArrayOf(0x10.toByte()))
+                i2cWrite(tunerI2CAddr, 0x07, byteArrayOf(0x00.toByte()))
             } else {
                 // Manual gain mode
                 i2cWrite(tunerI2CAddr, 0x05, byteArrayOf(0x10.toByte()))

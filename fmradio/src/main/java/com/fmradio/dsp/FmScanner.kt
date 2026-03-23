@@ -24,7 +24,7 @@ class FmScanner(private val device: RtlSdrDevice) {
 
         // Signal threshold for station detection (dB)
         private const val SIGNAL_THRESHOLD = -18f
-        private const val SETTLE_TIME_MS = 25L
+        private const val SETTLE_TIME_MS = 15L
         private const val MEASUREMENT_SAMPLES = 16384
         private const val MEASUREMENTS_PER_FREQ = 1
     }

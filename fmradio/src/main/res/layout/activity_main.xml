@@ -67,14 +67,13 @@
             <!-- ========= LCD DISPLAY ========= -->
             <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1"
+                android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:background="@drawable/bg_lcd_display"
                 android:paddingStart="18dp"
                 android:paddingEnd="18dp"
-                android:paddingTop="8dp"
-                android:paddingBottom="6dp">
+                android:paddingTop="6dp"
+                android:paddingBottom="4dp">
 
                 <!-- LCD top row: Band + Stereo + RDS + TA + AF + Signal -->
                 <LinearLayout
@@ -155,8 +154,7 @@
                 <!-- Big frequency display -->
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center">
 
