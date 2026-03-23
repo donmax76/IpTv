@@ -207,11 +207,15 @@ class FmRadioService : Service() {
 
     fun tuneToFrequency(frequencyHz: Long) {
         currentFrequency = frequencyHz
-        device?.setFrequency(frequencyHz)
+
+        // Run USB operations on IO thread to avoid blocking UI
+        serviceScope.launch {
+            device?.setFrequency(frequencyHz)
+            device?.resetBuffer()
+        }
 
         // Reset DSP state to clear stale filter data from previous frequency
         demodulator?.reset()
-        device?.resetBuffer()
         rdsDecoder?.reset()
         currentRdsData = RdsDecoder.RdsData()
 
@@ -251,28 +255,33 @@ class FmRadioService : Service() {
         equalizer = AudioEqualizer(48000)
         audioPlayer = AudioPlayer(48000).also { it.start() }
 
-        dev.setSampleRate(sampleRate)
-        dev.setAutoGain(true)
-        dev.setFrequency(currentFrequency)
-
         isPlaying = true
         var lastStereo = false
 
-        // Full USB reset to ensure clean state (critical after scan/seek)
-        dev.fullReset()
+        // Run USB setup and streaming on IO thread to avoid blocking UI
+        streamingJob = serviceScope.launch {
+            dev.setSampleRate(sampleRate)
+            dev.setAutoGain(true)
+            dev.setFrequency(currentFrequency)
 
-        streamingJob = dev.startStreaming(262144) { iqData ->
-            var audioSamples = demodulator?.demodulate(iqData)
-            if (audioSamples != null && audioSamples.isNotEmpty()) {
-                val eq = equalizer
-                if (eq != null) audioSamples = eq.process(audioSamples)
-                audioPlayer?.writeSamples(audioSamples)
+            // Full USB reset to ensure clean state (critical after scan/seek)
+            dev.fullReset()
+
+            val innerJob = dev.startStreaming(262144) { iqData ->
+                var audioSamples = demodulator?.demodulate(iqData)
+                if (audioSamples != null && audioSamples.isNotEmpty()) {
+                    val eq = equalizer
+                    if (eq != null) audioSamples = eq.process(audioSamples)
+                    audioPlayer?.writeSamples(audioSamples)
+                }
+                val stereoNow = demodulator?.isStereo == true
+                if (stereoNow != lastStereo) {
+                    lastStereo = stereoNow
+                    onStereoChanged?.invoke(stereoNow)
+                }
             }
-            val stereoNow = demodulator?.isStereo == true
-            if (stereoNow != lastStereo) {
-                lastStereo = stereoNow
-                onStereoChanged?.invoke(stereoNow)
-            }
+
+            innerJob.join()
         }
 
         updateMediaSessionState()
@@ -284,16 +293,15 @@ class FmRadioService : Service() {
         isPlaying = false
         device?.stopStreaming()
 
-        // Wait for streaming job to finish before releasing resources
+        // Cancel streaming job without blocking the calling thread
         val job = streamingJob
         streamingJob = null
         if (job != null) {
-            runBlocking {
+            job.cancel()
+            serviceScope.launch {
                 try {
                     withTimeout(2000) { job.join() }
-                } catch (_: Exception) {
-                    job.cancel()
-                }
+                } catch (_: Exception) { /* already cancelled */ }
             }
         }
 
