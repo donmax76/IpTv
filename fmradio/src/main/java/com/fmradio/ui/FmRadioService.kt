@@ -283,8 +283,20 @@ class FmRadioService : Service() {
     fun stopPlayback() {
         isPlaying = false
         device?.stopStreaming()
-        streamingJob?.cancel()
+
+        // Wait for streaming job to finish before releasing resources
+        val job = streamingJob
         streamingJob = null
+        if (job != null) {
+            runBlocking {
+                try {
+                    withTimeout(2000) { job.join() }
+                } catch (_: Exception) {
+                    job.cancel()
+                }
+            }
+        }
+
         audioPlayer?.stop()
         audioPlayer = null
         demodulator?.widebandListener = null
