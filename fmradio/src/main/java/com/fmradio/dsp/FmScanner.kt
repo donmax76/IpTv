@@ -23,10 +23,10 @@ class FmScanner(private val device: RtlSdrDevice) {
         const val RTL_SDR_MAX_FREQ = 1766000000L     // 1766 MHz
 
         // Signal threshold for station detection (dB)
-        private const val SIGNAL_THRESHOLD = -15f
-        private const val SETTLE_TIME_MS = 80L
-        private const val MEASUREMENT_SAMPLES = 65536
-        private const val MEASUREMENTS_PER_FREQ = 3
+        private const val SIGNAL_THRESHOLD = -18f
+        private const val SETTLE_TIME_MS = 25L
+        private const val MEASUREMENT_SAMPLES = 16384
+        private const val MEASUREMENTS_PER_FREQ = 1
     }
 
     /**
@@ -184,20 +184,20 @@ class FmScanner(private val device: RtlSdrDevice) {
 
             device.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
             device.setAutoGain(true)
-            delay(50)
+            delay(20)
 
-            // Measure noise floor
+            // Measure noise floor quickly
             var noiseFloor = -30f
             val noiseFreq = (startFreq - step).coerceAtLeast(RTL_SDR_MIN_FREQ)
             device.setFrequency(noiseFreq)
-            delay(SETTLE_TIME_MS)
+            delay(20)
             device.resetBuffer()
-            val noiseSamples = device.readSamples(MEASUREMENT_SAMPLES)
+            val noiseSamples = device.readSamples(8192)
             if (noiseSamples != null) {
                 noiseFloor = demodulator.measureSignalStrength(noiseSamples)
             }
 
-            val adaptiveThreshold = maxOf(threshold, noiseFloor + 6f)
+            val adaptiveThreshold = maxOf(threshold, noiseFloor + 5f)
             Log.i(TAG, "Noise floor: $noiseFloor dB, threshold: $adaptiveThreshold dB")
 
             var freq = startFreq

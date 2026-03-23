@@ -663,12 +663,12 @@ class MainActivity : Activity() {
 
     private fun updateSignalBars(db: Float) {
         // Map signal strength dB to 0-4 bars
-        // Typical range: -30dB (noise) to -5dB (strong station)
+        // Typical range: -35dB (noise) to -5dB (strong station)
         val bars = when {
-            db > -8f  -> 4
-            db > -14f -> 3
-            db > -20f -> 2
-            db > -26f -> 1
+            db > -10f -> 4
+            db > -18f -> 3
+            db > -25f -> 2
+            db > -32f -> 1
             else      -> 0
         }
         val barText = when (bars) {

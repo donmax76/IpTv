@@ -58,7 +58,7 @@
                     android:layout_height="wrap_content"
                     android:layout_alignParentEnd="true"
                     android:layout_centerVertical="true"
-                    android:text="v1.7"
+                    android:text="v1.8"
                     android:textColor="@color/version_text"
                     android:textSize="11sp"
                     android:fontFamily="monospace" />
@@ -146,8 +146,8 @@
                         android:id="@+id/tvSignalBars"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="▁▃▅▇"
-                        android:textColor="@color/lcd_green"
+                        android:text="▁   "
+                        android:textColor="@color/lcd_dim"
                         android:textSize="14sp"
                         android:fontFamily="monospace" />
                 </LinearLayout>
@@ -166,7 +166,7 @@
                         android:layout_height="wrap_content"
                         android:text="100.0"
                         android:textColor="@color/lcd_green"
-                        android:textSize="64sp"
+                        android:textSize="48sp"
                         android:fontFamily="monospace"
                         android:textStyle="bold"
                         android:includeFontPadding="false"
@@ -290,56 +290,56 @@
 
                 <ImageButton
                     android:id="@+id/btnSeekBack"
-                    android:layout_width="56dp"
-                    android:layout_height="56dp"
+                    android:layout_width="46dp"
+                    android:layout_height="46dp"
                     android:src="@drawable/ic_seek_back"
                     android:background="@drawable/bg_seek_button"
                     android:scaleType="centerInside"
-                    android:padding="12dp"
+                    android:padding="10dp"
                     android:contentDescription="@string/cd_seek_back" />
 
                 <ImageButton
                     android:id="@+id/btnFreqDown"
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
+                    android:layout_width="42dp"
+                    android:layout_height="42dp"
                     android:src="@drawable/ic_skip_previous"
                     android:background="@drawable/bg_button_metal"
                     android:scaleType="centerInside"
-                    android:padding="12dp"
+                    android:padding="10dp"
                     android:contentDescription="@string/cd_freq_down"
-                    android:layout_marginStart="10dp" />
+                    android:layout_marginStart="8dp" />
 
                 <ImageButton
                     android:id="@+id/btnPlayStop"
-                    android:layout_width="80dp"
-                    android:layout_height="80dp"
+                    android:layout_width="62dp"
+                    android:layout_height="62dp"
                     android:src="@drawable/ic_play"
                     android:background="@drawable/bg_button_play"
                     android:scaleType="centerInside"
-                    android:padding="18dp"
+                    android:padding="14dp"
                     android:contentDescription="@string/cd_play_stop"
-                    android:layout_marginStart="14dp"
-                    android:layout_marginEnd="14dp" />
-
-                <ImageButton
-                    android:id="@+id/btnFreqUp"
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
-                    android:src="@drawable/ic_skip_next"
-                    android:background="@drawable/bg_button_metal"
-                    android:scaleType="centerInside"
-                    android:padding="12dp"
-                    android:contentDescription="@string/cd_freq_up"
+                    android:layout_marginStart="10dp"
                     android:layout_marginEnd="10dp" />
 
                 <ImageButton
+                    android:id="@+id/btnFreqUp"
+                    android:layout_width="42dp"
+                    android:layout_height="42dp"
+                    android:src="@drawable/ic_skip_next"
+                    android:background="@drawable/bg_button_metal"
+                    android:scaleType="centerInside"
+                    android:padding="10dp"
+                    android:contentDescription="@string/cd_freq_up"
+                    android:layout_marginEnd="8dp" />
+
+                <ImageButton
                     android:id="@+id/btnSeekForward"
-                    android:layout_width="56dp"
-                    android:layout_height="56dp"
+                    android:layout_width="46dp"
+                    android:layout_height="46dp"
                     android:src="@drawable/ic_seek_forward"
                     android:background="@drawable/bg_seek_button"
                     android:scaleType="centerInside"
-                    android:padding="12dp"
+                    android:padding="10dp"
                     android:contentDescription="@string/cd_seek_forward" />
             </LinearLayout>
 
@@ -352,7 +352,7 @@
                 <Button
                     android:id="@+id/btnScan"
                     android:layout_width="0dp"
-                    android:layout_height="40dp"
+                    android:layout_height="34dp"
                     android:layout_weight="1"
                     android:text="SCAN"
                     android:textColor="@color/lcd_amber"
@@ -365,7 +365,7 @@
                 <Button
                     android:id="@+id/btnAf"
                     android:layout_width="0dp"
-                    android:layout_height="40dp"
+                    android:layout_height="34dp"
                     android:layout_weight="1"
                     android:text="AF"
                     android:textColor="@color/lcd_amber"
@@ -378,7 +378,7 @@
                 <Button
                     android:id="@+id/btnTa"
                     android:layout_width="0dp"
-                    android:layout_height="40dp"
+                    android:layout_height="34dp"
                     android:layout_weight="1"
                     android:text="TA"
                     android:textColor="@color/lcd_amber"
@@ -391,7 +391,7 @@
                 <Button
                     android:id="@+id/btnPty"
                     android:layout_width="0dp"
-                    android:layout_height="40dp"
+                    android:layout_height="34dp"
                     android:layout_weight="1"
                     android:text="PTY"
                     android:textColor="@color/lcd_amber"
@@ -404,7 +404,7 @@
                 <Button
                     android:id="@+id/btnBand"
                     android:layout_width="0dp"
-                    android:layout_height="40dp"
+                    android:layout_height="34dp"
                     android:layout_weight="2"
                     android:text="BAND: FM"
                     android:textColor="@color/lcd_cyan"

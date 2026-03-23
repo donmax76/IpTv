@@ -48,15 +48,15 @@ class FmDemodulator(
     private var deEmphasisStateR = 0f
     private val deEmphasisAlpha: Float
 
-    // IF low-pass filter (before stage 1 decimation)
-    private val ifLpfOrder = 128
+    // IF low-pass filter (before stage 1 decimation) — 48 taps for speed
+    private val ifLpfOrder = 48
     private val ifLpfCoeffs: FloatArray
     private var ifBufI = FloatArray(ifLpfOrder)
     private var ifBufQ = FloatArray(ifLpfOrder)
     private var ifBufIdx = 0
 
-    // Audio low-pass filters — separate for L+R (mono) and L-R (stereo difference)
-    private val audioLpfOrder = 96
+    // Audio low-pass filters — 32 taps (lighter for real-time on ARM)
+    private val audioLpfOrder = 32
     private val audioLpfCoeffs: FloatArray
     private var monoLpfBuf = FloatArray(audioLpfOrder)    // L+R channel
     private var monoLpfIdx = 0
@@ -97,7 +97,7 @@ class FmDemodulator(
         private set
     private var signalPowerAcc = 0.0
     private var signalPowerCount = 0
-    private val signalPowerWindow = intermediateRate / 8  // ~125ms update rate
+    private val signalPowerWindow = intermediateRate / 16  // ~62ms update rate — faster UI response
 
     // Squelch based on signal quality — faster response
     private var signalQualityAcc = 0.0
@@ -109,15 +109,15 @@ class FmDemodulator(
 
     // Warmup: discard first N intermediate samples to flush stale filter state
     private var warmupSamples = 0
-    private val warmupThreshold = intermediateRate / 10  // 100ms warmup (was 500ms)
+    private val warmupThreshold = intermediateRate / 50  // 20ms warmup — fast start
 
     // Guard flag: set during reset to prevent concurrent demodulate() access
     @Volatile
     private var resetting = false
 
     // Crossfade for seamless muting during frequency change
-    private var muteRamp = 0.5f  // Start at 50% to avoid complete silence on startup
-    private val muteRampUp = 0.02f   // ~50 audio samples to reach full volume
+    private var muteRamp = 1.0f  // Start at 100% — play audio immediately
+    private val muteRampUp = 0.05f   // ~20 audio samples to reach full volume
     private val muteRampDown = 0.05f  // ~20 audio samples to mute
 
     // ========== rtl_fm LUT atan2 (for maximum performance) ==========
@@ -461,7 +461,7 @@ class FmDemodulator(
         signalQualityAcc = 0.0; signalQualityCount = 0
         squelchOpen = true; squelchLevel = 1f
         warmupSamples = 0
-        muteRamp = 0.5f  // Start at 50%, ramp up quickly
+        muteRamp = 1.0f  // Start at full volume
         resetting = false
     }
 }

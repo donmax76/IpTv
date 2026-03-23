@@ -24,10 +24,10 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         private const val TAG = "AudioPlayer"
         // Ring buffer: ~4s of stereo audio at 48kHz (L,R interleaved)
         private const val RING_BUFFER_SAMPLES = 384000  // 48000 frames × 2 ch × 4 sec
-        private const val LOW_WATERMARK = 4096   // ~42ms stereo — minimum to drain
+        private const val LOW_WATERMARK = 2048   // ~21ms stereo — minimum to drain
         private const val HIGH_WATERMARK = 345600 // 90% full — trigger overflow drop
         // Pre-buffer: accumulate this much before starting AudioTrack drain
-        private const val PRE_BUFFER_SAMPLES = 19200  // ~200ms stereo (48000*2*0.2)
+        private const val PRE_BUFFER_SAMPLES = 4800  // ~50ms stereo — fast audio start
         // Fade-in on initial playback start to prevent pop
         private const val FADE_IN_SAMPLES = 4800  // ~50ms stereo
         // Crossfade on buffer overflow to prevent click

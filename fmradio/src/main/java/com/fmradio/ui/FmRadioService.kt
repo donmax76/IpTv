@@ -274,7 +274,7 @@ class FmRadioService : Service() {
 
             Log.i(TAG, "USB setup done, starting streaming...")
 
-            val innerJob = dev.startStreaming(262144) { iqData ->
+            val innerJob = dev.startStreaming(131072) { iqData ->
                 var audioSamples = demodulator?.demodulate(iqData)
                 if (audioSamples != null && audioSamples.isNotEmpty()) {
                     val eq = equalizer
@@ -286,12 +286,12 @@ class FmRadioService : Service() {
                     lastStereo = stereoNow
                     onStereoChanged?.invoke(stereoNow)
                 }
-                // Report signal strength ~4 times per second
+                // Report signal strength every callback (~8 times per second)
                 signalUpdateCounter++
-                if (signalUpdateCounter >= 4) {
+                if (signalUpdateCounter >= 2) {
                     signalUpdateCounter = 0
                     val db = demodulator?.currentSignalStrengthDb ?: -100f
-                    if (kotlin.math.abs(db - lastSignalDb) > 1f) {
+                    if (kotlin.math.abs(db - lastSignalDb) > 0.5f) {
                         lastSignalDb = db
                         onSignalStrengthChanged?.invoke(db)
                     }
