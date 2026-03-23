@@ -91,6 +91,14 @@ class FmDemodulator(
     var isStereo = false
         private set
 
+    // Real-time signal strength in dB (exposed for UI)
+    @Volatile
+    var currentSignalStrengthDb = -100f
+        private set
+    private var signalPowerAcc = 0.0
+    private var signalPowerCount = 0
+    private val signalPowerWindow = intermediateRate / 8  // ~125ms update rate
+
     // Squelch based on signal quality — faster response
     private var signalQualityAcc = 0.0
     private var signalQualityCount = 0
@@ -102,6 +110,10 @@ class FmDemodulator(
     // Warmup: discard first N intermediate samples to flush stale filter state
     private var warmupSamples = 0
     private val warmupThreshold = intermediateRate / 2  // 0.5s warmup for filter settling
+
+    // Guard flag: set during reset to prevent concurrent demodulate() access
+    @Volatile
+    private var resetting = false
 
     // Crossfade for seamless muting during frequency change
     private var muteRamp = 0f  // 0 = muted, 1 = full volume
@@ -205,6 +217,7 @@ class FmDemodulator(
      * @return ShortArray of interleaved stereo samples (L,R,L,R,...)
      */
     fun demodulate(iqData: ByteArray): ShortArray {
+        if (resetting) return ShortArray(0)
         val numIqSamples = iqData.size / 2
         val maxAudioSamples = numIqSamples / (stage1Decimation * stage2Decimation) + 2
         // Stereo output: 2 samples per audio frame (L, R)
@@ -281,6 +294,17 @@ class FmDemodulator(
                 isStereo = pilotStrength > 0.0005f
                 pilotStrengthAcc = 0f
                 pilotStrengthCount = 0
+            }
+
+            // ===== Signal strength measurement (real-time, for UI) =====
+            val iqPower = (filtI * filtI + filtQ * filtQ).toDouble()
+            signalPowerAcc += iqPower
+            signalPowerCount++
+            if (signalPowerCount >= signalPowerWindow) {
+                val avgPower = signalPowerAcc / signalPowerCount
+                currentSignalStrengthDb = (10 * kotlin.math.log10(avgPower + 1e-10)).toFloat()
+                signalPowerAcc = 0.0
+                signalPowerCount = 0
             }
 
             // ===== Signal quality for squelch =====
@@ -421,6 +445,7 @@ class FmDemodulator(
     }
 
     fun reset() {
+        resetting = true
         prevI = 0f; prevQ = 0f; deEmphasisStateL = 0f; deEmphasisStateR = 0f
         dcI = 0f; dcQ = 0f
         ifBufI = FloatArray(ifLpfOrder); ifBufQ = FloatArray(ifLpfOrder); ifBufIdx = 0
@@ -432,9 +457,11 @@ class FmDemodulator(
         for (i in pilotBpfState.indices) pilotBpfState[i] = 0.0
         pilotStrength = 0f; pilotStrengthAcc = 0f; pilotStrengthCount = 0
         isStereo = false
+        currentSignalStrengthDb = -100f; signalPowerAcc = 0.0; signalPowerCount = 0
         signalQualityAcc = 0.0; signalQualityCount = 0
         squelchOpen = false; squelchLevel = 0f
         warmupSamples = 0
         muteRamp = 0f  // Start muted, ramp up smoothly
+        resetting = false
     }
 }

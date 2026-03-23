@@ -155,6 +155,9 @@ class MainActivity : Activity() {
                         getString(R.string.status_playing) else getString(R.string.status_connected)
                 }
             }
+            radioService?.onSignalStrengthChanged = { db ->
+                runOnUiThread { updateSignalBars(db) }
+            }
             radioService?.onPlaybackStateChanged = { playing ->
                 runOnUiThread {
                     if (playing) {
@@ -510,6 +513,7 @@ class MainActivity : Activity() {
         tvStatus.text = getString(R.string.status_stopped)
         clearRdsDisplay()
         updateStereoIndicator(false)
+        updateSignalBars(-100f)
     }
 
     private fun setFrequency(frequencyHz: Long) {
@@ -641,7 +645,7 @@ class MainActivity : Activity() {
 
         if (rdsData.ps.isNotBlank()) {
             val stations = stationStorage.loadStations()
-            val station = stations.find { Math.abs(it.frequencyHz - currentFrequency) < 50000 }
+            val station = stations.find { Math.abs(it.frequencyHz - currentFrequency) < 25000 }
             if (station != null && station.rdsPs != rdsData.ps) {
                 stationStorage.updateStation(station.copy(rdsPs = rdsData.ps, rdsRt = rdsData.rt, rdsPty = rdsData.ptyName))
                 loadSavedStations()
@@ -655,6 +659,31 @@ class MainActivity : Activity() {
         tvRdsPty.visibility = View.GONE
         tvRdsIndicator.setTextColor(getColor(R.color.lcd_dim))
         tvTaIndicator.setTextColor(getColor(R.color.lcd_dim))
+    }
+
+    private fun updateSignalBars(db: Float) {
+        // Map signal strength dB to 0-4 bars
+        // Typical range: -30dB (noise) to -5dB (strong station)
+        val bars = when {
+            db > -8f  -> 4
+            db > -14f -> 3
+            db > -20f -> 2
+            db > -26f -> 1
+            else      -> 0
+        }
+        val barText = when (bars) {
+            0 -> "▁   "
+            1 -> "▁▃  "
+            2 -> "▁▃▅ "
+            3 -> "▁▃▅▇"
+            else -> "▁▃▅▇"
+        }
+        tvSignalBars.text = barText
+        tvSignalBars.setTextColor(
+            if (bars >= 3) getColor(R.color.lcd_green)
+            else if (bars >= 1) getColor(R.color.lcd_amber)
+            else getColor(R.color.lcd_dim)
+        )
     }
 
     private fun updateStereoIndicator(stereo: Boolean) {

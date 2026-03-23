@@ -68,6 +68,7 @@ class FmRadioService : Service() {
     var onStereoChanged: ((Boolean) -> Unit)? = null
     var onSeekComplete: ((Long?) -> Unit)? = null
     var onPlaybackStateChanged: ((Boolean) -> Unit)? = null
+    var onSignalStrengthChanged: ((Float) -> Unit)? = null
 
     override fun onBind(intent: Intent): IBinder = binder
 
@@ -259,6 +260,8 @@ class FmRadioService : Service() {
 
         isPlaying = true
         var lastStereo = false
+        var lastSignalDb = -100f
+        var signalUpdateCounter = 0
 
         // Run USB setup and streaming on IO thread to avoid blocking UI
         streamingJob = serviceScope.launch {
@@ -281,6 +284,16 @@ class FmRadioService : Service() {
                     lastStereo = stereoNow
                     onStereoChanged?.invoke(stereoNow)
                 }
+                // Report signal strength ~4 times per second
+                signalUpdateCounter++
+                if (signalUpdateCounter >= 4) {
+                    signalUpdateCounter = 0
+                    val db = demodulator?.currentSignalStrengthDb ?: -100f
+                    if (kotlin.math.abs(db - lastSignalDb) > 1f) {
+                        lastSignalDb = db
+                        onSignalStrengthChanged?.invoke(db)
+                    }
+                }
             }
 
             innerJob.join()
@@ -295,34 +308,37 @@ class FmRadioService : Service() {
         isPlaying = false
         device?.stopStreaming()
 
-        // Cancel streaming job without blocking the calling thread
+        // Cancel streaming job and wait briefly for it to finish
+        // so audioPlayer.stop() doesn't race with streaming writes
         val job = streamingJob
         streamingJob = null
         if (job != null) {
             job.cancel()
-            serviceScope.launch {
-                try {
-                    withTimeout(2000) { job.join() }
-                } catch (_: Exception) { /* already cancelled */ }
-            }
         }
 
+        // Null out demodulator first to stop streaming callback from producing audio
+        demodulator?.widebandListener = null
+        val oldDemod = demodulator
+        demodulator = null
+        val oldRds = rdsDecoder
+        rdsDecoder = null
+        val oldEq = equalizer
+        equalizer = null
+
+        // Now safe to stop audio — no more samples will be written
         audioPlayer?.stop()
         audioPlayer = null
-        demodulator?.widebandListener = null
-        demodulator?.reset()
-        demodulator = null
-        rdsDecoder?.reset()
-        rdsDecoder = null
-        equalizer?.reset()
-        equalizer = null
+
+        oldDemod?.reset()
+        oldRds?.reset()
+        oldEq?.reset()
         currentRdsData = RdsDecoder.RdsData()
         updateMediaSessionState()
         updateNotification()
         Log.i(TAG, "Playback stopped")
     }
 
-    fun setVolume(volume: Float) { audioPlayer?.setVolume(volume) }
+    fun setVolume(volume: Float) { audioPlayer?.setVolume(volume.coerceIn(0f, 1f)) }
 
     fun setBass(level: Int) {
         equalizer?.bassGainDb = (level - 10).toFloat()

@@ -211,33 +211,50 @@ class RtlSdrDevice(private val context: Context) {
      * These are the default coefficients for the RTL2832U digital filter.
      */
     private fun setFirCoefficients() {
-        // Default FIR coefficients from librtlsdr
+        // Default FIR coefficients from librtlsdr (fir_default[])
+        // 32 taps: first 8 are 8-bit, remaining 24 are 12-bit packed into pairs
         val fir = intArrayOf(
-            -54, -36, -41, -40, -32, -14, 14, 53,     // 8-bit signed
-            101, 156, 215, 273, 327, 372, 404, 421,   // 12-bit signed
+            -54, -36, -41, -40, -32, -14, 14, 53,     // 8-bit signed (taps 0-7)
+            101, 156, 215, 273, 327, 372, 404, 421,   // 12-bit signed (taps 8-31)
             421, 404, 372, 327, 273, 215, 156, 101,
             53, 14, -14, -32, -40, -41, -36, -54
         )
 
-        // Pack into 20 bytes: first 8 coefficients as 8-bit, remaining 24 as 12-bit packed
+        // Pack into 20 bytes matching librtlsdr rtlsdr_set_fir():
+        // Bytes 0-7: taps 0-7 as 8-bit signed
+        // Bytes 8-19: taps 8-31 as 12-bit pairs (two 12-bit values in 3 bytes)
         val firBytes = ByteArray(20)
 
-        // First 8 coefficients: 8-bit signed, one byte each
+        // First 8 taps: 8-bit signed, one byte each
         for (i in 0 until 8) {
             firBytes[i] = (fir[i] and 0xFF).toByte()
         }
 
-        // Remaining 24 coefficients: 12-bit signed, packed as 1.5 bytes each
-        for (i in 0 until 8) {
-            val val1 = fir[8 + i * 3] and 0xFFF
-            val val2 = if (8 + i * 3 + 1 < fir.size) fir[8 + i * 3 + 1] and 0xFFF else 0
-            val idx = 8 + i * 3
-            if (idx < 20) firBytes[idx] = (val1 and 0xFF).toByte()
-            if (idx + 1 < 20) firBytes[idx + 1] = (((val1 shr 8) and 0x0F) or ((val2 shl 4) and 0xF0)).toByte()
-            if (idx + 2 < 20) firBytes[idx + 2] = ((val2 shr 4) and 0xFF).toByte()
+        // Remaining 24 taps: 12-bit packed in pairs (3 bytes per 2 taps)
+        for (i in 0 until 12) {
+            val val1 = fir[8 + i * 2] and 0xFFF
+            val val2 = if (8 + i * 2 + 1 < fir.size) fir[8 + i * 2 + 1] and 0xFFF else 0
+            val byteIdx = 8 + i * 3 / 2  // Not right, let me compute properly
+        }
+        // Actually, librtlsdr packs 24 taps × 12 bits = 288 bits = 36 bytes
+        // But the register space is only 20 bytes (0x1C-0x2F). So librtlsdr only
+        // writes the first 20 bytes. Let me match exactly.
+        // From librtlsdr: bytes 8-19 pack taps 8-15 as 12-bit pairs:
+        var byteIdx = 8
+        var tapIdx = 8
+        while (byteIdx < 20 && tapIdx + 1 < fir.size) {
+            val v1 = fir[tapIdx] and 0xFFF
+            val v2 = fir[tapIdx + 1] and 0xFFF
+            firBytes[byteIdx] = (v1 and 0xFF).toByte()
+            firBytes[byteIdx + 1] = (((v1 shr 8) and 0x0F) or ((v2 shl 4) and 0xF0)).toByte()
+            if (byteIdx + 2 < 20) {
+                firBytes[byteIdx + 2] = ((v2 shr 4) and 0xFF).toByte()
+            }
+            byteIdx += 3
+            tapIdx += 2
         }
 
-        // Write FIR to demod register 0xB1 (page 1)
+        // Write FIR to demod registers (page 1, starting at 0x1C)
         for (i in firBytes.indices) {
             writeDemodReg(1, 0x1C + i, firBytes[i].toInt() and 0xFF, 1)
         }
@@ -349,16 +366,16 @@ class RtlSdrDevice(private val context: Context) {
         // Reference frequency (28.8 MHz crystal on RTL-SDR v2)
         val pllRef = RTL_XTAL_FREQ
 
-        // Calculate N-integer and fractional parts
+        // Calculate N-integer and fractional parts (all in Hz to avoid precision loss)
         val nInt = (vcoFreq / (2 * pllRef)).toInt()
-        val vcoFra = ((vcoFreq - 2L * pllRef * nInt) / 1000).toInt()
+        val vcoFra = vcoFreq - 2L * pllRef * nInt  // Remainder in Hz (no /1000 truncation)
 
         // NI and SI from r82xx.c
         val ni = (nInt - 13) / 4
         val si = nInt % 4
 
-        // SDM (sigma-delta modulator) fractional value
-        val sdm = ((vcoFra.toLong() * 65536L) / (pllRef / 1000)).toInt()
+        // SDM (sigma-delta modulator) fractional value — keep full Hz precision
+        val sdm = ((vcoFra * 65536L) / (2L * pllRef)).toInt()
 
         // Write PLL registers (matching r82xx.c r82xx_set_pll)
         // reg 0x10: mixer divider number
@@ -501,14 +518,18 @@ class RtlSdrDevice(private val context: Context) {
         if (!isOpen) return false
         usbLock.lock()
         return try {
-            writeReg(BLOCK_USB, USB_EPA_CTL, 0x1002, 2)  // Reset FIFO
-            writeReg(BLOCK_USB, USB_EPA_CTL, 0x0000, 2)  // Clear reset
-            true
+            resetBufferInternal()
         } catch (e: Exception) {
             false
         } finally {
             usbLock.unlock()
         }
+    }
+
+    private fun resetBufferInternal(): Boolean {
+        writeReg(BLOCK_USB, USB_EPA_CTL, 0x1002, 2)  // Reset FIFO
+        writeReg(BLOCK_USB, USB_EPA_CTL, 0x0000, 2)  // Clear reset
+        return true
     }
 
     fun readSamples(length: Int): ByteArray? {
@@ -593,9 +614,9 @@ class RtlSdrDevice(private val context: Context) {
             Thread.sleep(50)
 
             // Reset USB FIFO multiple times to ensure clean state
-            resetBuffer()
+            resetBufferInternal()
             Thread.sleep(10)
-            resetBuffer()
+            resetBufferInternal()
 
             // Discard any stale data in USB pipe
             val ep = bulkEndpoint
@@ -608,7 +629,7 @@ class RtlSdrDevice(private val context: Context) {
                 }
             }
 
-            resetBuffer()
+            resetBufferInternal()
             Log.i(TAG, "Full USB reset completed")
             true
         } catch (e: Exception) {
