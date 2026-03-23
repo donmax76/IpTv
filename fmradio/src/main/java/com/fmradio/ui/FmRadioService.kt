@@ -208,10 +208,12 @@ class FmRadioService : Service() {
     fun tuneToFrequency(frequencyHz: Long) {
         currentFrequency = frequencyHz
 
-        // Run USB operations on IO thread to avoid blocking UI
-        serviceScope.launch {
-            device?.setFrequency(frequencyHz)
-            device?.resetBuffer()
+        // Only send USB commands if currently streaming — otherwise startPlayback will handle it
+        if (isPlaying) {
+            serviceScope.launch {
+                device?.setFrequency(frequencyHz)
+                device?.resetBuffer()
+            }
         }
 
         // Reset DSP state to clear stale filter data from previous frequency

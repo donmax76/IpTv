@@ -86,6 +86,9 @@ class RtlSdrDevice(private val context: Context) {
     private var tunerType: TunerType = TunerType.R820T
     private var tunerI2CAddr: Int = R820T_I2C_ADDR
 
+    // Mutex to serialize USB control transfers — concurrent access corrupts device state
+    private val usbLock = java.util.concurrent.locks.ReentrantLock()
+
     @Volatile
     var isStreaming = false
         private set
@@ -309,6 +312,7 @@ class RtlSdrDevice(private val context: Context) {
         if (!isOpen) return false
         centerFrequency = frequencyHz
 
+        usbLock.lock()
         return try {
             enableI2CRepeater(true)
             setR820TFrequency(frequencyHz)
@@ -323,6 +327,8 @@ class RtlSdrDevice(private val context: Context) {
             Log.e(TAG, "Error setting frequency", e)
             enableI2CRepeater(false)
             false
+        } finally {
+            usbLock.unlock()
         }
     }
 
@@ -398,6 +404,7 @@ class RtlSdrDevice(private val context: Context) {
         if (!isOpen) return false
         sampleRate = rate
 
+        usbLock.lock()
         return try {
             // Calculate resampler ratio
             val rsampRatio = ((RTL_XTAL_FREQ * (1L shl 22)) / rate).toInt()
@@ -420,6 +427,8 @@ class RtlSdrDevice(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error setting sample rate", e)
             false
+        } finally {
+            usbLock.unlock()
         }
     }
 
@@ -439,6 +448,7 @@ class RtlSdrDevice(private val context: Context) {
 
     fun setGain(gainIndex: Int): Boolean {
         if (!isOpen) return false
+        usbLock.lock()
         return try {
             enableI2CRepeater(true)
 
@@ -454,11 +464,14 @@ class RtlSdrDevice(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error setting gain", e)
             false
+        } finally {
+            usbLock.unlock()
         }
     }
 
     fun setAutoGain(enabled: Boolean): Boolean {
         if (!isOpen) return false
+        usbLock.lock()
         return try {
             enableI2CRepeater(true)
             if (enabled) {
@@ -479,17 +492,22 @@ class RtlSdrDevice(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error setting auto gain", e)
             false
+        } finally {
+            usbLock.unlock()
         }
     }
 
     fun resetBuffer(): Boolean {
         if (!isOpen) return false
+        usbLock.lock()
         return try {
             writeReg(BLOCK_USB, USB_EPA_CTL, 0x1002, 2)  // Reset FIFO
             writeReg(BLOCK_USB, USB_EPA_CTL, 0x0000, 2)  // Clear reset
             true
         } catch (e: Exception) {
             false
+        } finally {
+            usbLock.unlock()
         }
     }
 
@@ -568,6 +586,7 @@ class RtlSdrDevice(private val context: Context) {
      */
     fun fullReset(): Boolean {
         if (!isOpen) return false
+        usbLock.lock()
         return try {
             // Stop any ongoing transfers
             isStreaming = false
@@ -595,6 +614,8 @@ class RtlSdrDevice(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error during full reset", e)
             false
+        } finally {
+            usbLock.unlock()
         }
     }
 
