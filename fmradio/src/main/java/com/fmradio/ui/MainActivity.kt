@@ -222,6 +222,11 @@ class MainActivity : Activity() {
         restoreBand()
         restoreSettings()
 
+        // Request notification permission on Android 13+ (required for foreground service)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
+        }
+
         startRadioService()
 
         // Auto-connect: always try to find and open RTL-SDR on startup

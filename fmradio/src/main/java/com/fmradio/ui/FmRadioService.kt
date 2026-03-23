@@ -1,7 +1,11 @@
 package com.fmradio.ui
 
 import android.app.*
+import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
@@ -42,6 +46,8 @@ class FmRadioService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private var mediaSession: MediaSession? = null
+    private var audioManager: AudioManager? = null
+    private var audioFocusRequest: AudioFocusRequest? = null
 
     private lateinit var stationStorage: StationStorage
 
@@ -75,6 +81,7 @@ class FmRadioService : Service() {
     override fun onCreate() {
         super.onCreate()
         stationStorage = StationStorage(this)
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         createNotificationChannel()
         initMediaSession()
     }
@@ -255,6 +262,9 @@ class FmRadioService : Service() {
             rdsDecoder?.process(widebandSamples, pilotPhase)
         }
 
+        // Request audio focus so Android routes audio to us
+        requestAudioFocus()
+
         equalizer = AudioEqualizer(48000)
         audioPlayer = AudioPlayer(48000).also { it.start() }
 
@@ -331,6 +341,8 @@ class FmRadioService : Service() {
         audioPlayer?.stop()
         audioPlayer = null
 
+        abandonAudioFocus()
+
         oldDemod?.reset()
         oldRds?.reset()
         oldEq?.reset()
@@ -338,6 +350,53 @@ class FmRadioService : Service() {
         updateMediaSessionState()
         updateNotification()
         Log.i(TAG, "Playback stopped")
+    }
+
+    private fun requestAudioFocus() {
+        val am = audioManager ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val focusReq = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                .setOnAudioFocusChangeListener { focusChange ->
+                    when (focusChange) {
+                        AudioManager.AUDIOFOCUS_LOSS -> {
+                            if (isPlaying) stopPlayback()
+                            onPlaybackStateChanged?.invoke(false)
+                        }
+                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                            audioPlayer?.setVolume(0f)
+                        }
+                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                            audioPlayer?.setVolume(0.3f)
+                        }
+                        AudioManager.AUDIOFOCUS_GAIN -> {
+                            audioPlayer?.setVolume(1f)
+                        }
+                    }
+                }
+                .build()
+            audioFocusRequest = focusReq
+            am.requestAudioFocus(focusReq)
+        } else {
+            @Suppress("DEPRECATION")
+            am.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+        }
+    }
+
+    private fun abandonAudioFocus() {
+        val am = audioManager ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest?.let { am.abandonAudioFocusRequest(it) }
+            audioFocusRequest = null
+        } else {
+            @Suppress("DEPRECATION")
+            am.abandonAudioFocus(null)
+        }
     }
 
     fun setVolume(volume: Float) { audioPlayer?.setVolume(volume.coerceIn(0f, 1f)) }
