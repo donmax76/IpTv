@@ -58,7 +58,7 @@
                     android:layout_height="wrap_content"
                     android:layout_alignParentEnd="true"
                     android:layout_centerVertical="true"
-                    android:text="v1.6"
+                    android:text="v1.7"
                     android:textColor="@color/version_text"
                     android:textSize="11sp"
                     android:fontFamily="monospace" />
@@ -166,7 +166,7 @@
                         android:layout_height="wrap_content"
                         android:text="100.0"
                         android:textColor="@color/lcd_green"
-                        android:textSize="96sp"
+                        android:textSize="64sp"
                         android:fontFamily="monospace"
                         android:textStyle="bold"
                         android:includeFontPadding="false"
@@ -285,8 +285,8 @@
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center"
-                android:layout_marginTop="8dp"
-                android:layout_marginBottom="6dp">
+                android:layout_marginTop="4dp"
+                android:layout_marginBottom="2dp">
 
                 <ImageButton
                     android:id="@+id/btnSeekBack"
@@ -413,20 +413,18 @@
                     android:fontFamily="monospace"
                     android:background="@drawable/bg_button_metal" />
             </LinearLayout>
-        </LinearLayout>
 
-        <!-- ========= BOTTOM BAR: Volume + EQ (under radio controls only) ========= -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:background="@drawable/bg_car_radio"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="10dp"
-            android:gravity="center_vertical"
-            android:layout_marginTop="4dp">
+            <!-- ========= Volume + EQ (moved inside main panel) ========= -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="4dp"
+                android:gravity="center_vertical"
+                android:layout_marginTop="4dp">
 
             <!-- Volume -->
             <TextView
@@ -544,6 +542,7 @@
                 android:fontFamily="monospace"
                 android:gravity="end" />
 
+            </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 
