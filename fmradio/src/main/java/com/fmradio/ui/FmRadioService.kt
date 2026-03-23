@@ -272,6 +272,8 @@ class FmRadioService : Service() {
             // Full USB reset to ensure clean state (critical after scan/seek)
             dev.fullReset()
 
+            Log.i(TAG, "USB setup done, starting streaming...")
+
             val innerJob = dev.startStreaming(262144) { iqData ->
                 var audioSamples = demodulator?.demodulate(iqData)
                 if (audioSamples != null && audioSamples.isNotEmpty()) {

@@ -102,22 +102,22 @@ class FmDemodulator(
     // Squelch based on signal quality — faster response
     private var signalQualityAcc = 0.0
     private var signalQualityCount = 0
-    private var squelchOpen = false  // Start closed to avoid initial burst of noise
-    private var squelchLevel = 0f
-    private val squelchAttack = 0.03f   // ~33ms to open (smooth fade-in)
-    private val squelchRelease = 0.02f  // ~50ms to close (fast mute on noise)
+    private var squelchOpen = true  // Start OPEN so user hears audio immediately
+    private var squelchLevel = 1f   // Start at full level — squelch closes if no signal
+    private val squelchAttack = 0.05f   // ~20ms to open (fast fade-in)
+    private val squelchRelease = 0.01f  // ~100ms to close (gradual mute)
 
     // Warmup: discard first N intermediate samples to flush stale filter state
     private var warmupSamples = 0
-    private val warmupThreshold = intermediateRate / 2  // 0.5s warmup for filter settling
+    private val warmupThreshold = intermediateRate / 10  // 100ms warmup (was 500ms)
 
     // Guard flag: set during reset to prevent concurrent demodulate() access
     @Volatile
     private var resetting = false
 
     // Crossfade for seamless muting during frequency change
-    private var muteRamp = 0f  // 0 = muted, 1 = full volume
-    private val muteRampUp = 0.005f   // ~200 audio samples to reach full volume
+    private var muteRamp = 0.5f  // Start at 50% to avoid complete silence on startup
+    private val muteRampUp = 0.02f   // ~50 audio samples to reach full volume
     private val muteRampDown = 0.05f  // ~20 audio samples to mute
 
     // ========== rtl_fm LUT atan2 (for maximum performance) ==========
@@ -313,7 +313,7 @@ class FmDemodulator(
             signalQualityCount++
             if (signalQualityCount >= intermediateRate / 16) {
                 val avgModulation = signalQualityAcc / signalQualityCount
-                squelchOpen = avgModulation > 0.05 && avgModulation < 2.0
+                squelchOpen = avgModulation > 0.01 && avgModulation < 3.0
                 signalQualityAcc = 0.0
                 signalQualityCount = 0
             }
@@ -459,9 +459,9 @@ class FmDemodulator(
         isStereo = false
         currentSignalStrengthDb = -100f; signalPowerAcc = 0.0; signalPowerCount = 0
         signalQualityAcc = 0.0; signalQualityCount = 0
-        squelchOpen = false; squelchLevel = 0f
+        squelchOpen = true; squelchLevel = 1f
         warmupSamples = 0
-        muteRamp = 0f  // Start muted, ramp up smoothly
+        muteRamp = 0.5f  // Start at 50%, ramp up quickly
         resetting = false
     }
 }
