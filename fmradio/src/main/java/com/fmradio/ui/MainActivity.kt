@@ -6,6 +6,8 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
@@ -33,6 +35,19 @@ class MainActivity : Activity() {
     private var radioService: FmRadioService? = null
     private var serviceBound = false
     private var scanner: FmScanner? = null
+
+    // Pending device that was opened before service was bound
+    private var pendingDevice: RtlSdrDevice? = null
+    private var pendingUsbDeviceName: String? = null
+
+    // Handle USB device detach to clean up state
+    private val usbDetachReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == UsbManager.ACTION_USB_DEVICE_DETACHED) {
+                onUsbDeviceDetached()
+            }
+        }
+    }
 
     private var currentBand: FmScanner.Band = FmScanner.Band.FM_BROADCAST
 
@@ -143,6 +158,19 @@ class MainActivity : Activity() {
 
             radioService?.afEnabled = stationStorage.afEnabled
             radioService?.taEnabled = stationStorage.taEnabled
+
+            // If device was opened before service was bound, initialize now
+            val pending = pendingDevice
+            if (pending != null) {
+                pendingDevice = null
+                radioService?.initDevice(pending)
+                tvStatus.text = getString(R.string.status_connected)
+                tvDeviceInfo.text = getString(R.string.device_info_format,
+                    pending.getTunerType().name, pendingUsbDeviceName ?: "")
+                pendingUsbDeviceName = null
+                setControlsEnabled(true)
+                startPlayback()
+            }
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
@@ -161,6 +189,14 @@ class MainActivity : Activity() {
         stationStorage = StationStorage(this)
         permissionHelper = UsbPermissionHelper(this)
         permissionHelper.register()
+
+        // Register USB detach receiver (system broadcast — needs RECEIVER_EXPORTED on Android 14+)
+        val detachFilter = IntentFilter(UsbManager.ACTION_USB_DEVICE_DETACHED)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(usbDetachReceiver, detachFilter, Context.RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(usbDetachReceiver, detachFilter)
+        }
 
         initViews()
         setupListeners()
@@ -405,12 +441,20 @@ class MainActivity : Activity() {
         val dev = RtlSdrDevice(this)
         if (dev.open(usbDevice)) {
             rtlSdrDevice = dev
-            radioService?.initDevice(dev)
-            tvStatus.text = getString(R.string.status_connected)
-            tvDeviceInfo.text = getString(R.string.device_info_format, dev.getTunerType().name, usbDevice.deviceName)
-            setControlsEnabled(true)
-            // Auto-start playback after connecting
-            startPlayback()
+            val service = radioService
+            if (service != null) {
+                // Service already bound — init and play immediately
+                service.initDevice(dev)
+                tvStatus.text = getString(R.string.status_connected)
+                tvDeviceInfo.text = getString(R.string.device_info_format, dev.getTunerType().name, usbDevice.deviceName)
+                setControlsEnabled(true)
+                startPlayback()
+            } else {
+                // Service not yet bound — save device for later init in onServiceConnected
+                pendingDevice = dev
+                pendingUsbDeviceName = usbDevice.deviceName
+                tvStatus.text = getString(R.string.status_connecting)
+            }
         } else {
             tvStatus.text = getString(R.string.status_connection_failed)
         }
@@ -691,12 +735,44 @@ class MainActivity : Activity() {
 
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
-        if (intent?.action == UsbManager.ACTION_USB_DEVICE_ATTACHED && rtlSdrDevice == null) {
-            connectDevice()
+        setIntent(intent)
+        if (intent?.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) {
+            // Bring activity to front so it's visible above system UI
+            moveTaskToFront()
+
+            // If no device or previous device was closed, try to connect
+            if (rtlSdrDevice == null || rtlSdrDevice?.isDeviceOpen() != true) {
+                rtlSdrDevice = null
+                connectDevice()
+            }
+        }
+    }
+
+    private fun onUsbDeviceDetached() {
+        // Stop playback and clean up device state
+        if (radioService?.isPlaying == true) {
+            stopPlayback()
+        }
+        rtlSdrDevice?.close()
+        rtlSdrDevice = null
+        pendingDevice = null
+        setControlsEnabled(false)
+        tvStatus.text = getString(R.string.status_no_device)
+        tvDeviceInfo.text = ""
+        showToast(getString(R.string.msg_connect_rtlsdr))
+    }
+
+    private fun moveTaskToFront() {
+        try {
+            val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            am.moveTaskToFront(taskId, android.app.ActivityManager.MOVE_TASK_WITH_HOME)
+        } catch (_: Exception) {
+            // SecurityException on some devices — ignore
         }
     }
 
     override fun onDestroy() {
+        try { unregisterReceiver(usbDetachReceiver) } catch (_: IllegalArgumentException) {}
         permissionHelper.unregister()
         if (serviceBound) { unbindService(serviceConnection); serviceBound = false }
         rtlSdrDevice?.close()
