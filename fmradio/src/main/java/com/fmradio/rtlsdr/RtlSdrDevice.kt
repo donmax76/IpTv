@@ -537,17 +537,16 @@ class RtlSdrDevice(private val context: Context) {
 
         val buffer = ByteArray(length)
         var totalRead = 0
+        val ep = bulkEndpoint!!
+        val conn = usbConnection ?: return null
 
         while (totalRead < length) {
-            val toRead = minOf(bulkEndpoint!!.maxPacketSize * 32, length - totalRead)
-            val tempBuf = ByteArray(toRead)
-            val read = usbConnection?.bulkTransfer(bulkEndpoint, tempBuf, toRead, USB_TIMEOUT) ?: -1
+            val toRead = minOf(length - totalRead, ep.maxPacketSize * 64)
+            val read = conn.bulkTransfer(ep, buffer, totalRead, toRead, USB_TIMEOUT)
 
             if (read > 0) {
-                System.arraycopy(tempBuf, 0, buffer, totalRead, read)
                 totalRead += read
             } else if (read < 0) {
-                Log.w(TAG, "Bulk transfer error")
                 return if (totalRead > 0) buffer.copyOf(totalRead) else null
             }
         }
@@ -696,7 +695,9 @@ class RtlSdrDevice(private val context: Context) {
 
     /**
      * Write to RTL2832U demodulator register.
-     * Uses the (addr << 8) | 0x20 addressing scheme from librtlsdr rtlsdr_demod_write_reg.
+     * From librtlsdr rtlsdr_demod_write_reg:
+     *   addr = (reg << 8) | 0x20
+     *   index = page | 0x10
      */
     private fun writeDemodReg(page: Int, addr: Int, value: Int, len: Int) {
         val conn = usbConnection ?: return
@@ -707,7 +708,7 @@ class RtlSdrDevice(private val context: Context) {
         }
 
         val usbAddr = (addr shl 8) or 0x20
-        val index = (BLOCK_DEMOD shl 8) or 0x10  // 0x0010
+        val index = page or 0x10  // librtlsdr: index = page | 0x10
         val result = conn.controlTransfer(CTRL_OUT, 0, usbAddr, index, data, data.size, CTRL_TIMEOUT)
         if (result < 0) {
             Log.w(TAG, "writeDemodReg failed: page=$page addr=0x${addr.toString(16)}")
@@ -719,12 +720,15 @@ class RtlSdrDevice(private val context: Context) {
 
     /**
      * Read from RTL2832U demodulator register.
+     * From librtlsdr rtlsdr_demod_read_reg:
+     *   addr = (reg << 8) | 0x20
+     *   index = page (no 0x10 flag for reads)
      */
     private fun readDemodReg(page: Int, addr: Int, len: Int): Int {
         val conn = usbConnection ?: return 0
         val data = ByteArray(len)
         val usbAddr = (addr shl 8) or 0x20
-        val index = (BLOCK_DEMOD shl 8)  // No 0x10 for read (matching librtlsdr)
+        val index = page  // librtlsdr: index = page (no 0x10 for read)
 
         conn.controlTransfer(CTRL_IN, 0, usbAddr, index, data, data.size, CTRL_TIMEOUT)
 
@@ -738,13 +742,10 @@ class RtlSdrDevice(private val context: Context) {
     /**
      * Enable/disable I2C repeater to access tuner via I2C bus.
      * Page 1, register 0x01: 0x18 = enable, 0x10 = disable.
+     * From librtlsdr: rtlsdr_set_i2c_repeater → rtlsdr_demod_write_reg(dev, 1, 0x01, ...)
      */
     private fun enableI2CRepeater(enable: Boolean) {
-        val conn = usbConnection ?: return
-        val data = byteArrayOf(if (enable) 0x18.toByte() else 0x10.toByte())
-        val usbAddr = (0x01 shl 8) or 0x20  // 0x0120
-        val index = (BLOCK_DEMOD shl 8) or 0x10
-        conn.controlTransfer(CTRL_OUT, 0, usbAddr, index, data, data.size, CTRL_TIMEOUT)
+        writeDemodReg(1, 0x01, if (enable) 0x18 else 0x10, 1)
     }
 
     /**
