@@ -89,6 +89,11 @@ class RtlSdrDevice(private val context: Context) {
     // Mutex to serialize USB control transfers — concurrent access corrupts device state
     private val usbLock = java.util.concurrent.locks.ReentrantLock()
 
+    // Shadow register array for R820T (regs 0x05-0x1F, 27 bytes)
+    // Required because R820T needs read-modify-write and register readback is unreliable.
+    // Matches librtlsdr's priv->regs[] approach.
+    private val r820tRegs = IntArray(0x20) // index = register address
+
     @Volatile
     var isStreaming = false
         private set
@@ -282,23 +287,45 @@ class RtlSdrDevice(private val context: Context) {
         return TunerType.R820T
     }
 
+    /**
+     * Write to R820T register with bitmask (like librtlsdr r82xx_write_reg_mask).
+     * Only modifies bits set in mask, preserving other bits via shadow register.
+     */
+    private fun r820tWriteRegMask(reg: Int, value: Int, mask: Int) {
+        val old = r820tRegs[reg]
+        val newVal = (old and mask.inv()) or (value and mask)
+        r820tRegs[reg] = newVal
+        i2cWrite(tunerI2CAddr, reg, byteArrayOf(newVal.toByte()))
+    }
+
+    /**
+     * Write full byte to R820T register and update shadow.
+     */
+    private fun r820tWriteReg(reg: Int, value: Int) {
+        r820tRegs[reg] = value and 0xFF
+        i2cWrite(tunerI2CAddr, reg, byteArrayOf(value.toByte()))
+    }
+
     private fun initR820T() {
         // R820T initialization registers (from r82xx.c r82xx_init_array)
         // Registers 0x05 to 0x1F (27 registers)
-        val initRegs = byteArrayOf(
-            0x83.toByte(), 0x32.toByte(), 0x75.toByte(), // reg 0x05-0x07
-            0xC0.toByte(), 0x40.toByte(), 0xD6.toByte(), // reg 0x08-0x0A
-            0x6C.toByte(), 0xF5.toByte(), 0x63.toByte(), // reg 0x0B-0x0D
-            0x75.toByte(), 0x68.toByte(), 0x6C.toByte(), // reg 0x0E-0x10
-            0x83.toByte(), 0x80.toByte(), 0x00.toByte(), // reg 0x11-0x13
-            0x0F.toByte(), 0x00.toByte(), 0xC0.toByte(), // reg 0x14-0x16
-            0x30.toByte(), 0x48.toByte(), 0xCC.toByte(), // reg 0x17-0x19
-            0x60.toByte(), 0x00.toByte(), 0x54.toByte(), // reg 0x1A-0x1C
-            0xAE.toByte(), 0x4A.toByte(), 0xC0.toByte(), // reg 0x1D-0x1F
+        val initRegs = intArrayOf(
+            0x83, 0x32, 0x75, // reg 0x05-0x07
+            0xC0, 0x40, 0xD6, // reg 0x08-0x0A
+            0x6C, 0xF5, 0x63, // reg 0x0B-0x0D
+            0x75, 0x68, 0x6C, // reg 0x0E-0x10
+            0x83, 0x80, 0x00, // reg 0x11-0x13
+            0x0F, 0x00, 0xC0, // reg 0x14-0x16
+            0x30, 0x48, 0xCC, // reg 0x17-0x19
+            0x60, 0x00, 0x54, // reg 0x1A-0x1C
+            0xAE, 0x4A, 0xC0, // reg 0x1D-0x1F
         )
 
+        // Write init array and populate shadow registers
         for (i in initRegs.indices) {
-            i2cWrite(tunerI2CAddr, 0x05 + i, byteArrayOf(initRegs[i]))
+            val reg = 0x05 + i
+            r820tRegs[reg] = initRegs[i]
+            i2cWrite(tunerI2CAddr, reg, byteArrayOf(initRegs[i].toByte()))
         }
 
         // Initialize calibration
@@ -307,20 +334,37 @@ class RtlSdrDevice(private val context: Context) {
 
     /**
      * R820T initial calibration sequence from r82xx.c r82xx_init.
-     * Sets up VGA, tracking filter, and runs initial calibration.
+     * Uses masked writes to preserve critical register bits (LNA power, mixer bias).
      */
     private fun initR820TCalibration() {
-        // Set VGA to highest gain for calibration
-        i2cWrite(tunerI2CAddr, 0x0C, byteArrayOf(0x0B.toByte()))
+        // Set VGA gain to index 8 for calibration (reg 0x0C bits 3:0, bit 4=0 for VCO auto)
+        // From r82xx.c: r82xx_write_reg_mask(priv, 0x0c, 0x08, 0x9f)
+        r820tWriteRegMask(0x0C, 0x08, 0x9F)
 
-        // Set tracking filter to auto
-        i2cWrite(tunerI2CAddr, 0x06, byteArrayOf(0x35.toByte()))
+        // Set filter cap for calibration (reg 0x0B)
+        // From r82xx.c: r82xx_write_reg_mask(priv, 0x0b, 0x60, 0x60)
+        r820tWriteRegMask(0x0B, 0x60, 0x60)
 
-        // Set LNA to auto
-        i2cWrite(tunerI2CAddr, 0x05, byteArrayOf(0x00.toByte()))
+        // Set HPF corner to minimum (reg 0x0A bits 6:4 = 0)
+        r820tWriteRegMask(0x0A, 0x00, 0x70)
 
-        // Set mixer to auto
-        i2cWrite(tunerI2CAddr, 0x07, byteArrayOf(0x00.toByte()))
+        // Set calibration clock on (reg 0x0F bit 2 = 1)
+        r820tWriteRegMask(0x0F, 0x04, 0x04)
+
+        // Trigger calibration (reg 0x10 bit 0 = 0 then 1)
+        r820tWriteRegMask(0x10, 0x00, 0x01)
+        r820tWriteRegMask(0x10, 0x01, 0x01)
+
+        Thread.sleep(5) // Wait for calibration
+
+        // Turn off calibration clock (reg 0x0F bit 2 = 0)
+        r820tWriteRegMask(0x0F, 0x00, 0x04)
+
+        // Set LNA to auto (bit 4 = 0) — ONLY modify bit 4, preserve power bits
+        r820tWriteRegMask(0x05, 0x00, 0x10)
+
+        // Set mixer to auto (bit 4 = 0) — ONLY modify bit 4, preserve bias bits
+        r820tWriteRegMask(0x07, 0x00, 0x10)
 
         Log.i(TAG, "R820T calibration complete")
     }
@@ -378,15 +422,15 @@ class RtlSdrDevice(private val context: Context) {
         val sdm = ((vcoFra * 65536L) / (2L * pllRef)).toInt()
 
         // Write PLL registers (matching r82xx.c r82xx_set_pll)
-        // reg 0x10: mixer divider number
-        i2cWrite(tunerI2CAddr, 0x10, byteArrayOf(((divNum shl 5) or 0x00).toByte()))
+        // reg 0x10: mixer divider number (bits 7:5)
+        r820tWriteRegMask(0x10, divNum shl 5, 0xE0)
 
         // reg 0x14: NI + SI (PLL integer divider)
-        i2cWrite(tunerI2CAddr, 0x14, byteArrayOf(((ni and 0x1F) or ((si and 0x03) shl 6)).toByte()))
+        r820tWriteReg(0x14, (ni and 0x1F) or ((si and 0x03) shl 6))
 
-        // reg 0x12-0x13: SDM fractional value (matching librtlsdr register map)
-        i2cWrite(tunerI2CAddr, 0x12, byteArrayOf(((sdm shr 8) and 0xFF).toByte()))
-        i2cWrite(tunerI2CAddr, 0x13, byteArrayOf((sdm and 0xFF).toByte()))
+        // reg 0x12-0x13: SDM fractional value
+        r820tWriteReg(0x12, (sdm shr 8) and 0xFF)
+        r820tWriteReg(0x13, sdm and 0xFF)
 
         // Wait for PLL lock
         Thread.sleep(10)
@@ -397,9 +441,9 @@ class RtlSdrDevice(private val context: Context) {
             val locked = (lockData[0].toInt() and 0x40) != 0
             if (!locked) {
                 Log.w(TAG, "PLL not locked at ${freq / 1e6} MHz, retrying...")
-                // Retry with VCO power adjustment
-                i2cWrite(tunerI2CAddr, 0x12, byteArrayOf(((sdm shr 8) and 0xFF).toByte()))
-                i2cWrite(tunerI2CAddr, 0x13, byteArrayOf((sdm and 0xFF).toByte()))
+                // Retry: rewrite SDM registers
+                r820tWriteReg(0x12, (sdm shr 8) and 0xFF)
+                r820tWriteReg(0x13, sdm and 0xFF)
                 Thread.sleep(20)
                 val lockRetry = i2cRead(tunerI2CAddr, 0x02, 1)
                 if (lockRetry != null && (lockRetry[0].toInt() and 0x40) == 0) {
@@ -450,7 +494,7 @@ class RtlSdrDevice(private val context: Context) {
     }
 
     private fun setR820TBandwidth(bandwidth: Int) {
-        // Set R820T IF filter bandwidth via register 0x0A
+        // Set R820T IF filter bandwidth via register 0x0A upper nibble
         val bwKhz = bandwidth / 1000
         val filterCap = when {
             bwKhz < 200 -> 0x0F
@@ -460,7 +504,8 @@ class RtlSdrDevice(private val context: Context) {
             bwKhz < 1200 -> 0x02
             else -> 0x00
         }
-        i2cWrite(tunerI2CAddr, 0x0A, byteArrayOf(((filterCap shl 4) or 0x0B).toByte()))
+        // Only modify upper nibble (filter cap) and HPF corner, preserve other bits
+        r820tWriteRegMask(0x0A, (filterCap shl 4) or 0x0B, 0xFF)
     }
 
     fun setGain(gainIndex: Int): Boolean {
@@ -471,10 +516,10 @@ class RtlSdrDevice(private val context: Context) {
 
             val idx = gainIndex.coerceIn(0, 15)
 
-            // Set LNA gain (reg 0x05)
-            i2cWrite(tunerI2CAddr, 0x05, byteArrayOf((0x10 or idx).toByte()))
-            // Set mixer gain (reg 0x07)
-            i2cWrite(tunerI2CAddr, 0x07, byteArrayOf((0x10 or idx).toByte()))
+            // Set LNA to manual (bit 4 = 1) with gain index (bits 3:0)
+            r820tWriteRegMask(0x05, 0x10 or idx, 0x1F)
+            // Set mixer to manual (bit 4 = 1) with gain index (bits 3:0)
+            r820tWriteRegMask(0x07, 0x10 or idx, 0x1F)
 
             enableI2CRepeater(false)
             true
@@ -492,14 +537,14 @@ class RtlSdrDevice(private val context: Context) {
         return try {
             enableI2CRepeater(true)
             if (enabled) {
-                // R820T: LNA AGC on (reg 0x05 bit 4 = 0 for auto)
-                i2cWrite(tunerI2CAddr, 0x05, byteArrayOf(0x00.toByte()))
-                // R820T: Mixer AGC on (reg 0x07 bit 4 = 0 for auto)
-                i2cWrite(tunerI2CAddr, 0x07, byteArrayOf(0x00.toByte()))
+                // R820T: LNA AGC on (bit 4 = 0), preserve power/bias bits via shadow regs
+                r820tWriteRegMask(0x05, 0x00, 0x10)
+                // R820T: Mixer AGC on (bit 4 = 0), preserve bias bits
+                r820tWriteRegMask(0x07, 0x00, 0x10)
             } else {
-                // Manual gain mode
-                i2cWrite(tunerI2CAddr, 0x05, byteArrayOf(0x10.toByte()))
-                i2cWrite(tunerI2CAddr, 0x07, byteArrayOf(0x10.toByte()))
+                // Manual gain mode (bit 4 = 1)
+                r820tWriteRegMask(0x05, 0x10, 0x10)
+                r820tWriteRegMask(0x07, 0x10, 0x10)
             }
             enableI2CRepeater(false)
 
