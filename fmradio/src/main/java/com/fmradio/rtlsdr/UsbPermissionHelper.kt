@@ -44,7 +44,8 @@ class UsbPermissionHelper(private val context: Context) {
             addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(usbReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            // Must be EXPORTED — USB permission result comes from the system USB service
+            context.registerReceiver(usbReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
             context.registerReceiver(usbReceiver, filter)
         }
