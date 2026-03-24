@@ -235,16 +235,8 @@ class RtlSdrDevice(private val context: Context) {
             firBytes[i] = (fir[i] and 0xFF).toByte()
         }
 
-        // Remaining 24 taps: 12-bit packed in pairs (3 bytes per 2 taps)
-        for (i in 0 until 12) {
-            val val1 = fir[8 + i * 2] and 0xFFF
-            val val2 = if (8 + i * 2 + 1 < fir.size) fir[8 + i * 2 + 1] and 0xFFF else 0
-            val byteIdx = 8 + i * 3 / 2  // Not right, let me compute properly
-        }
-        // Actually, librtlsdr packs 24 taps × 12 bits = 288 bits = 36 bytes
-        // But the register space is only 20 bytes (0x1C-0x2F). So librtlsdr only
-        // writes the first 20 bytes. Let me match exactly.
-        // From librtlsdr: bytes 8-19 pack taps 8-15 as 12-bit pairs:
+        // Remaining taps: 12-bit packed in pairs (3 bytes per 2 taps)
+        // librtlsdr rtlsdr_set_fir() packs taps 8-15 into bytes 8-19 (4 pairs × 3 bytes)
         var byteIdx = 8
         var tapIdx = 8
         while (byteIdx < 20 && tapIdx + 1 < fir.size) {
