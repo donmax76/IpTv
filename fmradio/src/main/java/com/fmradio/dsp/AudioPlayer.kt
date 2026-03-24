@@ -27,7 +27,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         private const val LOW_WATERMARK = 2048   // ~21ms stereo — minimum to drain
         private const val HIGH_WATERMARK = 345600 // 90% full — trigger overflow drop
         // Pre-buffer: accumulate this much before starting AudioTrack drain
-        private const val PRE_BUFFER_SAMPLES = 4800  // ~50ms stereo — fast audio start
+        private const val PRE_BUFFER_SAMPLES = 14400  // ~150ms stereo — absorb USB jitter
         // Fade-in on initial playback start to prevent pop
         private const val FADE_IN_SAMPLES = 4800  // ~50ms stereo
         // Crossfade on buffer overflow to prevent click
@@ -132,21 +132,12 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                 try { available = bufferedSamples } finally { lock.unlock() }
 
                 val toDrain = if (available >= chunkSize) chunkSize
-                              else if (available >= 512) available and 0x7FFFFFFE
+                              else if (available >= LOW_WATERMARK) available and 0x7FFFFFFE
                               else {
-                                  // Underrun: fade to silence from last output sample to prevent click
-                                  val silenceChunk = ShortArray(chunkSize)
-                                  for (i in 0 until chunkSize) {
-                                      val fadeOut = (chunkSize - i).toFloat() / chunkSize
-                                      val s = (lastOutputSample * fadeOut * 0.5f).toInt().coerceIn(-32767, 32767)
-                                      silenceChunk[i] = s.toShort()
-                                      lastOutputSample = s
-                                  }
-                                  lastOutputSample = 0
-                                  try {
-                                      audioTrack?.write(silenceChunk, 0, chunkSize)
-                                  } catch (_: Exception) {}
-                                  try { Thread.sleep(5) } catch (_: InterruptedException) { break }
+                                  // Underrun: just wait for more data — do NOT write silence.
+                                  // Writing silence causes AudioTrack to block for ~42ms,
+                                  // creating a pulsing pattern of audio/silence.
+                                  try { Thread.sleep(2) } catch (_: InterruptedException) { break }
                                   continue
                               }
 

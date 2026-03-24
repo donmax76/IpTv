@@ -458,16 +458,22 @@ class FmRadioService : Service() {
                     if (freq < currentBand.startHz) freq = currentBand.endHz
 
                     dev.setFrequency(freq)
-                    delay(20)
+                    delay(30)
                     dev.resetBuffer()
+                    tempDemod.reset()
 
-                    val samples = dev.readSamples(16384)
-                    if (samples != null) {
-                        val power = tempDemod.measureSignalStrength(samples)
-                        if (power > SEEK_THRESHOLD) {
-                            found = freq
-                            break
+                    // Feed 3 chunks: first is warmup, measure on 2nd and 3rd
+                    var signalDb = -100f
+                    for (m in 0 until 3) {
+                        val samples = dev.readSamples(16384)
+                        if (samples != null) {
+                            tempDemod.demodulate(samples)
+                            if (m >= 1) signalDb = maxOf(signalDb, tempDemod.currentSignalStrengthDb)
                         }
+                    }
+                    if (signalDb > SEEK_THRESHOLD) {
+                        found = freq
+                        break
                     }
 
                     freq += if (forward) step else -step
