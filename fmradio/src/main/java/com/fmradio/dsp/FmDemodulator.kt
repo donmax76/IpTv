@@ -48,8 +48,8 @@ class FmDemodulator(
     private var deEmphasisStateR = 0f
     private val deEmphasisAlpha: Float
 
-    // IF low-pass filter (before stage 1 decimation) — 48 taps for speed
-    private val ifLpfOrder = 48
+    // IF low-pass filter (before stage 1 decimation) — 32 taps (good rejection, fast on ARM)
+    private val ifLpfOrder = 32
     private val ifLpfCoeffs: FloatArray
     private var ifBufI = FloatArray(ifLpfOrder)
     private var ifBufQ = FloatArray(ifLpfOrder)
@@ -119,6 +119,13 @@ class FmDemodulator(
     private var muteRamp = 1.0f  // Start at 100% — play audio immediately
     private val muteRampUp = 0.05f   // ~20 audio samples to reach full volume
     private val muteRampDown = 0.05f  // ~20 audio samples to mute
+
+    // Pre-allocated output buffers — avoids 33KB of GC pressure per callback (~17×/sec)
+    // Sized for standard 65536-byte IQ input: 32768 IQ samples / 24 decimation + 2 = 1367 frames × 2 = 2734
+    private val maxAudioOut = 2800 * 2  // stereo pairs, slight overallocation for safety
+    private var audioOutBuf = ShortArray(maxAudioOut)
+    private val maxWbOut = 32768 / stage1Decimation + 2
+    private var wbBuf = FloatArray(maxWbOut)
 
     // ========== rtl_fm LUT atan2 (for maximum performance) ==========
     private val atanLutSize = 131072
@@ -220,13 +227,16 @@ class FmDemodulator(
         if (resetting) return ShortArray(0)
         val numIqSamples = iqData.size / 2
         val maxAudioSamples = numIqSamples / (stage1Decimation * stage2Decimation) + 2
-        // Stereo output: 2 samples per audio frame (L, R)
-        val audioOut = ShortArray(maxAudioSamples * 2)
+        // Use pre-allocated buffers — resize only if input is unexpectedly large
+        val neededAudio = maxAudioSamples * 2
+        if (neededAudio > audioOutBuf.size) audioOutBuf = ShortArray(neededAudio)
+        val audioOut = audioOutBuf
         var audioCount = 0
 
         val wbListener = widebandListener
         val maxWbSamples = numIqSamples / stage1Decimation + 2
-        val widebandBuf = if (wbListener != null) FloatArray(maxWbSamples) else null
+        if (maxWbSamples > wbBuf.size) wbBuf = FloatArray(maxWbSamples)
+        val widebandBuf = if (wbListener != null) wbBuf else null
         var wbCount = 0
 
         for (i in 0 until numIqSamples) {
@@ -398,11 +408,11 @@ class FmDemodulator(
 
         // Send wideband data to RDS with current pilot phase
         if (wbListener != null && wbCount > 0) {
-            val buf = if (wbCount == widebandBuf!!.size) widebandBuf else widebandBuf.copyOf(wbCount)
+            val buf = widebandBuf!!.copyOf(wbCount)
             wbListener.invoke(buf, pilotNcoPhase)
         }
 
-        return if (audioCount == audioOut.size) audioOut else audioOut.copyOf(audioCount)
+        return audioOut.copyOf(audioCount)
     }
 
     fun measureSignalStrength(iqData: ByteArray): Float {

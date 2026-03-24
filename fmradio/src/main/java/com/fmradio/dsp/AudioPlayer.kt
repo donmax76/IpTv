@@ -13,7 +13,7 @@ import java.util.concurrent.locks.ReentrantLock
  *
  * Key design:
  *  - Lightweight lock (only held during index update, not during AudioTrack.write)
- *  - Pre-buffering: accumulate ~300ms before first drain to absorb USB jitter
+ *  - Pre-buffering: accumulate ~150ms before first drain to absorb USB jitter
  *  - Fade-in: 50ms ramp on initial playback to prevent startup pop
  *  - Crossfade on overflow: prevents audible discontinuity when dropping samples
  *  - Large ring buffer: 4s of stereo audio for maximum jitter tolerance
@@ -24,10 +24,12 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         private const val TAG = "AudioPlayer"
         // Ring buffer: ~4s of stereo audio at 48kHz (L,R interleaved)
         private const val RING_BUFFER_SAMPLES = 384000  // 48000 frames × 2 ch × 4 sec
-        private const val LOW_WATERMARK = 4096   // ~43ms stereo — minimum to drain
+        // Drain ANY available data once we have at least 512 samples (~5ms)
+        // Must be well below per-callback output (~2730 samples) to avoid skipping batches
+        private const val LOW_WATERMARK = 512
         private const val HIGH_WATERMARK = 345600 // 90% full — trigger overflow drop
         // Pre-buffer: accumulate this much before starting AudioTrack drain
-        private const val PRE_BUFFER_SAMPLES = 28800  // ~300ms stereo — absorb USB jitter
+        private const val PRE_BUFFER_SAMPLES = 14400  // ~150ms stereo — fast start
         // Fade-in on initial playback start to prevent pop
         private const val FADE_IN_SAMPLES = 4800  // ~50ms stereo
         // Crossfade on buffer overflow to prevent click
@@ -63,8 +65,8 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             Log.e(TAG, "Invalid min buffer size: $minBufSize")
             return
         }
-        // Use 8× minimum for extra headroom against underruns
-        val bufferSize = minBufSize * 8
+        // Use 6× minimum for headroom
+        val bufferSize = minBufSize * 6
 
         try {
             audioTrack = AudioTrack.Builder()
@@ -111,14 +113,12 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         playbackThread = Thread({
             try {
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
-            } catch (_: Throwable) {
-                // Some devices don't allow URGENT_AUDIO priority
-            }
-            val chunkSize = 4096  // 2048 stereo frames — larger chunks reduce overhead
-            val chunk = ShortArray(chunkSize)
+            } catch (_: Throwable) {}
+            // Chunk array sized for max single write — actual write may be smaller
+            val maxChunk = 8192
+            val chunk = ShortArray(maxChunk)
 
             try { while (isPlaying) {
-                // Check buffered count under lock (fast — just read an int)
                 val avail: Int
                 lock.lock()
                 try { avail = bufferedSamples } finally { lock.unlock() }
@@ -126,7 +126,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                 // Wait for pre-buffer to fill before first drain
                 if (!preBufferFilled) {
                     if (avail < PRE_BUFFER_SAMPLES) {
-                        try { Thread.sleep(1) } catch (_: InterruptedException) { break }
+                        try { Thread.sleep(2) } catch (_: InterruptedException) { break }
                         continue
                     }
                     preBufferFilled = true
@@ -134,32 +134,26 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                     DebugLog.log("AUD", "Pre-buffer filled ($avail samples), draining to AudioTrack")
                 }
 
-                val toDrain = if (avail >= chunkSize) chunkSize
-                              else if (avail >= LOW_WATERMARK) (avail and 0x7FFFFFFE).coerceAtMost(chunkSize)
-                              else {
-                                  // Underrun: yield briefly and retry
-                                  Thread.yield()
-                                  val retryAvail: Int
-                                  lock.lock()
-                                  try { retryAvail = bufferedSamples } finally { lock.unlock() }
-                                  if (retryAvail >= LOW_WATERMARK) {
-                                      (retryAvail and 0x7FFFFFFE).coerceAtMost(chunkSize)
-                                  } else {
-                                      try { Thread.sleep(1) } catch (_: InterruptedException) { break }
-                                      continue
-                                  }
-                              }
+                // Drain whatever is available (up to maxChunk), as long as above LOW_WATERMARK
+                if (avail < LOW_WATERMARK) {
+                    try { Thread.sleep(1) } catch (_: InterruptedException) { break }
+                    continue
+                }
+
+                val toDrain = avail.coerceAtMost(maxChunk) and 0x7FFFFFFE  // even count for stereo
 
                 if (toDrain == 0) {
                     try { Thread.sleep(1) } catch (_: InterruptedException) { break }
                     continue
                 }
 
-                // Copy from ring buffer under lock, then release lock before AudioTrack.write
+                // Copy from ring buffer under lock
+                var actualDrain: Int
                 lock.lock()
                 try {
-                    val actualDrain = toDrain.coerceAtMost(bufferedSamples)
-                    if (actualDrain == 0) continue
+                    actualDrain = toDrain.coerceAtMost(bufferedSamples)
+                    if (actualDrain < 2) { actualDrain = 0; continue }
+                    actualDrain = actualDrain and 0x7FFFFFFE  // keep even
                     for (i in 0 until actualDrain) {
                         chunk[i] = ringBuffer[readPos]
                         readPos = (readPos + 1) % RING_BUFFER_SAMPLES
@@ -167,19 +161,24 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                     bufferedSamples -= actualDrain
                 } finally { lock.unlock() }
 
+                if (actualDrain == 0) continue
+
                 // Apply fade-in on initial playback start (outside lock)
-                for (i in 0 until toDrain) {
-                    if (samplesPlayed < FADE_IN_SAMPLES) {
-                        val fadeGain = samplesPlayed.toFloat() / FADE_IN_SAMPLES
-                        chunk[i] = (chunk[i] * fadeGain).toInt().coerceIn(-32767, 32767).toShort()
+                if (samplesPlayed < FADE_IN_SAMPLES) {
+                    for (i in 0 until actualDrain) {
+                        if (samplesPlayed < FADE_IN_SAMPLES) {
+                            val fadeGain = samplesPlayed.toFloat() / FADE_IN_SAMPLES
+                            chunk[i] = (chunk[i] * fadeGain).toInt().coerceIn(-32767, 32767).toShort()
+                        }
+                        samplesPlayed++
                     }
-                    lastOutputSample = chunk[i].toInt()
-                    samplesPlayed++
+                } else {
+                    samplesPlayed += actualDrain
                 }
 
-                // Write to AudioTrack outside lock — this is the slow part
+                // Write to AudioTrack outside lock — this is the blocking part
                 try {
-                    audioTrack?.write(chunk, 0, toDrain)
+                    audioTrack?.write(chunk, 0, actualDrain)
                 } catch (e: Exception) {
                     Log.e(TAG, "Error writing audio", e)
                 }
