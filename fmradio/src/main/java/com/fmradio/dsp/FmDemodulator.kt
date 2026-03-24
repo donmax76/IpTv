@@ -53,8 +53,9 @@ class FmDemodulator(
     // for FM (adjacent channel at ±200 kHz, our cutoff at 120 kHz).
     private val ifLpfOrder = 24
     private val ifLpfCoeffs: FloatArray
-    private var ifBufI = FloatArray(ifLpfOrder)
-    private var ifBufQ = FloatArray(ifLpfOrder)
+    // Double-buffer trick: size 2×N, write to both halves, filter without modulo
+    private var ifBufI = FloatArray(ifLpfOrder * 2)
+    private var ifBufQ = FloatArray(ifLpfOrder * 2)
     private var ifBufIdx = 0
 
     // Audio low-pass filters — separate for L+R (mono) and L-R (stereo difference)
@@ -62,16 +63,17 @@ class FmDemodulator(
     // after stereo decoding, so wider transition band only lets in noise above Nyquist.
     private val audioLpfOrder = 16
     private val audioLpfCoeffs: FloatArray
-    private var monoLpfBuf = FloatArray(audioLpfOrder)    // L+R channel
+    // Double-buffer trick: eliminates modulo in filter inner loop
+    private var monoLpfBuf = FloatArray(audioLpfOrder * 2)    // L+R channel
     private var monoLpfIdx = 0
-    private var diffLpfBuf = FloatArray(audioLpfOrder)    // L-R channel
+    private var diffLpfBuf = FloatArray(audioLpfOrder * 2)    // L-R channel
     private var diffLpfIdx = 0
 
     private var stage1Counter = 0
     private var stage2Counter = 0
 
-    // Wideband output for RDS — includes pilot phase
-    var widebandListener: ((FloatArray, Double) -> Unit)? = null
+    // Wideband output for RDS — includes buffer, count, pilot phase (zero-copy)
+    var widebandListener: ((FloatArray, Int, Double) -> Unit)? = null
 
     // ========== Pilot PLL (19 kHz, SDR++/gr-rds approach) ==========
     private val pilotBpfState = DoubleArray(4)
@@ -124,10 +126,9 @@ class FmDemodulator(
     private val muteRampUp = 0.02f   // ~50 audio samples to reach full volume
     private val muteRampDown = 0.05f  // ~20 audio samples to mute
 
-    // Pre-allocated output buffers to eliminate GC pressure in hot path
-    // Max input: 262144 bytes = 131072 IQ samples → 5461 audio frames × 2 channels
-    private val audioOutBuf = ShortArray(12000)  // generous headroom
-    private val wbBuf = FloatArray(24000)
+    // Pre-allocated wideband buffer for RDS (zero-copy to listener)
+    // Max input: 32768 bytes = 16384 IQ → 2730 intermediate samples
+    private val wbBuf = FloatArray(6000)
 
     // ========== rtl_fm LUT atan2 (for maximum performance) ==========
     private val atanLutSize = 131072
@@ -223,13 +224,13 @@ class FmDemodulator(
      * Demodulate raw IQ samples to stereo audio PCM (interleaved L,R,L,R...).
      * Also feeds wideband baseband to RDS decoder if listener is set.
      *
-     * @return ShortArray of interleaved stereo samples (L,R,L,R,...)
+     * @param iqData Raw IQ bytes from USB
+     * @param outBuf Pre-allocated output buffer for stereo PCM samples
+     * @return Number of samples written to outBuf
      */
-    fun demodulate(iqData: ByteArray): ShortArray {
-        if (resetting) return ShortArray(0)
+    fun demodulate(iqData: ByteArray, outBuf: ShortArray): Int {
+        if (resetting) return 0
         val numIqSamples = iqData.size / 2
-        // Use pre-allocated buffers — no allocation in hot path
-        val audioOut = audioOutBuf
         var audioCount = 0
 
         val wbListener = widebandListener
@@ -246,9 +247,11 @@ class FmDemodulator(
             iSample -= dcI
             qSample -= dcQ
 
-            // Store in IF filter buffer
+            // Store in IF filter double-buffer (write to both halves)
             ifBufI[ifBufIdx] = iSample
+            ifBufI[ifBufIdx + ifLpfOrder] = iSample
             ifBufQ[ifBufIdx] = qSample
+            ifBufQ[ifBufIdx + ifLpfOrder] = qSample
             ifBufIdx = (ifBufIdx + 1) % ifLpfOrder
 
             // Stage 1 decimation: 1152 kHz → 192 kHz
@@ -256,13 +259,14 @@ class FmDemodulator(
             if (stage1Counter < stage1Decimation) continue
             stage1Counter = 0
 
-            // Apply IF bandpass filter
+            // Apply IF bandpass filter — no modulo in inner loop (double-buffer trick)
             var filtI = 0f
             var filtQ = 0f
+            val ifBase = ifBufIdx  // after increment, this points to oldest; newest = ifBase + N - 1
             for (j in 0 until ifLpfOrder) {
-                val idx = (ifBufIdx - 1 - j + ifLpfOrder) % ifLpfOrder
-                filtI += ifBufI[idx] * ifLpfCoeffs[j]
-                filtQ += ifBufQ[idx] * ifLpfCoeffs[j]
+                val pos = ifBase + ifLpfOrder - 1 - j
+                filtI += ifBufI[pos] * ifLpfCoeffs[j]
+                filtQ += ifBufQ[pos] * ifLpfCoeffs[j]
             }
 
             // FM discriminator: conjugate multiply + atan2 (rtl_fm / SDR++ approach)
@@ -347,9 +351,11 @@ class FmDemodulator(
             val stereoCarrier = cos(2.0 * pilotNcoPhase).toFloat()
             val diff = baseband * stereoCarrier * 2f  // ×2 for DSB-SC amplitude recovery
 
-            // Feed into separate audio LPF buffers
+            // Feed into separate audio LPF double-buffers
             monoLpfBuf[monoLpfIdx] = mono
+            monoLpfBuf[monoLpfIdx + audioLpfOrder] = mono
             diffLpfBuf[diffLpfIdx] = diff
+            diffLpfBuf[diffLpfIdx + audioLpfOrder] = diff
             monoLpfIdx = (monoLpfIdx + 1) % audioLpfOrder
             diffLpfIdx = (diffLpfIdx + 1) % audioLpfOrder
 
@@ -358,14 +364,16 @@ class FmDemodulator(
             if (stage2Counter < stage2Decimation) continue
             stage2Counter = 0
 
-            // Apply audio LPF to both mono and diff channels
+            // Apply audio LPF — no modulo in inner loop (double-buffer trick)
             var filtMono = 0f
             var filtDiff = 0f
+            val monoBase = monoLpfIdx
+            val diffBase = diffLpfIdx
             for (j in 0 until audioLpfOrder) {
-                val mIdx = (monoLpfIdx - 1 - j + audioLpfOrder) % audioLpfOrder
-                val dIdx = (diffLpfIdx - 1 - j + audioLpfOrder) % audioLpfOrder
-                filtMono += monoLpfBuf[mIdx] * audioLpfCoeffs[j]
-                filtDiff += diffLpfBuf[dIdx] * audioLpfCoeffs[j]
+                val mPos = monoBase + audioLpfOrder - 1 - j
+                val dPos = diffBase + audioLpfOrder - 1 - j
+                filtMono += monoLpfBuf[mPos] * audioLpfCoeffs[j]
+                filtDiff += diffLpfBuf[dPos] * audioLpfCoeffs[j]
             }
 
             // Stereo matrix: L = (L+R + L-R) / 2, R = (L+R - L-R) / 2
@@ -397,19 +405,18 @@ class FmDemodulator(
             val sampleL = (outL * gain).toInt().coerceIn(-32767, 32767)
             val sampleR = (outR * gain).toInt().coerceIn(-32767, 32767)
 
-            if (audioCount + 1 < audioOut.size) {
-                audioOut[audioCount++] = sampleL.toShort()
-                audioOut[audioCount++] = sampleR.toShort()
+            if (audioCount + 1 < outBuf.size) {
+                outBuf[audioCount++] = sampleL.toShort()
+                outBuf[audioCount++] = sampleR.toShort()
             }
         }
 
-        // Send wideband data to RDS with current pilot phase
+        // Send wideband data to RDS with current pilot phase (zero-copy: pass count)
         if (wbListener != null && wbCount > 0) {
-            wbListener.invoke(widebandBuf!!.copyOf(wbCount), pilotNcoPhase)
+            wbListener.invoke(widebandBuf!!, wbCount, pilotNcoPhase)
         }
 
-        // Return view of pre-allocated buffer (single copyOf — small: ~5KB typical)
-        return audioOut.copyOf(audioCount)
+        return audioCount
     }
 
     fun measureSignalStrength(iqData: ByteArray): Float {
@@ -455,9 +462,9 @@ class FmDemodulator(
         resetting = true
         prevI = 0f; prevQ = 0f; deEmphasisStateL = 0f; deEmphasisStateR = 0f
         dcI = 0f; dcQ = 0f
-        ifBufI = FloatArray(ifLpfOrder); ifBufQ = FloatArray(ifLpfOrder); ifBufIdx = 0
-        monoLpfBuf = FloatArray(audioLpfOrder); monoLpfIdx = 0
-        diffLpfBuf = FloatArray(audioLpfOrder); diffLpfIdx = 0
+        ifBufI = FloatArray(ifLpfOrder * 2); ifBufQ = FloatArray(ifLpfOrder * 2); ifBufIdx = 0
+        monoLpfBuf = FloatArray(audioLpfOrder * 2); monoLpfIdx = 0
+        diffLpfBuf = FloatArray(audioLpfOrder * 2); diffLpfIdx = 0
         stage1Counter = 0; stage2Counter = 0
         pilotNcoPhase = 0.0
         pilotNcoFreq = 2.0 * PI * 19000.0 / intermediateRate

@@ -255,8 +255,13 @@ class FmRadioService : Service() {
             }
         }
 
-        demodulator?.widebandListener = { widebandSamples, pilotPhase ->
-            rdsDecoder?.process(widebandSamples, pilotPhase)
+        // RDS: skip every other callback to save ~50% CPU on 48-tap filter
+        var rdsCallbackCounter = 0
+        demodulator?.widebandListener = { widebandBuf, count, pilotPhase ->
+            rdsCallbackCounter++
+            if (rdsCallbackCounter % 2 == 0) {
+                rdsDecoder?.process(widebandBuf, count, pilotPhase)
+            }
         }
 
         equalizer = AudioEqualizer(48000)
@@ -267,7 +272,7 @@ class FmRadioService : Service() {
         // Double-buffered pipeline: USB reads and DSP processing run on separate threads.
         // This overlaps USB I/O with demodulation, eliminating the throughput gap that
         // caused audio underruns (USB read ~28ms + demod ~22ms = 50ms for 28ms of audio).
-        // With overlap: effective cycle = max(USB, demod) ≈ 28ms for 28ms of audio = ~100%.
+        // With overlap: effective cycle = max(USB, demod) ≈ 14ms for 14ms of audio = ~100%.
         val queue = ArrayBlockingQueue<ByteArray>(8)
         iqQueue = queue
 
@@ -279,15 +284,17 @@ class FmRadioService : Service() {
         val processingThread = Thread({
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
             Log.i(TAG, "DSP processing thread started")
+            // Pre-allocate audio output buffer — zero GC in hot path
+            // Max: 32768 bytes = 16384 IQ → 2730 stereo frames × 2 ch = 5460 samples
+            val audioBuf = ShortArray(6000)
             try {
                 while (isPlaying) {
                     val iqData = queue.poll(100, TimeUnit.MILLISECONDS) ?: continue
                     val demod = demodulator ?: continue
-                    var audioSamples = demod.demodulate(iqData)
-                    if (audioSamples.isNotEmpty()) {
-                        val eq = equalizer
-                        if (eq != null) audioSamples = eq.process(audioSamples)
-                        audioPlayer?.writeSamples(audioSamples)
+                    val audioCount = demod.demodulate(iqData, audioBuf)
+                    if (audioCount > 0) {
+                        equalizer?.process(audioBuf, audioCount)
+                        audioPlayer?.writeSamples(audioBuf, audioCount)
                     }
                     val stereoNow = demod.isStereo
                     if (stereoNow != lastStereo) {
@@ -325,8 +332,9 @@ class FmRadioService : Service() {
 
             Log.i(TAG, "USB setup done, starting streaming...")
 
-            // Use 65536 byte buffers (natural USB transfer size) for lower latency
-            val innerJob = dev.startStreaming(65536) { iqData ->
+            // Use 32768 byte buffers (half of previous 65536) — 2× more callbacks
+            // but each demod call is faster, reducing peak latency and improving throughput
+            val innerJob = dev.startStreaming(32768) { iqData ->
                 // Non-blocking offer — if queue is full, drop oldest to keep USB flowing
                 if (!queue.offer(iqData)) {
                     queue.poll() // drop oldest

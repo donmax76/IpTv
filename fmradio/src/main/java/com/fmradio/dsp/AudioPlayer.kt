@@ -172,14 +172,14 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         Log.i(TAG, "Stereo audio started (${sampleRate}Hz, buf=$bufferSize, ring=$RING_BUFFER_SAMPLES)")
     }
 
-    fun writeSamples(samples: ShortArray) {
-        if (!isPlaying) return
+    fun writeSamples(samples: ShortArray, count: Int = samples.size) {
+        if (!isPlaying || count <= 0) return
         lock.lock()
         try {
             val freeSpace = RING_BUFFER_SAMPLES - bufferedSamples
-            if (samples.size > freeSpace) {
+            if (count > freeSpace) {
                 // Overflow: drop oldest samples with crossfade to prevent click
-                val toDrop = samples.size - freeSpace + RING_BUFFER_SAMPLES / 8
+                val toDrop = count - freeSpace + RING_BUFFER_SAMPLES / 8
                 if (toDrop > 0 && toDrop <= bufferedSamples) {
                     val fadeLen = CROSSFADE_SAMPLES.coerceAtMost(bufferedSamples - toDrop)
                     val newReadPos = (readPos + toDrop) % RING_BUFFER_SAMPLES
@@ -192,11 +192,11 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                     bufferedSamples -= toDrop
                 }
             }
-            for (s in samples) {
-                ringBuffer[writePos] = s
+            for (i in 0 until count) {
+                ringBuffer[writePos] = samples[i]
                 writePos = (writePos + 1) % RING_BUFFER_SAMPLES
             }
-            bufferedSamples += samples.size
+            bufferedSamples += count
         } finally { lock.unlock() }
     }
 
