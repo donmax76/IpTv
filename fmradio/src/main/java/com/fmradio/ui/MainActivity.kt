@@ -522,33 +522,49 @@ class MainActivity : Activity() {
         }
     }
 
+    @Volatile
+    private var isConnecting = false
+
     private fun openDevice(usbDevice: UsbDevice) {
+        if (isConnecting) {
+            DebugLog.log("UI", "openDevice blocked — already connecting")
+            return
+        }
+        isConnecting = true
         tvStatus.text = getString(R.string.status_connecting)
         setControlsEnabled(false)
 
-        activityScope.launch {
-            val dev = RtlSdrDevice(this@MainActivity)
-            val success = withContext(Dispatchers.IO) {
-                dev.open(usbDevice)
-            }
+        // Close previous device if any
+        rtlSdrDevice?.close()
+        rtlSdrDevice = null
 
-            if (success) {
-                rtlSdrDevice = dev
-                DebugLog.log("UI", "Device opened: tuner=${dev.getTunerType()}, name=${usbDevice.deviceName}")
-                val service = radioService
-                if (service != null) {
-                    service.initDevice(dev)
-                    tvStatus.text = getString(R.string.status_connected)
-                    tvDeviceInfo.text = getString(R.string.device_info_format, dev.getTunerType().name, usbDevice.deviceName)
-                    setControlsEnabled(true)
-                    startPlayback()
-                } else {
-                    pendingDevice = dev
-                    pendingUsbDeviceName = usbDevice.deviceName
-                    tvStatus.text = getString(R.string.status_connecting)
+        activityScope.launch {
+            try {
+                val dev = RtlSdrDevice(this@MainActivity)
+                val success = withContext(Dispatchers.IO) {
+                    dev.open(usbDevice)
                 }
-            } else {
-                tvStatus.text = getString(R.string.status_connection_failed)
+
+                if (success) {
+                    rtlSdrDevice = dev
+                    DebugLog.log("UI", "Device opened: tuner=${dev.getTunerType()}, name=${usbDevice.deviceName}")
+                    val service = radioService
+                    if (service != null) {
+                        service.initDevice(dev)
+                        tvStatus.text = getString(R.string.status_connected)
+                        tvDeviceInfo.text = getString(R.string.device_info_format, dev.getTunerType().name, usbDevice.deviceName)
+                        setControlsEnabled(true)
+                        startPlayback()
+                    } else {
+                        pendingDevice = dev
+                        pendingUsbDeviceName = usbDevice.deviceName
+                        tvStatus.text = getString(R.string.status_connecting)
+                    }
+                } else {
+                    tvStatus.text = getString(R.string.status_connection_failed)
+                }
+            } finally {
+                isConnecting = false
             }
         }
     }

@@ -32,9 +32,10 @@ class RtlSdrDevice(private val context: Context) {
         private const val BLOCK_USB = 1
         private const val BLOCK_SYS = 2
 
-        // USB timeout
+        // USB timeouts
         private const val USB_TIMEOUT = 5000
         private const val CTRL_TIMEOUT = 300
+        private const val I2C_TIMEOUT = 1000  // I2C needs longer timeout on some devices
 
         // RTL2832U control request types
         private const val CTRL_IN = UsbConstants.USB_DIR_IN or UsbConstants.USB_TYPE_VENDOR
@@ -330,43 +331,42 @@ class RtlSdrDevice(private val context: Context) {
     }
 
     private fun detectTuner(): TunerType {
-        // Try R820T first (most common in RTL-SDR v2/v3)
-        // Re-toggle I2C repeater before each probe to ensure it's active
-        for (attempt in 0 until 4) {
+        // First: probe all I2C methods to find one that works on this device
+        probeI2CMethods()
+
+        // Then try to detect tuner with the working method
+        for (attempt in 0 until 3) {
             if (attempt > 0) {
-                // Re-enable I2C repeater on retry with increasing delay
                 enableI2CRepeater(false)
                 Thread.sleep(20L * attempt)
                 enableI2CRepeater(true)
                 Thread.sleep(10)
             }
 
-            // Try R820T (I2C addr 0x34)
-            var data = i2cRead(R820T_I2C_ADDR, 0x00, 1)
+            // Try R820T — first raw read (no register set), then register read
+            var data = i2cRawRead(R820T_I2C_ADDR, 1)
+            if (data == null) data = i2cRead(R820T_I2C_ADDR, 0x00, 1)
             if (data != null && data.isNotEmpty()) {
                 val chipId = data[0].toInt() and 0xFF
                 DebugLog.log("USB", "R820T probe: chipId=0x${chipId.toString(16)} (attempt=$attempt)")
-                Log.i(TAG, "R820T chip ID: 0x${chipId.toString(16)}")
                 if (chipId == 0x69) return TunerType.R820T
             } else {
                 DebugLog.log("USB", "R820T probe: I2C FAILED attempt=$attempt")
             }
 
-            // Try R828D (I2C addr 0x74)
-            data = i2cRead(R828D_I2C_ADDR, 0x00, 1)
+            // Try R828D
+            data = i2cRawRead(R828D_I2C_ADDR, 1)
+            if (data == null) data = i2cRead(R828D_I2C_ADDR, 0x00, 1)
             if (data != null && data.isNotEmpty()) {
                 val chipId = data[0].toInt() and 0xFF
                 DebugLog.log("USB", "R828D probe: chipId=0x${chipId.toString(16)} (attempt=$attempt)")
-                Log.i(TAG, "R828D chip ID: 0x${chipId.toString(16)}")
                 if (chipId == 0x69) return TunerType.R828D
             } else {
                 DebugLog.log("USB", "R828D probe: I2C FAILED attempt=$attempt")
             }
         }
 
-        // Default to R820T for RTL-SDR v2
-        DebugLog.log("USB", "Tuner NOT identified after 4 attempts, assuming R820T")
-        Log.i(TAG, "Tuner not positively identified, assuming R820T")
+        DebugLog.log("USB", "Tuner NOT identified after 3 attempts, assuming R820T")
         return TunerType.R820T
     }
 
@@ -994,7 +994,8 @@ class RtlSdrDevice(private val context: Context) {
         // Set GPIO4 and GPIO5 as output (direction=0 means output for these bits)
         // GPD: 0 = output, GPOE: 1 = enabled
         val gpioBits = 0x30  // bits 4,5
-        writeReg(BLOCK_SYS, SYS_GPD, gpdVal and gpioBits.inv(), 1)   // direction = output
+        // In librtlsdr: GPD bit=1 means output direction
+        writeReg(BLOCK_SYS, SYS_GPD, gpdVal or gpioBits, 1)          // direction = output (1=output)
         writeReg(BLOCK_SYS, SYS_GPOE, gpoeVal or gpioBits, 1)        // output enable
         writeReg(BLOCK_SYS, SYS_GPO, gpoVal or gpioBits, 1)          // set HIGH (power on)
 
@@ -1019,6 +1020,12 @@ class RtlSdrDevice(private val context: Context) {
         }
     }
 
+    // I2C index variants to try.
+    // librtlsdr uses IICB=6, index=0x0600 for both read and write.
+    // Some devices may need the 0x10 write-flag: 0x0610.
+    private var i2cWriteIndex = 0x0600
+    private var i2cReadIndex = 0x0600
+
     /**
      * Write to tuner via I2C bus.
      * Address is 8-bit I2C address (0x34 for R820T, 0x74 for R828D).
@@ -1029,7 +1036,7 @@ class RtlSdrDevice(private val context: Context) {
         buf[0] = reg.toByte()
         System.arraycopy(data, 0, buf, 1, data.size)
 
-        val result = conn.controlTransfer(CTRL_OUT, 0, addr, 0x0600, buf, buf.size, CTRL_TIMEOUT)
+        val result = conn.controlTransfer(CTRL_OUT, 0, addr, i2cWriteIndex, buf, buf.size, I2C_TIMEOUT)
         if (result < 0) {
             Log.w(TAG, "i2cWrite failed: addr=0x${addr.toString(16)} reg=0x${reg.toString(16)}")
         }
@@ -1037,33 +1044,94 @@ class RtlSdrDevice(private val context: Context) {
 
     /**
      * Read from tuner via I2C bus.
-     * Retries up to 3 times — some RTL-SDR devices need multiple attempts.
+     * Two-phase: write register address, then read data.
      */
     @Suppress("SameParameterValue")
     private fun i2cRead(addr: Int, reg: Int, len: Int): ByteArray? {
         val conn = usbConnection ?: return null
 
-        for (attempt in 0 until 5) {
+        for (attempt in 0 until 3) {
             // Write register address
             val regBuf = byteArrayOf(reg.toByte())
-            val wr = conn.controlTransfer(CTRL_OUT, 0, addr, 0x0600, regBuf, 1, CTRL_TIMEOUT)
+            val wr = conn.controlTransfer(CTRL_OUT, 0, addr, i2cWriteIndex, regBuf, 1, I2C_TIMEOUT)
             if (wr < 0) {
-                DebugLog.log("USB", "i2cRead WRITE phase failed: addr=0x${addr.toString(16)} reg=0x${reg.toString(16)} attempt=$attempt wr=$wr")
                 Thread.sleep(10L * (attempt + 1))
                 continue
             }
 
-            // Small delay between write and read phases
             Thread.sleep(2)
 
             // Read data
             val data = ByteArray(len)
-            val result = conn.controlTransfer(CTRL_IN, 0, addr, 0x0600, data, len, CTRL_TIMEOUT)
+            val result = conn.controlTransfer(CTRL_IN, 0, addr, i2cReadIndex, data, len, I2C_TIMEOUT)
             if (result >= 0) return data
-            DebugLog.log("USB", "i2cRead READ phase failed: addr=0x${addr.toString(16)} reg=0x${reg.toString(16)} attempt=$attempt rd=$result")
             Thread.sleep(10L * (attempt + 1))
         }
         return null
+    }
+
+    /**
+     * Raw I2C read — just read without setting register address first.
+     * Some devices support this for chip ID probing.
+     */
+    private fun i2cRawRead(addr: Int, len: Int): ByteArray? {
+        val conn = usbConnection ?: return null
+        val data = ByteArray(len)
+        val result = conn.controlTransfer(CTRL_IN, 0, addr, i2cReadIndex, data, len, I2C_TIMEOUT)
+        return if (result >= 0) data else null
+    }
+
+    /**
+     * Probe all I2C addressing methods to find working one.
+     * Returns true if I2C communication works with any method.
+     */
+    private fun probeI2CMethods(): Boolean {
+        val conn = usbConnection ?: return false
+        val testBuf = byteArrayOf(0x00)
+
+        // Methods to try: (writeIndex, readIndex, description)
+        val methods = arrayOf(
+            Triple(0x0600, 0x0600, "standard (IICB=6, no flags)"),
+            Triple(0x0610, 0x0600, "write-flag (IICB=6|0x10 for write)"),
+            Triple(0x0310, 0x0300, "TUNB=3 with write-flag"),
+            Triple(0x0300, 0x0300, "TUNB=3 no flags"),
+        )
+
+        for ((wrIdx, rdIdx, desc) in methods) {
+            DebugLog.log("USB", "I2C probe method: $desc (wr=0x${wrIdx.toString(16)} rd=0x${rdIdx.toString(16)})")
+
+            // Try write to R820T address
+            val wr = conn.controlTransfer(CTRL_OUT, 0, R820T_I2C_ADDR, wrIdx, testBuf, 1, I2C_TIMEOUT)
+            DebugLog.log("USB", "  write(0x34)=$wr")
+
+            // Try raw read from R820T address
+            val rdBuf = ByteArray(1)
+            val rd = conn.controlTransfer(CTRL_IN, 0, R820T_I2C_ADDR, rdIdx, rdBuf, 1, I2C_TIMEOUT)
+            DebugLog.log("USB", "  read(0x34)=$rd data=0x${(rdBuf[0].toInt() and 0xFF).toString(16)}")
+
+            if (wr >= 0 || rd >= 0) {
+                DebugLog.log("USB", "I2C method WORKS: $desc")
+                i2cWriteIndex = wrIdx
+                i2cReadIndex = rdIdx
+                return true
+            }
+
+            // Also try R828D address
+            val wr2 = conn.controlTransfer(CTRL_OUT, 0, R828D_I2C_ADDR, wrIdx, testBuf, 1, I2C_TIMEOUT)
+            val rdBuf2 = ByteArray(1)
+            val rd2 = conn.controlTransfer(CTRL_IN, 0, R828D_I2C_ADDR, rdIdx, rdBuf2, 1, I2C_TIMEOUT)
+            DebugLog.log("USB", "  write(0x74)=$wr2 read(0x74)=$rd2 data=0x${(rdBuf2[0].toInt() and 0xFF).toString(16)}")
+
+            if (wr2 >= 0 || rd2 >= 0) {
+                DebugLog.log("USB", "I2C method WORKS (R828D): $desc")
+                i2cWriteIndex = wrIdx
+                i2cReadIndex = rdIdx
+                return true
+            }
+        }
+
+        DebugLog.log("USB", "ALL I2C methods FAILED — tuner may be unreachable")
+        return false
     }
 
     fun getFrequency(): Long = centerFrequency
