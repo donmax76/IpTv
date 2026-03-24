@@ -16,10 +16,12 @@ import android.os.IBinder
 import android.view.View
 import android.view.WindowManager
 import android.widget.*
+import android.widget.ScrollView
 import com.fmradio.R
 import com.fmradio.data.PresetItem
 import com.fmradio.data.RadioStation
 import com.fmradio.data.StationStorage
+import com.fmradio.dsp.DebugLog
 import com.fmradio.dsp.FmScanner
 import com.fmradio.dsp.RdsDecoder
 import com.fmradio.rtlsdr.RtlSdrDevice
@@ -110,6 +112,14 @@ class MainActivity : Activity() {
     private lateinit var layoutScanning: View
     private lateinit var progressScan: ProgressBar
     private lateinit var tvScanStatus: TextView
+
+    // Debug panel
+    private lateinit var layoutDebug: View
+    private lateinit var tvDebugLog: TextView
+    private lateinit var scrollDebug: ScrollView
+    private lateinit var btnDebug: Button
+    private lateinit var btnDebugClear: Button
+    private lateinit var btnDebugClose: Button
 
     private lateinit var lvStations: ListView
     private lateinit var stationAdapter: StationAdapter
@@ -300,6 +310,14 @@ class MainActivity : Activity() {
 
         seekVolume.max = 100
         layoutScanning.visibility = View.GONE
+
+        // Debug panel
+        layoutDebug = findViewById(R.id.layoutDebug)
+        tvDebugLog = findViewById(R.id.tvDebugLog)
+        scrollDebug = findViewById(R.id.scrollDebug)
+        btnDebug = findViewById(R.id.btnDebug)
+        btnDebugClear = findViewById(R.id.btnDebugClear)
+        btnDebugClose = findViewById(R.id.btnDebugClose)
     }
 
     private fun restoreBand() {
@@ -412,6 +430,34 @@ class MainActivity : Activity() {
         btnTa.setOnClickListener { toggleTa() }
         btnPty.setOnClickListener { showPtyInfo() }
         btnBand.setOnClickListener { showBandSelector() }
+
+        // Debug panel
+        btnDebug.setOnClickListener { toggleDebugPanel() }
+        btnDebugClear.setOnClickListener { DebugLog.clear(); tvDebugLog.text = "" }
+        btnDebugClose.setOnClickListener { toggleDebugPanel() }
+    }
+
+    private fun toggleDebugPanel() {
+        val showing = layoutDebug.visibility == View.VISIBLE
+        if (showing) {
+            layoutDebug.visibility = View.GONE
+            DebugLog.enabled = false
+            DebugLog.onNewLine = null
+        } else {
+            layoutDebug.visibility = View.VISIBLE
+            DebugLog.enabled = true
+            tvDebugLog.text = DebugLog.getText()
+            scrollDebug.post { scrollDebug.fullScroll(View.FOCUS_DOWN) }
+            DebugLog.onNewLine = { line ->
+                runOnUiThread {
+                    tvDebugLog.append("\n$line")
+                    scrollDebug.post { scrollDebug.fullScroll(View.FOCUS_DOWN) }
+                }
+            }
+            // Log current state
+            DebugLog.log("UI", "Debug enabled. Device=${rtlSdrDevice?.isDeviceOpen()}, playing=${radioService?.isPlaying}, freq=${currentFrequency/1e6}MHz")
+            DebugLog.log("UI", "Volume=${seekVolume.progress}%, tuner=${rtlSdrDevice?.getTunerType()}")
+        }
     }
 
     private fun showBandSelector() {
@@ -474,6 +520,7 @@ class MainActivity : Activity() {
 
             if (success) {
                 rtlSdrDevice = dev
+                DebugLog.log("UI", "Device opened: tuner=${dev.getTunerType()}, name=${usbDevice.deviceName}")
                 val service = radioService
                 if (service != null) {
                     service.initDevice(dev)
@@ -503,6 +550,7 @@ class MainActivity : Activity() {
         val service = radioService ?: return
         if (rtlSdrDevice == null) { showToast(getString(R.string.msg_connect_first)); return }
 
+        DebugLog.log("UI", "startPlayback: freq=${currentFrequency/1e6}MHz vol=${seekVolume.progress}%")
         service.tuneToFrequency(currentFrequency)
         service.startPlayback()
         service.setVolume(seekVolume.progress / 100f)

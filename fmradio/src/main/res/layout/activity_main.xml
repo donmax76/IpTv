@@ -52,6 +52,23 @@
                     android:textSize="12sp"
                     android:fontFamily="monospace" />
 
+                <Button
+                    android:id="@+id/btnDebug"
+                    android:layout_width="wrap_content"
+                    android:layout_height="24dp"
+                    android:layout_toStartOf="@+id/tvVersion"
+                    android:layout_centerVertical="true"
+                    android:layout_marginEnd="8dp"
+                    android:text="DBG"
+                    android:textColor="#FF888800"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:background="@drawable/bg_button_metal"
+                    android:padding="2dp"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp" />
+
                 <TextView
                     android:id="@+id/tvVersion"
                     android:layout_width="wrap_content"
@@ -542,6 +559,76 @@
 
             </LinearLayout>
         </LinearLayout>
+    </LinearLayout>
+
+    <!-- ======== DEBUG LOG PANEL (hidden by default) ======== -->
+    <LinearLayout
+        android:id="@+id/layoutDebug"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:background="#FF0A0A12"
+        android:padding="4dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="2dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="DEBUG LOG"
+                android:textColor="#FF00FF00"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace" />
+
+            <Button
+                android:id="@+id/btnDebugClear"
+                android:layout_width="wrap_content"
+                android:layout_height="28dp"
+                android:text="CLEAR"
+                android:textColor="#FFFF6600"
+                android:textSize="11sp"
+                android:background="@drawable/bg_button_metal"
+                android:layout_marginEnd="4dp"
+                android:padding="4dp" />
+
+            <Button
+                android:id="@+id/btnDebugClose"
+                android:layout_width="wrap_content"
+                android:layout_height="28dp"
+                android:text="CLOSE"
+                android:textColor="#FFFF4444"
+                android:textSize="11sp"
+                android:background="@drawable/bg_button_metal"
+                android:padding="4dp" />
+        </LinearLayout>
+
+        <ScrollView
+            android:id="@+id/scrollDebug"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fillViewport="true">
+
+            <TextView
+                android:id="@+id/tvDebugLog"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#FF00CC00"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:lineSpacingExtra="-1dp"
+                android:text=""
+                android:gravity="bottom" />
+        </ScrollView>
     </LinearLayout>
 
     <!-- ======== RIGHT PANEL: Presets + Stations (full height) ======== -->

@@ -3,6 +3,7 @@ package com.fmradio.rtlsdr
 import android.content.Context
 import android.hardware.usb.*
 import android.util.Log
+import com.fmradio.dsp.DebugLog
 import kotlinx.coroutines.*
 
 /**
@@ -60,6 +61,12 @@ class RtlSdrDevice(private val context: Context) {
 
         // Crystal frequency
         private const val RTL_XTAL_FREQ = 28800000L
+
+        // R820T IF frequency (3.57 MHz) — matches librtlsdr R82XX_IF_FREQ
+        // R820T has a bandpass IF filter centered at 3.57 MHz.
+        // The LO is set to (target_freq + IF_FREQ), placing the signal at 3.57 MHz,
+        // and RTL2832U's DDC shifts it to baseband.
+        private const val R820T_IF_FREQ = 3570000
 
         fun findDevice(context: Context): UsbDevice? {
             val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
@@ -143,11 +150,13 @@ class RtlSdrDevice(private val context: Context) {
             }
 
             usbConnection!!.claimInterface(usbInterface, true)
+            DebugLog.log("USB", "Interface claimed, endpoint=${bulkEndpoint?.address} maxPkt=${bulkEndpoint?.maxPacketSize}")
 
             // Initialize RTL2832U
             initializeDevice()
             isOpen = true
             Log.i(TAG, "RTL-SDR device opened successfully")
+            DebugLog.log("USB", "Device opened OK, tuner=$tunerType")
             return true
         } catch (e: Exception) {
             Log.e(TAG, "Error opening device", e)
@@ -218,6 +227,9 @@ class RtlSdrDevice(private val context: Context) {
         }
 
         enableI2CRepeater(false)
+
+        // Set IF frequency for R820T (3.57 MHz, from librtlsdr rtlsdr_open)
+        setIfFrequency(R820T_IF_FREQ)
 
         // Set default sample rate
         setSampleRate(sampleRate)
@@ -380,13 +392,14 @@ class RtlSdrDevice(private val context: Context) {
         usbLock.lock()
         return try {
             enableI2CRepeater(true)
-            setR820TFrequency(frequencyHz)
+            // R820T LO = target + IF (3.57 MHz) — signal appears at 3.57 MHz IF
+            setR820TFrequency(frequencyHz + R820T_IF_FREQ)
             enableI2CRepeater(false)
 
-            // Set RTL2832U IF frequency (zero-IF mode)
-            setIfFrequency(0)
+            // RTL2832U DDC shifts 3.57 MHz IF to baseband
+            setIfFrequency(R820T_IF_FREQ)
 
-            Log.d(TAG, "Frequency set to ${frequencyHz / 1000000.0} MHz")
+            Log.d(TAG, "Frequency set to ${frequencyHz / 1000000.0} MHz (LO=${(frequencyHz + R820T_IF_FREQ) / 1e6} MHz, IF=${R820T_IF_FREQ / 1e6} MHz)")
             true
         } catch (e: Exception) {
             Log.e(TAG, "Error setting frequency", e)
@@ -443,6 +456,7 @@ class RtlSdrDevice(private val context: Context) {
         val lockData = i2cRead(tunerI2CAddr, 0x02, 1)
         if (lockData != null && lockData.isNotEmpty()) {
             val locked = (lockData[0].toInt() and 0x40) != 0
+            DebugLog.log("PLL", "freq=${freq/1e6}MHz locked=$locked reg02=0x${(lockData[0].toInt() and 0xFF).toString(16)}")
             if (!locked) {
                 Log.w(TAG, "PLL not locked at ${freq / 1e6} MHz, retrying...")
                 // Retry: rewrite SDM registers
@@ -452,6 +466,7 @@ class RtlSdrDevice(private val context: Context) {
                 val lockRetry = i2cRead(tunerI2CAddr, 0x02, 1)
                 if (lockRetry != null && (lockRetry[0].toInt() and 0x40) == 0) {
                     Log.w(TAG, "PLL still not locked at ${freq / 1e6} MHz")
+                    DebugLog.log("PLL", "STILL NOT LOCKED after retry!")
                 }
             }
         }
@@ -622,21 +637,42 @@ class RtlSdrDevice(private val context: Context) {
 
         return CoroutineScope(Dispatchers.IO).launch {
             Log.i(TAG, "Streaming started (bufSize=$bufferSize)")
+            DebugLog.log("USB", "Streaming started, bufSize=$bufferSize")
+            var readCount = 0L
+            var totalBytes = 0L
+            var lastLogTime = System.currentTimeMillis()
+            var nullReads = 0
             while (isStreaming && isActive) {
                 try {
                     val data = readSamples(bufferSize)
                     if (data != null && data.isNotEmpty()) {
+                        readCount++
+                        totalBytes += data.size
+                        // Log first few reads and then periodically
+                        val now = System.currentTimeMillis()
+                        if (readCount <= 3 || now - lastLogTime > 5000) {
+                            DebugLog.log("USB", "read #$readCount: ${data.size}B, total=${totalBytes/1024}KB, nulls=$nullReads")
+                            lastLogTime = now
+                            nullReads = 0
+                        }
                         try {
                             callback(data)
                         } catch (e: Exception) {
                             if (isStreaming) {
                                 Log.e(TAG, "Streaming callback error", e)
+                                DebugLog.log("USB", "CALLBACK ERROR: ${e.message}")
                             }
+                        }
+                    } else {
+                        nullReads++
+                        if (nullReads <= 3) {
+                            DebugLog.log("USB", "readSamples returned null/empty (#$nullReads)")
                         }
                     }
                 } catch (e: Exception) {
                     if (isStreaming) {
                         Log.e(TAG, "Streaming read error", e)
+                        DebugLog.log("USB", "READ ERROR: ${e.message}")
                         delay(10)
                     }
                 }

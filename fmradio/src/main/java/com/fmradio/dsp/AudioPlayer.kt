@@ -98,8 +98,10 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
 
         try {
             audioTrack?.play()
+            DebugLog.log("AUD", "AudioTrack.play() OK, state=${audioTrack?.playState}, rate=$sampleRate, bufSize=$bufferSize")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start AudioTrack playback", e)
+            DebugLog.log("AUD", "AudioTrack.play() FAILED: ${e.message}")
             audioTrack?.release()
             audioTrack = null
             return
@@ -122,6 +124,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                     }
                     preBufferFilled = true
                     Log.i(TAG, "Pre-buffer filled ($avail samples), starting drain")
+                    DebugLog.log("AUD", "Pre-buffer filled ($avail samples), draining to AudioTrack")
                 }
 
                 val available: Int
@@ -184,8 +187,20 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         Log.i(TAG, "Stereo audio started (${sampleRate}Hz, buf=$bufferSize, ring=$RING_BUFFER_SAMPLES)")
     }
 
+    private var writeSamplesCount = 0L
+    private var lastWriteLog = 0L
+
     fun writeSamples(samples: ShortArray) {
         if (!isPlaying) return
+        writeSamplesCount++
+        val now = System.currentTimeMillis()
+        if (writeSamplesCount <= 3 || now - lastWriteLog > 5000) {
+            // Check if samples are all zeros
+            var maxAbs = 0
+            for (s in samples) { val a = kotlin.math.abs(s.toInt()); if (a > maxAbs) maxAbs = a }
+            DebugLog.log("AUD", "writeSamples #$writeSamplesCount: ${samples.size} samples, peak=$maxAbs, buffered=$bufferedSamples")
+            lastWriteLog = now
+        }
         lock.lock()
         try {
             val freeSpace = RING_BUFFER_SAMPLES - bufferedSamples

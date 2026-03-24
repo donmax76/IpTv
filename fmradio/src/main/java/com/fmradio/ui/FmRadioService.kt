@@ -18,6 +18,7 @@ import com.fmradio.R
 import com.fmradio.data.StationStorage
 import com.fmradio.dsp.AudioEqualizer
 import com.fmradio.dsp.AudioPlayer
+import com.fmradio.dsp.DebugLog
 import com.fmradio.dsp.FmDemodulator
 import com.fmradio.dsp.FmScanner
 import com.fmradio.dsp.RdsDecoder
@@ -274,9 +275,11 @@ class FmRadioService : Service() {
 
         // Request audio focus so Android routes audio to us
         requestAudioFocus()
+        DebugLog.log("SVC", "Audio focus requested")
 
         equalizer = AudioEqualizer(48000)
         audioPlayer = AudioPlayer(48000).also { it.start() }
+        DebugLog.log("SVC", "AudioPlayer created & started")
 
         isPlaying = true
         var lastStereo = false
@@ -293,13 +296,27 @@ class FmRadioService : Service() {
             dev.fullReset()
 
             Log.i(TAG, "USB setup done, starting streaming...")
+            DebugLog.log("SVC", "USB setup done: rate=$sampleRate freq=${currentFrequency/1e6}MHz")
 
+            var demodCallCount = 0L
+            var totalAudioSamples = 0L
+            var lastDemodLog = System.currentTimeMillis()
             val innerJob = dev.startStreaming(131072) { iqData ->
                 var audioSamples = demodulator?.demodulate(iqData)
+                demodCallCount++
                 if (audioSamples != null && audioSamples.isNotEmpty()) {
+                    totalAudioSamples += audioSamples.size
                     val eq = equalizer
                     if (eq != null) audioSamples = eq.process(audioSamples)
                     audioPlayer?.writeSamples(audioSamples)
+                }
+                // Log demod stats periodically
+                val now = System.currentTimeMillis()
+                if (demodCallCount <= 3 || now - lastDemodLog > 5000) {
+                    val sigDb = demodulator?.currentSignalStrengthDb ?: -100f
+                    val stereo = demodulator?.isStereo == true
+                    DebugLog.log("DSP", "demod #$demodCallCount: iq=${iqData.size}B → audio=${audioSamples?.size ?: 0} samples, total=$totalAudioSamples, sig=${String.format("%.1f", sigDb)}dB, stereo=$stereo")
+                    lastDemodLog = now
                 }
                 val stereoNow = demodulator?.isStereo == true
                 if (stereoNow != lastStereo) {
