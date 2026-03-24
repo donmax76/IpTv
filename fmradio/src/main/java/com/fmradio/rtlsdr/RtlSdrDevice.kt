@@ -5,6 +5,7 @@ import android.hardware.usb.*
 import android.util.Log
 import com.fmradio.dsp.DebugLog
 import kotlinx.coroutines.*
+import java.nio.ByteBuffer
 
 /**
  * Built-in RTL-SDR driver that communicates directly with RTL2832U via Android USB Host API.
@@ -60,9 +61,13 @@ class RtlSdrDevice(private val context: Context) {
         private const val SYS_DEMOD_CTL_1 = 0x300B
         private const val SYS_IR_SUSPEND = 0x300C
 
-        // R820T/R828D I2C address (8-bit format, as used by RTL2832U firmware)
-        private const val R820T_I2C_ADDR = 0x34
-        private const val R828D_I2C_ADDR = 0x74
+        // Tuner I2C addresses (8-bit format, as used by RTL2832U firmware)
+        private const val R820T_I2C_ADDR = 0x34   // R820T: 7-bit 0x1A
+        private const val R828D_I2C_ADDR = 0x74   // R828D: 7-bit 0x3A
+        private const val E4000_I2C_ADDR = 0xC8   // E4000: 7-bit 0x64
+        private const val FC0012_I2C_ADDR = 0xC6  // FC0012: 7-bit 0x63
+        private const val FC0013_I2C_ADDR = 0xC6  // FC0013: 7-bit 0x63
+        private const val FC2580_I2C_ADDR = 0xAC  // FC2580: 7-bit 0x56
 
         // Default sample rate for FM (1.152 MHz — divides cleanly to 48 kHz audio)
         const val DEFAULT_SAMPLE_RATE = 1152000
@@ -173,14 +178,21 @@ class RtlSdrDevice(private val context: Context) {
                 return false
             }
 
+            // Claim interface FIRST (needed for SET_CONFIGURATION on some devices)
             usbConnection!!.claimInterface(usbInterface, true)
-            DebugLog.log("USB", "Interface claimed, endpoint=${bulkEndpoint?.address} maxPkt=${bulkEndpoint?.maxPacketSize}")
+
+            // USB SET_CONFIGURATION + SET_INTERFACE to put device in known state
+            usbResetDevice()
+
+            // Re-claim interface AFTER SET_CONFIGURATION — critical on Android 12+
+            // SET_CONFIGURATION can cause kernel to release the interface internally
+            usbConnection!!.releaseInterface(usbInterface)
+            Thread.sleep(20)
+            usbConnection!!.claimInterface(usbInterface, true)
+            DebugLog.log("USB", "Interface claimed (post-config), endpoint=${bulkEndpoint?.address} maxPkt=${bulkEndpoint?.maxPacketSize}")
 
             // Log USB device info for diagnostics
             logDeviceInfo(dev)
-
-            // Try USB SET_CONFIGURATION reset to put device in known state
-            usbResetDevice()
 
             // Initialize RTL2832U
             initializeDevice()
@@ -340,6 +352,18 @@ class RtlSdrDevice(private val context: Context) {
         // First: probe all I2C methods to find one that works on this device
         probeI2CMethods()
 
+        // Tuner detection table: (address, chipIdCheck, type, name)
+        data class TunerProbe(val addr: Int, val reg: Int, val expectedId: Int, val type: TunerType, val name: String)
+
+        val tunerProbes = listOf(
+            TunerProbe(R820T_I2C_ADDR, 0x00, 0x69, TunerType.R820T, "R820T"),
+            TunerProbe(R828D_I2C_ADDR, 0x00, 0x69, TunerType.R828D, "R828D"),
+            TunerProbe(E4000_I2C_ADDR, 0x02, 0x40, TunerType.E4000, "E4000"),  // E4000 chip ID reg
+            TunerProbe(FC0012_I2C_ADDR, 0x00, 0xA1, TunerType.FC0012, "FC0012"),
+            TunerProbe(FC0012_I2C_ADDR, 0x00, 0xA3, TunerType.FC0013, "FC0013"),
+            TunerProbe(FC2580_I2C_ADDR, 0x01, 0x56, TunerType.FC2580, "FC2580"),
+        )
+
         // Then try to detect tuner with the working method
         for (attempt in 0 until 3) {
             if (attempt > 0) {
@@ -349,26 +373,17 @@ class RtlSdrDevice(private val context: Context) {
                 Thread.sleep(10)
             }
 
-            // Try R820T — first raw read (no register set), then register read
-            var data = i2cRawRead(R820T_I2C_ADDR, 1)
-            if (data == null) data = i2cRead(R820T_I2C_ADDR, 0x00, 1)
-            if (data != null && data.isNotEmpty()) {
-                val chipId = data[0].toInt() and 0xFF
-                DebugLog.log("USB", "R820T probe: chipId=0x${chipId.toString(16)} (attempt=$attempt)")
-                if (chipId == 0x69) return TunerType.R820T
-            } else {
-                DebugLog.log("USB", "R820T probe: I2C FAILED attempt=$attempt")
-            }
-
-            // Try R828D
-            data = i2cRawRead(R828D_I2C_ADDR, 1)
-            if (data == null) data = i2cRead(R828D_I2C_ADDR, 0x00, 1)
-            if (data != null && data.isNotEmpty()) {
-                val chipId = data[0].toInt() and 0xFF
-                DebugLog.log("USB", "R828D probe: chipId=0x${chipId.toString(16)} (attempt=$attempt)")
-                if (chipId == 0x69) return TunerType.R828D
-            } else {
-                DebugLog.log("USB", "R828D probe: I2C FAILED attempt=$attempt")
+            for (probe in tunerProbes) {
+                // Try raw read first, then register read
+                var data = i2cRawRead(probe.addr, 1)
+                if (data == null) data = i2cRead(probe.addr, probe.reg, 1)
+                if (data != null && data.isNotEmpty()) {
+                    val chipId = data[0].toInt() and 0xFF
+                    DebugLog.log("USB", "${probe.name} probe: chipId=0x${chipId.toString(16)} (attempt=$attempt)")
+                    if (chipId == probe.expectedId) return probe.type
+                } else {
+                    if (attempt == 0) DebugLog.log("USB", "${probe.name} probe: I2C FAILED attempt=$attempt")
+                }
             }
         }
 
@@ -690,13 +705,50 @@ class RtlSdrDevice(private val context: Context) {
         DebugLog.log("USB", "clearHalt ep=0x${ep.address.toString(16)}: result=$result")
     }
 
+    /**
+     * Read IQ samples using UsbRequest (async API) — more reliable than synchronous
+     * bulkTransfer() on many Android devices (especially Android 12+).
+     * Falls back to synchronous bulkTransfer if UsbRequest fails.
+     */
     fun readSamples(length: Int, timeoutMs: Int = USB_TIMEOUT): ByteArray? {
         if (!isOpen || bulkEndpoint == null) return null
-
-        val buffer = ByteArray(length)
-        var totalRead = 0
         val ep = bulkEndpoint!!
         val conn = usbConnection ?: return null
+
+        // Try async UsbRequest first (more reliable on Android 12+)
+        if (useAsyncTransfer) {
+            try {
+                val buf = ByteBuffer.allocateDirect(length)
+                val request = UsbRequest()
+                if (request.initialize(conn, ep)) {
+                    @Suppress("DEPRECATION")
+                    val queued = request.queue(buf, length)
+                    if (queued) {
+                        val response = conn.requestWait(timeoutMs.toLong())
+                        if (response != null) {
+                            buf.flip()
+                            val bytesRead = buf.remaining()
+                            if (bytesRead > 0) {
+                                val result = ByteArray(bytesRead)
+                                buf.get(result)
+                                request.close()
+                                readErrorCount = 0
+                                return result
+                            }
+                        }
+                    }
+                    request.close()
+                }
+            } catch (e: Exception) {
+                if (readErrorCount < 3) {
+                    DebugLog.log("USB", "UsbRequest error: ${e.message}, trying sync")
+                }
+            }
+        }
+
+        // Synchronous fallback
+        val buffer = ByteArray(length)
+        var totalRead = 0
         var zeroReads = 0
 
         while (totalRead < length) {
@@ -709,11 +761,9 @@ class RtlSdrDevice(private val context: Context) {
             } else if (read == 0) {
                 zeroReads++
                 if (zeroReads > 10) {
-                    // Too many zero-length reads, treat as error
                     return if (totalRead > 0) buffer.copyOf(totalRead) else null
                 }
             } else {
-                // read < 0 → USB error or timeout
                 if (totalRead == 0 && readErrorCount < 5) {
                     readErrorCount++
                     DebugLog.log("USB", "bulkTransfer=$read toRead=$toRead ep=0x${ep.address.toString(16)} maxPkt=${ep.maxPacketSize}")
@@ -728,6 +778,9 @@ class RtlSdrDevice(private val context: Context) {
     // Limit logging of read errors to avoid spam
     @Volatile
     private var readErrorCount = 0
+
+    // Use async UsbRequest by default (more reliable on Android 12+)
+    private var useAsyncTransfer = true
 
     fun startStreaming(bufferSize: Int = 16384, callback: (ByteArray) -> Unit): Job {
         isStreaming = true
@@ -744,18 +797,18 @@ class RtlSdrDevice(private val context: Context) {
         Thread.sleep(50)
 
         // Discard first read to flush stale data from USB pipe
-        val discardBuf = ByteArray(minOf(bufferSize, 16384))
         try {
             val ep = bulkEndpoint
-            if (ep != null) {
-                val discard1 = usbConnection?.bulkTransfer(ep, discardBuf, discardBuf.size, 500) ?: -1
-                DebugLog.log("USB", "Discard read1: $discard1 bytes")
-                if (discard1 < 0) {
-                    // If first read still fails, try clear halt again and retry
+            val conn = usbConnection
+            if (ep != null && conn != null) {
+                val discard1 = readSamples(minOf(bufferSize, 16384), 500)
+                DebugLog.log("USB", "Discard read1: ${discard1?.size ?: -1} bytes")
+                if (discard1 == null) {
+                    // If first read fails, try clear halt again and retry
                     clearEndpointHalt()
                     Thread.sleep(20)
-                    val discard2 = usbConnection?.bulkTransfer(ep, discardBuf, discardBuf.size, 500) ?: -1
-                    DebugLog.log("USB", "Discard read2 (after re-clearHalt): $discard2 bytes")
+                    val discard2 = readSamples(minOf(bufferSize, 16384), 500)
+                    DebugLog.log("USB", "Discard read2 (after re-clearHalt): ${discard2?.size ?: -1} bytes")
                 }
             }
         } catch (_: Exception) {}
@@ -839,14 +892,10 @@ class RtlSdrDevice(private val context: Context) {
             clearEndpointHalt()
 
             // Discard any stale data in USB pipe
-            val ep = bulkEndpoint
-            if (ep != null) {
-                val discardBuf = ByteArray(ep.maxPacketSize * 32)
-                for (i in 0 until 3) {
-                    val read = usbConnection?.bulkTransfer(ep, discardBuf, discardBuf.size, 200) ?: -1
-                    DebugLog.log("USB", "fullReset discard #$i: $read bytes")
-                    if (read <= 0) break
-                }
+            for (i in 0 until 3) {
+                val data = readSamples(bulkEndpoint?.maxPacketSize?.times(32) ?: 16384, 200)
+                DebugLog.log("USB", "fullReset discard #$i: ${data?.size ?: -1} bytes")
+                if (data == null) break
             }
 
             resetBufferInternal()
@@ -1204,7 +1253,11 @@ class RtlSdrDevice(private val context: Context) {
             I2CMethod(0x0610, 0x0600, 1, "IICB=6|0x10 req=1"),
         )
 
-        val tunerAddrs = intArrayOf(R820T_I2C_ADDR, R828D_I2C_ADDR)
+        // Probe ALL known tuner addresses — generic RTL2832U (pid=0x2832) can have any tuner
+        val tunerAddrs = intArrayOf(
+            R820T_I2C_ADDR, R828D_I2C_ADDR,
+            E4000_I2C_ADDR, FC0012_I2C_ADDR, FC2580_I2C_ADDR
+        )
 
         // Phase 1: Try all methods with current USB state
         DebugLog.log("USB", "=== I2C probe Phase 1: standard ===")
