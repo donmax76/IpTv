@@ -192,7 +192,7 @@ class FmScanner(private val device: RtlSdrDevice) {
             device.setFrequency(noiseFreq)
             delay(20)
             device.resetBuffer()
-            val noiseSamples = device.readSamples(8192)
+            val noiseSamples = device.readSamples(8192, 500)
             if (noiseSamples != null) {
                 noiseFloor = demodulator.measureSignalStrength(noiseSamples)
             }
@@ -210,7 +210,7 @@ class FmScanner(private val device: RtlSdrDevice) {
                 var validMeasurements = 0
 
                 for (m in 0 until MEASUREMENTS_PER_FREQ) {
-                    val samples = device.readSamples(MEASUREMENT_SAMPLES)
+                    val samples = device.readSamples(MEASUREMENT_SAMPLES, 500)
                     if (samples != null && samples.isNotEmpty()) {
                         signalSum += demodulator.measureSignalStrength(samples)
                         validMeasurements++

@@ -170,8 +170,11 @@ class RtlSdrDevice(private val context: Context) {
         writeDemodReg(1, 0x01, 0x14, 1)
         writeDemodReg(1, 0x01, 0x10, 1)
 
-        // === Disable spectrum inversion and adjacent channel rejection ===
-        writeDemodReg(1, 0x15, 0x00, 1)
+        // === Disable zero-IF mode (page 1, reg 0x19) ===
+        writeDemodReg(1, 0x19, 0x05, 1)
+
+        // === Enable spectrum inversion (page 1, reg 0x15 = 0x01, from librtlsdr) ===
+        writeDemodReg(1, 0x15, 0x01, 1)
         writeDemodReg(1, 0x16, 0x0000, 2)
 
         // === Clear DDC shift and IF frequency registers ===
@@ -181,6 +184,15 @@ class RtlSdrDevice(private val context: Context) {
 
         // === Set default FIR coefficients ===
         setFirCoefficients()
+
+        // === Enable SDR mode, clocks and I/Q mux (CRITICAL — without this, no samples!) ===
+        writeDemodReg(0, 0x19, 0x05, 1)
+
+        // === Disable PID filter (CRITICAL — without this, data filtered as DVB-T!) ===
+        writeDemodReg(0, 0x61, 0x60, 1)
+
+        // === Set IF mode (page 1, reg 0x06) ===
+        writeDemodReg(1, 0x06, 0x80, 1)
 
         // === Disable IR ===
         writeReg(BLOCK_SYS, SYS_IR_SUSPEND, 0x83, 1)
@@ -569,7 +581,7 @@ class RtlSdrDevice(private val context: Context) {
         return true
     }
 
-    fun readSamples(length: Int): ByteArray? {
+    fun readSamples(length: Int, timeoutMs: Int = USB_TIMEOUT): ByteArray? {
         if (!isOpen || bulkEndpoint == null) return null
 
         val buffer = ByteArray(length)
@@ -579,7 +591,7 @@ class RtlSdrDevice(private val context: Context) {
 
         while (totalRead < length) {
             val toRead = minOf(length - totalRead, ep.maxPacketSize * 64)
-            val read = conn.bulkTransfer(ep, buffer, totalRead, toRead, USB_TIMEOUT)
+            val read = conn.bulkTransfer(ep, buffer, totalRead, toRead, timeoutMs)
 
             if (read > 0) {
                 totalRead += read
