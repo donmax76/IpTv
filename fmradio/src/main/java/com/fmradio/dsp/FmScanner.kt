@@ -186,21 +186,18 @@ class FmScanner(private val device: RtlSdrDevice) {
             device.setAutoGain(true)
             delay(20)
 
-            // Run demodulator on a few chunks to calibrate noise floor
-            // The demodulator's IF filter rejects out-of-band noise,
-            // giving much better discrimination than raw IQ power.
+            // Measure noise floor using stateless IF-filtered measurement.
+            // measureFilteredSignalStrength() applies the IF bandpass filter
+            // and measures power — no warmup, no state, no window dependency.
             var noiseFloor = -30f
             val noiseFreq = (startFreq - step * 3).coerceAtLeast(RTL_SDR_MIN_FREQ)
             device.setFrequency(noiseFreq)
             delay(SETTLE_TIME_MS)
             device.resetBuffer()
-            demodulator.reset()
-            // Feed a few chunks through demodulator to let it settle
-            for (warmup in 0 until 3) {
-                val s = device.readSamples(MEASUREMENT_SAMPLES, 500)
-                if (s != null) demodulator.demodulate(s)
+            val noiseSamples = device.readSamples(MEASUREMENT_SAMPLES * 2, 500)
+            if (noiseSamples != null) {
+                noiseFloor = demodulator.measureFilteredSignalStrength(noiseSamples)
             }
-            noiseFloor = demodulator.currentSignalStrengthDb
 
             val adaptiveThreshold = maxOf(threshold, noiseFloor + 5f)
             Log.i(TAG, "Noise floor: $noiseFloor dB, threshold: $adaptiveThreshold dB")
@@ -211,21 +208,15 @@ class FmScanner(private val device: RtlSdrDevice) {
                 delay(SETTLE_TIME_MS)
                 device.resetBuffer()
 
-                // Reset demodulator for each frequency to clear stale filter state
-                demodulator.reset()
-
                 var signalSum = 0f
                 var validMeasurements = 0
 
                 for (m in 0 until MEASUREMENTS_PER_FREQ) {
                     val samples = device.readSamples(MEASUREMENT_SAMPLES, 500)
                     if (samples != null && samples.isNotEmpty()) {
-                        // Use demodulator to get IF-filtered signal strength
-                        demodulator.demodulate(samples)
-                        if (m >= 1) {  // Skip first chunk (filter warmup)
-                            signalSum += demodulator.currentSignalStrengthDb
-                            validMeasurements++
-                        }
+                        val sig = demodulator.measureFilteredSignalStrength(samples)
+                        signalSum += sig
+                        validMeasurements++
                     }
                 }
 

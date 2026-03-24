@@ -418,6 +418,56 @@ class FmDemodulator(
         return (10 * log10(avgPower + 1e-10)).toFloat()
     }
 
+    /**
+     * Stateless IF-filtered signal strength measurement for scanning.
+     * Applies the same IF bandpass filter as the demodulator pipeline, then measures
+     * power of the filtered signal. This rejects out-of-band noise and gives much
+     * better signal/noise discrimination than raw IQ power — especially with AGC on.
+     *
+     * No warmup, no state, no window dependency. Each call is independent.
+     */
+    fun measureFilteredSignalStrength(iqData: ByteArray): Float {
+        if (iqData.size < ifLpfOrder * 4) return -100f
+        val numIqSamples = iqData.size / 2
+        val localBufI = FloatArray(ifLpfOrder)
+        val localBufQ = FloatArray(ifLpfOrder)
+        var localBufIdx = 0
+        var decimCounter = 0
+        var powerSum = 0.0
+        var count = 0
+        val settleCount = ifLpfOrder * 2  // let filter settle
+
+        for (i in 0 until numIqSamples) {
+            val iSample = (iqData[i * 2].toInt() and 0xFF) / 127.5f - 1f
+            val qSample = (iqData[i * 2 + 1].toInt() and 0xFF) / 127.5f - 1f
+            localBufI[localBufIdx] = iSample
+            localBufQ[localBufIdx] = qSample
+            localBufIdx = (localBufIdx + 1) % ifLpfOrder
+
+            decimCounter++
+            if (decimCounter < stage1Decimation) continue
+            decimCounter = 0
+
+            // Apply IF low-pass filter
+            var filtI = 0f
+            var filtQ = 0f
+            for (j in 0 until ifLpfOrder) {
+                val idx = (localBufIdx - 1 - j + ifLpfOrder) % ifLpfOrder
+                filtI += localBufI[idx] * ifLpfCoeffs[j]
+                filtQ += localBufQ[idx] * ifLpfCoeffs[j]
+            }
+
+            count++
+            if (count > settleCount) {
+                powerSum += (filtI * filtI + filtQ * filtQ).toDouble()
+            }
+        }
+
+        val validCount = (count - settleCount).coerceAtLeast(1)
+        val avgPower = powerSum / validCount
+        return (10 * log10(avgPower + 1e-10)).toFloat()
+    }
+
     fun measureSignalQuality(iqData: ByteArray): Float {
         if (iqData.size < 4) return 0f
         val numSamples = iqData.size / 2

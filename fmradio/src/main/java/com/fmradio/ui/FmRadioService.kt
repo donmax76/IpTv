@@ -301,7 +301,7 @@ class FmRadioService : Service() {
             var demodCallCount = 0L
             var totalAudioSamples = 0L
             var lastDemodLog = System.currentTimeMillis()
-            val innerJob = dev.startStreaming(16384) { iqData ->
+            val innerJob = dev.startStreaming(65536) { iqData ->
                 var audioSamples = demodulator?.demodulate(iqData)
                 demodCallCount++
                 if (audioSamples != null && audioSamples.isNotEmpty()) {
@@ -460,20 +460,15 @@ class FmRadioService : Service() {
                     dev.setFrequency(freq)
                     delay(30)
                     dev.resetBuffer()
-                    tempDemod.reset()
 
-                    // Feed 3 chunks: first is warmup, measure on 2nd and 3rd
-                    var signalDb = -100f
-                    for (m in 0 until 3) {
-                        val samples = dev.readSamples(16384)
-                        if (samples != null) {
-                            tempDemod.demodulate(samples)
-                            if (m >= 1) signalDb = maxOf(signalDb, tempDemod.currentSignalStrengthDb)
+                    // Stateless IF-filtered measurement — no warmup needed
+                    val samples = dev.readSamples(32768, 500)
+                    if (samples != null) {
+                        val signalDb = tempDemod.measureFilteredSignalStrength(samples)
+                        if (signalDb > SEEK_THRESHOLD) {
+                            found = freq
+                            break
                         }
-                    }
-                    if (signalDb > SEEK_THRESHOLD) {
-                        found = freq
-                        break
                     }
 
                     freq += if (forward) step else -step
