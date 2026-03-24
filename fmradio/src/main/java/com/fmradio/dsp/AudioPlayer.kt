@@ -59,26 +59,35 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             AudioFormat.CHANNEL_OUT_STEREO,
             AudioFormat.ENCODING_PCM_16BIT
         )
+        if (minBufSize <= 0) {
+            Log.e(TAG, "Invalid min buffer size: $minBufSize")
+            return
+        }
         // Use 6× minimum for extra headroom against underruns
         val bufferSize = minBufSize * 6
 
-        audioTrack = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build()
-            )
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .setSampleRate(sampleRate)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
-                    .build()
-            )
-            .setBufferSizeInBytes(bufferSize)
-            .setTransferMode(AudioTrack.MODE_STREAM)
-            .build()
+        try {
+            audioTrack = AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(sampleRate)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                        .build()
+                )
+                .setBufferSizeInBytes(bufferSize)
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create AudioTrack", e)
+            return
+        }
 
         writePos = 0
         readPos = 0
@@ -87,7 +96,14 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         samplesPlayed = 0L
         lastOutputSample = 0
 
-        audioTrack?.play()
+        try {
+            audioTrack?.play()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start AudioTrack playback", e)
+            audioTrack?.release()
+            audioTrack = null
+            return
+        }
         isPlaying = true
 
         playbackThread = Thread({
