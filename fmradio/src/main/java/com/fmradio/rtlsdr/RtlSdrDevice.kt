@@ -288,18 +288,31 @@ class RtlSdrDevice(private val context: Context) {
                 tunerI2CAddr = R828D_I2C_ADDR
                 initR820T() // R828D uses same init sequence as R820T
             }
+            TunerType.FC0013 -> {
+                tunerI2CAddr = FC0013_I2C_ADDR
+                initFC0013()
+            }
+            TunerType.FC0012 -> {
+                tunerI2CAddr = FC0012_I2C_ADDR
+                Log.w(TAG, "FC0012 tuner detected but not fully supported, trying FC0013 init")
+                initFC0013() // FC0012/FC0013 are similar
+            }
             else -> Log.w(TAG, "Unsupported tuner type: $tunerType")
         }
 
         enableI2CRepeater(false)
 
-        // Set IF frequency for R820T (3.57 MHz, from librtlsdr rtlsdr_open)
-        setIfFrequency(R820T_IF_FREQ)
+        // Set IF frequency based on tuner type
+        val ifFreq = when (tunerType) {
+            TunerType.R820T, TunerType.R828D -> R820T_IF_FREQ
+            else -> 0 // FC0013, FC0012, E4000, FC2580 use zero-IF
+        }
+        setIfFrequency(ifFreq)
 
         // Set default sample rate
         setSampleRate(sampleRate)
 
-        DebugLog.log("USB", "Init complete: rate=$sampleRate IF=${R820T_IF_FREQ/1e6}MHz")
+        DebugLog.log("USB", "Init complete: rate=$sampleRate IF=${ifFreq/1e6}MHz tuner=$tunerType")
     }
 
     /**
@@ -480,14 +493,24 @@ class RtlSdrDevice(private val context: Context) {
         usbLock.lock()
         return try {
             enableI2CRepeater(true)
-            // R820T LO = target + IF (3.57 MHz) — signal appears at 3.57 MHz IF
-            setR820TFrequency(frequencyHz + R820T_IF_FREQ)
-            enableI2CRepeater(false)
-
-            // RTL2832U DDC shifts 3.57 MHz IF to baseband
-            setIfFrequency(R820T_IF_FREQ)
-
-            Log.d(TAG, "Frequency set to ${frequencyHz / 1000000.0} MHz (LO=${(frequencyHz + R820T_IF_FREQ) / 1e6} MHz, IF=${R820T_IF_FREQ / 1e6} MHz)")
+            when (tunerType) {
+                TunerType.R820T, TunerType.R828D -> {
+                    // R820T LO = target + IF (3.57 MHz)
+                    setR820TFrequency(frequencyHz + R820T_IF_FREQ)
+                    enableI2CRepeater(false)
+                    setIfFrequency(R820T_IF_FREQ)
+                }
+                TunerType.FC0013, TunerType.FC0012 -> {
+                    // FC0013 is zero-IF: LO = target frequency
+                    setFC0013Frequency(frequencyHz)
+                    enableI2CRepeater(false)
+                    setIfFrequency(0)
+                }
+                else -> {
+                    enableI2CRepeater(false)
+                }
+            }
+            Log.d(TAG, "Frequency set to ${frequencyHz / 1000000.0} MHz")
             true
         } catch (e: Exception) {
             Log.e(TAG, "Error setting frequency", e)
@@ -585,9 +608,13 @@ class RtlSdrDevice(private val context: Context) {
             writeDemodReg(1, 0x01, 0x14, 1)
             writeDemodReg(1, 0x01, 0x10, 1)
 
-            // Set bandwidth for R820T
+            // Set bandwidth for tuner
             enableI2CRepeater(true)
-            setR820TBandwidth(rate)
+            when (tunerType) {
+                TunerType.R820T, TunerType.R828D -> setR820TBandwidth(rate)
+                TunerType.FC0013, TunerType.FC0012 -> setFC0013Bandwidth(rate)
+                else -> {}
+            }
             enableI2CRepeater(false)
 
             Log.d(TAG, "Sample rate set to $rate Hz")
@@ -615,19 +642,236 @@ class RtlSdrDevice(private val context: Context) {
         r820tWriteRegMask(0x0A, (filterCap shl 4) or 0x0B, 0xFF)
     }
 
+    // ========================= FC0013 Tuner Support =========================
+    // Based on librtlsdr fc0013.c (Fitipower FC0013 silicon tuner)
+    // FC0013 is a zero-IF tuner: LO = target frequency, no IF offset needed.
+
+    // Shadow registers for FC0013 (regs 0x00-0x15)
+    private val fc0013Regs = IntArray(0x20)
+
+    private fun fc0013WriteReg(reg: Int, value: Int) {
+        fc0013Regs[reg] = value and 0xFF
+        i2cWrite(tunerI2CAddr, reg, byteArrayOf((value and 0xFF).toByte()))
+    }
+
+    private fun fc0013ReadReg(reg: Int): Int? {
+        val data = i2cRead(tunerI2CAddr, reg, 1) ?: return null
+        return data[0].toInt() and 0xFF
+    }
+
+    /**
+     * FC0013 initialization (from librtlsdr fc0013.c fc0013_init).
+     */
+    private fun initFC0013() {
+        // Init register values from fc0013.c
+        val initRegs = intArrayOf(
+            0x00, // reg 0x00: dummy (read-only chip ID)
+            0x09, // reg 0x01: VCO + PLL
+            0x16, // reg 0x02: xdiv high
+            0x00, // reg 0x03: xdiv low
+            0x00, // reg 0x04: VCO current
+            0xC1, // reg 0x05: clock out / AGC
+            0x00, // reg 0x06: IF frequency (zero-IF = 0)
+            0x00, // reg 0x07: IF frequency / bandwidth
+            0xFF, // reg 0x08: AGC clock
+            0x6E, // reg 0x09: IF VGA gain
+            0xB8, // reg 0x0A: IF VGA
+            0x82, // reg 0x0B: PLL loop divider
+            0xFC, // reg 0x0C: VCO current
+            0x02, // reg 0x0D: band selection
+            0x00, // reg 0x0E: VCO calibration
+            0x00, // reg 0x0F
+            0x00, // reg 0x10: RSSI
+            0x00, // reg 0x11: clock out
+            0x00, // reg 0x12: LNA power detector
+            0x00, // reg 0x13: mixer gain
+            0x50, // reg 0x14: LNA gain (auto + high gain)
+            0x01, // reg 0x15: PLL loop divider 2
+        )
+
+        // Hardware reset sequence
+        fc0013WriteReg(0x06, 0x00)
+        fc0013WriteReg(0x07, 0x20)
+        fc0013WriteReg(0x06, 0x00)
+
+        // Write all init registers
+        for (i in 1 until initRegs.size) {
+            fc0013WriteReg(i, initRegs[i])
+        }
+
+        // Enable clock output
+        fc0013WriteReg(0x11, 0x04)
+
+        // Verify chip ID
+        val chipId = fc0013ReadReg(0x00)
+        DebugLog.log("USB", "FC0013 init: chipID=0x${chipId?.toString(16) ?: "null"} (expect 0xa3)")
+
+        Log.i(TAG, "FC0013 initialization complete")
+    }
+
+    /**
+     * FC0013 frequency setting (from librtlsdr fc0013.c fc0013_set_params).
+     * Uses PLL with VCO divider to synthesize target frequency.
+     */
+    private fun setFC0013Frequency(freqHz: Long) {
+        val xtalFreqKhz2 = (RTL_XTAL_FREQ / 1000 / 2).toInt() // 14400
+
+        // Select multiplier and VCO band registers based on frequency
+        val multi: Int
+        var reg5: Int
+        var reg6: Int
+
+        when {
+            freqHz < 37084000L -> {
+                multi = 96; reg5 = 0x82; reg6 = 0x00
+            }
+            freqHz < 55625000L -> {
+                multi = 64; reg5 = 0x02; reg6 = 0x02
+            }
+            freqHz < 74167000L -> {
+                multi = 48; reg5 = 0x42; reg6 = 0x00
+            }
+            freqHz < 111250000L -> {
+                multi = 32; reg5 = 0x82; reg6 = 0x02
+            }
+            freqHz < 148334000L -> {
+                multi = 24; reg5 = 0x22; reg6 = 0x00
+            }
+            freqHz < 222500000L -> {
+                multi = 16; reg5 = 0x42; reg6 = 0x02
+            }
+            freqHz < 296667000L -> {
+                multi = 12; reg5 = 0x12; reg6 = 0x00
+            }
+            freqHz < 445000000L -> {
+                multi = 8; reg5 = 0x22; reg6 = 0x02
+            }
+            freqHz < 593334000L -> {
+                multi = 6; reg5 = 0x12; reg6 = 0x02
+            }
+            freqHz < 950000000L -> {
+                multi = 4; reg5 = 0x02; reg6 = 0x08
+            }
+            else -> {
+                multi = 2; reg5 = 0x02; reg6 = 0x0C
+            }
+        }
+
+        val fVco = freqHz * multi
+        val xin = (fVco / 1000 / xtalFreqKhz2).toInt()
+
+        val pm = xin / 2
+        val am = xin % 2
+
+        val reg1 = am + (8 * pm)
+
+        // Fractional part
+        val remainder = fVco - xin.toLong() * xtalFreqKhz2 * 1000
+        var xdiv = ((remainder shl 15) / (xtalFreqKhz2.toLong() * 1000)).toInt()
+        if (xdiv >= (1 shl 15)) xdiv = (1 shl 15) - 1
+
+        val reg2 = (xdiv shr 8) and 0x7F
+        val reg3 = xdiv and 0xFF
+        val reg4 = 0x0A // VCO current
+
+        // Write PLL registers
+        fc0013WriteReg(0x01, reg1)
+        fc0013WriteReg(0x02, reg2)
+        fc0013WriteReg(0x03, reg3)
+        fc0013WriteReg(0x04, reg4)
+        fc0013WriteReg(0x05, reg5)
+        fc0013WriteReg(0x06, reg6)
+
+        // VCO calibration: toggle reg 0x0E bit 7
+        fc0013WriteReg(0x0E, 0x80)
+        fc0013WriteReg(0x0E, 0x00)
+
+        Thread.sleep(10)
+
+        // Check VCO lock (reg 0x0E bit 6)
+        val vcoStatus = fc0013ReadReg(0x0E) ?: 0
+        if ((vcoStatus and 0x40) == 0) {
+            // VCO not locked, try switching VCO
+            DebugLog.log("PLL", "FC0013 VCO not locked, switching VCO")
+            val curReg6 = fc0013Regs[0x06]
+            fc0013WriteReg(0x06, curReg6 or 0x08)
+
+            // Re-calibrate
+            fc0013WriteReg(0x0E, 0x80)
+            fc0013WriteReg(0x0E, 0x00)
+            Thread.sleep(10)
+
+            val vcoRetry = fc0013ReadReg(0x0E) ?: 0
+            DebugLog.log("PLL", "FC0013 VCO retry: locked=${(vcoRetry and 0x40) != 0}")
+        } else {
+            DebugLog.log("PLL", "FC0013 freq=${freqHz/1e6}MHz locked=true multi=$multi")
+        }
+    }
+
+    /**
+     * FC0013 bandwidth setting (from librtlsdr fc0013.c).
+     * Modifies reg 0x06 bandwidth bits and reg 0x07.
+     */
+    private fun setFC0013Bandwidth(bandwidth: Int) {
+        // reg 0x06 upper bits control bandwidth filter
+        val bwBits = when {
+            bandwidth <= 6000000 -> 0x80  // 6 MHz
+            bandwidth <= 7000000 -> 0x40  // 7 MHz
+            else -> 0x00                  // 8 MHz (widest)
+        }
+        val curReg6 = fc0013Regs[0x06] and 0x3F
+        fc0013WriteReg(0x06, curReg6 or bwBits)
+    }
+
+    /**
+     * FC0013 LNA gain control (from librtlsdr fc0013.c).
+     * gainIndex 0-15 maps to hardware gain values.
+     */
+    private fun setFC0013LnaGain(gainIndex: Int) {
+        // FC0013 LNA gain table (from fc0013.c fc0013_lna_gains[])
+        // Index -> register value for reg 0x14 bits 4:0
+        val gainTable = intArrayOf(
+            0x02, // 0: -9.9 dB
+            0x03, // 1: -7.3 dB
+            0x05, // 2: -6.5 dB
+            0x04, // 3: -6.3 dB
+            0x00, // 4: -6.3 dB
+            0x07, // 5: -6.0 dB
+            0x01, // 6: -5.8 dB
+            0x06, // 7: -5.4 dB
+            0x08, // 8: +5.8 dB
+            0x09, // 9: +6.1 dB
+            0x0C, // 10: +6.3 dB
+            0x0D, // 11: +6.5 dB
+            0x0E, // 12: +6.7 dB
+            0x0F, // 13: +6.8 dB
+            0x11, // 14: +7.0 dB
+            0x12, // 15: +7.1 dB
+        )
+
+        val idx = gainIndex.coerceIn(0, gainTable.size - 1)
+        val reg14 = (fc0013Regs[0x14] and 0xE0) or gainTable[idx]
+        fc0013WriteReg(0x14, reg14)
+    }
+
+    // ========================= End FC0013 Support =========================
+
     fun setGain(gainIndex: Int): Boolean {
         if (!isOpen) return false
         usbLock.lock()
         return try {
             enableI2CRepeater(true)
-
-            val idx = gainIndex.coerceIn(0, 15)
-
-            // Set LNA to manual (bit 4 = 1) with gain index (bits 3:0)
-            r820tWriteRegMask(0x05, 0x10 or idx, 0x1F)
-            // Set mixer to manual (bit 4 = 1) with gain index (bits 3:0)
-            r820tWriteRegMask(0x07, 0x10 or idx, 0x1F)
-
+            when (tunerType) {
+                TunerType.R820T, TunerType.R828D -> {
+                    val idx = gainIndex.coerceIn(0, 15)
+                    r820tWriteRegMask(0x05, 0x10 or idx, 0x1F)
+                    r820tWriteRegMask(0x07, 0x10 or idx, 0x1F)
+                }
+                TunerType.FC0013, TunerType.FC0012 -> {
+                    setFC0013LnaGain(gainIndex)
+                }
+                else -> {}
+            }
             enableI2CRepeater(false)
             true
         } catch (e: Exception) {
@@ -643,15 +887,26 @@ class RtlSdrDevice(private val context: Context) {
         usbLock.lock()
         return try {
             enableI2CRepeater(true)
-            if (enabled) {
-                // R820T: LNA AGC on (bit 4 = 0), preserve power/bias bits via shadow regs
-                r820tWriteRegMask(0x05, 0x00, 0x10)
-                // R820T: Mixer AGC on (bit 4 = 0), preserve bias bits
-                r820tWriteRegMask(0x07, 0x00, 0x10)
-            } else {
-                // Manual gain mode (bit 4 = 1)
-                r820tWriteRegMask(0x05, 0x10, 0x10)
-                r820tWriteRegMask(0x07, 0x10, 0x10)
+            when (tunerType) {
+                TunerType.R820T, TunerType.R828D -> {
+                    if (enabled) {
+                        r820tWriteRegMask(0x05, 0x00, 0x10)
+                        r820tWriteRegMask(0x07, 0x00, 0x10)
+                    } else {
+                        r820tWriteRegMask(0x05, 0x10, 0x10)
+                        r820tWriteRegMask(0x07, 0x10, 0x10)
+                    }
+                }
+                TunerType.FC0013, TunerType.FC0012 -> {
+                    // FC0013: reg 0x14 bit 4 = AGC enable
+                    val reg14 = fc0013ReadReg(0x14) ?: 0x50
+                    if (enabled) {
+                        fc0013WriteReg(0x14, (reg14 and 0xE0.inv()) or 0x10) // AGC on
+                    } else {
+                        fc0013WriteReg(0x14, reg14 and 0xEF.toInt()) // AGC off
+                    }
+                }
+                else -> {}
             }
             enableI2CRepeater(false)
 
