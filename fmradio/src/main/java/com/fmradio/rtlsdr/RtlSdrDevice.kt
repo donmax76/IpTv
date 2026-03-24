@@ -903,6 +903,12 @@ class RtlSdrDevice(private val context: Context) {
                         " maxPkt0=${raw[7].toInt() and 0xFF}")
             }
         } catch (_: Exception) {}
+
+        // Log file descriptor for native USB
+        try {
+            val fd = usbConnection?.fileDescriptor ?: -1
+            DebugLog.log("USB", "FD=$fd nativeUSB=${NativeUsb.isNativeAvailable}")
+        } catch (_: Exception) {}
     }
 
     /**
@@ -1162,9 +1168,21 @@ class RtlSdrDevice(private val context: Context) {
     private fun probeI2C(conn: UsbDeviceConnection, addr: Int, wrIdx: Int, rdIdx: Int, request: Int): Boolean {
         val testBuf = byteArrayOf(0x00)
         val rdBuf = ByteArray(1)
-        val wr = conn.controlTransfer(CTRL_OUT, request, addr, wrIdx, testBuf, 1, I2C_TIMEOUT)
-        val rd = conn.controlTransfer(CTRL_IN, request, addr, rdIdx, rdBuf, 1, I2C_TIMEOUT)
-        DebugLog.log("USB", "  addr=0x${addr.toString(16)} req=$request wr=$wr rd=$rd data=0x${(rdBuf[0].toInt() and 0xFF).toString(16)}")
+
+        val wr: Int
+        val rd: Int
+
+        if (NativeUsb.isNativeAvailable) {
+            // Native: returns -errno for proper diagnostics
+            wr = NativeUsb.controlTransfer(conn, CTRL_OUT, request, addr, wrIdx, testBuf, 1, I2C_TIMEOUT)
+            rd = NativeUsb.controlTransfer(conn, CTRL_IN, request, addr, rdIdx, rdBuf, 1, I2C_TIMEOUT)
+            DebugLog.log("USB", "  addr=0x${addr.toString(16)} req=$request wr=${NativeUsb.errnoName(wr)} rd=${NativeUsb.errnoName(rd)} data=0x${(rdBuf[0].toInt() and 0xFF).toString(16)}")
+        } else {
+            // Java fallback: only returns -1
+            wr = conn.controlTransfer(CTRL_OUT, request, addr, wrIdx, testBuf, 1, I2C_TIMEOUT)
+            rd = conn.controlTransfer(CTRL_IN, request, addr, rdIdx, rdBuf, 1, I2C_TIMEOUT)
+            DebugLog.log("USB", "  addr=0x${addr.toString(16)} req=$request wr=$wr rd=$rd data=0x${(rdBuf[0].toInt() and 0xFF).toString(16)}")
+        }
         return wr >= 0 || rd >= 0
     }
 
@@ -1174,6 +1192,8 @@ class RtlSdrDevice(private val context: Context) {
      */
     private fun probeI2CMethods(): Boolean {
         val conn = usbConnection ?: return false
+
+        DebugLog.log("USB", "Native USB: ${if (NativeUsb.isNativeAvailable) "YES" else "NO (Java API fallback)"}")
 
         data class I2CMethod(val wrIdx: Int, val rdIdx: Int, val request: Int, val desc: String)
 
