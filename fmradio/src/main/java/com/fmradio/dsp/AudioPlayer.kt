@@ -135,7 +135,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                 }
 
                 val toDrain = if (avail >= chunkSize) chunkSize
-                              else if (avail >= LOW_WATERMARK) avail and 0x7FFFFFFE
+                              else if (avail >= LOW_WATERMARK) (avail and 0x7FFFFFFE).coerceAtMost(chunkSize)
                               else {
                                   // Underrun: yield briefly and retry
                                   Thread.yield()
@@ -143,7 +143,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                                   lock.lock()
                                   try { retryAvail = bufferedSamples } finally { lock.unlock() }
                                   if (retryAvail >= LOW_WATERMARK) {
-                                      retryAvail and 0x7FFFFFFE
+                                      (retryAvail and 0x7FFFFFFE).coerceAtMost(chunkSize)
                                   } else {
                                       try { Thread.sleep(1) } catch (_: InterruptedException) { break }
                                       continue
