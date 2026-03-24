@@ -45,6 +45,7 @@ class FmRadioService : Service() {
     private var rdsDecoder: RdsDecoder? = null
     private var equalizer: AudioEqualizer? = null
     private var streamingJob: Job? = null
+    private var seekJob: Job? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private var mediaSession: MediaSession? = null
@@ -249,6 +250,9 @@ class FmRadioService : Service() {
         if (isPlaying) return
         val dev = device ?: return
 
+        // Cancel any running seek/scan — they share the USB device
+        cancelSeek()
+
         val sampleRate = FmDemodulator.RECOMMENDED_SAMPLE_RATE
 
         demodulator = FmDemodulator(inputSampleRate = sampleRate, audioSampleRate = 48000)
@@ -345,6 +349,10 @@ class FmRadioService : Service() {
 
     fun stopPlayback() {
         isPlaying = false
+
+        // Cancel any running seek — it shares the USB device
+        cancelSeek()
+
         device?.stopStreaming()
 
         // Cancel streaming job and wait briefly for it to finish
@@ -436,12 +444,21 @@ class FmRadioService : Service() {
         equalizer?.trebleGainDb = (level - 10).toFloat()
     }
 
+    private fun cancelSeek() {
+        seekJob?.cancel()
+        seekJob = null
+    }
+
     fun seekStation(forward: Boolean) {
         val dev = device ?: return
+
+        // Cancel any previous seek — prevent multiple concurrent seeks
+        cancelSeek()
+
         val wasPlaying = isPlaying
         if (wasPlaying) stopPlayback()
 
-        serviceScope.launch {
+        seekJob = serviceScope.launch {
             try {
                 val tempDemod = FmDemodulator()
                 dev.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
@@ -454,6 +471,9 @@ class FmRadioService : Service() {
                 val maxSteps = ((currentBand.endHz - currentBand.startHz) / step).toInt()
 
                 for (i in 0 until maxSteps) {
+                    // Check if this seek was cancelled (by new seek, playback, or scan)
+                    if (!isActive) break
+
                     if (freq > currentBand.endHz) freq = currentBand.startHz
                     if (freq < currentBand.startHz) freq = currentBand.endHz
 
@@ -475,7 +495,7 @@ class FmRadioService : Service() {
                 }
 
                 // Full USB reset after seek to restore clean state
-                dev.fullReset()
+                if (isActive) dev.fullReset()
 
                 withContext(Dispatchers.Main) {
                     if (found != null) {
@@ -483,15 +503,20 @@ class FmRadioService : Service() {
                         onFrequencyChanged?.invoke(found)
                     }
                     onSeekComplete?.invoke(found)
-                    if (wasPlaying) startPlayback()
+                    if (wasPlaying && isActive) startPlayback()
                 }
+            } catch (e: CancellationException) {
+                // Seek was cancelled — this is normal, don't restart playback
+                Log.i(TAG, "Seek cancelled")
             } catch (e: Exception) {
                 Log.e(TAG, "Seek error", e)
-                dev.fullReset()
+                try { dev.fullReset() } catch (_: Exception) {}
                 withContext(Dispatchers.Main) {
                     onSeekComplete?.invoke(null)
-                    if (wasPlaying) startPlayback()
+                    if (wasPlaying && isActive) startPlayback()
                 }
+            } finally {
+                seekJob = null
             }
         }
     }
