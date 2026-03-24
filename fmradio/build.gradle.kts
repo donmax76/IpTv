@@ -3,7 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// Auto-version from git: versionCode = commit count, versionName = "2.0-<hash>-<date>"
+// Auto-version from git: versionCode = commit count, versionName = "3.0-<hash>-<date>"
 fun gitVersionCode(): Int {
     return try {
         val process = ProcessBuilder("git", "rev-list", "--count", "HEAD")
@@ -20,8 +20,8 @@ fun gitVersionName(): String {
         val date = ProcessBuilder("git", "log", "-1", "--format=%cd", "--date=format:%Y%m%d-%H%M")
             .directory(projectDir).redirectErrorStream(true).start()
             .inputStream.bufferedReader().readText().trim()
-        "2.0-$hash-$date"
-    } catch (_: Exception) { "2.0-unknown" }
+        "3.0-$hash-$date"
+    } catch (_: Exception) { "3.0-unknown" }
 }
 
 android {
