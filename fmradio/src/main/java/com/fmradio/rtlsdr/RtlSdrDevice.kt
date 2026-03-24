@@ -260,8 +260,24 @@ class RtlSdrDevice(private val context: Context) {
         // === Disable PID filter (CRITICAL — without this, data filtered as DVB-T!) ===
         writeDemodReg(0, 0x61, 0x60, 1)
 
-        // === Set IF mode (page 1, reg 0x06) ===
-        writeDemodReg(1, 0x06, 0x80, 1)
+        // === Init FSM state-holding register ===
+        writeDemodReg(1, 0x93, 0xF0, 1)
+        writeDemodReg(1, 0x94, 0x0F, 1)
+
+        // === Disable AGC ===
+        writeDemodReg(1, 0x11, 0x00, 1)
+
+        // === Disable RF and IF AGC loop ===
+        writeDemodReg(1, 0x04, 0x00, 1)
+
+        // === Set ADC path (opt_adc_iq = 0) ===
+        writeDemodReg(0, 0x06, 0x80, 1)
+
+        // === Enable Zero-IF mode, DC cancellation, IQ estimation ===
+        writeDemodReg(1, 0xB1, 0x1B, 1)
+
+        // === Disable 4.096 MHz clock output ===
+        writeDemodReg(0, 0x0D, 0x83, 1)
 
         // === Disable IR ===
         writeReg(BLOCK_SYS, SYS_IR_SUSPEND, 0x83, 1)
@@ -619,8 +635,8 @@ class RtlSdrDevice(private val context: Context) {
 
         usbLock.lock()
         return try {
-            // Calculate resampler ratio
-            val rsampRatio = ((RTL_XTAL_FREQ * (1L shl 22)) / rate).toInt()
+            // Calculate resampler ratio (librtlsdr: rsamp_ratio &= 0x0ffffffc)
+            val rsampRatio = (((RTL_XTAL_FREQ * (1L shl 22)) / rate) and 0x0FFFFFFCL).toInt()
 
             // Write to demod registers (page 1, regs 0x9F-0xA2)
             writeDemodReg(1, 0x9F, (rsampRatio shr 16) and 0xFFFF, 2)
@@ -692,49 +708,46 @@ class RtlSdrDevice(private val context: Context) {
     }
 
     /**
-     * FC0013 initialization (from librtlsdr fc0013.c fc0013_init).
+     * FC0013 initialization — ported verbatim from librtlsdr fc0013.c fc0013_init().
      */
     private fun initFC0013() {
-        // Init register values from fc0013.c
-        val initRegs = intArrayOf(
+        val reg = intArrayOf(
             0x00, // reg 0x00: dummy (read-only chip ID)
-            0x09, // reg 0x01: VCO + PLL
-            0x16, // reg 0x02: xdiv high
-            0x00, // reg 0x03: xdiv low
-            0x00, // reg 0x04: VCO current
-            0xC1, // reg 0x05: clock out / AGC
-            0x00, // reg 0x06: IF frequency (zero-IF = 0)
-            0x00, // reg 0x07: IF frequency / bandwidth
-            0xFF, // reg 0x08: AGC clock
-            0x6E, // reg 0x09: IF VGA gain
-            0xB8, // reg 0x0A: IF VGA
-            0x82, // reg 0x0B: PLL loop divider
-            0xFC, // reg 0x0C: VCO current
-            0x02, // reg 0x0D: band selection
-            0x00, // reg 0x0E: VCO calibration
+            0x09, // reg 0x01
+            0x16, // reg 0x02
+            0x00, // reg 0x03
+            0x00, // reg 0x04
+            0x17, // reg 0x05
+            0x02, // reg 0x06: LPF bandwidth
+            0x0A, // reg 0x07: CHECK
+            0xFF, // reg 0x08: AGC Clock /256, AGC gain 1/256, Loop BW 1/8
+            0x6E, // reg 0x09: Disable LoopThrough
+            0xB8, // reg 0x0A: Disable LO Test Buffer
+            0x82, // reg 0x0B
+            0xFC, // reg 0x0C
+            0x01, // reg 0x0D: AGC Not Forcing & LNA Forcing
+            0x00, // reg 0x0E
             0x00, // reg 0x0F
-            0x00, // reg 0x10: RSSI
-            0x00, // reg 0x11: clock out
-            0x00, // reg 0x12: LNA power detector
-            0x00, // reg 0x13: mixer gain
-            0x50, // reg 0x14: LNA gain (auto + high gain)
-            0x01, // reg 0x15: PLL loop divider 2
+            0x00, // reg 0x10
+            0x00, // reg 0x11
+            0x00, // reg 0x12
+            0x00, // reg 0x13
+            0x50, // reg 0x14: DVB-t High Gain, UHF
+            0x01, // reg 0x15
         )
 
-        // Hardware reset sequence
-        fc0013WriteReg(0x06, 0x00)
-        fc0013WriteReg(0x07, 0x20)
-        fc0013WriteReg(0x06, 0x00)
+        // 28.8 MHz crystal: set bit 5 of reg 0x07
+        reg[0x07] = reg[0x07] or 0x20
 
-        // Write all init registers
-        for (i in 1 until initRegs.size) {
-            fc0013WriteReg(i, initRegs[i])
+        // dual_master: set bit 1 of reg 0x0C
+        reg[0x0C] = reg[0x0C] or 0x02
+
+        // Write all init registers (1-21)
+        for (i in 1 until reg.size) {
+            fc0013WriteReg(i, reg[i])
         }
 
-        // Enable clock output
-        fc0013WriteReg(0x11, 0x04)
-
-        // Verify: read chip ID (reg 0x00 should be 0xa3) and a written register
+        // Verify chip ID and a written register
         val chipId = fc0013ReadReg(0x00)
         val reg9 = fc0013ReadReg(0x09)
         DebugLog.log("USB", "FC0013 init: chipID=0x${chipId?.toString(16) ?: "null"} (expect 0xa3), reg9=0x${reg9?.toString(16) ?: "null"} (expect 0x6e)")
@@ -743,122 +756,149 @@ class RtlSdrDevice(private val context: Context) {
     }
 
     /**
-     * FC0013 frequency setting (from librtlsdr fc0013.c fc0013_set_params).
-     * Uses PLL with VCO divider to synthesize target frequency.
+     * FC0013 VHF tracking filter — ported from librtlsdr fc0013_set_vhf_track().
+     */
+    private fun setFC0013VhfTrack(freq: Long) {
+        val tmp = (fc0013ReadReg(0x1D) ?: return) and 0xE3
+        val track = when {
+            freq <= 177500000L -> tmp or 0x1C
+            freq <= 184500000L -> tmp or 0x18
+            freq <= 191500000L -> tmp or 0x14
+            freq <= 198500000L -> tmp or 0x10
+            freq <= 205500000L -> tmp or 0x0C
+            freq <= 219500000L -> tmp or 0x08
+            freq < 300000000L  -> tmp or 0x04
+            else -> tmp or 0x1C
+        }
+        fc0013WriteReg(0x1D, track)
+    }
+
+    /**
+     * FC0013 frequency setting — ported verbatim from librtlsdr fc0013_set_params().
+     * Register mapping: reg[1]=AM, reg[2]=PM, reg[3]=xin_hi, reg[4]=xin_lo, reg[5]=band, reg[6]=band.
      */
     private fun setFC0013Frequency(freqHz: Long) {
-        val xtalFreqKhz2 = (RTL_XTAL_FREQ / 1000 / 2).toInt() // 14400
+        val xtalFreqDiv2 = (RTL_XTAL_FREQ / 2).toLong()  // 14400000 Hz
+        val reg = IntArray(7)
+        var vcoSelect = 0
 
-        // Select multiplier and VCO band registers based on frequency
+        // Set VHF tracking filter
+        setFC0013VhfTrack(freqHz)
+
+        // VHF/UHF filter selection
+        if (freqHz < 300000000L) {
+            val tmp07 = fc0013ReadReg(0x07) ?: 0
+            fc0013WriteReg(0x07, tmp07 or 0x10)       // enable VHF filter
+            val tmp14 = fc0013ReadReg(0x14) ?: 0
+            fc0013WriteReg(0x14, tmp14 and 0x1F)       // disable UHF & GPS
+        } else {
+            val tmp07 = fc0013ReadReg(0x07) ?: 0
+            fc0013WriteReg(0x07, tmp07 and 0xEF)       // disable VHF filter
+            val tmp14 = fc0013ReadReg(0x14) ?: 0
+            fc0013WriteReg(0x14, (tmp14 and 0x1F) or 0x40) // enable UHF
+        }
+
+        // Select frequency divider and VCO band
         val multi: Int
-        var reg5: Int
-        var reg6: Int
-
         when {
-            freqHz < 37084000L -> {
-                multi = 96; reg5 = 0x82; reg6 = 0x00
-            }
-            freqHz < 55625000L -> {
-                multi = 64; reg5 = 0x02; reg6 = 0x02
-            }
-            freqHz < 74167000L -> {
-                multi = 48; reg5 = 0x42; reg6 = 0x00
-            }
-            freqHz < 111250000L -> {
-                multi = 32; reg5 = 0x82; reg6 = 0x02
-            }
-            freqHz < 148334000L -> {
-                multi = 24; reg5 = 0x22; reg6 = 0x00
-            }
-            freqHz < 222500000L -> {
-                multi = 16; reg5 = 0x42; reg6 = 0x02
-            }
-            freqHz < 296667000L -> {
-                multi = 12; reg5 = 0x12; reg6 = 0x00
-            }
-            freqHz < 445000000L -> {
-                multi = 8; reg5 = 0x22; reg6 = 0x02
-            }
-            freqHz < 593334000L -> {
-                multi = 6; reg5 = 0x12; reg6 = 0x02
-            }
-            freqHz < 950000000L -> {
-                multi = 4; reg5 = 0x02; reg6 = 0x08
-            }
-            else -> {
-                multi = 2; reg5 = 0x02; reg6 = 0x0C
-            }
+            freqHz < 37084000L  -> { multi = 96; reg[5] = 0x82; reg[6] = 0x00 }
+            freqHz < 55625000L  -> { multi = 64; reg[5] = 0x02; reg[6] = 0x02 }
+            freqHz < 74167000L  -> { multi = 48; reg[5] = 0x42; reg[6] = 0x00 }
+            freqHz < 111250000L -> { multi = 32; reg[5] = 0x82; reg[6] = 0x02 }
+            freqHz < 148334000L -> { multi = 24; reg[5] = 0x22; reg[6] = 0x00 }
+            freqHz < 222500000L -> { multi = 16; reg[5] = 0x42; reg[6] = 0x02 }
+            freqHz < 296667000L -> { multi = 12; reg[5] = 0x12; reg[6] = 0x00 }
+            freqHz < 445000000L -> { multi = 8;  reg[5] = 0x22; reg[6] = 0x02 }
+            freqHz < 593334000L -> { multi = 6;  reg[5] = 0x0A; reg[6] = 0x00 }
+            freqHz < 950000000L -> { multi = 4;  reg[5] = 0x12; reg[6] = 0x02 }
+            else                -> { multi = 2;  reg[5] = 0x0A; reg[6] = 0x02 }
         }
 
         val fVco = freqHz * multi
-        val xin = (fVco / 1000 / xtalFreqKhz2).toInt()
 
-        // Fractional part (must be computed BEFORE xin is decomposed into pm/am)
-        val remainder = fVco - xin.toLong() * xtalFreqKhz2 * 1000
-        var xdiv = ((remainder shl 15) / (xtalFreqKhz2.toLong() * 1000)).toInt()
-        if (xdiv >= (1 shl 15)) xdiv = (1 shl 15) - 1
-
-        // Decompose xin into pm/am (from librtlsdr fc0013.c):
-        // reg[1] = am + 8*pm where am is the remainder after subtracting 8s
-        var xinRem = xin
-        var pm = 0
-        while (xinRem > 12) {
-            xinRem -= 8
-            pm++
+        if (fVco >= 3060000000L) {
+            reg[6] = reg[6] or 0x08
+            vcoSelect = 1
         }
-        val am = xinRem
-        val reg1 = am + (8 * pm)
 
-        val reg2 = (xdiv shr 8) and 0x7F
-        val reg3 = xdiv and 0xFF
-        val reg4 = 0x0A // VCO current
+        // Integer divider (XDIV) with rounding
+        var xdiv = (fVco / xtalFreqDiv2).toInt()
+        if ((fVco - xdiv.toLong() * xtalFreqDiv2) >= (xtalFreqDiv2 / 2))
+            xdiv++
 
-        DebugLog.log("PLL", "FC0013 set ${freqHz/1e6}MHz: multi=$multi xin=$xin pm=$pm am=$am reg1=0x${reg1.toString(16)} xdiv=$xdiv")
+        // Decompose into PM and AM (SEPARATE registers in FC0013!)
+        var pm = xdiv / 8
+        var am = xdiv - (8 * pm)
+        if (am < 2) { am += 8; pm-- }
 
-        // Write PLL registers
-        fc0013WriteReg(0x01, reg1)
-        fc0013WriteReg(0x02, reg2)
-        fc0013WriteReg(0x03, reg3)
-        fc0013WriteReg(0x04, reg4)
-        fc0013WriteReg(0x05, reg5)
-        fc0013WriteReg(0x06, reg6)
+        if (pm > 31) {
+            reg[1] = am + (8 * (pm - 31))
+            reg[2] = 31
+        } else {
+            reg[1] = am
+            reg[2] = pm
+        }
 
-        // VCO calibration: toggle reg 0x0E bit 7
+        // Fractional part (XIN)
+        var xin = ((fVco - (fVco / xtalFreqDiv2) * xtalFreqDiv2) / 1000).toInt()
+        xin = ((xin.toLong() shl 15) / (xtalFreqDiv2 / 1000)).toInt()
+        if (xin >= 16384) xin += 32768
+
+        reg[3] = xin shr 8
+        reg[4] = xin and 0xFF
+
+        // Fix clock out + bandwidth (default 8 MHz)
+        reg[6] = reg[6] or 0x20
+
+        // Modified for Realtek demod
+        reg[5] = reg[5] or 0x07
+
+        DebugLog.log("PLL", "FC0013 set ${freqHz/1e6}MHz: multi=$multi xdiv=$xdiv am=${reg[1]} pm=${reg[2]} xin=$xin vcoSel=$vcoSelect")
+
+        // Write PLL registers (reg[1]-reg[6] → tuner registers 0x01-0x06)
+        for (i in 1..6) fc0013WriteReg(i, reg[i])
+
+        // Clock output control based on multiplier
+        val tmp11 = fc0013ReadReg(0x11) ?: 0
+        fc0013WriteReg(0x11, if (multi == 64) tmp11 or 0x04 else tmp11 and 0xFB)
+
+        // VCO Calibration + Re-Calibration
         fc0013WriteReg(0x0E, 0x80)
         fc0013WriteReg(0x0E, 0x00)
-
+        fc0013WriteReg(0x0E, 0x00)  // re-calibration write
         Thread.sleep(10)
 
-        // Check VCO lock (reg 0x0E bit 6)
-        val vcoStatus = fc0013ReadReg(0x0E) ?: 0
-        if ((vcoStatus and 0x40) == 0) {
-            // VCO not locked, try switching VCO
-            DebugLog.log("PLL", "FC0013 VCO not locked, switching VCO")
-            val curReg6 = fc0013Regs[0x06]
-            fc0013WriteReg(0x06, curReg6 or 0x08)
+        val vcoStatus = (fc0013ReadReg(0x0E) ?: 0) and 0x3F
 
-            // Re-calibrate
-            fc0013WriteReg(0x0E, 0x80)
-            fc0013WriteReg(0x0E, 0x00)
-            Thread.sleep(10)
-
-            val vcoRetry = fc0013ReadReg(0x0E) ?: 0
-            DebugLog.log("PLL", "FC0013 VCO retry: locked=${(vcoRetry and 0x40) != 0}")
+        // VCO selection adjustment based on current
+        if (vcoSelect != 0) {
+            if (vcoStatus > 0x3C) {
+                reg[6] = reg[6] and 0xF7
+                fc0013WriteReg(0x06, reg[6])
+                fc0013WriteReg(0x0E, 0x80)
+                fc0013WriteReg(0x0E, 0x00)
+            }
         } else {
-            DebugLog.log("PLL", "FC0013 freq=${freqHz/1e6}MHz locked=true multi=$multi")
+            if (vcoStatus < 0x02) {
+                reg[6] = reg[6] or 0x08
+                fc0013WriteReg(0x06, reg[6])
+                fc0013WriteReg(0x0E, 0x80)
+                fc0013WriteReg(0x0E, 0x00)
+            }
         }
+
+        val finalVco = (fc0013ReadReg(0x0E) ?: 0) and 0x3F
+        DebugLog.log("PLL", "FC0013 VCO: status=0x${vcoStatus.toString(16)} final=0x${finalVco.toString(16)} vcoSel=$vcoSelect")
     }
 
     /**
      * FC0013 bandwidth setting (from librtlsdr fc0013.c).
-     * Modifies reg 0x06 bandwidth bits and reg 0x07.
      */
     private fun setFC0013Bandwidth(bandwidth: Int) {
-        // reg 0x06 upper bits control bandwidth filter
         val bwBits = when {
-            bandwidth <= 6000000 -> 0x80  // 6 MHz
-            bandwidth <= 7000000 -> 0x40  // 7 MHz
-            else -> 0x00                  // 8 MHz (widest)
+            bandwidth <= 6000000 -> 0x80
+            bandwidth <= 7000000 -> 0x40
+            else -> 0x00
         }
         val curReg6 = fc0013Regs[0x06] and 0x3F
         fc0013WriteReg(0x06, curReg6 or bwBits)
