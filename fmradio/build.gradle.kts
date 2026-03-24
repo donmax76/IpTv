@@ -34,18 +34,19 @@ android {
         targetSdk = 34
         versionCode = gitVersionCode()
         versionName = gitVersionName()
-
-        ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
-        }
     }
 
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.18.1"
-        }
-    }
+    // Native USB library (optional — requires NDK)
+    // To enable: install NDK via sdkmanager "ndk;25.2.9519653"
+    // then uncomment the block below.
+    // Without NDK, app uses Java USB API fallback (NativeUsb.kt handles this).
+    //
+    // externalNativeBuild {
+    //     cmake {
+    //         path = file("src/main/cpp/CMakeLists.txt")
+    //         version = "3.18.1"
+    //     }
+    // }
 
     buildTypes {
         release {
