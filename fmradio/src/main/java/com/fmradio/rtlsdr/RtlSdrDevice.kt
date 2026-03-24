@@ -293,25 +293,35 @@ class RtlSdrDevice(private val context: Context) {
 
     private fun detectTuner(): TunerType {
         // Try R820T first (most common in RTL-SDR v2/v3)
-        var data = i2cRead(R820T_I2C_ADDR, 0x00, 1)
-        if (data != null && data.isNotEmpty()) {
-            val chipId = data[0].toInt() and 0xFF
-            DebugLog.log("USB", "R820T probe: chipId=0x${chipId.toString(16)}")
-            Log.i(TAG, "R820T chip ID: 0x${chipId.toString(16)}")
-            if (chipId == 0x69) return TunerType.R820T
-        } else {
-            DebugLog.log("USB", "R820T probe: I2C read FAILED (null)")
-        }
+        // Re-toggle I2C repeater before each probe to ensure it's active
+        for (attempt in 0 until 2) {
+            if (attempt > 0) {
+                // Re-enable I2C repeater on retry
+                enableI2CRepeater(false)
+                Thread.sleep(10)
+                enableI2CRepeater(true)
+            }
 
-        // Try R828D
-        data = i2cRead(R828D_I2C_ADDR, 0x00, 1)
-        if (data != null && data.isNotEmpty()) {
-            val chipId = data[0].toInt() and 0xFF
-            DebugLog.log("USB", "R828D probe: chipId=0x${chipId.toString(16)}")
-            Log.i(TAG, "R828D chip ID: 0x${chipId.toString(16)}")
-            if (chipId == 0x69) return TunerType.R828D
-        } else {
-            DebugLog.log("USB", "R828D probe: I2C read FAILED (null)")
+            var data = i2cRead(R820T_I2C_ADDR, 0x00, 1)
+            if (data != null && data.isNotEmpty()) {
+                val chipId = data[0].toInt() and 0xFF
+                DebugLog.log("USB", "R820T probe: chipId=0x${chipId.toString(16)} (attempt=$attempt)")
+                Log.i(TAG, "R820T chip ID: 0x${chipId.toString(16)}")
+                if (chipId == 0x69) return TunerType.R820T
+            } else {
+                DebugLog.log("USB", "R820T probe: I2C FAILED attempt=$attempt")
+            }
+
+            // Try R828D
+            data = i2cRead(R828D_I2C_ADDR, 0x00, 1)
+            if (data != null && data.isNotEmpty()) {
+                val chipId = data[0].toInt() and 0xFF
+                DebugLog.log("USB", "R828D probe: chipId=0x${chipId.toString(16)} (attempt=$attempt)")
+                Log.i(TAG, "R828D chip ID: 0x${chipId.toString(16)}")
+                if (chipId == 0x69) return TunerType.R828D
+            } else {
+                DebugLog.log("USB", "R828D probe: I2C FAILED attempt=$attempt")
+            }
         }
 
         // Default to R820T for RTL-SDR v2
@@ -613,6 +623,27 @@ class RtlSdrDevice(private val context: Context) {
         return true
     }
 
+    /**
+     * Send USB standard CLEAR_FEATURE(ENDPOINT_HALT) to unstall the bulk endpoint.
+     * Android's UsbDeviceConnection doesn't provide clearHalt(), so we do it manually.
+     * This is CRITICAL — without it, bulkTransfer returns -1 immediately (EPIPE).
+     */
+    private fun clearEndpointHalt() {
+        val conn = usbConnection ?: return
+        val ep = bulkEndpoint ?: return
+        // USB standard request: bmRequestType=0x02 (OUT|Standard|Endpoint),
+        // bRequest=0x01 (CLEAR_FEATURE), wValue=0x00 (ENDPOINT_HALT),
+        // wIndex=endpoint address
+        val result = conn.controlTransfer(
+            0x02,   // USB_DIR_OUT | USB_TYPE_STANDARD | USB_RECIP_ENDPOINT
+            0x01,   // USB_REQ_CLEAR_FEATURE
+            0x00,   // USB_FEATURE_ENDPOINT_HALT
+            ep.address,
+            null, 0, CTRL_TIMEOUT
+        )
+        DebugLog.log("USB", "clearHalt ep=0x${ep.address.toString(16)}: result=$result")
+    }
+
     fun readSamples(length: Int, timeoutMs: Int = USB_TIMEOUT): ByteArray? {
         if (!isOpen || bulkEndpoint == null) return null
 
@@ -656,11 +687,15 @@ class RtlSdrDevice(private val context: Context) {
         isStreaming = true
         readErrorCount = 0
 
+        // Clear any USB endpoint stall condition FIRST
+        // Android bulkTransfer returns -1 (EPIPE) if endpoint is stalled
+        clearEndpointHalt()
+
         // Full USB FIFO reset before starting stream
         resetBuffer()
 
         // Give FIFO time to start filling after reset
-        Thread.sleep(20)
+        Thread.sleep(50)
 
         // Discard first read to flush stale data from USB pipe
         val discardBuf = ByteArray(minOf(bufferSize, 16384))
@@ -669,6 +704,13 @@ class RtlSdrDevice(private val context: Context) {
             if (ep != null) {
                 val discard1 = usbConnection?.bulkTransfer(ep, discardBuf, discardBuf.size, 500) ?: -1
                 DebugLog.log("USB", "Discard read1: $discard1 bytes")
+                if (discard1 < 0) {
+                    // If first read still fails, try clear halt again and retry
+                    clearEndpointHalt()
+                    Thread.sleep(20)
+                    val discard2 = usbConnection?.bulkTransfer(ep, discardBuf, discardBuf.size, 500) ?: -1
+                    DebugLog.log("USB", "Discard read2 (after re-clearHalt): $discard2 bytes")
+                }
             }
         } catch (_: Exception) {}
 
@@ -738,17 +780,22 @@ class RtlSdrDevice(private val context: Context) {
             isStreaming = false
             Thread.sleep(50)
 
+            // Clear USB endpoint stall (CRITICAL for Android)
+            clearEndpointHalt()
+
             // Reset USB FIFO multiple times to ensure clean state
             resetBufferInternal()
             Thread.sleep(10)
             resetBufferInternal()
             Thread.sleep(10)
 
+            // Clear stall again after FIFO reset
+            clearEndpointHalt()
+
             // Discard any stale data in USB pipe
             val ep = bulkEndpoint
             if (ep != null) {
                 val discardBuf = ByteArray(ep.maxPacketSize * 32)
-                // Read and discard with short timeout
                 for (i in 0 until 3) {
                     val read = usbConnection?.bulkTransfer(ep, discardBuf, discardBuf.size, 200) ?: -1
                     DebugLog.log("USB", "fullReset discard #$i: $read bytes")
@@ -833,7 +880,8 @@ class RtlSdrDevice(private val context: Context) {
     private fun readReg(block: Int, addr: Int, len: Int): Int {
         val conn = usbConnection ?: return 0
         val data = ByteArray(len)
-        val index = (block shl 8) or 0x10
+        // librtlsdr: reads use index = (block << 8) WITHOUT 0x10 flag
+        val index = (block shl 8)
 
         conn.controlTransfer(CTRL_IN, 0, addr, index, data, data.size, CTRL_TIMEOUT)
 
@@ -896,7 +944,12 @@ class RtlSdrDevice(private val context: Context) {
      * From librtlsdr: rtlsdr_set_i2c_repeater → rtlsdr_demod_write_reg(dev, 1, 0x01, ...)
      */
     private fun enableI2CRepeater(enable: Boolean) {
-        writeDemodReg(1, 0x01, if (enable) 0x18 else 0x10, 1)
+        val value = if (enable) 0x18 else 0x10
+        writeDemodReg(1, 0x01, value, 1)
+        if (enable) {
+            // Give I2C repeater time to activate
+            Thread.sleep(5)
+        }
     }
 
     /**
@@ -917,19 +970,28 @@ class RtlSdrDevice(private val context: Context) {
 
     /**
      * Read from tuner via I2C bus.
+     * Retries up to 3 times — some RTL-SDR devices need multiple attempts.
      */
     @Suppress("SameParameterValue")
     private fun i2cRead(addr: Int, reg: Int, len: Int): ByteArray? {
         val conn = usbConnection ?: return null
 
-        // Write register address
-        val regBuf = byteArrayOf(reg.toByte())
-        conn.controlTransfer(CTRL_OUT, 0, addr, 0x0600, regBuf, 1, CTRL_TIMEOUT)
+        for (attempt in 0 until 3) {
+            // Write register address
+            val regBuf = byteArrayOf(reg.toByte())
+            val wr = conn.controlTransfer(CTRL_OUT, 0, addr, 0x0600, regBuf, 1, CTRL_TIMEOUT)
+            if (wr < 0) {
+                Thread.sleep(5)
+                continue
+            }
 
-        // Read data
-        val data = ByteArray(len)
-        val result = conn.controlTransfer(CTRL_IN, 0, addr, 0x0600, data, len, CTRL_TIMEOUT)
-        return if (result >= 0) data else null
+            // Read data
+            val data = ByteArray(len)
+            val result = conn.controlTransfer(CTRL_IN, 0, addr, 0x0600, data, len, CTRL_TIMEOUT)
+            if (result >= 0) return data
+            Thread.sleep(5)
+        }
+        return null
     }
 
     fun getFrequency(): Long = centerFrequency
