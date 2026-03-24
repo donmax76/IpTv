@@ -176,6 +176,12 @@ class RtlSdrDevice(private val context: Context) {
             usbConnection!!.claimInterface(usbInterface, true)
             DebugLog.log("USB", "Interface claimed, endpoint=${bulkEndpoint?.address} maxPkt=${bulkEndpoint?.maxPacketSize}")
 
+            // Log USB device info for diagnostics
+            logDeviceInfo(dev)
+
+            // Try USB SET_CONFIGURATION reset to put device in known state
+            usbResetDevice()
+
             // Initialize RTL2832U
             initializeDevice()
             isOpen = true
@@ -874,6 +880,74 @@ class RtlSdrDevice(private val context: Context) {
         isOpen = false
     }
 
+    // --- USB device diagnostics and reset ---
+
+    private fun logDeviceInfo(dev: UsbDevice) {
+        DebugLog.log("USB", "Device: vid=0x${dev.vendorId.toString(16)} pid=0x${dev.productId.toString(16)}" +
+                " class=${dev.deviceClass} subclass=${dev.deviceSubclass} protocol=${dev.deviceProtocol}")
+        DebugLog.log("USB", "Device name=${dev.deviceName} ifaces=${dev.interfaceCount}")
+
+        val iface = usbInterface
+        if (iface != null) {
+            DebugLog.log("USB", "Interface: id=${iface.id} class=${iface.interfaceClass}" +
+                    " subclass=${iface.interfaceSubclass} endpoints=${iface.endpointCount}")
+        }
+
+        // Try to read raw USB descriptors for chip identification
+        try {
+            val raw = usbConnection?.rawDescriptors
+            if (raw != null && raw.size >= 18) {
+                val bcdUSB = (raw[3].toInt() and 0xFF shl 8) or (raw[2].toInt() and 0xFF)
+                val bcdDevice = (raw[13].toInt() and 0xFF shl 8) or (raw[12].toInt() and 0xFF)
+                DebugLog.log("USB", "Descriptor: bcdUSB=0x${bcdUSB.toString(16)} bcdDevice=0x${bcdDevice.toString(16)}" +
+                        " maxPkt0=${raw[7].toInt() and 0xFF}")
+            }
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * Try USB SET_CONFIGURATION to reset device to known state.
+     * This can help on devices where the USB stack needs a kick.
+     */
+    private fun usbResetDevice() {
+        val conn = usbConnection ?: return
+        try {
+            // USB standard: SET_CONFIGURATION(1)
+            // bmRequestType=0x00 (OUT|Standard|Device), bRequest=0x09 (SET_CONFIGURATION)
+            val r1 = conn.controlTransfer(0x00, 0x09, 1, 0, null, 0, CTRL_TIMEOUT)
+            DebugLog.log("USB", "SET_CONFIGURATION(1): result=$r1")
+
+            Thread.sleep(50)
+
+            // USB standard: SET_INTERFACE(0, 0)
+            // bmRequestType=0x01 (OUT|Standard|Interface), bRequest=0x0B (SET_INTERFACE)
+            val r2 = conn.controlTransfer(0x01, 0x0B, 0, 0, null, 0, CTRL_TIMEOUT)
+            DebugLog.log("USB", "SET_INTERFACE(0,0): result=$r2")
+
+            Thread.sleep(20)
+        } catch (e: Exception) {
+            DebugLog.log("USB", "USB reset error: ${e.message}")
+        }
+    }
+
+    /**
+     * Release and re-claim interface to reset USB state.
+     * Some Android USB host controllers need this before I2C works.
+     */
+    private fun releaseAndReclaim() {
+        val conn = usbConnection ?: return
+        val iface = usbInterface ?: return
+        try {
+            conn.releaseInterface(iface)
+            Thread.sleep(50)
+            conn.claimInterface(iface, true)
+            Thread.sleep(20)
+            DebugLog.log("USB", "Interface release+reclaim done")
+        } catch (e: Exception) {
+            DebugLog.log("USB", "Release/reclaim error: ${e.message}")
+        }
+    }
+
     // --- Low-level USB control transfers ---
 
     /**
@@ -1082,55 +1156,75 @@ class RtlSdrDevice(private val context: Context) {
     }
 
     /**
+     * Quick I2C probe: try write+read to an I2C address with given index/request.
+     * Returns true if either write or read succeeds.
+     */
+    private fun probeI2C(conn: UsbDeviceConnection, addr: Int, wrIdx: Int, rdIdx: Int, request: Int): Boolean {
+        val testBuf = byteArrayOf(0x00)
+        val rdBuf = ByteArray(1)
+        val wr = conn.controlTransfer(CTRL_OUT, request, addr, wrIdx, testBuf, 1, I2C_TIMEOUT)
+        val rd = conn.controlTransfer(CTRL_IN, request, addr, rdIdx, rdBuf, 1, I2C_TIMEOUT)
+        DebugLog.log("USB", "  addr=0x${addr.toString(16)} req=$request wr=$wr rd=$rd data=0x${(rdBuf[0].toInt() and 0xFF).toString(16)}")
+        return wr >= 0 || rd >= 0
+    }
+
+    /**
      * Probe all I2C addressing methods to find working one.
-     * Returns true if I2C communication works with any method.
+     * Tries multiple index/request combinations and USB state resets.
      */
     private fun probeI2CMethods(): Boolean {
         val conn = usbConnection ?: return false
-        val testBuf = byteArrayOf(0x00)
 
-        // Methods to try: (writeIndex, readIndex, description)
-        val methods = arrayOf(
-            Triple(0x0600, 0x0600, "standard (IICB=6, no flags)"),
-            Triple(0x0610, 0x0600, "write-flag (IICB=6|0x10 for write)"),
-            Triple(0x0310, 0x0300, "TUNB=3 with write-flag"),
-            Triple(0x0300, 0x0300, "TUNB=3 no flags"),
+        data class I2CMethod(val wrIdx: Int, val rdIdx: Int, val request: Int, val desc: String)
+
+        val methods = listOf(
+            I2CMethod(0x0600, 0x0600, 0, "IICB=6 req=0"),
+            I2CMethod(0x0610, 0x0600, 0, "IICB=6|0x10 req=0"),
+            I2CMethod(0x0600, 0x0600, 1, "IICB=6 req=1"),
+            I2CMethod(0x0610, 0x0600, 1, "IICB=6|0x10 req=1"),
         )
 
-        for ((wrIdx, rdIdx, desc) in methods) {
-            DebugLog.log("USB", "I2C probe method: $desc (wr=0x${wrIdx.toString(16)} rd=0x${rdIdx.toString(16)})")
+        val tunerAddrs = intArrayOf(R820T_I2C_ADDR, R828D_I2C_ADDR)
 
-            // Try write to R820T address
-            val wr = conn.controlTransfer(CTRL_OUT, 0, R820T_I2C_ADDR, wrIdx, testBuf, 1, I2C_TIMEOUT)
-            DebugLog.log("USB", "  write(0x34)=$wr")
-
-            // Try raw read from R820T address
-            val rdBuf = ByteArray(1)
-            val rd = conn.controlTransfer(CTRL_IN, 0, R820T_I2C_ADDR, rdIdx, rdBuf, 1, I2C_TIMEOUT)
-            DebugLog.log("USB", "  read(0x34)=$rd data=0x${(rdBuf[0].toInt() and 0xFF).toString(16)}")
-
-            if (wr >= 0 || rd >= 0) {
-                DebugLog.log("USB", "I2C method WORKS: $desc")
-                i2cWriteIndex = wrIdx
-                i2cReadIndex = rdIdx
-                return true
-            }
-
-            // Also try R828D address
-            val wr2 = conn.controlTransfer(CTRL_OUT, 0, R828D_I2C_ADDR, wrIdx, testBuf, 1, I2C_TIMEOUT)
-            val rdBuf2 = ByteArray(1)
-            val rd2 = conn.controlTransfer(CTRL_IN, 0, R828D_I2C_ADDR, rdIdx, rdBuf2, 1, I2C_TIMEOUT)
-            DebugLog.log("USB", "  write(0x74)=$wr2 read(0x74)=$rd2 data=0x${(rdBuf2[0].toInt() and 0xFF).toString(16)}")
-
-            if (wr2 >= 0 || rd2 >= 0) {
-                DebugLog.log("USB", "I2C method WORKS (R828D): $desc")
-                i2cWriteIndex = wrIdx
-                i2cReadIndex = rdIdx
-                return true
+        // Phase 1: Try all methods with current USB state
+        DebugLog.log("USB", "=== I2C probe Phase 1: standard ===")
+        for (m in methods) {
+            DebugLog.log("USB", "Method: ${m.desc}")
+            for (addr in tunerAddrs) {
+                if (probeI2C(conn, addr, m.wrIdx, m.rdIdx, m.request)) {
+                    DebugLog.log("USB", "I2C WORKS: ${m.desc} addr=0x${addr.toString(16)}")
+                    i2cWriteIndex = m.wrIdx
+                    i2cReadIndex = m.rdIdx
+                    return true
+                }
             }
         }
 
-        DebugLog.log("USB", "ALL I2C methods FAILED — tuner may be unreachable")
+        // Phase 2: Release+reclaim interface, then retry
+        DebugLog.log("USB", "=== I2C probe Phase 2: after release+reclaim ===")
+        releaseAndReclaim()
+        enableI2CRepeater(true)
+
+        for (m in methods.take(2)) { // Only try first 2 methods (req=0)
+            DebugLog.log("USB", "Method: ${m.desc}")
+            for (addr in tunerAddrs) {
+                if (probeI2C(conn, addr, m.wrIdx, m.rdIdx, m.request)) {
+                    DebugLog.log("USB", "I2C WORKS after reclaim: ${m.desc}")
+                    i2cWriteIndex = m.wrIdx
+                    i2cReadIndex = m.rdIdx
+                    return true
+                }
+            }
+        }
+
+        // Phase 3: Read SYS block chip identification registers
+        DebugLog.log("USB", "=== Chip identification ===")
+        for (addr in arrayOf(0x3000, 0x3001, 0x3002, 0x3003, 0x3004, 0x3005, 0x3006, 0x3007, 0x3008, 0x300A, 0x300B, 0x300C)) {
+            val v = readReg(BLOCK_SYS, addr, 1)
+            DebugLog.log("USB", "  SYS[0x${addr.toString(16)}]=0x${v.toString(16)}")
+        }
+
+        DebugLog.log("USB", "ALL I2C methods FAILED")
         return false
     }
 
