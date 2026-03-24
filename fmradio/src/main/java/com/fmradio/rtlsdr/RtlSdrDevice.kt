@@ -104,6 +104,9 @@ class RtlSdrDevice(private val context: Context) {
     private var centerFrequency: Long = 100000000L // 100 MHz default
     private var sampleRate: Int = DEFAULT_SAMPLE_RATE
     private var tunerType: TunerType = TunerType.R820T
+    // Scan results from probeI2CMethods: address that responded and its raw read data
+    private var scanAddr: Int = 0
+    private var scanData: Int = -1
     private var tunerI2CAddr: Int = R820T_I2C_ADDR
 
     // Mutex to serialize USB control transfers — concurrent access corrupts device state
@@ -365,23 +368,34 @@ class RtlSdrDevice(private val context: Context) {
         // First: probe all I2C methods to find one that works on this device
         probeI2CMethods()
 
-        // Tuner detection table: (address, chipIdCheck, type, name)
+        // Tuner detection table: (address, chipIdReg, expectedChipId, type, name)
         data class TunerProbe(val addr: Int, val reg: Int, val expectedId: Int, val type: TunerType, val name: String)
 
         val tunerProbes = listOf(
             TunerProbe(R820T_I2C_ADDR, 0x00, 0x69, TunerType.R820T, "R820T"),
             TunerProbe(R828D_I2C_ADDR, 0x00, 0x69, TunerType.R828D, "R828D"),
-            TunerProbe(E4000_I2C_ADDR, 0x02, 0x40, TunerType.E4000, "E4000"),  // E4000 chip ID reg
+            TunerProbe(E4000_I2C_ADDR, 0x02, 0x40, TunerType.E4000, "E4000"),
             TunerProbe(FC0012_I2C_ADDR, 0x00, 0xA1, TunerType.FC0012, "FC0012"),
-            TunerProbe(FC0012_I2C_ADDR, 0x00, 0xA3, TunerType.FC0013, "FC0013"),
+            TunerProbe(FC0013_I2C_ADDR, 0x00, 0xA3, TunerType.FC0013, "FC0013"),
             TunerProbe(FC2580_I2C_ADDR, 0x01, 0x56, TunerType.FC2580, "FC2580"),
         )
 
-        // Then try to detect tuner with the working method.
-        // IMPORTANT: always use i2cRead (not i2cRawRead) to set register pointer explicitly,
-        // because i2cRawRead reads the auto-incremented register (not chip ID at reg 0x00).
+        // Fast path: check scan results from probeI2CMethods.
+        // The scan reads register 0x00 (chip ID) as a raw read after power-on.
+        // For FC0013: scanAddr=0xC6, scanData=0xA3
+        if (scanData >= 0) {
+            DebugLog.log("USB", "Scan result: addr=0x${scanAddr.toString(16)} chipId=0x${scanData.toString(16)}")
+            for (probe in tunerProbes) {
+                if (probe.addr == scanAddr && probe.expectedId == scanData) {
+                    DebugLog.log("USB", "Tuner IDENTIFIED from scan: ${probe.name}")
+                    return probe.type
+                }
+            }
+        }
+
+        // Slow path: probe each tuner individually via i2cRead.
+        // NOTE: i2cRead now tries read even when write returns -1 (FC0013 quirk).
         for (attempt in 0 until 3) {
-            // Re-enable I2C repeater before each attempt to ensure tuner is accessible
             enableI2CRepeater(false)
             Thread.sleep(10L * (attempt + 1))
             enableI2CRepeater(true)
@@ -400,6 +414,12 @@ class RtlSdrDevice(private val context: Context) {
                     if (attempt == 0) DebugLog.log("USB", "${probe.name} probe: I2C FAILED attempt=$attempt")
                 }
             }
+        }
+
+        // Last resort: if scan found a responding address at 0xC6, assume FC0013
+        if (scanAddr == FC0013_I2C_ADDR) {
+            DebugLog.log("USB", "Fallback: device at 0xC6 responds, assuming FC0013")
+            return TunerType.FC0013
         }
 
         DebugLog.log("USB", "Tuner NOT identified after 3 attempts, assuming R820T")
@@ -1450,15 +1470,13 @@ class RtlSdrDevice(private val context: Context) {
         val conn = usbConnection ?: return null
 
         for (attempt in 0 until 3) {
-            // Write register address
+            // Write register address (set register pointer)
             val regBuf = byteArrayOf(reg.toByte())
             val wr = conn.controlTransfer(CTRL_OUT, 0, addr, i2cWriteIndex, regBuf, 1, I2C_TIMEOUT)
-            if (wr < 0) {
-                Thread.sleep(10L * (attempt + 1))
-                continue
-            }
 
-            Thread.sleep(2)
+            // FC0013 and some tuners return wr=-1 even though the write succeeds.
+            // Always try the read regardless of write status.
+            Thread.sleep(if (wr < 0) 5L else 2L)
 
             // Read data
             val data = ByteArray(len)
@@ -1501,6 +1519,11 @@ class RtlSdrDevice(private val context: Context) {
             wr = conn.controlTransfer(CTRL_OUT, request, addr, wrIdx, testBuf, 1, I2C_TIMEOUT)
             rd = conn.controlTransfer(CTRL_IN, request, addr, rdIdx, rdBuf, 1, I2C_TIMEOUT)
             DebugLog.log("USB", "  addr=0x${addr.toString(16)} req=$request wr=$wr rd=$rd data=0x${(rdBuf[0].toInt() and 0xFF).toString(16)}")
+        }
+        // Save scan result if read succeeded (chip ID from register 0x00)
+        if (rd >= 0) {
+            scanAddr = addr
+            scanData = rdBuf[0].toInt() and 0xFF
         }
         return wr >= 0 || rd >= 0
     }

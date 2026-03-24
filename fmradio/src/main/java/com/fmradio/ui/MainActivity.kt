@@ -452,25 +452,30 @@ class MainActivity : Activity() {
     }
 
     private fun toggleDebugPanel() {
-        val showing = layoutDebug.visibility == View.VISIBLE
-        if (showing) {
-            layoutDebug.visibility = View.GONE
-            DebugLog.enabled = false
-            DebugLog.onNewLine = null
-        } else {
-            layoutDebug.visibility = View.VISIBLE
-            DebugLog.enabled = true
-            tvDebugLog.text = DebugLog.getText()
-            scrollDebug.post { scrollDebug.fullScroll(View.FOCUS_DOWN) }
-            DebugLog.onNewLine = { line ->
-                runOnUiThread {
-                    tvDebugLog.append("\n$line")
-                    scrollDebug.post { scrollDebug.fullScroll(View.FOCUS_DOWN) }
+        try {
+            val showing = layoutDebug.visibility == View.VISIBLE
+            if (showing) {
+                layoutDebug.visibility = View.GONE
+                DebugLog.enabled = false
+                DebugLog.onNewLine = null
+            } else {
+                layoutDebug.visibility = View.VISIBLE
+                DebugLog.enabled = true
+                tvDebugLog.text = DebugLog.getText()
+                scrollDebug.post { scrollDebug.fullScroll(View.FOCUS_DOWN) }
+                DebugLog.onNewLine = { line ->
+                    runOnUiThread {
+                        tvDebugLog.append("\n$line")
+                        scrollDebug.post { scrollDebug.fullScroll(View.FOCUS_DOWN) }
+                    }
                 }
+                // Log current state
+                DebugLog.log("UI", "Debug enabled. Device=${rtlSdrDevice?.isDeviceOpen()}, playing=${radioService?.isPlaying}, freq=${currentFrequency/1e6}MHz")
+                DebugLog.log("UI", "Volume=${seekVolume.progress}%, tuner=${rtlSdrDevice?.getTunerType()}")
             }
-            // Log current state
-            DebugLog.log("UI", "Debug enabled. Device=${rtlSdrDevice?.isDeviceOpen()}, playing=${radioService?.isPlaying}, freq=${currentFrequency/1e6}MHz")
-            DebugLog.log("UI", "Volume=${seekVolume.progress}%, tuner=${rtlSdrDevice?.getTunerType()}")
+        } catch (e: Exception) {
+            Log.e("FMRadio", "Debug panel error", e)
+            DebugLog.log("UI", "Debug panel error: ${e.message}")
         }
     }
 
