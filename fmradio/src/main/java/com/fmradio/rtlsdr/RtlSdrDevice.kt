@@ -1458,10 +1458,9 @@ class RtlSdrDevice(private val context: Context) {
         }
     }
 
-    // I2C index variants to try.
-    // librtlsdr uses IICB=6, index=0x0600 for both read and write.
-    // Some devices may need the 0x10 write-flag: 0x0610.
-    private var i2cWriteIndex = 0x0600
+    // I2C index for IICB block (block=6):
+    // librtlsdr: writes use (block<<8)|0x10 = 0x0610, reads use (block<<8) = 0x0600
+    private var i2cWriteIndex = 0x0610
     private var i2cReadIndex = 0x0600
 
     /**
@@ -1558,11 +1557,12 @@ class RtlSdrDevice(private val context: Context) {
 
         data class I2CMethod(val wrIdx: Int, val rdIdx: Int, val request: Int, val desc: String)
 
+        // librtlsdr standard: write index = 0x0610, read index = 0x0600
         val methods = listOf(
-            I2CMethod(0x0600, 0x0600, 0, "IICB=6 req=0"),
             I2CMethod(0x0610, 0x0600, 0, "IICB=6|0x10 req=0"),
-            I2CMethod(0x0600, 0x0600, 1, "IICB=6 req=1"),
+            I2CMethod(0x0600, 0x0600, 0, "IICB=6 req=0"),
             I2CMethod(0x0610, 0x0600, 1, "IICB=6|0x10 req=1"),
+            I2CMethod(0x0600, 0x0600, 1, "IICB=6 req=1"),
         )
 
         // Probe ALL known tuner addresses — generic RTL2832U (pid=0x2832) can have any tuner
