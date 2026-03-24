@@ -49,6 +49,13 @@ class RtlSdrDevice(private val context: Context) {
         // RTL2832U system block register addresses
         private const val SYS_DEMOD_CTL = 0x3000
         private const val SYS_GPO = 0x3001
+        private const val SYS_GPI = 0x3002
+        private const val SYS_GPOE = 0x3003     // GPIO output enable
+        private const val SYS_GPD = 0x3004      // GPIO direction
+        private const val SYS_SYSINTE = 0x3005
+        private const val SYS_SYSINTS = 0x3006
+        private const val SYS_GPIO_CFG0 = 0x3007
+        private const val SYS_GPIO_CFG1 = 0x3008
         private const val SYS_DEMOD_CTL_1 = 0x300B
         private const val SYS_IR_SUSPEND = 0x300C
 
@@ -105,24 +112,39 @@ class RtlSdrDevice(private val context: Context) {
     var isStreaming = false
         private set
 
+    @Volatile
+    private var isOpening = false
+
     enum class TunerType {
         UNKNOWN, E4000, FC0012, FC0013, FC2580, R820T, R828D
     }
 
     fun open(device: UsbDevice? = null): Boolean {
+        if (isOpening) {
+            DebugLog.log("USB", "open() blocked — already opening")
+            return false
+        }
+        if (isOpen) {
+            DebugLog.log("USB", "open() — already open, closing first")
+            close()
+        }
+        isOpening = true
         try {
             usbDevice = device ?: findDevice(context) ?: run {
                 Log.e(TAG, "No RTL-SDR device found")
+                isOpening = false
                 return false
             }
 
             if (!usbManager.hasPermission(usbDevice)) {
                 Log.e(TAG, "No USB permission")
+                isOpening = false
                 return false
             }
 
             usbConnection = usbManager.openDevice(usbDevice) ?: run {
                 Log.e(TAG, "Cannot open USB device")
+                isOpening = false
                 return false
             }
 
@@ -145,6 +167,7 @@ class RtlSdrDevice(private val context: Context) {
 
             if (bulkEndpoint == null) {
                 Log.e(TAG, "No bulk endpoint found")
+                isOpening = false
                 close()
                 return false
             }
@@ -155,11 +178,14 @@ class RtlSdrDevice(private val context: Context) {
             // Initialize RTL2832U
             initializeDevice()
             isOpen = true
+            isOpening = false
             Log.i(TAG, "RTL-SDR device opened successfully")
             DebugLog.log("USB", "Device opened OK, tuner=$tunerType")
             return true
         } catch (e: Exception) {
             Log.e(TAG, "Error opening device", e)
+            DebugLog.log("USB", "open() EXCEPTION: ${e.message}")
+            isOpening = false
             close()
             return false
         }
@@ -175,9 +201,21 @@ class RtlSdrDevice(private val context: Context) {
         writeRegChecked(BLOCK_SYS, SYS_DEMOD_CTL_1, 0x22, 1, "DEMOD_CTL_1")
         writeRegChecked(BLOCK_SYS, SYS_DEMOD_CTL, 0xE8, 1, "DEMOD_CTL")
 
+        // === GPIO setup to power on tuner (from librtlsdr rtlsdr_set_gpio) ===
+        // Many RTL-SDR dongles use GPIO5 for tuner power supply.
+        // Without this, the R820T may not respond to I2C.
+        setupGpio()
+
+        // Let demod and tuner power stabilize
+        Thread.sleep(50)
+
         // === Reset demod (page 1, reg 0x01) ===
         writeDemodReg(1, 0x01, 0x14, 1)
+        Thread.sleep(5)
         writeDemodReg(1, 0x01, 0x10, 1)
+
+        // Let demod come out of reset before writing more registers
+        Thread.sleep(10)
 
         // === Disable zero-IF mode (page 1, reg 0x19) ===
         writeDemodReg(1, 0x19, 0x05, 1)
@@ -294,14 +332,16 @@ class RtlSdrDevice(private val context: Context) {
     private fun detectTuner(): TunerType {
         // Try R820T first (most common in RTL-SDR v2/v3)
         // Re-toggle I2C repeater before each probe to ensure it's active
-        for (attempt in 0 until 2) {
+        for (attempt in 0 until 4) {
             if (attempt > 0) {
-                // Re-enable I2C repeater on retry
+                // Re-enable I2C repeater on retry with increasing delay
                 enableI2CRepeater(false)
-                Thread.sleep(10)
+                Thread.sleep(20L * attempt)
                 enableI2CRepeater(true)
+                Thread.sleep(10)
             }
 
+            // Try R820T (I2C addr 0x34)
             var data = i2cRead(R820T_I2C_ADDR, 0x00, 1)
             if (data != null && data.isNotEmpty()) {
                 val chipId = data[0].toInt() and 0xFF
@@ -312,7 +352,7 @@ class RtlSdrDevice(private val context: Context) {
                 DebugLog.log("USB", "R820T probe: I2C FAILED attempt=$attempt")
             }
 
-            // Try R828D
+            // Try R828D (I2C addr 0x74)
             data = i2cRead(R828D_I2C_ADDR, 0x00, 1)
             if (data != null && data.isNotEmpty()) {
                 val chipId = data[0].toInt() and 0xFF
@@ -325,7 +365,7 @@ class RtlSdrDevice(private val context: Context) {
         }
 
         // Default to R820T for RTL-SDR v2
-        DebugLog.log("USB", "Tuner NOT identified, assuming R820T")
+        DebugLog.log("USB", "Tuner NOT identified after 4 attempts, assuming R820T")
         Log.i(TAG, "Tuner not positively identified, assuming R820T")
         return TunerType.R820T
     }
@@ -939,6 +979,30 @@ class RtlSdrDevice(private val context: Context) {
     }
 
     /**
+     * Configure GPIO pins to power on the tuner.
+     * From librtlsdr: rtlsdr_set_gpio_output + rtlsdr_set_gpio_bit
+     * GPIO4 (bit 4) = tuner power on most RTL-SDR v2/v3 dongles
+     * Some dongles use GPIO5 (bit 5) — we set both to be safe.
+     */
+    private fun setupGpio() {
+        // Read current GPIO state
+        val gpoVal = readReg(BLOCK_SYS, SYS_GPO, 1)
+        val gpoeVal = readReg(BLOCK_SYS, SYS_GPOE, 1)
+        val gpdVal = readReg(BLOCK_SYS, SYS_GPD, 1)
+        DebugLog.log("USB", "GPIO before: GPO=0x${gpoVal.toString(16)} GPOE=0x${gpoeVal.toString(16)} GPD=0x${gpdVal.toString(16)}")
+
+        // Set GPIO4 and GPIO5 as output (direction=0 means output for these bits)
+        // GPD: 0 = output, GPOE: 1 = enabled
+        val gpioBits = 0x30  // bits 4,5
+        writeReg(BLOCK_SYS, SYS_GPD, gpdVal and gpioBits.inv(), 1)   // direction = output
+        writeReg(BLOCK_SYS, SYS_GPOE, gpoeVal or gpioBits, 1)        // output enable
+        writeReg(BLOCK_SYS, SYS_GPO, gpoVal or gpioBits, 1)          // set HIGH (power on)
+
+        val gpoAfter = readReg(BLOCK_SYS, SYS_GPO, 1)
+        DebugLog.log("USB", "GPIO after: GPO=0x${gpoAfter.toString(16)} (tuner power on)")
+    }
+
+    /**
      * Enable/disable I2C repeater to access tuner via I2C bus.
      * Page 1, register 0x01: 0x18 = enable, 0x10 = disable.
      * From librtlsdr: rtlsdr_set_i2c_repeater → rtlsdr_demod_write_reg(dev, 1, 0x01, ...)
@@ -947,8 +1011,11 @@ class RtlSdrDevice(private val context: Context) {
         val value = if (enable) 0x18 else 0x10
         writeDemodReg(1, 0x01, value, 1)
         if (enable) {
-            // Give I2C repeater time to activate
-            Thread.sleep(5)
+            // Give I2C repeater time to activate — some devices need 20ms+
+            Thread.sleep(20)
+            // Verify repeater is enabled by reading back the register
+            val readback = readDemodReg(1, 0x01, 1)
+            DebugLog.log("USB", "I2C repeater ${if (enable) "ON" else "OFF"}: wrote=0x${value.toString(16)} readback=0x${readback.toString(16)}")
         }
     }
 
@@ -976,20 +1043,25 @@ class RtlSdrDevice(private val context: Context) {
     private fun i2cRead(addr: Int, reg: Int, len: Int): ByteArray? {
         val conn = usbConnection ?: return null
 
-        for (attempt in 0 until 3) {
+        for (attempt in 0 until 5) {
             // Write register address
             val regBuf = byteArrayOf(reg.toByte())
             val wr = conn.controlTransfer(CTRL_OUT, 0, addr, 0x0600, regBuf, 1, CTRL_TIMEOUT)
             if (wr < 0) {
-                Thread.sleep(5)
+                DebugLog.log("USB", "i2cRead WRITE phase failed: addr=0x${addr.toString(16)} reg=0x${reg.toString(16)} attempt=$attempt wr=$wr")
+                Thread.sleep(10L * (attempt + 1))
                 continue
             }
+
+            // Small delay between write and read phases
+            Thread.sleep(2)
 
             // Read data
             val data = ByteArray(len)
             val result = conn.controlTransfer(CTRL_IN, 0, addr, 0x0600, data, len, CTRL_TIMEOUT)
             if (result >= 0) return data
-            Thread.sleep(5)
+            DebugLog.log("USB", "i2cRead READ phase failed: addr=0x${addr.toString(16)} reg=0x${reg.toString(16)} attempt=$attempt rd=$result")
+            Thread.sleep(10L * (attempt + 1))
         }
         return null
     }
