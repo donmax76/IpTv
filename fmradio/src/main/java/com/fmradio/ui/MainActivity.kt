@@ -462,18 +462,42 @@ class MainActivity : Activity() {
         try {
             val showing = layoutDebug.visibility == View.VISIBLE
             if (showing) {
-                layoutDebug.visibility = View.GONE
-                DebugLog.enabled = false
+                // First clear callback to stop any pending UI updates
                 DebugLog.onNewLine = null
+                DebugLog.enabled = false
+                layoutDebug.visibility = View.GONE
             } else {
                 layoutDebug.visibility = View.VISIBLE
                 DebugLog.enabled = true
-                tvDebugLog.text = DebugLog.getText()
+                // Limit text to last 200 lines to prevent OOM on large logs
+                val fullText = DebugLog.getText()
+                val lines = fullText.lines()
+                val displayText = if (lines.size > 200) {
+                    lines.takeLast(200).joinToString("\n")
+                } else {
+                    fullText
+                }
+                tvDebugLog.text = displayText
                 scrollDebug.post { scrollDebug.fullScroll(View.FOCUS_DOWN) }
+                // Capture view references safely for the callback
+                val logView = tvDebugLog
+                val scrollView = scrollDebug
                 DebugLog.onNewLine = { line ->
                     runOnUiThread {
-                        tvDebugLog.append("\n$line")
-                        scrollDebug.post { scrollDebug.fullScroll(View.FOCUS_DOWN) }
+                        try {
+                            if (logView.isAttachedToWindow && layoutDebug.visibility == View.VISIBLE) {
+                                logView.append("\n$line")
+                                // Trim if too long (prevent OOM over time)
+                                if (logView.lineCount > 300) {
+                                    val text = logView.text
+                                    val start = logView.layout?.getLineStart(logView.lineCount - 200) ?: 0
+                                    logView.text = text.subSequence(start, text.length)
+                                }
+                                scrollView.post { scrollView.fullScroll(View.FOCUS_DOWN) }
+                            }
+                        } catch (_: Exception) {
+                            // View detached or invalid — ignore
+                        }
                     }
                 }
                 // Log current state

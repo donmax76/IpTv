@@ -4,15 +4,15 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.util.Log
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.locks.ReentrantLock
 
 /**
- * Stereo audio output player with lock-free ring buffer to smooth out USB/SDR timing jitter.
+ * Stereo audio output player with ring buffer to smooth out USB/SDR timing jitter.
  * Accepts interleaved stereo samples (L,R,L,R,...) from FmDemodulator.
  * Uses a dedicated high-priority playback thread to decouple USB reads from audio output.
  *
  * Key design:
- *  - Lock-free ring buffer using atomic bufferedSamples counter
+ *  - Lightweight lock (only held during index update, not during AudioTrack.write)
  *  - Pre-buffering: accumulate ~300ms before first drain to absorb USB jitter
  *  - Fade-in: 50ms ramp on initial playback to prevent startup pop
  *  - Crossfade on overflow: prevents audible discontinuity when dropping samples
@@ -38,13 +38,12 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
     @Volatile
     private var isPlaying = false
 
-    // Lock-free ring buffer (interleaved stereo: L,R,L,R,...)
-    // Writer (demod thread) owns writePos; reader (drain thread) owns readPos.
-    // bufferedSamples is the atomic coordination point.
+    // Ring buffer (interleaved stereo: L,R,L,R,...)
     private val ringBuffer = ShortArray(RING_BUFFER_SAMPLES)
     private var writePos = 0
     private var readPos = 0
-    private val bufferedSamples = AtomicInteger(0)
+    private var bufferedSamples = 0
+    private val lock = ReentrantLock()
 
     private var playbackThread: Thread? = null
     @Volatile
@@ -92,7 +91,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
 
         writePos = 0
         readPos = 0
-        bufferedSamples.set(0)
+        bufferedSamples = 0
         preBufferFilled = false
         samplesPlayed = 0L
         lastOutputSample = 0
@@ -110,17 +109,23 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         isPlaying = true
 
         playbackThread = Thread({
-            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
+            try {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
+            } catch (_: Exception) {
+                // Some devices don't allow URGENT_AUDIO priority
+            }
             val chunkSize = 4096  // 2048 stereo frames — larger chunks reduce overhead
             val chunk = ShortArray(chunkSize)
 
             while (isPlaying) {
-                val avail = bufferedSamples.get()
+                // Check buffered count under lock (fast — just read an int)
+                val avail: Int
+                lock.lock()
+                try { avail = bufferedSamples } finally { lock.unlock() }
 
                 // Wait for pre-buffer to fill before first drain
                 if (!preBufferFilled) {
                     if (avail < PRE_BUFFER_SAMPLES) {
-                        // Use shorter sleep with backoff — event-like behavior
                         try { Thread.sleep(1) } catch (_: InterruptedException) { break }
                         continue
                     }
@@ -132,9 +137,11 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                 val toDrain = if (avail >= chunkSize) chunkSize
                               else if (avail >= LOW_WATERMARK) avail and 0x7FFFFFFE
                               else {
-                                  // Underrun: yield briefly and retry — no long sleep
+                                  // Underrun: yield briefly and retry
                                   Thread.yield()
-                                  val retryAvail = bufferedSamples.get()
+                                  val retryAvail: Int
+                                  lock.lock()
+                                  try { retryAvail = bufferedSamples } finally { lock.unlock() }
                                   if (retryAvail >= LOW_WATERMARK) {
                                       retryAvail and 0x7FFFFFFE
                                   } else {
@@ -148,14 +155,19 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                     continue
                 }
 
-                // Read from ring buffer — no lock needed, we own readPos
-                for (i in 0 until toDrain) {
-                    chunk[i] = ringBuffer[readPos]
-                    readPos = (readPos + 1) % RING_BUFFER_SAMPLES
-                }
-                bufferedSamples.addAndGet(-toDrain)
+                // Copy from ring buffer under lock, then release lock before AudioTrack.write
+                lock.lock()
+                try {
+                    val actualDrain = toDrain.coerceAtMost(bufferedSamples)
+                    if (actualDrain == 0) continue
+                    for (i in 0 until actualDrain) {
+                        chunk[i] = ringBuffer[readPos]
+                        readPos = (readPos + 1) % RING_BUFFER_SAMPLES
+                    }
+                    bufferedSamples -= actualDrain
+                } finally { lock.unlock() }
 
-                // Apply fade-in on initial playback start
+                // Apply fade-in on initial playback start (outside lock)
                 for (i in 0 until toDrain) {
                     if (samplesPlayed < FADE_IN_SAMPLES) {
                         val fadeGain = samplesPlayed.toFloat() / FADE_IN_SAMPLES
@@ -165,6 +177,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                     samplesPlayed++
                 }
 
+                // Write to AudioTrack outside lock — this is the slow part
                 try {
                     audioTrack?.write(chunk, 0, toDrain)
                 } catch (e: Exception) {
@@ -188,34 +201,37 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         if (writeSamplesCount <= 3 || now - lastWriteLog > 5000) {
             var maxAbs = 0
             for (s in samples) { val a = kotlin.math.abs(s.toInt()); if (a > maxAbs) maxAbs = a }
-            DebugLog.log("AUD", "writeSamples #$writeSamplesCount: ${samples.size} samples, peak=$maxAbs, buffered=${bufferedSamples.get()}")
+            lock.lock()
+            val buf = bufferedSamples
+            lock.unlock()
+            DebugLog.log("AUD", "writeSamples #$writeSamplesCount: ${samples.size} samples, peak=$maxAbs, buffered=$buf")
             lastWriteLog = now
         }
 
-        val currentBuffered = bufferedSamples.get()
-        val freeSpace = RING_BUFFER_SAMPLES - currentBuffered
-        if (samples.size > freeSpace) {
-            // Overflow: drop oldest samples with crossfade to prevent click
-            val toDrop = samples.size - freeSpace + RING_BUFFER_SAMPLES / 8
-            if (toDrop > 0 && toDrop <= currentBuffered) {
-                val fadeLen = CROSSFADE_SAMPLES.coerceAtMost(currentBuffered - toDrop)
-                val newReadPos = (readPos + toDrop) % RING_BUFFER_SAMPLES
-                for (i in 0 until fadeLen) {
-                    val fadeIn = i.toFloat() / fadeLen
-                    val oldIdx = (newReadPos + i) % RING_BUFFER_SAMPLES
-                    ringBuffer[oldIdx] = (ringBuffer[oldIdx] * fadeIn).toInt().toShort()
+        lock.lock()
+        try {
+            val freeSpace = RING_BUFFER_SAMPLES - bufferedSamples
+            if (samples.size > freeSpace) {
+                // Overflow: drop oldest samples with crossfade to prevent click
+                val toDrop = samples.size - freeSpace + RING_BUFFER_SAMPLES / 8
+                if (toDrop > 0 && toDrop <= bufferedSamples) {
+                    val fadeLen = CROSSFADE_SAMPLES.coerceAtMost(bufferedSamples - toDrop)
+                    val newReadPos = (readPos + toDrop) % RING_BUFFER_SAMPLES
+                    for (i in 0 until fadeLen) {
+                        val fadeIn = i.toFloat() / fadeLen
+                        val oldIdx = (newReadPos + i) % RING_BUFFER_SAMPLES
+                        ringBuffer[oldIdx] = (ringBuffer[oldIdx] * fadeIn).toInt().toShort()
+                    }
+                    readPos = newReadPos
+                    bufferedSamples -= toDrop
                 }
-                readPos = newReadPos
-                bufferedSamples.addAndGet(-toDrop)
             }
-        }
-
-        // Write to ring buffer — no lock needed, we own writePos
-        for (s in samples) {
-            ringBuffer[writePos] = s
-            writePos = (writePos + 1) % RING_BUFFER_SAMPLES
-        }
-        bufferedSamples.addAndGet(samples.size)
+            for (s in samples) {
+                ringBuffer[writePos] = s
+                writePos = (writePos + 1) % RING_BUFFER_SAMPLES
+            }
+            bufferedSamples += samples.size
+        } finally { lock.unlock() }
     }
 
     fun setVolume(volume: Float) {
@@ -237,7 +253,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             Log.e(TAG, "Error stopping audio", e)
         }
         audioTrack = null
-        writePos = 0; readPos = 0; bufferedSamples.set(0)
+        writePos = 0; readPos = 0; bufferedSamples = 0
         preBufferFilled = false
         samplesPlayed = 0L
         lastOutputSample = 0

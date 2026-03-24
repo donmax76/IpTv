@@ -36,7 +36,8 @@ object DebugLog {
     @Volatile
     var enabled = false
 
-    /** Callback for real-time UI updates */
+    /** Callback for real-time UI updates — set/read under lock to prevent race */
+    @Volatile
     var onNewLine: ((String) -> Unit)? = null
 
     /**
@@ -86,9 +87,14 @@ object DebugLog {
             while (uiLines.size > MAX_UI_LINES) uiLines.removeFirst()
         }
 
-        // Notify UI if panel is open
+        // Notify UI if panel is open — capture callback to avoid race with toggle
         if (enabled) {
-            onNewLine?.invoke(line)
+            val callback = onNewLine
+            try {
+                callback?.invoke(line)
+            } catch (_: Exception) {
+                // View may have been detached — ignore
+            }
         }
     }
 
