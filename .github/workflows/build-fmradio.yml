@@ -2,7 +2,7 @@ name: Build FM Radio
 
 on:
   push:
-    branches: [ 'claude/fm-radio-app-*', 'claude/rebuild-apk-sync-audio-*', 'main', 'master' ]
+    branches: [ 'claude/fm-radio-app-*', 'claude/rebuild-apk-sync-audio-*', 'claude/fix-audio-interruption-*', 'main', 'master' ]
   workflow_dispatch:
 
 jobs:
