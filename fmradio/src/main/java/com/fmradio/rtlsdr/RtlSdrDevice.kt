@@ -377,23 +377,25 @@ class RtlSdrDevice(private val context: Context) {
             TunerProbe(FC2580_I2C_ADDR, 0x01, 0x56, TunerType.FC2580, "FC2580"),
         )
 
-        // Then try to detect tuner with the working method
+        // Then try to detect tuner with the working method.
+        // IMPORTANT: always use i2cRead (not i2cRawRead) to set register pointer explicitly,
+        // because i2cRawRead reads the auto-incremented register (not chip ID at reg 0x00).
         for (attempt in 0 until 3) {
-            if (attempt > 0) {
-                enableI2CRepeater(false)
-                Thread.sleep(20L * attempt)
-                enableI2CRepeater(true)
-                Thread.sleep(10)
-            }
+            // Re-enable I2C repeater before each attempt to ensure tuner is accessible
+            enableI2CRepeater(false)
+            Thread.sleep(10L * (attempt + 1))
+            enableI2CRepeater(true)
+            Thread.sleep(10)
 
             for (probe in tunerProbes) {
-                // Try raw read first, then register read
-                var data = i2cRawRead(probe.addr, 1)
-                if (data == null) data = i2cRead(probe.addr, probe.reg, 1)
+                val data = i2cRead(probe.addr, probe.reg, 1)
                 if (data != null && data.isNotEmpty()) {
                     val chipId = data[0].toInt() and 0xFF
                     DebugLog.log("USB", "${probe.name} probe: chipId=0x${chipId.toString(16)} (attempt=$attempt)")
-                    if (chipId == probe.expectedId) return probe.type
+                    if (chipId == probe.expectedId) {
+                        DebugLog.log("USB", "Tuner IDENTIFIED: ${probe.name} at addr=0x${probe.addr.toString(16)}")
+                        return probe.type
+                    }
                 } else {
                     if (attempt == 0) DebugLog.log("USB", "${probe.name} probe: I2C FAILED attempt=$attempt")
                 }
@@ -1170,6 +1172,18 @@ class RtlSdrDevice(private val context: Context) {
         stopStreaming()
         isStreaming = false
         try {
+            // Disable I2C repeater before closing
+            try { enableI2CRepeater(false) } catch (_: Exception) {}
+
+            // Reset EPA (endpoint) to stop any pending transfers
+            try { writeReg(BLOCK_USB, USB_EPA_CTL, 0x0002, 2) } catch (_: Exception) {}
+
+            // Disable ADC (demod_ctl bit 5 = 0)
+            try {
+                val demodCtl = readReg(BLOCK_SYS, SYS_DEMOD_CTL, 1)
+                writeReg(BLOCK_SYS, SYS_DEMOD_CTL, demodCtl and 0xDF.inv(), 1)
+            } catch (_: Exception) {}
+
             if (usbInterface != null) {
                 usbConnection?.releaseInterface(usbInterface)
             }
@@ -1182,6 +1196,7 @@ class RtlSdrDevice(private val context: Context) {
         usbInterface = null
         bulkEndpoint = null
         isOpen = false
+        Log.i(TAG, "Device closed and reset")
     }
 
     // --- USB device diagnostics and reset ---
