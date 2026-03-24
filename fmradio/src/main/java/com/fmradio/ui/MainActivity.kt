@@ -118,6 +118,7 @@ class MainActivity : Activity() {
     private lateinit var tvDebugLog: TextView
     private lateinit var scrollDebug: ScrollView
     private lateinit var btnDebug: Button
+    private lateinit var btnDebugSave: Button
     private lateinit var btnDebugClear: Button
     private lateinit var btnDebugClose: Button
 
@@ -316,6 +317,7 @@ class MainActivity : Activity() {
         tvDebugLog = findViewById(R.id.tvDebugLog)
         scrollDebug = findViewById(R.id.scrollDebug)
         btnDebug = findViewById(R.id.btnDebug)
+        btnDebugSave = findViewById(R.id.btnDebugSave)
         btnDebugClear = findViewById(R.id.btnDebugClear)
         btnDebugClose = findViewById(R.id.btnDebugClose)
     }
@@ -433,8 +435,20 @@ class MainActivity : Activity() {
 
         // Debug panel
         btnDebug.setOnClickListener { toggleDebugPanel() }
+        btnDebugSave.setOnClickListener { shareDebugLog() }
         btnDebugClear.setOnClickListener { DebugLog.clear(); tvDebugLog.text = "" }
         btnDebugClose.setOnClickListener { toggleDebugPanel() }
+    }
+
+    private fun shareDebugLog() {
+        val intent = DebugLog.getShareIntent(this)
+        if (intent != null) {
+            startActivity(android.content.Intent.createChooser(intent, "Share FM Radio Debug Log"))
+        } else {
+            val file = DebugLog.getLogFile()
+            val msg = if (file != null) "Log: ${file.absolutePath}" else "No log file"
+            android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun toggleDebugPanel() {
