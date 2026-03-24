@@ -1054,28 +1054,40 @@ class RtlSdrDevice(private val context: Context) {
         // Try async UsbRequest first (more reliable on Android 12+)
         if (useAsyncTransfer) {
             try {
-                val buf = ByteBuffer.allocateDirect(length)
+                // Reuse cached direct ByteBuffer to avoid native memory leak
+                // (ByteBuffer.allocateDirect per call exhausts native memory in ~5-10s)
+                if (asyncReadBuffer == null || asyncReadBufferSize < length) {
+                    asyncReadBuffer = ByteBuffer.allocateDirect(length)
+                    asyncReadBufferSize = length
+                }
+                val buf = asyncReadBuffer!!
+                buf.clear()
+                buf.limit(length)
+
                 val request = UsbRequest()
-                if (request.initialize(conn, ep)) {
-                    @Suppress("DEPRECATION")
-                    val queued = request.queue(buf, length)
-                    if (queued) {
-                        val response = conn.requestWait(timeoutMs.toLong())
-                        if (response != null) {
-                            buf.flip()
-                            val bytesRead = buf.remaining()
-                            if (bytesRead > 0) {
-                                val result = ByteArray(bytesRead)
-                                buf.get(result)
-                                request.close()
-                                readErrorCount = 0
-                                return result
+                try {
+                    if (request.initialize(conn, ep)) {
+                        @Suppress("DEPRECATION")
+                        val queued = request.queue(buf, length)
+                        if (queued) {
+                            val response = conn.requestWait(timeoutMs.toLong())
+                            if (response != null) {
+                                buf.flip()
+                                val bytesRead = buf.remaining()
+                                if (bytesRead > 0) {
+                                    val result = ByteArray(bytesRead)
+                                    buf.get(result)
+                                    readErrorCount = 0
+                                    return result
+                                }
                             }
                         }
                     }
+                } finally {
                     request.close()
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // Catch Throwable (not just Exception) to handle OutOfMemoryError
                 if (readErrorCount < 3) {
                     DebugLog.log("USB", "UsbRequest error: ${e.message}, trying sync")
                 }
@@ -1117,6 +1129,12 @@ class RtlSdrDevice(private val context: Context) {
 
     // Use async UsbRequest by default (more reliable on Android 12+)
     private var useAsyncTransfer = true
+
+    // Cached direct ByteBuffer for async USB reads — avoids allocating native memory per call.
+    // ByteBuffer.allocateDirect() native memory is freed by a Cleaner thread which can be starved
+    // by high-priority audio threads, causing OutOfMemoryError after 5-10 seconds.
+    private var asyncReadBuffer: ByteBuffer? = null
+    private var asyncReadBufferSize = 0
 
     fun startStreaming(bufferSize: Int = 16384, callback: (ByteArray) -> Unit): Job {
         isStreaming = true
@@ -1175,10 +1193,16 @@ class RtlSdrDevice(private val context: Context) {
                         }
                         try {
                             callback(data)
-                        } catch (e: Exception) {
+                        } catch (e: Throwable) {
                             if (isStreaming) {
                                 Log.e(TAG, "Streaming callback error", e)
-                                DebugLog.log("USB", "CALLBACK ERROR: ${e.message}")
+                                DebugLog.log("USB", "CALLBACK ERROR: ${e.javaClass.simpleName}: ${e.message}")
+                                if (e is Error) {
+                                    // Log OOM/StackOverflow etc. but don't crash
+                                    DebugLog.log("USB", "FATAL ERROR in callback, stopping")
+                                    DebugLog.flush()
+                                    break
+                                }
                             }
                         }
                     } else {
@@ -1187,10 +1211,15 @@ class RtlSdrDevice(private val context: Context) {
                             DebugLog.log("USB", "readSamples returned null/empty (#$nullReads)")
                         }
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     if (isStreaming) {
                         Log.e(TAG, "Streaming read error", e)
-                        DebugLog.log("USB", "READ ERROR: ${e.message}")
+                        DebugLog.log("USB", "READ ERROR: ${e.javaClass.simpleName}: ${e.message}")
+                        if (e is Error) {
+                            DebugLog.log("USB", "FATAL ERROR in read, stopping")
+                            DebugLog.flush()
+                            break
+                        }
                         delay(10)
                     }
                 }
@@ -1274,6 +1303,8 @@ class RtlSdrDevice(private val context: Context) {
         usbConnection = null
         usbInterface = null
         bulkEndpoint = null
+        asyncReadBuffer = null
+        asyncReadBufferSize = 0
         isOpen = false
         Log.i(TAG, "Device closed and reset")
     }

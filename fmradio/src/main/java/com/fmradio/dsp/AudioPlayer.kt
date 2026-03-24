@@ -111,13 +111,13 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         playbackThread = Thread({
             try {
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
                 // Some devices don't allow URGENT_AUDIO priority
             }
             val chunkSize = 4096  // 2048 stereo frames — larger chunks reduce overhead
             val chunk = ShortArray(chunkSize)
 
-            while (isPlaying) {
+            try { while (isPlaying) {
                 // Check buffered count under lock (fast — just read an int)
                 val avail: Int
                 lock.lock()
@@ -183,6 +183,10 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                 } catch (e: Exception) {
                     Log.e(TAG, "Error writing audio", e)
                 }
+            } } catch (e: Throwable) {
+                Log.e(TAG, "FATAL error in drain thread", e)
+                DebugLog.log("AUD", "DRAIN CRASH: ${e.javaClass.simpleName}: ${e.message}")
+                DebugLog.flush()
             }
         }, "FmAudioDrain")
         playbackThread?.priority = Thread.MAX_PRIORITY
