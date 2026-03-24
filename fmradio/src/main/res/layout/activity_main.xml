@@ -711,6 +711,20 @@
                 android:textSize="14sp"
                 android:textStyle="bold"
                 android:fontFamily="monospace" />
+
+            <Button
+                android:id="@+id/btnAddStation"
+                android:layout_width="36dp"
+                android:layout_height="28dp"
+                android:text="+"
+                android:textColor="@color/lcd_green"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace"
+                android:background="@drawable/bg_button_metal"
+                android:paddingStart="0dp"
+                android:paddingEnd="0dp"
+                android:minWidth="0dp" />
         </LinearLayout>
 
         <!-- Scan progress (hidden by default) -->

@@ -105,6 +105,7 @@ class MainActivity : Activity() {
     private lateinit var tvTrebleValue: TextView
 
     private lateinit var btnScan: Button
+    private lateinit var btnAddStation: Button
     private lateinit var btnAf: Button
     private lateinit var btnTa: Button
     private lateinit var btnPty: Button
@@ -301,6 +302,8 @@ class MainActivity : Activity() {
         progressScan = findViewById(R.id.progressScan)
         tvScanStatus = findViewById(R.id.tvScanStatus)
 
+        btnAddStation = findViewById(R.id.btnAddStation)
+
         lvStations = findViewById(R.id.lvStations)
         stationAdapter = StationAdapter(
             stations = emptyList(),
@@ -434,6 +437,8 @@ class MainActivity : Activity() {
         btnScan.setOnClickListener {
             if (scanner?.isScanning() == true) scanner?.stopScan() else startScan()
         }
+
+        btnAddStation.setOnClickListener { showAddStationDialog() }
 
         btnAf.setOnClickListener { toggleAf() }
         btnTa.setOnClickListener { toggleTa() }
@@ -842,6 +847,43 @@ class MainActivity : Activity() {
     private fun toggleFavorite(station: RadioStation) {
         stationStorage.toggleFavorite(station.frequencyHz)
         loadSavedStations()
+    }
+
+    private fun showAddStationDialog() {
+        val layout = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 0)
+        }
+        val etFreq = EditText(this).apply {
+            hint = getString(R.string.hint_frequency_mhz)
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText(String.format("%.1f", currentFrequency / 1e6))
+            selectAll()
+        }
+        val etName = EditText(this).apply {
+            hint = getString(R.string.hint_station_name)
+        }
+        layout.addView(etFreq)
+        layout.addView(etName)
+
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.dialog_add_station_title))
+            .setView(layout)
+            .setPositiveButton(getString(R.string.btn_save)) { _, _ ->
+                val freqStr = etFreq.text.toString().trim()
+                val name = etName.text.toString().trim()
+                val freqMHz = freqStr.toDoubleOrNull()
+                if (freqMHz != null && freqMHz >= 0.1) {
+                    val freqHz = (freqMHz * 1_000_000).toLong()
+                    stationStorage.addStation(RadioStation(frequencyHz = freqHz, name = name))
+                    loadSavedStations()
+                    showToast(getString(R.string.msg_station_added, String.format("%.1f MHz", freqMHz)))
+                } else {
+                    showToast(getString(R.string.msg_invalid_frequency))
+                }
+            }
+            .setNegativeButton(getString(R.string.btn_cancel), null)
+            .show()
     }
 
     private fun showStationOptions(station: RadioStation) {

@@ -49,7 +49,11 @@
 
     <!-- Dialogs -->
     <string name="dialog_rename_title">Rename Station</string>
+    <string name="dialog_add_station_title">Add Station</string>
     <string name="hint_station_name">Station name</string>
+    <string name="hint_frequency_mhz">Frequency (MHz)</string>
+    <string name="msg_station_added">Station added: %s</string>
+    <string name="msg_invalid_frequency">Invalid frequency</string>
 
     <!-- RDS -->
     <string name="rds_no_data">No RDS</string>
