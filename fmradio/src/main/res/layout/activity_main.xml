@@ -75,7 +75,7 @@
                     android:layout_height="wrap_content"
                     android:layout_alignParentEnd="true"
                     android:layout_centerVertical="true"
-                    android:text="v2.0"
+                    android:text="v3.0"
                     android:textColor="@color/version_text"
                     android:textSize="11sp"
                     android:fontFamily="monospace" />

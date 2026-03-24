@@ -321,6 +321,12 @@ class MainActivity : Activity() {
         btnDebugSave = findViewById(R.id.btnDebugSave)
         btnDebugClear = findViewById(R.id.btnDebugClear)
         btnDebugClose = findViewById(R.id.btnDebugClose)
+
+        // Set version from BuildConfig (generated from git in build.gradle.kts)
+        try {
+            val versionName = packageManager.getPackageInfo(packageName, 0).versionName
+            findViewById<android.widget.TextView>(R.id.tvVersion)?.text = "v$versionName"
+        } catch (_: Exception) {}
     }
 
     private fun restoreBand() {
