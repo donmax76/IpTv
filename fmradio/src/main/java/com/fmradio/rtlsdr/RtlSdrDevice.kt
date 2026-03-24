@@ -671,12 +671,22 @@ class RtlSdrDevice(private val context: Context) {
     // Shadow registers for FC0013 (regs 0x00-0x15)
     private val fc0013Regs = IntArray(0x20)
 
+    /** Lightweight I2C repeater re-enable (no readback/logging, minimal delay). */
+    private fun ensureI2CRepeater() {
+        writeDemodReg(1, 0x01, 0x18, 1)
+        Thread.sleep(2)
+    }
+
     private fun fc0013WriteReg(reg: Int, value: Int) {
         fc0013Regs[reg] = value and 0xFF
+        // Re-enable I2C repeater before each write — RTL2832U may auto-gate
+        // the repeater after each I2C transaction on some devices.
+        ensureI2CRepeater()
         i2cWrite(tunerI2CAddr, reg, byteArrayOf((value and 0xFF).toByte()))
     }
 
     private fun fc0013ReadReg(reg: Int): Int? {
+        ensureI2CRepeater()
         val data = i2cRead(tunerI2CAddr, reg, 1) ?: return null
         return data[0].toInt() and 0xFF
     }
@@ -724,9 +734,10 @@ class RtlSdrDevice(private val context: Context) {
         // Enable clock output
         fc0013WriteReg(0x11, 0x04)
 
-        // Verify chip ID
+        // Verify: read chip ID (reg 0x00 should be 0xa3) and a written register
         val chipId = fc0013ReadReg(0x00)
-        DebugLog.log("USB", "FC0013 init: chipID=0x${chipId?.toString(16) ?: "null"} (expect 0xa3)")
+        val reg9 = fc0013ReadReg(0x09)
+        DebugLog.log("USB", "FC0013 init: chipID=0x${chipId?.toString(16) ?: "null"} (expect 0xa3), reg9=0x${reg9?.toString(16) ?: "null"} (expect 0x6e)")
 
         Log.i(TAG, "FC0013 initialization complete")
     }
@@ -782,19 +793,27 @@ class RtlSdrDevice(private val context: Context) {
         val fVco = freqHz * multi
         val xin = (fVco / 1000 / xtalFreqKhz2).toInt()
 
-        val pm = xin / 2
-        val am = xin % 2
-
-        val reg1 = am + (8 * pm)
-
-        // Fractional part
+        // Fractional part (must be computed BEFORE xin is decomposed into pm/am)
         val remainder = fVco - xin.toLong() * xtalFreqKhz2 * 1000
         var xdiv = ((remainder shl 15) / (xtalFreqKhz2.toLong() * 1000)).toInt()
         if (xdiv >= (1 shl 15)) xdiv = (1 shl 15) - 1
 
+        // Decompose xin into pm/am (from librtlsdr fc0013.c):
+        // reg[1] = am + 8*pm where am is the remainder after subtracting 8s
+        var xinRem = xin
+        var pm = 0
+        while (xinRem > 12) {
+            xinRem -= 8
+            pm++
+        }
+        val am = xinRem
+        val reg1 = am + (8 * pm)
+
         val reg2 = (xdiv shr 8) and 0x7F
         val reg3 = xdiv and 0xFF
         val reg4 = 0x0A // VCO current
+
+        DebugLog.log("PLL", "FC0013 set ${freqHz/1e6}MHz: multi=$multi xin=$xin pm=$pm am=$am reg1=0x${reg1.toString(16)} xdiv=$xdiv")
 
         // Write PLL registers
         fc0013WriteReg(0x01, reg1)
