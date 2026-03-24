@@ -222,7 +222,9 @@ class MainActivity : Activity() {
         restoreBand()
         restoreSettings()
 
-        // Request notification permission on Android 13+ (required for foreground service)
+        // Request notification permission on Android 13+ (for foreground service notification)
+        // Start service immediately regardless — it works without the permission,
+        // the notification just won't be visible to the user
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
         }
