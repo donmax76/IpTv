@@ -91,13 +91,13 @@ class AudioEqualizer(private val sampleRate: Int = 48000) {
     /**
      * Process interleaved stereo samples (L,R,L,R,...) through bass and treble filters.
      * Uses separate filter states for left and right channels to prevent crosstalk.
+     * Modifies samples in-place to avoid GC pressure on the audio thread.
      */
     fun process(samples: ShortArray): ShortArray {
         if (abs(bassGainDb) < 0.1f && abs(trebleGainDb) < 0.1f) {
             return samples
         }
 
-        val out = ShortArray(samples.size)
         var i = 0
         while (i < samples.size - 1) {
             // Left channel (even indices)
@@ -107,7 +107,7 @@ class AudioEqualizer(private val sampleRate: Int = 48000) {
             xL = yL
             yL = trebB0 * xL + trebB1 * trebLX1 + trebB2 * trebLX2 - trebA1 * trebLY1 - trebA2 * trebLY2
             trebLX2 = trebLX1; trebLX1 = xL; trebLY2 = trebLY1; trebLY1 = yL
-            out[i] = (yL * 32767f).coerceIn(-32767f, 32767f).toInt().toShort()
+            samples[i] = (yL * 32767f).coerceIn(-32767f, 32767f).toInt().toShort()
 
             // Right channel (odd indices)
             var xR = samples[i + 1].toFloat() / 32767f
@@ -116,11 +116,11 @@ class AudioEqualizer(private val sampleRate: Int = 48000) {
             xR = yR
             yR = trebB0 * xR + trebB1 * trebRX1 + trebB2 * trebRX2 - trebA1 * trebRY1 - trebA2 * trebRY2
             trebRX2 = trebRX1; trebRX1 = xR; trebRY2 = trebRY1; trebRY1 = yR
-            out[i + 1] = (yR * 32767f).coerceIn(-32767f, 32767f).toInt().toShort()
+            samples[i + 1] = (yR * 32767f).coerceIn(-32767f, 32767f).toInt().toShort()
 
             i += 2
         }
-        return out
+        return samples
     }
 
     fun reset() {

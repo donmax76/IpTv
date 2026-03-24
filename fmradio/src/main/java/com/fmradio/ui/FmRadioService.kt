@@ -24,6 +24,7 @@ import com.fmradio.dsp.FmScanner
 import com.fmradio.dsp.RdsDecoder
 import com.fmradio.rtlsdr.RtlSdrDevice
 import kotlinx.coroutines.*
+import java.util.concurrent.Executors
 
 class FmRadioService : Service() {
 
@@ -33,6 +34,13 @@ class FmRadioService : Service() {
         private const val NOTIFICATION_ID = 1001
         private const val SEEK_THRESHOLD = -15f
     }
+
+    // Dedicated single-thread dispatcher for USB streaming — prevents Dispatchers.IO starvation
+    private val usbDispatcher = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "FmUsbStream").apply {
+            priority = Thread.MAX_PRIORITY - 1
+        }
+    }.asCoroutineDispatcher()
 
     inner class LocalBinder : Binder() {
         fun getService(): FmRadioService = this@FmRadioService
@@ -290,8 +298,8 @@ class FmRadioService : Service() {
         var lastSignalDb = -100f
         var signalUpdateCounter = 0
 
-        // Run USB setup and streaming on IO thread to avoid blocking UI
-        streamingJob = serviceScope.launch {
+        // Run USB setup and streaming on dedicated thread to avoid Dispatchers.IO starvation
+        streamingJob = serviceScope.launch(usbDispatcher) {
             dev.setSampleRate(sampleRate)
             dev.setAutoGain(true)
             dev.setFrequency(currentFrequency)
@@ -306,12 +314,11 @@ class FmRadioService : Service() {
             var totalAudioSamples = 0L
             var lastDemodLog = System.currentTimeMillis()
             val innerJob = dev.startStreaming(65536) { iqData ->
-                var audioSamples = demodulator?.demodulate(iqData)
+                val audioSamples = demodulator?.demodulate(iqData)
                 demodCallCount++
                 if (audioSamples != null && audioSamples.isNotEmpty()) {
                     totalAudioSamples += audioSamples.size
-                    val eq = equalizer
-                    if (eq != null) audioSamples = eq.process(audioSamples)
+                    equalizer?.process(audioSamples)
                     audioPlayer?.writeSamples(audioSamples)
                 }
                 // Log demod stats periodically
@@ -587,6 +594,7 @@ class FmRadioService : Service() {
         mediaSession?.release()
         mediaSession = null
         serviceScope.cancel()
+        usbDispatcher.close()
         super.onDestroy()
     }
 }
