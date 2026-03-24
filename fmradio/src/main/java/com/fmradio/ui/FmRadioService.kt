@@ -301,7 +301,7 @@ class FmRadioService : Service() {
             var demodCallCount = 0L
             var totalAudioSamples = 0L
             var lastDemodLog = System.currentTimeMillis()
-            val innerJob = dev.startStreaming(131072) { iqData ->
+            val innerJob = dev.startStreaming(16384) { iqData ->
                 var audioSamples = demodulator?.demodulate(iqData)
                 demodCallCount++
                 if (audioSamples != null && audioSamples.isNotEmpty()) {

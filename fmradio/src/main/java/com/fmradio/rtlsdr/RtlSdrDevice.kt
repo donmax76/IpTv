@@ -167,13 +167,13 @@ class RtlSdrDevice(private val context: Context) {
 
     private fun initializeDevice() {
         // === Initialize USB (from librtlsdr rtlsdr_init_baseband) ===
-        writeReg(BLOCK_USB, USB_SYSCTL, 0x09, 1)
-        writeReg(BLOCK_USB, USB_EPA_MAXPKT, 0x0002, 2)
-        writeReg(BLOCK_USB, USB_EPA_CTL, 0x1002, 2)
+        writeRegChecked(BLOCK_USB, USB_SYSCTL, 0x09, 1, "USB_SYSCTL")
+        writeRegChecked(BLOCK_USB, USB_EPA_MAXPKT, 0x0002, 2, "USB_EPA_MAXPKT")
+        writeRegChecked(BLOCK_USB, USB_EPA_CTL, 0x1002, 2, "USB_EPA_CTL reset")
 
         // === Power on demod ===
-        writeReg(BLOCK_SYS, SYS_DEMOD_CTL_1, 0x22, 1)
-        writeReg(BLOCK_SYS, SYS_DEMOD_CTL, 0xE8, 1)
+        writeRegChecked(BLOCK_SYS, SYS_DEMOD_CTL_1, 0x22, 1, "DEMOD_CTL_1")
+        writeRegChecked(BLOCK_SYS, SYS_DEMOD_CTL, 0xE8, 1, "DEMOD_CTL")
 
         // === Reset demod (page 1, reg 0x01) ===
         writeDemodReg(1, 0x01, 0x14, 1)
@@ -182,8 +182,8 @@ class RtlSdrDevice(private val context: Context) {
         // === Disable zero-IF mode (page 1, reg 0x19) ===
         writeDemodReg(1, 0x19, 0x05, 1)
 
-        // === Enable spectrum inversion (page 1, reg 0x15 = 0x01, from librtlsdr) ===
-        writeDemodReg(1, 0x15, 0x01, 1)
+        // === Spectrum inversion: OFF for R820T/R828D, ON only for E4000 (librtlsdr) ===
+        writeDemodReg(1, 0x15, 0x00, 1)
         writeDemodReg(1, 0x16, 0x0000, 2)
 
         // === Clear DDC shift and IF frequency registers ===
@@ -206,12 +206,20 @@ class RtlSdrDevice(private val context: Context) {
         // === Disable IR ===
         writeReg(BLOCK_SYS, SYS_IR_SUSPEND, 0x83, 1)
 
+        // === Clear EPA reset so endpoint is ready (librtlsdr does this in reset_buffer) ===
+        writeReg(BLOCK_USB, USB_EPA_CTL, 0x0000, 2)
+
+        // === Verify USB communication works by reading back SYSCTL ===
+        val sysctl = readReg(BLOCK_USB, USB_SYSCTL, 1)
+        DebugLog.log("USB", "Init verify: SYSCTL=0x${sysctl.toString(16)} (expect 0x09)")
+
         // === Enable I2C repeater for tuner access ===
         enableI2CRepeater(true)
 
         // === Detect tuner type ===
         tunerType = detectTuner()
         Log.i(TAG, "Detected tuner: $tunerType")
+        DebugLog.log("USB", "Tuner detected: $tunerType")
 
         // === Initialize tuner ===
         when (tunerType) {
@@ -233,6 +241,8 @@ class RtlSdrDevice(private val context: Context) {
 
         // Set default sample rate
         setSampleRate(sampleRate)
+
+        DebugLog.log("USB", "Init complete: rate=$sampleRate IF=${R820T_IF_FREQ/1e6}MHz")
     }
 
     /**
@@ -286,19 +296,26 @@ class RtlSdrDevice(private val context: Context) {
         var data = i2cRead(R820T_I2C_ADDR, 0x00, 1)
         if (data != null && data.isNotEmpty()) {
             val chipId = data[0].toInt() and 0xFF
+            DebugLog.log("USB", "R820T probe: chipId=0x${chipId.toString(16)}")
             Log.i(TAG, "R820T chip ID: 0x${chipId.toString(16)}")
             if (chipId == 0x69) return TunerType.R820T
+        } else {
+            DebugLog.log("USB", "R820T probe: I2C read FAILED (null)")
         }
 
         // Try R828D
         data = i2cRead(R828D_I2C_ADDR, 0x00, 1)
         if (data != null && data.isNotEmpty()) {
             val chipId = data[0].toInt() and 0xFF
+            DebugLog.log("USB", "R828D probe: chipId=0x${chipId.toString(16)}")
             Log.i(TAG, "R828D chip ID: 0x${chipId.toString(16)}")
             if (chipId == 0x69) return TunerType.R828D
+        } else {
+            DebugLog.log("USB", "R828D probe: I2C read FAILED (null)")
         }
 
         // Default to R820T for RTL-SDR v2
+        DebugLog.log("USB", "Tuner NOT identified, assuming R820T")
         Log.i(TAG, "Tuner not positively identified, assuming R820T")
         return TunerType.R820T
     }
@@ -603,6 +620,7 @@ class RtlSdrDevice(private val context: Context) {
         var totalRead = 0
         val ep = bulkEndpoint!!
         val conn = usbConnection ?: return null
+        var zeroReads = 0
 
         while (totalRead < length) {
             val toRead = minOf(length - totalRead, ep.maxPacketSize * 64)
@@ -610,30 +628,53 @@ class RtlSdrDevice(private val context: Context) {
 
             if (read > 0) {
                 totalRead += read
-            } else if (read < 0) {
+                zeroReads = 0
+            } else if (read == 0) {
+                zeroReads++
+                if (zeroReads > 10) {
+                    // Too many zero-length reads, treat as error
+                    return if (totalRead > 0) buffer.copyOf(totalRead) else null
+                }
+            } else {
+                // read < 0 → USB error or timeout
+                if (totalRead == 0 && readErrorCount < 5) {
+                    readErrorCount++
+                    DebugLog.log("USB", "bulkTransfer=$read toRead=$toRead ep=0x${ep.address.toString(16)} maxPkt=${ep.maxPacketSize}")
+                }
                 return if (totalRead > 0) buffer.copyOf(totalRead) else null
             }
         }
+        readErrorCount = 0
         return buffer
     }
 
+    // Limit logging of read errors to avoid spam
+    @Volatile
+    private var readErrorCount = 0
+
     fun startStreaming(bufferSize: Int = 16384, callback: (ByteArray) -> Unit): Job {
         isStreaming = true
+        readErrorCount = 0
 
         // Full USB FIFO reset before starting stream
         resetBuffer()
 
+        // Give FIFO time to start filling after reset
+        Thread.sleep(20)
+
         // Discard first read to flush stale data from USB pipe
-        val discardBuf = ByteArray(bufferSize)
+        val discardBuf = ByteArray(minOf(bufferSize, 16384))
         try {
             val ep = bulkEndpoint
             if (ep != null) {
-                usbConnection?.bulkTransfer(ep, discardBuf, discardBuf.size, 200)
+                val discard1 = usbConnection?.bulkTransfer(ep, discardBuf, discardBuf.size, 500) ?: -1
+                DebugLog.log("USB", "Discard read1: $discard1 bytes")
             }
         } catch (_: Exception) {}
 
         // Reset FIFO again for clean start
         resetBuffer()
+        Thread.sleep(10)
 
         return CoroutineScope(Dispatchers.IO).launch {
             Log.i(TAG, "Streaming started (bufSize=$bufferSize)")
@@ -701,6 +742,7 @@ class RtlSdrDevice(private val context: Context) {
             resetBufferInternal()
             Thread.sleep(10)
             resetBufferInternal()
+            Thread.sleep(10)
 
             // Discard any stale data in USB pipe
             val ep = bulkEndpoint
@@ -708,13 +750,16 @@ class RtlSdrDevice(private val context: Context) {
                 val discardBuf = ByteArray(ep.maxPacketSize * 32)
                 // Read and discard with short timeout
                 for (i in 0 until 3) {
-                    val read = usbConnection?.bulkTransfer(ep, discardBuf, discardBuf.size, 100) ?: -1
+                    val read = usbConnection?.bulkTransfer(ep, discardBuf, discardBuf.size, 200) ?: -1
+                    DebugLog.log("USB", "fullReset discard #$i: $read bytes")
                     if (read <= 0) break
                 }
             }
 
             resetBufferInternal()
+            Thread.sleep(10)
             Log.i(TAG, "Full USB reset completed")
+            DebugLog.log("USB", "Full reset completed")
             true
         } catch (e: Exception) {
             Log.e(TAG, "Error during full reset", e)
@@ -760,6 +805,27 @@ class RtlSdrDevice(private val context: Context) {
         val result = conn.controlTransfer(CTRL_OUT, 0, addr, index, data, data.size, CTRL_TIMEOUT)
         if (result < 0) {
             Log.w(TAG, "writeReg failed: block=$block addr=0x${addr.toString(16)} value=0x${value.toString(16)}")
+        }
+    }
+
+    /** writeReg with DebugLog for critical init steps */
+    private fun writeRegChecked(block: Int, addr: Int, value: Int, len: Int, label: String) {
+        val conn = usbConnection ?: run {
+            DebugLog.log("USB", "FAIL $label: no connection")
+            return
+        }
+        val data = when (len) {
+            1 -> byteArrayOf((value and 0xFF).toByte())
+            2 -> byteArrayOf(((value shr 8) and 0xFF).toByte(), (value and 0xFF).toByte())
+            else -> byteArrayOf((value and 0xFF).toByte())
+        }
+
+        val index = (block shl 8) or 0x10
+        val result = conn.controlTransfer(CTRL_OUT, 0, addr, index, data, data.size, CTRL_TIMEOUT)
+        if (result < 0) {
+            DebugLog.log("USB", "FAIL $label: ct=$result block=$block addr=0x${addr.toString(16)} val=0x${value.toString(16)}")
+        } else {
+            DebugLog.log("USB", "OK $label: val=0x${value.toString(16)} (${result}B)")
         }
     }
 
