@@ -49,14 +49,18 @@ class FmDemodulator(
     private val deEmphasisAlpha: Float
 
     // IF low-pass filter (before stage 1 decimation)
-    private val ifLpfOrder = 128
+    // 24 taps: ~85% CPU savings vs 128 taps. Transition band is wider but acceptable
+    // for FM (adjacent channel at ±200 kHz, our cutoff at 120 kHz).
+    private val ifLpfOrder = 24
     private val ifLpfCoeffs: FloatArray
     private var ifBufI = FloatArray(ifLpfOrder)
     private var ifBufQ = FloatArray(ifLpfOrder)
     private var ifBufIdx = 0
 
     // Audio low-pass filters — separate for L+R (mono) and L-R (stereo difference)
-    private val audioLpfOrder = 96
+    // 16 taps: sufficient for 15 kHz cutoff at 192 kHz. Audio content is < 15 kHz
+    // after stereo decoding, so wider transition band only lets in noise above Nyquist.
+    private val audioLpfOrder = 16
     private val audioLpfCoeffs: FloatArray
     private var monoLpfBuf = FloatArray(audioLpfOrder)    // L+R channel
     private var monoLpfIdx = 0
@@ -119,6 +123,11 @@ class FmDemodulator(
     private var muteRamp = 0.5f  // Start at 50% to avoid complete silence on startup
     private val muteRampUp = 0.02f   // ~50 audio samples to reach full volume
     private val muteRampDown = 0.05f  // ~20 audio samples to mute
+
+    // Pre-allocated output buffers to eliminate GC pressure in hot path
+    // Max input: 262144 bytes = 131072 IQ samples → 5461 audio frames × 2 channels
+    private val audioOutBuf = ShortArray(12000)  // generous headroom
+    private val wbBuf = FloatArray(24000)
 
     // ========== rtl_fm LUT atan2 (for maximum performance) ==========
     private val atanLutSize = 131072
@@ -219,14 +228,12 @@ class FmDemodulator(
     fun demodulate(iqData: ByteArray): ShortArray {
         if (resetting) return ShortArray(0)
         val numIqSamples = iqData.size / 2
-        val maxAudioSamples = numIqSamples / (stage1Decimation * stage2Decimation) + 2
-        // Stereo output: 2 samples per audio frame (L, R)
-        val audioOut = ShortArray(maxAudioSamples * 2)
+        // Use pre-allocated buffers — no allocation in hot path
+        val audioOut = audioOutBuf
         var audioCount = 0
 
         val wbListener = widebandListener
-        val maxWbSamples = numIqSamples / stage1Decimation + 2
-        val widebandBuf = if (wbListener != null) FloatArray(maxWbSamples) else null
+        val widebandBuf = if (wbListener != null) wbBuf else null
         var wbCount = 0
 
         for (i in 0 until numIqSamples) {
@@ -324,7 +331,7 @@ class FmDemodulator(
             }
 
             // Wideband output for RDS decoder
-            if (widebandBuf != null && wbCount < widebandBuf.size) {
+            if (widebandBuf != null && wbCount < wbBuf.size) {
                 widebandBuf[wbCount++] = rawBaseband
             }
 
@@ -398,11 +405,11 @@ class FmDemodulator(
 
         // Send wideband data to RDS with current pilot phase
         if (wbListener != null && wbCount > 0) {
-            val buf = if (wbCount == widebandBuf!!.size) widebandBuf else widebandBuf.copyOf(wbCount)
-            wbListener.invoke(buf, pilotNcoPhase)
+            wbListener.invoke(widebandBuf!!.copyOf(wbCount), pilotNcoPhase)
         }
 
-        return if (audioCount == audioOut.size) audioOut else audioOut.copyOf(audioCount)
+        // Return view of pre-allocated buffer (single copyOf — small: ~5KB typical)
+        return audioOut.copyOf(audioCount)
     }
 
     fun measureSignalStrength(iqData: ByteArray): Float {

@@ -18,6 +18,8 @@ import com.fmradio.dsp.FmScanner
 import com.fmradio.dsp.RdsDecoder
 import com.fmradio.rtlsdr.RtlSdrDevice
 import kotlinx.coroutines.*
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.TimeUnit
 
 class FmRadioService : Service() {
 
@@ -39,6 +41,8 @@ class FmRadioService : Service() {
     private var rdsDecoder: RdsDecoder? = null
     private var equalizer: AudioEqualizer? = null
     private var streamingJob: Job? = null
+    private var dspThread: Thread? = null
+    private var iqQueue: ArrayBlockingQueue<ByteArray>? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private var mediaSession: MediaSession? = null
@@ -259,11 +263,58 @@ class FmRadioService : Service() {
         audioPlayer = AudioPlayer(48000).also { it.start() }
 
         isPlaying = true
+
+        // Double-buffered pipeline: USB reads and DSP processing run on separate threads.
+        // This overlaps USB I/O with demodulation, eliminating the throughput gap that
+        // caused audio underruns (USB read ~28ms + demod ~22ms = 50ms for 28ms of audio).
+        // With overlap: effective cycle = max(USB, demod) ≈ 28ms for 28ms of audio = ~100%.
+        val queue = ArrayBlockingQueue<ByteArray>(8)
+        iqQueue = queue
+
+        // DSP processing thread — takes IQ data from queue, demodulates, feeds audio
         var lastStereo = false
         var lastSignalDb = -100f
         var signalUpdateCounter = 0
 
-        // Run USB setup and streaming on IO thread to avoid blocking UI
+        val processingThread = Thread({
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
+            Log.i(TAG, "DSP processing thread started")
+            try {
+                while (isPlaying) {
+                    val iqData = queue.poll(100, TimeUnit.MILLISECONDS) ?: continue
+                    val demod = demodulator ?: continue
+                    var audioSamples = demod.demodulate(iqData)
+                    if (audioSamples.isNotEmpty()) {
+                        val eq = equalizer
+                        if (eq != null) audioSamples = eq.process(audioSamples)
+                        audioPlayer?.writeSamples(audioSamples)
+                    }
+                    val stereoNow = demod.isStereo
+                    if (stereoNow != lastStereo) {
+                        lastStereo = stereoNow
+                        onStereoChanged?.invoke(stereoNow)
+                    }
+                    signalUpdateCounter++
+                    if (signalUpdateCounter >= 4) {
+                        signalUpdateCounter = 0
+                        val db = demod.currentSignalStrengthDb
+                        if (kotlin.math.abs(db - lastSignalDb) > 1f) {
+                            lastSignalDb = db
+                            onSignalStrengthChanged?.invoke(db)
+                        }
+                    }
+                }
+            } catch (e: InterruptedException) {
+                Log.i(TAG, "DSP thread interrupted")
+            } catch (e: Throwable) {
+                Log.e(TAG, "DSP thread error", e)
+            }
+            Log.i(TAG, "DSP processing thread stopped")
+        }, "FmDspProcess")
+        dspThread = processingThread
+        processingThread.start()
+
+        // USB streaming thread — reads IQ data and puts it on the queue
         streamingJob = serviceScope.launch {
             dev.setSampleRate(sampleRate)
             dev.setAutoGain(true)
@@ -274,27 +325,12 @@ class FmRadioService : Service() {
 
             Log.i(TAG, "USB setup done, starting streaming...")
 
-            val innerJob = dev.startStreaming(262144) { iqData ->
-                var audioSamples = demodulator?.demodulate(iqData)
-                if (audioSamples != null && audioSamples.isNotEmpty()) {
-                    val eq = equalizer
-                    if (eq != null) audioSamples = eq.process(audioSamples)
-                    audioPlayer?.writeSamples(audioSamples)
-                }
-                val stereoNow = demodulator?.isStereo == true
-                if (stereoNow != lastStereo) {
-                    lastStereo = stereoNow
-                    onStereoChanged?.invoke(stereoNow)
-                }
-                // Report signal strength ~4 times per second
-                signalUpdateCounter++
-                if (signalUpdateCounter >= 4) {
-                    signalUpdateCounter = 0
-                    val db = demodulator?.currentSignalStrengthDb ?: -100f
-                    if (kotlin.math.abs(db - lastSignalDb) > 1f) {
-                        lastSignalDb = db
-                        onSignalStrengthChanged?.invoke(db)
-                    }
+            // Use 65536 byte buffers (natural USB transfer size) for lower latency
+            val innerJob = dev.startStreaming(65536) { iqData ->
+                // Non-blocking offer — if queue is full, drop oldest to keep USB flowing
+                if (!queue.offer(iqData)) {
+                    queue.poll() // drop oldest
+                    queue.offer(iqData)
                 }
             }
 
@@ -310,15 +346,22 @@ class FmRadioService : Service() {
         isPlaying = false
         device?.stopStreaming()
 
-        // Cancel streaming job and wait briefly for it to finish
-        // so audioPlayer.stop() doesn't race with streaming writes
+        // Cancel streaming job
         val job = streamingJob
         streamingJob = null
-        if (job != null) {
-            job.cancel()
-        }
+        job?.cancel()
 
-        // Null out demodulator first to stop streaming callback from producing audio
+        // Stop DSP processing thread
+        val dsp = dspThread
+        dspThread = null
+        dsp?.interrupt()
+        try { dsp?.join(500) } catch (_: InterruptedException) {}
+
+        // Clear queue
+        iqQueue?.clear()
+        iqQueue = null
+
+        // Null out demodulator first to stop any straggler from producing audio
         demodulator?.widebandListener = null
         val oldDemod = demodulator
         demodulator = null
