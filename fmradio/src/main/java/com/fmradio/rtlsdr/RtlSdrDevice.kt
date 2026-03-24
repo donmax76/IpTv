@@ -1131,10 +1131,11 @@ class RtlSdrDevice(private val context: Context) {
     private var useAsyncTransfer = true
 
     // Cached direct ByteBuffer for async USB reads — avoids allocating native memory per call.
-    // ByteBuffer.allocateDirect() native memory is freed by a Cleaner thread which can be starved
-    // by high-priority audio threads, causing OutOfMemoryError after 5-10 seconds.
     private var asyncReadBuffer: ByteBuffer? = null
     private var asyncReadBufferSize = 0
+
+    // Scope for streaming coroutine — cancelled on stopStreaming/close
+    private var streamingScope: CoroutineScope? = null
 
     fun startStreaming(bufferSize: Int = 16384, callback: (ByteArray) -> Unit): Job {
         isStreaming = true
@@ -1171,7 +1172,11 @@ class RtlSdrDevice(private val context: Context) {
         resetBuffer()
         Thread.sleep(10)
 
-        return CoroutineScope(Dispatchers.IO).launch {
+        // Use a tracked scope so stopStreaming/close can cancel it
+        streamingScope?.cancel()
+        val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        streamingScope = scope
+        return scope.launch {
             Log.i(TAG, "Streaming started (bufSize=$bufferSize)")
             DebugLog.log("USB", "Streaming started, bufSize=$bufferSize")
             var readCount = 0L
@@ -1230,6 +1235,8 @@ class RtlSdrDevice(private val context: Context) {
 
     fun stopStreaming() {
         isStreaming = false
+        streamingScope?.cancel()
+        streamingScope = null
     }
 
     /**

@@ -197,26 +197,27 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
     private var writeSamplesCount = 0L
     private var lastWriteLog = 0L
 
-    fun writeSamples(samples: ShortArray) {
-        if (!isPlaying) return
+    /** Write samples from buffer with explicit count — zero-copy from demodulator */
+    fun writeSamples(samples: ShortArray, count: Int = samples.size) {
+        if (!isPlaying || count <= 0) return
         writeSamplesCount++
         val now = System.currentTimeMillis()
         if (writeSamplesCount <= 3 || now - lastWriteLog > 5000) {
             var maxAbs = 0
-            for (s in samples) { val a = kotlin.math.abs(s.toInt()); if (a > maxAbs) maxAbs = a }
+            for (i in 0 until count) { val a = kotlin.math.abs(samples[i].toInt()); if (a > maxAbs) maxAbs = a }
             lock.lock()
             val buf = bufferedSamples
             lock.unlock()
-            DebugLog.log("AUD", "writeSamples #$writeSamplesCount: ${samples.size} samples, peak=$maxAbs, buffered=$buf")
+            DebugLog.log("AUD", "writeSamples #$writeSamplesCount: $count samples, peak=$maxAbs, buffered=$buf")
             lastWriteLog = now
         }
 
         lock.lock()
         try {
             val freeSpace = RING_BUFFER_SAMPLES - bufferedSamples
-            if (samples.size > freeSpace) {
+            if (count > freeSpace) {
                 // Overflow: drop oldest samples with crossfade to prevent click
-                val toDrop = samples.size - freeSpace + RING_BUFFER_SAMPLES / 8
+                val toDrop = count - freeSpace + RING_BUFFER_SAMPLES / 8
                 if (toDrop > 0 && toDrop <= bufferedSamples) {
                     val fadeLen = CROSSFADE_SAMPLES.coerceAtMost(bufferedSamples - toDrop)
                     val newReadPos = (readPos + toDrop) % RING_BUFFER_SAMPLES
@@ -229,11 +230,11 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                     bufferedSamples -= toDrop
                 }
             }
-            for (s in samples) {
-                ringBuffer[writePos] = s
+            for (i in 0 until count) {
+                ringBuffer[writePos] = samples[i]
                 writePos = (writePos + 1) % RING_BUFFER_SAMPLES
             }
-            bufferedSamples += samples.size
+            bufferedSamples += count
         } finally { lock.unlock() }
     }
 

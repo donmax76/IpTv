@@ -24,6 +24,7 @@ import com.fmradio.dsp.FmScanner
 import com.fmradio.dsp.RdsDecoder
 import com.fmradio.rtlsdr.RtlSdrDevice
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import java.util.concurrent.Executors
 
 class FmRadioService : Service() {
@@ -33,11 +34,22 @@ class FmRadioService : Service() {
         private const val CHANNEL_ID = "fm_radio_playback"
         private const val NOTIFICATION_ID = 1001
         private const val SEEK_THRESHOLD = -15f
+        // Smaller USB buffer = more frequent callbacks = lower latency
+        private const val USB_BUFFER_SIZE = 32768
+        // IQ data queue depth: 4 buffers ≈ 4×14ms = 56ms of data
+        private const val IQ_QUEUE_DEPTH = 4
     }
 
-    // Dedicated single-thread dispatcher for USB streaming — prevents Dispatchers.IO starvation
+    // Dedicated single-thread dispatcher for USB streaming
     private val usbDispatcher = Executors.newSingleThreadExecutor { r ->
         Thread(r, "FmUsbStream").apply {
+            priority = Thread.MAX_PRIORITY - 1
+        }
+    }.asCoroutineDispatcher()
+
+    // Dedicated single-thread dispatcher for DSP processing
+    private val dspDispatcher = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "FmDspProcess").apply {
             priority = Thread.MAX_PRIORITY - 1
         }
     }.asCoroutineDispatcher()
@@ -53,6 +65,7 @@ class FmRadioService : Service() {
     private var rdsDecoder: RdsDecoder? = null
     private var equalizer: AudioEqualizer? = null
     private var streamingJob: Job? = null
+    private var dspJob: Job? = null
     private var seekJob: Job? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -236,7 +249,6 @@ class FmRadioService : Service() {
     fun tuneToFrequency(frequencyHz: Long) {
         currentFrequency = frequencyHz
 
-        // Only send USB commands if currently streaming — otherwise startPlayback will handle it
         if (isPlaying) {
             serviceScope.launch {
                 device?.setFrequency(frequencyHz)
@@ -244,7 +256,6 @@ class FmRadioService : Service() {
             }
         }
 
-        // Reset DSP state to clear stale filter data from previous frequency
         demodulator?.reset()
         rdsDecoder?.reset()
         currentRdsData = RdsDecoder.RdsData()
@@ -258,7 +269,6 @@ class FmRadioService : Service() {
         if (isPlaying) return
         val dev = device ?: return
 
-        // Cancel any running seek/scan — they share the USB device
         cancelSeek()
 
         val sampleRate = FmDemodulator.RECOMMENDED_SAMPLE_RATE
@@ -281,11 +291,20 @@ class FmRadioService : Service() {
             }
         }
 
-        demodulator?.widebandListener = { widebandSamples, pilotPhase ->
-            rdsDecoder?.process(widebandSamples, pilotPhase)
+        // Wideband listener now receives (buffer, count, pilotPhase) — zero-copy
+        demodulator?.widebandListener = { widebandSamples, count, pilotPhase ->
+            val rds = rdsDecoder
+            if (rds != null && count > 0) {
+                // RDS decoder needs FloatArray of exact size — use subarray view
+                if (count == widebandSamples.size) {
+                    rds.process(widebandSamples, pilotPhase)
+                } else {
+                    // Only copy when needed (count < buffer size)
+                    rds.process(widebandSamples.copyOf(count), pilotPhase)
+                }
+            }
         }
 
-        // Request audio focus so Android routes audio to us
         requestAudioFocus()
         DebugLog.log("SVC", "Audio focus requested")
 
@@ -298,55 +317,84 @@ class FmRadioService : Service() {
         var lastSignalDb = -100f
         var signalUpdateCounter = 0
 
-        // Run USB setup and streaming on dedicated thread to avoid Dispatchers.IO starvation
+        // ===== Producer-Consumer Pipeline =====
+        // USB reads (producer) → Channel → DSP processing (consumer)
+        // This decouples USB timing from demod processing for maximum throughput
+        val iqChannel = Channel<ByteArray>(IQ_QUEUE_DEPTH)
+
+        // Producer: USB setup + read loop on dedicated USB thread
         streamingJob = serviceScope.launch(usbDispatcher) {
             dev.setSampleRate(sampleRate)
             dev.setAutoGain(true)
             dev.setFrequency(currentFrequency)
-
-            // Full USB reset to ensure clean state (critical after scan/seek)
             dev.fullReset()
 
             Log.i(TAG, "USB setup done, starting streaming...")
-            DebugLog.log("SVC", "USB setup done: rate=$sampleRate freq=${currentFrequency/1e6}MHz")
+            DebugLog.log("SVC", "USB setup done: rate=$sampleRate freq=${currentFrequency/1e6}MHz buf=$USB_BUFFER_SIZE")
 
+            val innerJob = dev.startStreaming(USB_BUFFER_SIZE) { iqData ->
+                // Non-blocking send: if channel is full, drop oldest to prevent USB stall
+                val result = iqChannel.trySend(iqData)
+                if (result.isFailure) {
+                    // Channel full — DSP can't keep up, drop this buffer
+                    // (better than blocking USB read which causes FIFO overflow)
+                    DebugLog.log("USB", "IQ channel full, dropped ${iqData.size}B")
+                }
+            }
+            innerJob.join()
+            iqChannel.close()
+        }
+
+        // Consumer: DSP processing on dedicated DSP thread
+        dspJob = serviceScope.launch(dspDispatcher) {
             var demodCallCount = 0L
             var totalAudioSamples = 0L
             var lastDemodLog = System.currentTimeMillis()
-            val innerJob = dev.startStreaming(65536) { iqData ->
-                val audioSamples = demodulator?.demodulate(iqData)
-                demodCallCount++
-                if (audioSamples != null && audioSamples.isNotEmpty()) {
-                    totalAudioSamples += audioSamples.size
-                    equalizer?.process(audioSamples)
-                    audioPlayer?.writeSamples(audioSamples)
-                }
-                // Log demod stats periodically
-                val now = System.currentTimeMillis()
-                if (demodCallCount <= 3 || now - lastDemodLog > 5000) {
-                    val sigDb = demodulator?.currentSignalStrengthDb ?: -100f
-                    val stereo = demodulator?.isStereo == true
-                    DebugLog.log("DSP", "demod #$demodCallCount: iq=${iqData.size}B → audio=${audioSamples?.size ?: 0} samples, total=$totalAudioSamples, sig=${String.format("%.1f", sigDb)}dB, stereo=$stereo")
-                    lastDemodLog = now
-                }
-                val stereoNow = demodulator?.isStereo == true
-                if (stereoNow != lastStereo) {
-                    lastStereo = stereoNow
-                    onStereoChanged?.invoke(stereoNow)
-                }
-                // Report signal strength every callback (~8 times per second)
-                signalUpdateCounter++
-                if (signalUpdateCounter >= 2) {
-                    signalUpdateCounter = 0
-                    val db = demodulator?.currentSignalStrengthDb ?: -100f
-                    if (kotlin.math.abs(db - lastSignalDb) > 0.5f) {
-                        lastSignalDb = db
-                        onSignalStrengthChanged?.invoke(db)
+
+            try {
+                for (iqData in iqChannel) {
+                    if (!isPlaying) break
+
+                    val result = demodulator?.demodulate(iqData)
+                    demodCallCount++
+
+                    if (result != null && result.count > 0) {
+                        totalAudioSamples += result.count
+                        equalizer?.process(result.samples, result.count)
+                        audioPlayer?.writeSamples(result.samples, result.count)
+                    }
+
+                    // Log demod stats periodically
+                    val now = System.currentTimeMillis()
+                    if (demodCallCount <= 3 || now - lastDemodLog > 5000) {
+                        val sigDb = demodulator?.currentSignalStrengthDb ?: -100f
+                        val stereo = demodulator?.isStereo == true
+                        DebugLog.log("DSP", "demod #$demodCallCount: iq=${iqData.size}B → audio=${result?.count ?: 0} samples, total=$totalAudioSamples, sig=${String.format("%.1f", sigDb)}dB, stereo=$stereo")
+                        lastDemodLog = now
+                    }
+
+                    val stereoNow = demodulator?.isStereo == true
+                    if (stereoNow != lastStereo) {
+                        lastStereo = stereoNow
+                        onStereoChanged?.invoke(stereoNow)
+                    }
+
+                    signalUpdateCounter++
+                    if (signalUpdateCounter >= 4) {
+                        signalUpdateCounter = 0
+                        val db = demodulator?.currentSignalStrengthDb ?: -100f
+                        if (kotlin.math.abs(db - lastSignalDb) > 0.5f) {
+                            lastSignalDb = db
+                            onSignalStrengthChanged?.invoke(db)
+                        }
                     }
                 }
+            } catch (e: CancellationException) {
+                // Normal cancellation
+            } catch (e: Throwable) {
+                Log.e(TAG, "DSP consumer error", e)
+                DebugLog.log("DSP", "CONSUMER ERROR: ${e.javaClass.simpleName}: ${e.message}")
             }
-
-            innerJob.join()
         }
 
         updateMediaSessionState()
@@ -357,20 +405,17 @@ class FmRadioService : Service() {
     fun stopPlayback() {
         isPlaying = false
 
-        // Cancel any running seek — it shares the USB device
         cancelSeek()
 
         device?.stopStreaming()
 
-        // Cancel streaming job and wait briefly for it to finish
-        // so audioPlayer.stop() doesn't race with streaming writes
-        val job = streamingJob
+        val sJob = streamingJob
+        val dJob = dspJob
         streamingJob = null
-        if (job != null) {
-            job.cancel()
-        }
+        dspJob = null
+        sJob?.cancel()
+        dJob?.cancel()
 
-        // Null out demodulator first to stop streaming callback from producing audio
         demodulator?.widebandListener = null
         val oldDemod = demodulator
         demodulator = null
@@ -379,7 +424,6 @@ class FmRadioService : Service() {
         val oldEq = equalizer
         equalizer = null
 
-        // Now safe to stop audio — no more samples will be written
         audioPlayer?.stop()
         audioPlayer = null
 
@@ -459,7 +503,6 @@ class FmRadioService : Service() {
     fun seekStation(forward: Boolean) {
         val dev = device ?: return
 
-        // Cancel any previous seek — prevent multiple concurrent seeks
         cancelSeek()
 
         val wasPlaying = isPlaying
@@ -471,6 +514,9 @@ class FmRadioService : Service() {
                 dev.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
                 dev.setAutoGain(true)
 
+                // Clear endpoint before seek to ensure USB reads work
+                dev.fullReset()
+
                 val step = currentBand.stepHz
                 var freq = currentFrequency + if (forward) step else -step
                 var found: Long? = null
@@ -478,7 +524,6 @@ class FmRadioService : Service() {
                 val maxSteps = ((currentBand.endHz - currentBand.startHz) / step).toInt()
 
                 for (i in 0 until maxSteps) {
-                    // Check if this seek was cancelled (by new seek, playback, or scan)
                     if (!isActive) break
 
                     if (freq > currentBand.endHz) freq = currentBand.startHz
@@ -488,7 +533,6 @@ class FmRadioService : Service() {
                     delay(30)
                     dev.resetBuffer()
 
-                    // Stateless IF-filtered measurement — no warmup needed
                     val samples = dev.readSamples(32768, 500)
                     if (samples != null) {
                         val signalDb = tempDemod.measureFilteredSignalStrength(samples)
@@ -501,7 +545,6 @@ class FmRadioService : Service() {
                     freq += if (forward) step else -step
                 }
 
-                // Full USB reset after seek to restore clean state
                 if (isActive) dev.fullReset()
 
                 withContext(Dispatchers.Main) {
@@ -513,7 +556,6 @@ class FmRadioService : Service() {
                     if (wasPlaying && isActive) startPlayback()
                 }
             } catch (e: CancellationException) {
-                // Seek was cancelled — this is normal, don't restart playback
                 Log.i(TAG, "Seek cancelled")
             } catch (e: Exception) {
                 Log.e(TAG, "Seek error", e)
@@ -595,6 +637,7 @@ class FmRadioService : Service() {
         mediaSession = null
         serviceScope.cancel()
         usbDispatcher.close()
+        dspDispatcher.close()
         super.onDestroy()
     }
 }

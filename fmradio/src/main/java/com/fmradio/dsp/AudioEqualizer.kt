@@ -93,13 +93,14 @@ class AudioEqualizer(private val sampleRate: Int = 48000) {
      * Uses separate filter states for left and right channels to prevent crosstalk.
      * Modifies samples in-place to avoid GC pressure on the audio thread.
      */
-    fun process(samples: ShortArray): ShortArray {
+    /** Process interleaved stereo samples with explicit count — zero-copy */
+    fun process(samples: ShortArray, count: Int = samples.size) {
         if (abs(bassGainDb) < 0.1f && abs(trebleGainDb) < 0.1f) {
-            return samples
+            return
         }
 
         var i = 0
-        while (i < samples.size - 1) {
+        while (i < count - 1) {
             // Left channel (even indices)
             var xL = samples[i].toFloat() / 32767f
             var yL = bassB0 * xL + bassB1 * bassLX1 + bassB2 * bassLX2 - bassA1 * bassLY1 - bassA2 * bassLY2
@@ -120,7 +121,6 @@ class AudioEqualizer(private val sampleRate: Int = 48000) {
 
             i += 2
         }
-        return samples
     }
 
     fun reset() {
