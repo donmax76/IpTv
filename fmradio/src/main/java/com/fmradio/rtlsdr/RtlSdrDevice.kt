@@ -541,10 +541,6 @@ class RtlSdrDevice(private val context: Context) {
                 TunerType.FC0013, TunerType.FC0012 -> {
                     // FC0013 is zero-IF: LO = target frequency
                     setFC0013Frequency(frequencyHz)
-                    // Re-apply gain after frequency change (VHF filter code
-                    // modifies reg 0x14 and could affect gain state)
-                    setFC0013LnaGain(15)
-                    setFC0013IfGain(0x10)
                     enableI2CRepeater(false)
                     setIfFrequency(0)
                 }
@@ -734,8 +730,8 @@ class RtlSdrDevice(private val context: Context) {
             0x00, // reg 0x0F
             0x00, // reg 0x10
             0x00, // reg 0x11
-            0x10, // reg 0x12: IF/VGA gain — 0x00 is minimum, 0x10 for FM reception
-            0x10, // reg 0x13: IF gain fine — also set for full gain chain
+            0x10, // reg 0x12: IF/VGA gain (Linux kernel fc0013.c confirms this register)
+            0x00, // reg 0x13: must stay 0x00 — librtlsdr default, function unknown
             0x50, // reg 0x14: DVB-t High Gain, UHF
             0x01, // reg 0x15
         )
@@ -944,16 +940,13 @@ class RtlSdrDevice(private val context: Context) {
     }
 
     /**
-     * FC0013 IF/VGA gain control (from Linux kernel fc0013.c).
-     * Reg 0x12 bits 4:0 = VGA gain, Reg 0x13 bits 4:0 = IF gain fine.
-     * Both must be set for proper gain chain amplification.
+     * FC0013 IF/VGA gain control (Linux kernel fc0013.c).
+     * Only reg 0x12 bits 4:0 — confirmed as VGA gain in kernel driver.
+     * Do NOT write reg 0x13 — librtlsdr keeps it at 0x00, function unknown.
      */
     private fun setFC0013IfGain(gain: Int) {
-        val g = gain and 0x1F
-        val reg12 = (fc0013Regs[0x12] and 0xE0) or g
+        val reg12 = (fc0013Regs[0x12] and 0xE0) or (gain and 0x1F)
         fc0013WriteReg(0x12, reg12)
-        val reg13 = (fc0013Regs[0x13] and 0xE0) or g
-        fc0013WriteReg(0x13, reg13)
     }
 
     // ========================= End FC0013 Support =========================
