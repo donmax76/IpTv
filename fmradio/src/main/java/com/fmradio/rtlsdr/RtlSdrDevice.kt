@@ -730,7 +730,7 @@ class RtlSdrDevice(private val context: Context) {
             0x00, // reg 0x0F
             0x00, // reg 0x10
             0x00, // reg 0x11
-            0x10, // reg 0x12: IF/VGA gain (Linux kernel fc0013.c confirms this register)
+            0x00, // reg 0x12: IF/VGA gain — 0x00 default, auto AGC controls this
             0x00, // reg 0x13: must stay 0x00 — librtlsdr default, function unknown
             0x50, // reg 0x14: DVB-t High Gain, UHF
             0x01, // reg 0x15
@@ -993,17 +993,15 @@ class RtlSdrDevice(private val context: Context) {
                     }
                 }
                 TunerType.FC0013, TunerType.FC0012 -> {
-                    // FC0013 gain mode: bit 3 of reg 0x0D (Linux kernel fc0013.c).
-                    // Auto AGC does NOT work for FM — it sees amplified noise as
-                    // "signal too strong" and reduces IF gain back to zero.
-                    // Use manual mode (bit 3 = 1) with fixed LNA + IF gain.
+                    // FC0013: pure auto gain mode — matches librtlsdr/Windows.
+                    // Do NOT manually set LNA/IF gain registers — the FC0013's
+                    // internal AGC handles them. Setting bit 3 (manual mode) or
+                    // writing gain regs after auto mode confuses the AGC.
                     val reg0d = fc0013ReadReg(0x0D) ?: fc0013Regs[0x0D]
                     if (enabled) {
-                        fc0013WriteReg(0x0D, reg0d or 0x08) // bit 3 = 1 → manual/forced
-                        setFC0013LnaGain(15)    // max LNA: +7.1 dB
-                        setFC0013IfGain(0x10)   // moderate IF gain
+                        fc0013WriteReg(0x0D, reg0d and 0xE7) // clear bits 3,4 → auto AGC
                     } else {
-                        fc0013WriteReg(0x0D, reg0d and 0xF7) // bit 3 = 0 → auto
+                        fc0013WriteReg(0x0D, reg0d or 0x08) // bit 3 = 1 → manual
                     }
                 }
                 else -> {}
