@@ -979,15 +979,17 @@ class RtlSdrDevice(private val context: Context) {
                     }
                 }
                 TunerType.FC0013, TunerType.FC0012 -> {
-                    // FC0013 AGC mode is controlled via reg 0x0D (from librtlsdr fc0013.c):
-                    //   0x82 = auto gain (AGC not forcing, LNA not forcing)
-                    //   0x02 = manual gain (AGC forcing, LNA not forcing)
+                    // FC0013 AGC mode is controlled via reg 0x0D bits 3,4 (from librtlsdr fc0013.c):
+                    //   bits 3,4 = 0 → auto gain (AGC not forcing, LNA not forcing)
+                    //   bits 3,4 = 1 → manual gain (AGC forcing, LNA forcing)
+                    // MUST use read-modify-write to preserve other bits in the register.
+                    val reg0d = fc0013ReadReg(0x0D) ?: fc0013Regs[0x0D]
                     if (enabled) {
-                        fc0013WriteReg(0x0D, 0x82) // full auto gain
+                        fc0013WriteReg(0x0D, reg0d and 0xE7) // clear bits 3,4 → auto
                         // Set LNA to max gain (index 15 = +7.1 dB) as AGC starting point
                         setFC0013LnaGain(15)
                     } else {
-                        fc0013WriteReg(0x0D, 0x02) // manual gain
+                        fc0013WriteReg(0x0D, reg0d or 0x18) // set bits 3,4 → manual
                     }
                 }
                 else -> {}
@@ -1009,6 +1011,7 @@ class RtlSdrDevice(private val context: Context) {
         if (!isOpen) return false
         usbLock.lock()
         return try {
+            clearEndpointHalt()
             resetBufferInternal()
         } catch (e: Exception) {
             false

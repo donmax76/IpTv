@@ -314,7 +314,7 @@ class FmDemodulator(
             pilotStrengthCount++
             if (pilotStrengthCount >= pilotDetectWindow) {
                 pilotStrength = pilotStrengthAcc / pilotStrengthCount
-                isStereo = pilotStrength > 0.0005f
+                isStereo = pilotStrength > 0.003f
                 pilotStrengthAcc = 0f
                 pilotStrengthCount = 0
             }
