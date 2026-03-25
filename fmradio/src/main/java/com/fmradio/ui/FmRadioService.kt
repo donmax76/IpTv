@@ -327,8 +327,9 @@ class FmRadioService : Service() {
         streamingJob = serviceScope.launch(usbDispatcher) {
             dev.setSampleRate(sampleRate)
             dev.setAutoGain(true)
+            dev.fullReset()  // clear stale USB state BEFORE tuning
             dev.setFrequency(currentFrequency)
-            dev.fullReset()
+            Thread.sleep(50) // let PLL lock + gain settle
 
             Log.i(TAG, "USB setup done, starting streaming...")
             DebugLog.log("SVC", "USB setup done: rate=$sampleRate freq=${currentFrequency/1e6}MHz buf=$USB_BUFFER_SIZE")

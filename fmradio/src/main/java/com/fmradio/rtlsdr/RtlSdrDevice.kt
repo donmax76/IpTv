@@ -544,7 +544,7 @@ class RtlSdrDevice(private val context: Context) {
                     // Re-apply gain after frequency change (VHF filter code
                     // modifies reg 0x14 and could affect gain state)
                     setFC0013LnaGain(15)
-                    setFC0013IfGain(0x08)
+                    setFC0013IfGain(0x10)
                     enableI2CRepeater(false)
                     setIfFrequency(0)
                 }
@@ -734,8 +734,8 @@ class RtlSdrDevice(private val context: Context) {
             0x00, // reg 0x0F
             0x00, // reg 0x10
             0x00, // reg 0x11
-            0x08, // reg 0x12: IF/VGA gain — 0x00 is minimum, 0x08 is moderate gain for FM
-            0x00, // reg 0x13
+            0x10, // reg 0x12: IF/VGA gain — 0x00 is minimum, 0x10 for FM reception
+            0x10, // reg 0x13: IF gain fine — also set for full gain chain
             0x50, // reg 0x14: DVB-t High Gain, UHF
             0x01, // reg 0x15
         )
@@ -944,13 +944,16 @@ class RtlSdrDevice(private val context: Context) {
     }
 
     /**
-     * FC0013 IF gain control (from Linux kernel fc0013.c).
-     * Register 0x12, bits 4:0 control IF/VGA gain.
-     * 0x00 = minimum, higher values = more gain.
+     * FC0013 IF/VGA gain control (from Linux kernel fc0013.c).
+     * Reg 0x12 bits 4:0 = VGA gain, Reg 0x13 bits 4:0 = IF gain fine.
+     * Both must be set for proper gain chain amplification.
      */
     private fun setFC0013IfGain(gain: Int) {
-        val reg12 = (fc0013Regs[0x12] and 0xE0) or (gain and 0x1F)
+        val g = gain and 0x1F
+        val reg12 = (fc0013Regs[0x12] and 0xE0) or g
         fc0013WriteReg(0x12, reg12)
+        val reg13 = (fc0013Regs[0x13] and 0xE0) or g
+        fc0013WriteReg(0x13, reg13)
     }
 
     // ========================= End FC0013 Support =========================
@@ -1005,7 +1008,7 @@ class RtlSdrDevice(private val context: Context) {
                     if (enabled) {
                         fc0013WriteReg(0x0D, reg0d or 0x08) // bit 3 = 1 → manual/forced
                         setFC0013LnaGain(15)    // max LNA: +7.1 dB
-                        setFC0013IfGain(0x08)   // moderate IF gain
+                        setFC0013IfGain(0x10)   // moderate IF gain
                     } else {
                         fc0013WriteReg(0x0D, reg0d and 0xF7) // bit 3 = 0 → auto
                     }

@@ -145,8 +145,8 @@ class FmDemodulator(
         val dt = 1f / audioSampleRate
         deEmphasisAlpha = dt / (tau + dt)
 
-        // IF filter: 120 kHz cutoff
-        ifLpfCoeffs = designLowPassFilter(ifLpfOrder, 120000f / inputSampleRate)
+        // IF filter: 150 kHz cutoff (wideband FM needs ±75 kHz deviation + stereo)
+        ifLpfCoeffs = designLowPassFilter(ifLpfOrder, 150000f / inputSampleRate)
         // Audio filter: 15 kHz cutoff
         audioLpfCoeffs = designLowPassFilter(audioLpfOrder, 15000f / intermediateRate)
 
