@@ -720,7 +720,7 @@ class RtlSdrDevice(private val context: Context) {
             0x17, // reg 0x05
             0x02, // reg 0x06: LPF bandwidth
             0x0A, // reg 0x07: CHECK
-            0xFF, // reg 0x08: AGC Clock /256, AGC gain 1/256, Loop BW 1/8
+            0x33, // reg 0x08: AGC Clock /16, AGC gain 1/16, Loop BW 1/8 (fast convergence)
             0x6E, // reg 0x09: Disable LoopThrough
             0xB8, // reg 0x0A: Disable LO Test Buffer
             0x82, // reg 0x0B
@@ -993,12 +993,14 @@ class RtlSdrDevice(private val context: Context) {
                     }
                 }
                 TunerType.FC0013, TunerType.FC0012 -> {
-                    // FC0013: pure auto gain mode — matches librtlsdr/Windows.
-                    // Do NOT manually set LNA/IF gain registers — the FC0013's
-                    // internal AGC handles them. Setting bit 3 (manual mode) or
-                    // writing gain regs after auto mode confuses the AGC.
+                    // FC0013: auto AGC mode with LNA pre-set to max.
+                    // AGC starts from max gain and adjusts DOWN — much faster
+                    // convergence than starting from zero and climbing up.
+                    // reg 0x08 = 0x33 gives fast AGC loop (~0.3s convergence).
                     val reg0d = fc0013ReadReg(0x0D) ?: fc0013Regs[0x0D]
                     if (enabled) {
+                        // Pre-set LNA to max BEFORE enabling auto AGC
+                        setFC0013LnaGain(15)
                         fc0013WriteReg(0x0D, reg0d and 0xE7) // clear bits 3,4 → auto AGC
                     } else {
                         fc0013WriteReg(0x0D, reg0d or 0x08) // bit 3 = 1 → manual
