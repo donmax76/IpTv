@@ -711,6 +711,7 @@ class RtlSdrDevice(private val context: Context) {
      * FC0013 initialization — ported verbatim from librtlsdr fc0013.c fc0013_init().
      */
     private fun initFC0013() {
+        // FC0013 init values from old-dab/rtlsdr tuner_fc001x.c (reference implementation)
         val reg = intArrayOf(
             0x00, // reg 0x00: dummy (read-only chip ID)
             0x09, // reg 0x01
@@ -718,26 +719,23 @@ class RtlSdrDevice(private val context: Context) {
             0x00, // reg 0x03
             0x00, // reg 0x04
             0x17, // reg 0x05
-            0x02, // reg 0x06: LPF bandwidth
-            0x0A, // reg 0x07: CHECK
-            0x33, // reg 0x08: AGC Clock /16, AGC gain 1/16, Loop BW 1/8 (fast convergence)
+            0x82, // reg 0x06: BW 6 MHz, divider 2, VCO slow
+            0x2A, // reg 0x07: 28.8MHz crystal, modified by Realtek
+            0xFF, // reg 0x08: AGC Clock /256, AGC gain 1/256, Loop BW 1/8
             0x6E, // reg 0x09: Disable LoopThrough
             0xB8, // reg 0x0A: Disable LO Test Buffer
             0x82, // reg 0x0B
-            0xFC, // reg 0x0C
-            0x02, // reg 0x0D: AGC Not Forcing & LNA Not Forcing (must match librtlsdr)
+            0xFC, // reg 0x0C: depending on AGC Up-Down mode
+            0x11, // reg 0x0D: AGC Not Forcing & LNA Forcing, forcing rc_cal
             0x00, // reg 0x0E
             0x00, // reg 0x0F
             0x00, // reg 0x10
             0x00, // reg 0x11
-            0x00, // reg 0x12: IF/VGA gain — 0x00 default, auto AGC controls this
-            0x00, // reg 0x13: must stay 0x00 — librtlsdr default, function unknown
-            0x50, // reg 0x14: DVB-t High Gain, UHF
+            0x00, // reg 0x12: Mixer gain (0x00=low, 0x08=high, 0x0A=max)
+            0x00, // reg 0x13: IF gain (bits 0-4: 2dB/step, bits 5-7: 1dB/step)
+            0x10, // reg 0x14: LNA max gain (0x10), VHF band (bits 5-6=0x00)
             0x01, // reg 0x15
         )
-
-        // 28.8 MHz crystal: set bit 5 of reg 0x07
-        reg[0x07] = reg[0x07] or 0x20
 
         // dual_master: set bit 1 of reg 0x0C
         reg[0x0C] = reg[0x0C] or 0x02
@@ -909,44 +907,28 @@ class RtlSdrDevice(private val context: Context) {
     }
 
     /**
-     * FC0013 LNA gain control (from librtlsdr fc0013.c).
-     * gainIndex 0-15 maps to hardware gain values.
+     * FC0013 LNA gain control (old-dab/rtlsdr tuner_fc001x.c).
+     * Reg 0x14 bits 0-4: LNA gain (0x02=min, 0x08=middle, 0x10=max)
+     * Reg 0x14 bits 5-6: Band (0x00=VHF, 0x20=GPS, 0x40=UHF)
      */
     private fun setFC0013LnaGain(gainIndex: Int) {
-        // FC0013 LNA gain table (from fc0013.c fc0013_lna_gains[])
-        // Index -> register value for reg 0x14 bits 4:0
-        val gainTable = intArrayOf(
-            0x02, // 0: -9.9 dB
-            0x03, // 1: -7.3 dB
-            0x05, // 2: -6.5 dB
-            0x04, // 3: -6.3 dB
-            0x00, // 4: -6.3 dB
-            0x07, // 5: -6.0 dB
-            0x01, // 6: -5.8 dB
-            0x06, // 7: -5.4 dB
-            0x08, // 8: +5.8 dB
-            0x09, // 9: +6.1 dB
-            0x0C, // 10: +6.3 dB
-            0x0D, // 11: +6.5 dB
-            0x0E, // 12: +6.7 dB
-            0x0F, // 13: +6.8 dB
-            0x11, // 14: +7.0 dB
-            0x12, // 15: +7.1 dB
-        )
-
-        val idx = gainIndex.coerceIn(0, gainTable.size - 1)
-        val reg14 = (fc0013Regs[0x14] and 0xE0) or gainTable[idx]
+        // Simple 3-level LNA gain from old-dab reference
+        val lnaGain = when {
+            gainIndex >= 10 -> 0x10 // max
+            gainIndex >= 5  -> 0x08 // middle
+            else            -> 0x02 // min
+        }
+        val reg14 = (fc0013Regs[0x14] and 0x60) or lnaGain // preserve band bits 5-6
         fc0013WriteReg(0x14, reg14)
     }
 
     /**
-     * FC0013 IF/VGA gain control (Linux kernel fc0013.c).
-     * Only reg 0x12 bits 4:0 — confirmed as VGA gain in kernel driver.
-     * Do NOT write reg 0x13 — librtlsdr keeps it at 0x00, function unknown.
+     * FC0013 IF gain control (old-dab/rtlsdr tuner_fc001x.c).
+     * Reg 0x13 is the IF gain register (bits 0-4: 2dB/step, bits 5-7: 1dB/step).
+     * Reg 0x12 is MIXER gain (0x00=low, 0x08=high, 0x0A=max).
      */
     private fun setFC0013IfGain(gain: Int) {
-        val reg12 = (fc0013Regs[0x12] and 0xE0) or (gain and 0x1F)
-        fc0013WriteReg(0x12, reg12)
+        fc0013WriteReg(0x13, gain and 0xFF)
     }
 
     // ========================= End FC0013 Support =========================
@@ -993,17 +975,18 @@ class RtlSdrDevice(private val context: Context) {
                     }
                 }
                 TunerType.FC0013, TunerType.FC0012 -> {
-                    // FC0013: auto AGC mode with LNA pre-set to max.
-                    // AGC starts from max gain and adjusts DOWN — much faster
-                    // convergence than starting from zero and climbing up.
-                    // reg 0x08 = 0x33 gives fast AGC loop (~0.3s convergence).
+                    // FC0013 reg 0x0D bit 3: AGC_FORCE — 0=AGC on, 1=AGC off (manual)
+                    // From old-dab/rtlsdr tuner_fc001x.c fc001x_set_gain_mode()
                     val reg0d = fc0013ReadReg(0x0D) ?: fc0013Regs[0x0D]
                     if (enabled) {
-                        // Pre-set LNA to max BEFORE enabling auto AGC
-                        setFC0013LnaGain(15)
-                        fc0013WriteReg(0x0D, reg0d and 0xE7) // clear bits 3,4 → auto AGC
+                        // Auto gain: clear bit 3 → AGC on
+                        fc0013WriteReg(0x0D, reg0d and 0xF7.toInt())
                     } else {
-                        fc0013WriteReg(0x0D, reg0d or 0x08) // bit 3 = 1 → manual
+                        // Manual gain: set bit 3 → AGC off, then set gains
+                        fc0013WriteReg(0x0D, reg0d or 0x08)
+                        setFC0013LnaGain(15)          // LNA max
+                        fc0013WriteReg(0x12, 0x00)    // Mixer gain low (safe default)
+                        fc0013WriteReg(0x13, 0x1F)    // IF gain max (bits 0-4 = 0x1F)
                     }
                 }
                 else -> {}
