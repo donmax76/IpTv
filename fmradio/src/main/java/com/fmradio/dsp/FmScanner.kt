@@ -28,7 +28,7 @@ class FmScanner(private val device: RtlSdrDevice) {
         // Signal threshold for station detection (dB above noise floor)
         private const val SIGNAL_THRESHOLD = -20f  // absolute minimum threshold
         private const val NOISE_MARGIN_DB = 3f     // dB above noise floor to detect a station
-        private const val SETTLE_TIME_MS = 40L     // increased from 30 for FC0013 PLL lock
+        private const val SETTLE_TIME_MS = 60L     // FC0013 needs 30ms VCO cal + PLL settle
         private const val MEASUREMENT_SAMPLES = 32768  // increased from 16384 for better accuracy
         private const val MEASUREMENTS_PER_FREQ = 2    // reduced from 3 since samples are larger
     }

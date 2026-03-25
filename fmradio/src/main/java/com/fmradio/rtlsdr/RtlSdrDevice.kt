@@ -730,7 +730,7 @@ class RtlSdrDevice(private val context: Context) {
             0x00, // reg 0x0F
             0x00, // reg 0x10
             0x00, // reg 0x11
-            0x00, // reg 0x12
+            0x08, // reg 0x12: IF/VGA gain — 0x00 is minimum, 0x08 is moderate gain for FM
             0x00, // reg 0x13
             0x50, // reg 0x14: DVB-t High Gain, UHF
             0x01, // reg 0x15
@@ -759,7 +759,7 @@ class RtlSdrDevice(private val context: Context) {
      * FC0013 VHF tracking filter — ported from librtlsdr fc0013_set_vhf_track().
      */
     private fun setFC0013VhfTrack(freq: Long) {
-        val tmp = (fc0013ReadReg(0x1D) ?: return) and 0xE3
+        val tmp = (fc0013ReadReg(0x1D) ?: fc0013Regs[0x1D]) and 0xE3
         val track = when {
             freq <= 177500000L -> tmp or 0x1C
             freq <= 184500000L -> tmp or 0x18
@@ -786,15 +786,17 @@ class RtlSdrDevice(private val context: Context) {
         setFC0013VhfTrack(freqHz)
 
         // VHF/UHF filter selection
+        // Use shadow registers for read-modify-write to prevent gain destruction
+        // on I2C read failure (?: 0 would zero out LNA gain bits)
         if (freqHz < 300000000L) {
-            val tmp07 = fc0013ReadReg(0x07) ?: 0
+            val tmp07 = fc0013ReadReg(0x07) ?: fc0013Regs[0x07]
             fc0013WriteReg(0x07, tmp07 or 0x10)       // enable VHF filter
-            val tmp14 = fc0013ReadReg(0x14) ?: 0
+            val tmp14 = fc0013ReadReg(0x14) ?: fc0013Regs[0x14]
             fc0013WriteReg(0x14, tmp14 and 0x1F)       // disable UHF & GPS
         } else {
-            val tmp07 = fc0013ReadReg(0x07) ?: 0
+            val tmp07 = fc0013ReadReg(0x07) ?: fc0013Regs[0x07]
             fc0013WriteReg(0x07, tmp07 and 0xEF)       // disable VHF filter
-            val tmp14 = fc0013ReadReg(0x14) ?: 0
+            val tmp14 = fc0013ReadReg(0x14) ?: fc0013Regs[0x14]
             fc0013WriteReg(0x14, (tmp14 and 0x1F) or 0x40) // enable UHF
         }
 
@@ -869,7 +871,7 @@ class RtlSdrDevice(private val context: Context) {
         fc0013WriteReg(0x0E, 0x80)
         fc0013WriteReg(0x0E, 0x00)
         fc0013WriteReg(0x0E, 0x00)  // re-calibration write
-        Thread.sleep(10)
+        Thread.sleep(30) // FC0013 VCO needs 20-30ms to calibrate properly
 
         val vcoStatus = (fc0013ReadReg(0x0E) ?: 0) and 0x3F
 

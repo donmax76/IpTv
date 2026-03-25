@@ -873,13 +873,17 @@ class MainActivity : Activity() {
                 val freqStr = etFreq.text.toString().trim().replace(',', '.')
                 val name = etName.text.toString().trim()
                 val freqMHz = freqStr.toDoubleOrNull()
-                if (freqMHz != null && freqMHz >= 0.1) {
+                val bandStart = currentBand.startHz / 1e6
+                val bandEnd = currentBand.endHz / 1e6
+                if (freqMHz != null && freqMHz >= bandStart && freqMHz <= bandEnd) {
                     val freqHz = (freqMHz * 1_000_000).toLong()
                     stationStorage.addStation(RadioStation(frequencyHz = freqHz, name = name))
                     loadSavedStations()
+                    setFrequency(freqHz)
+                    if (radioService?.isPlaying != true) startPlayback()
                     showToast(getString(R.string.msg_station_added, String.format("%.1f MHz", freqMHz)))
                 } else {
-                    showToast(getString(R.string.msg_invalid_frequency))
+                    showToast("${getString(R.string.msg_invalid_frequency)}: ${String.format("%.1f", bandStart)}-${String.format("%.1f", bandEnd)} MHz")
                 }
             }
             .setNegativeButton(getString(R.string.btn_cancel), null)
