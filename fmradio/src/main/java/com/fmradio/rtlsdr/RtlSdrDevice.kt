@@ -998,12 +998,10 @@ class RtlSdrDevice(private val context: Context) {
                     // MUST use read-modify-write to preserve other bits in the register.
                     val reg0d = fc0013ReadReg(0x0D) ?: fc0013Regs[0x0D]
                     if (enabled) {
-                        // Use manual gain mode with max LNA + IF gain for FM radio.
-                        // FC0013 auto AGC (bits 3,4=0) converges too slowly and leaves
-                        // IF gain at minimum. Manual mode with explicit gain works reliably.
-                        fc0013WriteReg(0x0D, reg0d or 0x18) // set bits 3,4 → manual
+                        fc0013WriteReg(0x0D, reg0d and 0xE7) // clear bits 3,4 → auto
+                        // Set LNA and IF gain as AGC starting points
                         setFC0013LnaGain(15)    // max LNA: +7.1 dB
-                        setFC0013IfGain(0x10)   // IF gain high (~+13 dB), total ~20 dB
+                        setFC0013IfGain(0x08)   // moderate IF gain as starting point
                     } else {
                         fc0013WriteReg(0x0D, reg0d or 0x18) // set bits 3,4 → manual
                     }
@@ -1027,7 +1025,6 @@ class RtlSdrDevice(private val context: Context) {
         if (!isOpen) return false
         usbLock.lock()
         return try {
-            clearEndpointHalt()
             resetBufferInternal()
         } catch (e: Exception) {
             false
