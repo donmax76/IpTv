@@ -725,7 +725,7 @@ class RtlSdrDevice(private val context: Context) {
             0xB8, // reg 0x0A: Disable LO Test Buffer
             0x82, // reg 0x0B
             0xFC, // reg 0x0C
-            0x01, // reg 0x0D: AGC Not Forcing & LNA Forcing
+            0x02, // reg 0x0D: AGC Not Forcing & LNA Not Forcing (must match librtlsdr)
             0x00, // reg 0x0E
             0x00, // reg 0x0F
             0x00, // reg 0x10
@@ -847,7 +847,10 @@ class RtlSdrDevice(private val context: Context) {
         reg[3] = xin shr 8
         reg[4] = xin and 0xFF
 
-        // Fix clock out + bandwidth (default 8 MHz)
+        // Preserve bandwidth bits (7:6) from current reg 0x06 setting
+        reg[6] = reg[6] or (fc0013Regs[0x06] and 0xC0)
+
+        // Fix clock out
         reg[6] = reg[6] or 0x20
 
         // Modified for Realtek demod

@@ -252,6 +252,7 @@ class FmRadioService : Service() {
         if (isPlaying) {
             serviceScope.launch {
                 device?.setFrequency(frequencyHz)
+                delay(20) // let PLL lock and FIFO flush stale data
                 device?.resetBuffer()
             }
         }
