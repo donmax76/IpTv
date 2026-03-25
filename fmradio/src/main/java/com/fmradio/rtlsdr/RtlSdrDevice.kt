@@ -853,11 +853,10 @@ class RtlSdrDevice(private val context: Context) {
         reg[3] = xin shr 8
         reg[4] = xin and 0xFF
 
-        // Preserve bandwidth bits (7:6) from current reg 0x06 setting
-        reg[6] = reg[6] or (fc0013Regs[0x06] and 0xC0)
-
-        // Fix clock out
-        reg[6] = reg[6] or 0x20
+        // Bandwidth OVERWRITES VCO bits in reg[6] — this matches librtlsdr
+        // fc0013_set_params where bandwidth assignment clears lower bits.
+        // Keeping VCO bank bits (0x02, 0x08) here corrupts VCO calibration.
+        reg[6] = 0x20  // clock out only, 8 MHz default bandwidth (bits 7:6 = 00)
 
         // Modified for Realtek demod
         reg[5] = reg[5] or 0x07
