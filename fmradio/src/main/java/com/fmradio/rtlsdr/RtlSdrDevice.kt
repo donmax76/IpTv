@@ -541,6 +541,10 @@ class RtlSdrDevice(private val context: Context) {
                 TunerType.FC0013, TunerType.FC0012 -> {
                     // FC0013 is zero-IF: LO = target frequency
                     setFC0013Frequency(frequencyHz)
+                    // Re-apply gain after frequency change (VHF filter code
+                    // modifies reg 0x14 and could affect gain state)
+                    setFC0013LnaGain(15)
+                    setFC0013IfGain(0x08)
                     enableI2CRepeater(false)
                     setIfFrequency(0)
                 }
@@ -994,18 +998,17 @@ class RtlSdrDevice(private val context: Context) {
                     }
                 }
                 TunerType.FC0013, TunerType.FC0012 -> {
-                    // FC0013 AGC mode is controlled via reg 0x0D bits 3,4 (from librtlsdr fc0013.c):
-                    //   bits 3,4 = 0 → auto gain (AGC not forcing, LNA not forcing)
-                    //   bits 3,4 = 1 → manual gain (AGC forcing, LNA forcing)
-                    // MUST use read-modify-write to preserve other bits in the register.
+                    // FC0013 gain mode: bit 3 of reg 0x0D (Linux kernel fc0013.c).
+                    // Auto AGC does NOT work for FM — it sees amplified noise as
+                    // "signal too strong" and reduces IF gain back to zero.
+                    // Use manual mode (bit 3 = 1) with fixed LNA + IF gain.
                     val reg0d = fc0013ReadReg(0x0D) ?: fc0013Regs[0x0D]
                     if (enabled) {
-                        fc0013WriteReg(0x0D, reg0d and 0xE7) // clear bits 3,4 → auto
-                        // Set LNA and IF gain as AGC starting points
+                        fc0013WriteReg(0x0D, reg0d or 0x08) // bit 3 = 1 → manual/forced
                         setFC0013LnaGain(15)    // max LNA: +7.1 dB
-                        setFC0013IfGain(0x08)   // moderate IF gain as starting point
+                        setFC0013IfGain(0x08)   // moderate IF gain
                     } else {
-                        fc0013WriteReg(0x0D, reg0d or 0x18) // set bits 3,4 → manual
+                        fc0013WriteReg(0x0D, reg0d and 0xF7) // bit 3 = 0 → auto
                     }
                 }
                 else -> {}
