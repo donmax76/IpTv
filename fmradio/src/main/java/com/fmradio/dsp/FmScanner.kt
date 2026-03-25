@@ -25,8 +25,9 @@ class FmScanner(private val device: RtlSdrDevice) {
         const val RTL_SDR_MIN_FREQ = 24000000L      // 24 MHz
         const val RTL_SDR_MAX_FREQ = 1766000000L     // 1766 MHz
 
-        // Signal threshold for station detection (dB)
-        private const val SIGNAL_THRESHOLD = -20f  // lowered from -18 for better sensitivity
+        // Signal threshold for station detection (dB above noise floor)
+        private const val SIGNAL_THRESHOLD = -20f  // absolute minimum threshold
+        private const val NOISE_MARGIN_DB = 3f     // dB above noise floor to detect a station
         private const val SETTLE_TIME_MS = 40L     // increased from 30 for FC0013 PLL lock
         private const val MEASUREMENT_SAMPLES = 32768  // increased from 16384 for better accuracy
         private const val MEASUREMENTS_PER_FREQ = 2    // reduced from 3 since samples are larger
@@ -209,8 +210,9 @@ class FmScanner(private val device: RtlSdrDevice) {
                 DebugLog.log("SCAN", "WARNING: noise floor read returned null — USB may be stalled")
             }
 
-            // Adaptive threshold: noise floor + 6 dB margin, but not below absolute threshold
-            val adaptiveThreshold = maxOf(threshold, noiseFloor + 6f)
+            // Adaptive threshold: noise floor + margin (relative detection)
+            // Use noise-relative threshold for weak signals (e.g. FC0013 with low gain)
+            val adaptiveThreshold = noiseFloor + NOISE_MARGIN_DB
             Log.i(TAG, "Noise floor: $noiseFloor dB, threshold: $adaptiveThreshold dB")
             DebugLog.log("SCAN", "Adaptive threshold: $adaptiveThreshold dB")
 

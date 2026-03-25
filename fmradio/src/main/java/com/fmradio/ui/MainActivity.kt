@@ -870,7 +870,7 @@ class MainActivity : Activity() {
             .setTitle(getString(R.string.dialog_add_station_title))
             .setView(layout)
             .setPositiveButton(getString(R.string.btn_save)) { _, _ ->
-                val freqStr = etFreq.text.toString().trim()
+                val freqStr = etFreq.text.toString().trim().replace(',', '.')
                 val name = etName.text.toString().trim()
                 val freqMHz = freqStr.toDoubleOrNull()
                 if (freqMHz != null && freqMHz >= 0.1) {

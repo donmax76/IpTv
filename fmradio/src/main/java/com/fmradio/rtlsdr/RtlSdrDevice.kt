@@ -979,12 +979,15 @@ class RtlSdrDevice(private val context: Context) {
                     }
                 }
                 TunerType.FC0013, TunerType.FC0012 -> {
-                    // FC0013: reg 0x14 bit 4 = AGC enable
-                    val reg14 = fc0013ReadReg(0x14) ?: 0x50
+                    // FC0013 AGC mode is controlled via reg 0x0D (from librtlsdr fc0013.c):
+                    //   0x82 = auto gain (AGC not forcing, LNA not forcing)
+                    //   0x02 = manual gain (AGC forcing, LNA not forcing)
                     if (enabled) {
-                        fc0013WriteReg(0x14, (reg14 and 0xE0.inv()) or 0x10) // AGC on
+                        fc0013WriteReg(0x0D, 0x82) // full auto gain
+                        // Set LNA to max gain (index 15 = +7.1 dB) as AGC starting point
+                        setFC0013LnaGain(15)
                     } else {
-                        fc0013WriteReg(0x14, reg14 and 0xEF.toInt()) // AGC off
+                        fc0013WriteReg(0x0D, 0x02) // manual gain
                     }
                 }
                 else -> {}
