@@ -938,6 +938,16 @@ class RtlSdrDevice(private val context: Context) {
         fc0013WriteReg(0x14, reg14)
     }
 
+    /**
+     * FC0013 IF gain control (from Linux kernel fc0013.c).
+     * Register 0x12, bits 4:0 control IF/VGA gain.
+     * 0x00 = minimum, higher values = more gain.
+     */
+    private fun setFC0013IfGain(gain: Int) {
+        val reg12 = (fc0013Regs[0x12] and 0xE0) or (gain and 0x1F)
+        fc0013WriteReg(0x12, reg12)
+    }
+
     // ========================= End FC0013 Support =========================
 
     fun setGain(gainIndex: Int): Boolean {
@@ -988,9 +998,12 @@ class RtlSdrDevice(private val context: Context) {
                     // MUST use read-modify-write to preserve other bits in the register.
                     val reg0d = fc0013ReadReg(0x0D) ?: fc0013Regs[0x0D]
                     if (enabled) {
-                        fc0013WriteReg(0x0D, reg0d and 0xE7) // clear bits 3,4 → auto
-                        // Set LNA to max gain (index 15 = +7.1 dB) as AGC starting point
-                        setFC0013LnaGain(15)
+                        // Use manual gain mode with max LNA + IF gain for FM radio.
+                        // FC0013 auto AGC (bits 3,4=0) converges too slowly and leaves
+                        // IF gain at minimum. Manual mode with explicit gain works reliably.
+                        fc0013WriteReg(0x0D, reg0d or 0x18) // set bits 3,4 → manual
+                        setFC0013LnaGain(15)    // max LNA: +7.1 dB
+                        setFC0013IfGain(0x10)   // IF gain high (~+13 dB), total ~20 dB
                     } else {
                         fc0013WriteReg(0x0D, reg0d or 0x18) // set bits 3,4 → manual
                     }
