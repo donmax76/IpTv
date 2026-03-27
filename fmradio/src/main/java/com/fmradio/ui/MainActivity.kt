@@ -3,6 +3,7 @@ package com.fmradio.ui
 import android.app.Activity
 import android.util.Log
 import android.app.AlertDialog
+import android.widget.Button
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -441,6 +442,10 @@ class MainActivity : Activity() {
 
         btnScan.setOnClickListener {
             if (scanner?.isScanning() == true) scanner?.stopScan() else startScan()
+        }
+
+        findViewById<Button>(R.id.btnExit).setOnClickListener {
+            exitApp()
         }
 
         btnAddStation.setOnClickListener {
@@ -961,6 +966,18 @@ class MainActivity : Activity() {
         val intent = Intent(this, FmRadioService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
         bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+    }
+
+    private fun exitApp() {
+        if (radioService?.isPlaying == true) stopPlayback()
+        rtlSdrDevice?.close()
+        rtlSdrDevice = null
+        if (serviceBound) {
+            unbindService(serviceConnection)
+            serviceBound = false
+        }
+        stopService(Intent(this, FmRadioService::class.java))
+        finishAffinity()
     }
 
     private fun showToast(message: String) {
