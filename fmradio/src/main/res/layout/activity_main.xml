@@ -240,12 +240,13 @@
                     </LinearLayout>
                 </LinearLayout>
 
-                <!-- RDS RadioText + PTY row -->
+                <!-- RDS RadioText (scrolling marquee) + PTY -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
-                    android:gravity="center_vertical">
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="2dp">
 
                     <TextView
                         android:id="@+id/tvRdsRt"
@@ -253,20 +254,20 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:textColor="@color/lcd_amber"
-                        android:textSize="14sp"
+                        android:textSize="16sp"
                         android:fontFamily="monospace"
-                        android:maxLines="1"
+                        android:maxLines="2"
                         android:ellipsize="marquee"
                         android:marqueeRepeatLimit="marquee_forever"
-                        android:singleLine="true"
+                        android:singleLine="false"
                         android:visibility="gone" />
 
                     <TextView
                         android:id="@+id/tvRdsPty"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textColor="@color/lcd_dim"
-                        android:textSize="13sp"
+                        android:textColor="@color/lcd_cyan"
+                        android:textSize="14sp"
                         android:fontFamily="monospace"
                         android:layout_marginStart="10dp"
                         android:visibility="gone" />
@@ -660,7 +661,7 @@
         </ScrollView>
     </LinearLayout>
 
-    <!-- ======== RIGHT PANEL: Presets + Stations (full height) ======== -->
+    <!-- ======== RIGHT PANEL: Stations only (full height) ======== -->
     <LinearLayout
         android:layout_width="280dp"
         android:layout_height="match_parent"
@@ -669,58 +670,12 @@
         android:padding="8dp"
         android:layout_marginStart="4dp">
 
-        <!-- ======= PRESETS SECTION ======= -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="4dp">
-
-            <TextView
-                android:id="@+id/tvPresetsHeader"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="PRESETS ▼"
-                android:textColor="@color/lcd_cyan"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:fontFamily="monospace" />
-
-            <Button
-                android:id="@+id/btnAddPreset"
-                android:layout_width="40dp"
-                android:layout_height="36dp"
-                android:text="+"
-                android:textColor="@color/lcd_green"
-                android:textSize="18sp"
-                android:textStyle="bold"
-                android:background="@drawable/bg_button_metal"
-                android:clickable="true"
-                android:focusable="true"
-                android:padding="0dp"
-                android:minWidth="0dp"
-                android:minHeight="0dp" />
-        </LinearLayout>
-
-        <ListView
-            android:id="@+id/lvPresets"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:clipToPadding="false"
-            android:divider="@android:color/transparent"
-            android:dividerHeight="2dp"
-            android:scrollbarThumbVertical="@color/lcd_dim" />
-
         <!-- ======= STATIONS SECTION ======= -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:layout_marginTop="6dp"
             android:layout_marginBottom="4dp">
 
             <TextView
@@ -734,7 +689,7 @@
                 android:textStyle="bold"
                 android:fontFamily="monospace" />
 
-            <Button
+            <TextView
                 android:id="@+id/btnAddStation"
                 android:layout_width="40dp"
                 android:layout_height="36dp"
@@ -743,13 +698,11 @@
                 android:textSize="16sp"
                 android:textStyle="bold"
                 android:fontFamily="monospace"
+                android:gravity="center"
                 android:background="@drawable/bg_button_metal"
                 android:clickable="true"
                 android:focusable="true"
-                android:paddingStart="0dp"
-                android:paddingEnd="0dp"
-                android:minWidth="0dp"
-                android:minHeight="0dp" />
+                android:padding="0dp" />
         </LinearLayout>
 
         <!-- Scan progress (hidden by default) -->
@@ -779,7 +732,7 @@
                 android:gravity="center" />
         </LinearLayout>
 
-        <!-- Station list -->
+        <!-- Station list (takes all remaining space) -->
         <ListView
             android:id="@+id/lvStations"
             android:layout_width="match_parent"

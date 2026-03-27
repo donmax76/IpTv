@@ -90,12 +90,7 @@ class MainActivity : Activity() {
     private lateinit var btnFreqUp: ImageButton
     private lateinit var btnSeekForward: ImageButton
 
-    private lateinit var lvPresets: ListView
-    private lateinit var presetAdapter: PresetAdapter
-    private lateinit var btnAddPreset: Button
-    private lateinit var tvPresetsHeader: TextView
     private lateinit var tvStationsHeader: TextView
-    private var presetsExpanded = true
     private var stationsExpanded = true
 
     private lateinit var seekVolume: SeekBar
@@ -273,19 +268,7 @@ class MainActivity : Activity() {
         btnFreqUp = findViewById(R.id.btnFreqUp)
         btnSeekForward = findViewById(R.id.btnSeekForward)
 
-        lvPresets = findViewById(R.id.lvPresets)
-        btnAddPreset = findViewById(R.id.btnAddPreset)
-        btnAddPreset.isClickable = true
-        tvPresetsHeader = findViewById(R.id.tvPresetsHeader)
         tvStationsHeader = findViewById(R.id.tvStationsHeader)
-
-        presetAdapter = PresetAdapter(
-            presets = emptyList(),
-            onPresetClick = { tuneToPreset(it) },
-            onPresetLongClick = { showPresetOptions(it) },
-            onDeleteClick = { deletePreset(it) }
-        )
-        lvPresets.adapter = presetAdapter
 
         seekVolume = findViewById(R.id.seekVolume)
         seekBass = findViewById(R.id.seekBass)
@@ -359,7 +342,6 @@ class MainActivity : Activity() {
         seekTreble.progress = stationStorage.trebleLevel
         tvTrebleValue.text = (seekTreble.progress - 10).toString()
 
-        loadPresetsList()
         updateAfIndicator(stationStorage.afEnabled)
         updateTaIndicator(stationStorage.taEnabled)
     }
@@ -379,17 +361,6 @@ class MainActivity : Activity() {
         btnSeekForward.setOnClickListener {
             tvStatus.text = getString(R.string.status_seeking)
             radioService?.seekStation(forward = true)
-        }
-
-        btnAddPreset.setOnClickListener {
-            DebugLog.log("UI", "btnAddPreset clicked, freq=${currentFrequency/1e6}MHz")
-            addCurrentFrequencyToPresets()
-        }
-
-        tvPresetsHeader.setOnClickListener {
-            presetsExpanded = !presetsExpanded
-            lvPresets.visibility = if (presetsExpanded) View.VISIBLE else View.GONE
-            tvPresetsHeader.text = "PRESETS ${if (presetsExpanded) "▼" else "▶"}"
         }
 
         tvStationsHeader.setOnClickListener {
@@ -682,65 +653,6 @@ class MainActivity : Activity() {
                 startPlayback()
             }
         }
-    }
-
-    private fun tuneToPreset(preset: PresetItem) {
-        setFrequency(preset.frequencyHz)
-        if (radioService?.isPlaying != true && rtlSdrDevice != null) {
-            val sc = scanner
-            if (sc != null && sc.isBusy) {
-                activityScope.launch {
-                    sc.stopScanAndWait()
-                    withContext(Dispatchers.Main) { startPlayback() }
-                }
-            } else {
-                startPlayback()
-            }
-        }
-        presetAdapter.setSelectedFrequency(preset.frequencyHz)
-    }
-
-    private fun addCurrentFrequencyToPresets() {
-        DebugLog.log("UI", "addPreset: freq=$currentFrequency (${currentFrequency/1e6}MHz)")
-        try {
-            stationStorage.addPresetItem(currentFrequency)
-            loadPresetsList()
-            presetAdapter.setSelectedFrequency(currentFrequency)
-            val msg = String.format("Preset saved: %.1f MHz", currentFrequency / 1e6)
-            DebugLog.log("UI", msg)
-            showToast(msg)
-        } catch (e: Exception) {
-            DebugLog.log("UI", "addPreset ERROR: ${e.message}")
-            showToast("Error: ${e.message}")
-        }
-    }
-
-    private fun deletePreset(preset: PresetItem) {
-        stationStorage.removePresetItem(preset.frequencyHz)
-        loadPresetsList()
-    }
-
-    private fun showPresetOptions(preset: PresetItem) {
-        val editText = EditText(this).apply {
-            setText(preset.name)
-            hint = "Preset name"
-        }
-        AlertDialog.Builder(this)
-            .setTitle("${preset.displayFrequency} MHz")
-            .setView(editText)
-            .setPositiveButton("Save") { _, _ ->
-                val name = editText.text.toString().trim()
-                stationStorage.renamePresetItem(preset.frequencyHz, name)
-                loadPresetsList()
-            }
-            .setNeutralButton("Delete") { _, _ -> deletePreset(preset) }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun loadPresetsList() {
-        presetAdapter.updatePresets(stationStorage.loadPresets())
-        presetAdapter.setSelectedFrequency(currentFrequency)
     }
 
     private fun startScan() {
