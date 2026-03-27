@@ -975,18 +975,20 @@ class RtlSdrDevice(private val context: Context) {
                     }
                 }
                 TunerType.FC0013, TunerType.FC0012 -> {
-                    // FC0013 reg 0x0D bit 3: AGC_FORCE — 0=AGC on, 1=AGC off (manual)
-                    // From old-dab/rtlsdr tuner_fc001x.c fc001x_set_gain_mode()
+                    // FC0013: use manual gain at max (same as Windows SDR software).
+                    // FC0013 auto AGC (reg 0x08=0xFF) is too slow (~17s convergence).
+                    // From old-dab/rtlsdr: bit 3 of reg 0x0D = AGC_FORCE (1=off, 0=on)
+                    // Manual gain with max IF gain = instant reception.
                     val reg0d = fc0013ReadReg(0x0D) ?: fc0013Regs[0x0D]
                     if (enabled) {
-                        // Auto gain: clear bit 3 → AGC on
-                        fc0013WriteReg(0x0D, reg0d and 0xF7.toInt())
+                        // Manual mode with max gain (matches Windows rtl_fm behavior)
+                        fc0013WriteReg(0x0D, reg0d or 0x08)   // bit 3=1 → AGC off
+                        fc0013WriteReg(0x12, 0x00)             // mixer gain low
+                        fc0013WriteReg(0x13, 0x1F)             // IF gain max
+                        // LNA already at 0x10 (max) from init
                     } else {
-                        // Manual gain: set bit 3 → AGC off, then set gains
-                        fc0013WriteReg(0x0D, reg0d or 0x08)
-                        setFC0013LnaGain(15)          // LNA max
-                        fc0013WriteReg(0x12, 0x00)    // Mixer gain low (safe default)
-                        fc0013WriteReg(0x13, 0x1F)    // IF gain max (bits 0-4 = 0x1F)
+                        // Auto AGC (slow, not recommended for FM)
+                        fc0013WriteReg(0x0D, reg0d and 0xF7)  // bit 3=0 → AGC on
                     }
                 }
                 else -> {}
