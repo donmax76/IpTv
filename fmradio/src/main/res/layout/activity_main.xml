@@ -3,6 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="horizontal"
+    android:fitsSystemWindows="true"
     android:background="#FF050508"
     android:padding="6dp">
 
@@ -732,13 +733,14 @@
                 android:gravity="center" />
         </LinearLayout>
 
-        <!-- Station list (takes all remaining space) -->
+        <!-- Station list (takes all remaining space, extra bottom padding for car nav bar) -->
         <ListView
             android:id="@+id/lvStations"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
             android:clipToPadding="false"
+            android:paddingBottom="60dp"
             android:divider="@android:color/transparent"
             android:dividerHeight="2dp"
             android:scrollbarThumbVertical="@color/lcd_dim" />
