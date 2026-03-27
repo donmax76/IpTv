@@ -224,25 +224,37 @@
                             android:textSize="20sp"
                             android:fontFamily="monospace" />
 
-                        <!-- RDS: Station name (PS) — full size, no truncation -->
+                        <!-- User-entered station name -->
                         <TextView
-                            android:id="@+id/tvRdsPs"
+                            android:id="@+id/tvStationName"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:textColor="@color/lcd_cyan"
-                            android:textSize="22sp"
+                            android:textColor="#FFFFCC00"
+                            android:textSize="18sp"
                             android:textStyle="bold"
                             android:fontFamily="monospace"
-                            android:maxLines="2"
-                            android:shadowColor="@color/glow_cyan"
-                            android:shadowDx="0"
-                            android:shadowDy="0"
-                            android:shadowRadius="12"
                             android:visibility="gone" />
                     </LinearLayout>
                 </LinearLayout>
 
-                <!-- RDS RadioText (scrolling marquee) + PTY -->
+                <!-- RDS: Station name (PS) from broadcast -->
+                <TextView
+                    android:id="@+id/tvRdsPs"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/lcd_cyan"
+                    android:textSize="20sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:maxLines="2"
+                    android:shadowColor="@color/glow_cyan"
+                    android:shadowDx="0"
+                    android:shadowDy="0"
+                    android:shadowRadius="12"
+                    android:layout_marginTop="2dp"
+                    android:visibility="gone" />
+
+                <!-- RDS RadioText + PTY -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

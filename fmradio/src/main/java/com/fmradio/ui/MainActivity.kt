@@ -84,6 +84,8 @@ class MainActivity : Activity() {
     private lateinit var tvBandStart: TextView
     private lateinit var tvBandEnd: TextView
 
+    private lateinit var tvStationName: TextView
+
     private lateinit var btnSeekBack: ImageButton
     private lateinit var btnFreqDown: ImageButton
     private lateinit var btnPlayStop: ImageButton
@@ -261,6 +263,8 @@ class MainActivity : Activity() {
         seekFrequency = findViewById(R.id.seekFrequency)
         tvBandStart = findViewById(R.id.tvBandStart)
         tvBandEnd = findViewById(R.id.tvBandEnd)
+
+        tvStationName = findViewById(R.id.tvStationName)
 
         btnSeekBack = findViewById(R.id.btnSeekBack)
         btnFreqDown = findViewById(R.id.btnFreqDown)
@@ -631,12 +635,25 @@ class MainActivity : Activity() {
         currentFrequency = freq
         stationStorage.lastFrequency = freq
         updateFrequencyDisplay(freq)
+        updateStationNameDisplay(freq)
         seekFrequency.progress = frequencyToProgress(freq)
         if (radioService?.isPlaying == true) {
             radioService?.tuneToFrequency(freq)
             clearRdsDisplay()
         }
         stationAdapter.setSelectedFrequency(freq)
+    }
+
+    private fun updateStationNameDisplay(freq: Long) {
+        val station = stationStorage.loadStations().find {
+            Math.abs(it.frequencyHz - freq) < 50000
+        }
+        if (station != null && station.name.isNotEmpty()) {
+            tvStationName.text = station.name
+            tvStationName.visibility = View.VISIBLE
+        } else {
+            tvStationName.visibility = View.GONE
+        }
     }
 
     private fun tuneToStation(station: RadioStation) {
