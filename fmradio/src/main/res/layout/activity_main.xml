@@ -672,14 +672,18 @@
 
             <Button
                 android:id="@+id/btnAddPreset"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="40dp"
+                android:layout_height="36dp"
                 android:text="+"
                 android:textColor="@color/lcd_green"
                 android:textSize="18sp"
                 android:textStyle="bold"
                 android:background="@drawable/bg_button_metal"
-                android:padding="0dp" />
+                android:clickable="true"
+                android:focusable="true"
+                android:padding="0dp"
+                android:minWidth="0dp"
+                android:minHeight="0dp" />
         </LinearLayout>
 
         <ListView
@@ -714,17 +718,20 @@
 
             <Button
                 android:id="@+id/btnAddStation"
-                android:layout_width="36dp"
-                android:layout_height="28dp"
+                android:layout_width="40dp"
+                android:layout_height="36dp"
                 android:text="+"
                 android:textColor="@color/lcd_green"
                 android:textSize="16sp"
                 android:textStyle="bold"
                 android:fontFamily="monospace"
                 android:background="@drawable/bg_button_metal"
+                android:clickable="true"
+                android:focusable="true"
                 android:paddingStart="0dp"
                 android:paddingEnd="0dp"
-                android:minWidth="0dp" />
+                android:minWidth="0dp"
+                android:minHeight="0dp" />
         </LinearLayout>
 
         <!-- Scan progress (hidden by default) -->

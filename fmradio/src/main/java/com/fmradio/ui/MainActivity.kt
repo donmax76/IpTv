@@ -274,6 +274,7 @@ class MainActivity : Activity() {
 
         lvPresets = findViewById(R.id.lvPresets)
         btnAddPreset = findViewById(R.id.btnAddPreset)
+        btnAddPreset.isClickable = true
         tvPresetsHeader = findViewById(R.id.tvPresetsHeader)
         tvStationsHeader = findViewById(R.id.tvStationsHeader)
 
@@ -303,6 +304,7 @@ class MainActivity : Activity() {
         tvScanStatus = findViewById(R.id.tvScanStatus)
 
         btnAddStation = findViewById(R.id.btnAddStation)
+        btnAddStation.isClickable = true
 
         lvStations = findViewById(R.id.lvStations)
         stationAdapter = StationAdapter(
@@ -803,12 +805,12 @@ class MainActivity : Activity() {
 
     private fun updateSignalBars(db: Float) {
         // Map signal strength dB to 0-4 bars
-        // Typical range: -35dB (noise) to -5dB (strong station)
+        // FC0013 has lower gain than R820T, so thresholds are wider
         val bars = when {
-            db > -10f -> 4
-            db > -18f -> 3
-            db > -25f -> 2
-            db > -32f -> 1
+            db > -15f -> 4
+            db > -25f -> 3
+            db > -35f -> 2
+            db > -42f -> 1
             else      -> 0
         }
         val barText = when (bars) {
