@@ -49,7 +49,7 @@ class FmDemodulator(
     private var prevQ = 0f
 
     // FM deviation gain
-    private val fmGain = (intermediateRate.toFloat() / (2f * PI.toFloat() * 75000f)) * 0.7f
+    private val fmGain = (intermediateRate.toFloat() / (2f * PI.toFloat() * 75000f)) * 1.0f
 
     // De-emphasis filter (50µs time constant for Europe/Russia)
     private var deEmphasisStateL = 0f
@@ -117,8 +117,8 @@ class FmDemodulator(
     private var signalQualityCount = 0
     private var squelchOpen = true
     private var squelchLevel = 1f
-    private val squelchAttack = 0.05f
-    private val squelchRelease = 0.01f
+    private val squelchAttack = 0.08f
+    private val squelchRelease = 0.03f
 
     // Warmup: discard first N intermediate samples
     private var warmupSamples = 0
@@ -336,7 +336,7 @@ class FmDemodulator(
             signalQualityCount++
             if (signalQualityCount >= intermediateRate / 16) {
                 val avgModulation = signalQualityAcc / signalQualityCount
-                squelchOpen = avgModulation > 0.01 && avgModulation < 3.0
+                squelchOpen = avgModulation > 0.05 && avgModulation < 2.5
                 signalQualityAcc = 0.0
                 signalQualityCount = 0
             }
@@ -401,7 +401,7 @@ class FmDemodulator(
             }
 
             // Scale to 16-bit PCM
-            val gain = muteRamp * 24000f
+            val gain = muteRamp * 30000f
             val sampleL = (outL * gain).toInt().coerceIn(-32767, 32767)
             val sampleR = (outR * gain).toInt().coerceIn(-32767, 32767)
 
