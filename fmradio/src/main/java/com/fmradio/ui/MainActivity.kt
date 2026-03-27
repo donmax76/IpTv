@@ -103,7 +103,7 @@ class MainActivity : Activity() {
     private lateinit var tvTrebleValue: TextView
 
     private lateinit var btnScan: Button
-    private lateinit var btnAddStation: Button
+    private lateinit var btnAddStation: TextView
     private lateinit var btnAf: Button
     private lateinit var btnTa: Button
     private lateinit var btnPty: Button
