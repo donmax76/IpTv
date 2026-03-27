@@ -11,7 +11,7 @@
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="match_parent"
-        android:layout_weight="3"
+        android:layout_weight="1"
         android:orientation="vertical"
         android:layout_marginEnd="4dp">
 
@@ -200,7 +200,7 @@
                         android:layout_height="wrap_content"
                         android:text="100.0"
                         android:textColor="@color/lcd_green"
-                        android:textSize="48sp"
+                        android:textSize="64sp"
                         android:fontFamily="monospace"
                         android:textStyle="bold"
                         android:includeFontPadding="false"
@@ -221,7 +221,7 @@
                             android:layout_height="wrap_content"
                             android:text="MHz"
                             android:textColor="@color/lcd_amber"
-                            android:textSize="20sp"
+                            android:textSize="26sp"
                             android:fontFamily="monospace" />
 
                     </LinearLayout>
@@ -669,11 +669,10 @@
         </ScrollView>
     </LinearLayout>
 
-    <!-- ======== RIGHT PANEL: Stations only (full height, scales with screen) ======== -->
+    <!-- ======== RIGHT PANEL: Stations (fixed width, not full height) ======== -->
     <LinearLayout
-        android:layout_width="0dp"
-        android:layout_height="match_parent"
-        android:layout_weight="2"
+        android:layout_width="260dp"
+        android:layout_height="wrap_content"
         android:orientation="vertical"
         android:background="@drawable/bg_car_radio"
         android:padding="8dp"
@@ -741,14 +740,13 @@
                 android:gravity="center" />
         </LinearLayout>
 
-        <!-- Station list (takes all remaining space, extra bottom padding for car nav bar) -->
+        <!-- Station list (scrollable, doesn't push panel below left panel) -->
         <ListView
             android:id="@+id/lvStations"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
+            android:layout_height="300dp"
             android:clipToPadding="false"
-            android:paddingBottom="60dp"
+            android:paddingBottom="40dp"
             android:divider="@android:color/transparent"
             android:dividerHeight="2dp"
             android:scrollbarThumbVertical="@color/lcd_dim" />
