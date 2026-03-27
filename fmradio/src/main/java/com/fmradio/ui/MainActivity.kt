@@ -645,11 +645,14 @@ class MainActivity : Activity() {
     }
 
     private fun updateStationNameDisplay(freq: Long) {
+        // Show user-entered name below frequency.
+        // When RDS PS arrives, updateRdsDisplay() will replace it.
         val station = stationStorage.loadStations().find {
             Math.abs(it.frequencyHz - freq) < 50000
         }
         if (station != null && station.name.isNotEmpty()) {
             tvStationName.text = station.name
+            tvStationName.setTextColor(getColor(R.color.lcd_amber)) // yellow for user name
             tvStationName.visibility = View.VISIBLE
         } else {
             tvStationName.visibility = View.GONE
@@ -709,7 +712,12 @@ class MainActivity : Activity() {
     private fun updateRdsDisplay(rdsData: RdsDecoder.RdsData) {
         tvRdsIndicator.setTextColor(if (rdsData.hasData) getColor(R.color.lcd_green) else getColor(R.color.lcd_dim))
 
-        if (rdsData.ps.isNotBlank()) { tvRdsPs.text = rdsData.ps; tvRdsPs.visibility = View.VISIBLE }
+        // RDS PS overrides user-entered station name on main display
+        if (rdsData.ps.isNotBlank()) {
+            tvStationName.text = rdsData.ps
+            tvStationName.setTextColor(getColor(R.color.lcd_cyan)) // cyan for RDS
+            tvStationName.visibility = View.VISIBLE
+        }
         if (rdsData.rt.isNotBlank()) { tvRdsRt.text = rdsData.rt; tvRdsRt.visibility = View.VISIBLE }
         if (rdsData.ptyName.isNotBlank() && rdsData.pty > 0) { tvRdsPty.text = rdsData.ptyName; tvRdsPty.visibility = View.VISIBLE }
 
@@ -730,11 +738,12 @@ class MainActivity : Activity() {
     }
 
     private fun clearRdsDisplay() {
-        tvRdsPs.visibility = View.GONE
         tvRdsRt.visibility = View.GONE
         tvRdsPty.visibility = View.GONE
         tvRdsIndicator.setTextColor(getColor(R.color.lcd_dim))
         tvTaIndicator.setTextColor(getColor(R.color.lcd_dim))
+        // Reset station name to user-entered (RDS will override when received)
+        updateStationNameDisplay(currentFrequency)
     }
 
     private fun updateSignalBars(db: Float) {

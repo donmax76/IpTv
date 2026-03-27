@@ -224,22 +224,12 @@
                             android:textSize="20sp"
                             android:fontFamily="monospace" />
 
-                        <!-- User-entered station name -->
-                        <TextView
-                            android:id="@+id/tvStationName"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:textColor="#FFFFCC00"
-                            android:textSize="18sp"
-                            android:textStyle="bold"
-                            android:fontFamily="monospace"
-                            android:visibility="gone" />
                     </LinearLayout>
                 </LinearLayout>
 
-                <!-- RDS: Station name (PS) from broadcast -->
+                <!-- Station name: shows RDS PS if available, else user-entered name -->
                 <TextView
-                    android:id="@+id/tvRdsPs"
+                    android:id="@+id/tvStationName"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:textColor="@color/lcd_cyan"
@@ -252,6 +242,13 @@
                     android:shadowDy="0"
                     android:shadowRadius="12"
                     android:layout_marginTop="2dp"
+                    android:visibility="gone" />
+
+                <!-- Hidden, used internally for RDS PS storage -->
+                <TextView
+                    android:id="@+id/tvRdsPs"
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
                     android:visibility="gone" />
 
                 <!-- RDS RadioText + PTY -->
