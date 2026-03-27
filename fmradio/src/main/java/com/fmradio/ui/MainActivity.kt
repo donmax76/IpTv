@@ -378,7 +378,10 @@ class MainActivity : Activity() {
             radioService?.seekStation(forward = true)
         }
 
-        btnAddPreset.setOnClickListener { addCurrentFrequencyToPresets() }
+        btnAddPreset.setOnClickListener {
+            DebugLog.log("UI", "btnAddPreset clicked, freq=${currentFrequency/1e6}MHz")
+            addCurrentFrequencyToPresets()
+        }
 
         tvPresetsHeader.setOnClickListener {
             presetsExpanded = !presetsExpanded
@@ -438,7 +441,10 @@ class MainActivity : Activity() {
             if (scanner?.isScanning() == true) scanner?.stopScan() else startScan()
         }
 
-        btnAddStation.setOnClickListener { showAddStationDialog() }
+        btnAddStation.setOnClickListener {
+            DebugLog.log("UI", "btnAddStation clicked, freq=${currentFrequency/1e6}MHz")
+            showAddStationDialog()
+        }
 
         btnAf.setOnClickListener { toggleAf() }
         btnTa.setOnClickListener { toggleTa() }
@@ -688,10 +694,18 @@ class MainActivity : Activity() {
     }
 
     private fun addCurrentFrequencyToPresets() {
-        stationStorage.addPresetItem(currentFrequency)
-        loadPresetsList()
-        presetAdapter.setSelectedFrequency(currentFrequency)
-        showToast(String.format("Preset saved: %.1f MHz", currentFrequency / 1e6))
+        DebugLog.log("UI", "addPreset: freq=$currentFrequency (${currentFrequency/1e6}MHz)")
+        try {
+            stationStorage.addPresetItem(currentFrequency)
+            loadPresetsList()
+            presetAdapter.setSelectedFrequency(currentFrequency)
+            val msg = String.format("Preset saved: %.1f MHz", currentFrequency / 1e6)
+            DebugLog.log("UI", msg)
+            showToast(msg)
+        } catch (e: Exception) {
+            DebugLog.log("UI", "addPreset ERROR: ${e.message}")
+            showToast("Error: ${e.message}")
+        }
     }
 
     private fun deletePreset(preset: PresetItem) {
