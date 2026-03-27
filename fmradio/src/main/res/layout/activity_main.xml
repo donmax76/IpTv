@@ -224,15 +224,16 @@
                             android:textSize="20sp"
                             android:fontFamily="monospace" />
 
-                        <!-- RDS: Station name (PS) inline -->
+                        <!-- RDS: Station name (PS) — full size, no truncation -->
                         <TextView
                             android:id="@+id/tvRdsPs"
-                            android:layout_width="wrap_content"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:textColor="@color/lcd_cyan"
-                            android:textSize="24sp"
+                            android:textSize="22sp"
                             android:textStyle="bold"
                             android:fontFamily="monospace"
+                            android:maxLines="2"
                             android:shadowColor="@color/glow_cyan"
                             android:shadowDx="0"
                             android:shadowDy="0"
@@ -257,10 +258,7 @@
                         android:textColor="@color/lcd_amber"
                         android:textSize="16sp"
                         android:fontFamily="monospace"
-                        android:maxLines="2"
-                        android:ellipsize="marquee"
-                        android:marqueeRepeatLimit="marquee_forever"
-                        android:singleLine="false"
+                        android:maxLines="3"
                         android:visibility="gone" />
 
                     <TextView

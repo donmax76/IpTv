@@ -245,9 +245,8 @@ class FmDemodulator(
         val widebandBuf = if (wbListener != null) wbBuf else null
         var wbCount = 0
 
-        // Skip RDS every other callback to save ~30% CPU
-        val doRds = wbListener != null && (rdsCallbackCounter % 2 == 0)
-        rdsCallbackCounter++
+        // RDS: process every callback for fast station name display
+        val doRds = wbListener != null
 
         val lut = BYTE_TO_FLOAT
 
