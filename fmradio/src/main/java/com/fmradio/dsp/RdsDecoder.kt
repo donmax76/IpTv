@@ -127,6 +127,11 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     @Volatile
     private var dataChanged = false
 
+    // Debug counters
+    private var processCallCount = 0L
+    private var totalBitsProcessed = 0L
+    private var lastDebugLog = 0L
+
     // 57 kHz carrier phase — must be continuous across blocks for RDS sync
     private var carrierPhase = 0.0
     private val carrierInc = 2.0 * PI * 57000.0 / sampleRate
@@ -181,6 +186,13 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
      * @param pilotPhase Current pilot PLL phase from FmDemodulator (19 kHz, radians)
      */
     fun process(baseband: FloatArray, pilotPhase: Double) {
+        processCallCount++
+        val now = System.currentTimeMillis()
+        if (now - lastDebugLog > 5000) {
+            DebugLog.log("RDS", "calls=$processCallCount bits=$totalBitsProcessed synced=$synced good=$goodBlocks bad=$badBlocks samples=${baseband.size}")
+            lastDebugLog = now
+        }
+
         // Lock carrier to 3× pilot on first call, then run continuously
         if (!carrierLocked) {
             carrierPhase = pilotPhase * 3.0
@@ -298,6 +310,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     }
 
     private fun processBit(bit: Int) {
+        totalBitsProcessed++
         // Shift bit into buffer
         bitBuffer = ((bitBuffer shl 1) or bit.toLong()) and 0x3FFFFFFL  // 26 bits
 
@@ -315,6 +328,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                     bitCount = 0
                     goodBlocks = 1
                     badBlocks = 0
+                    DebugLog.log("RDS", "SYNC found! PI=0x${groupData[0].toString(16)} after $totalBitsProcessed bits")
                 }
             }
         } else {
