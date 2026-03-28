@@ -117,8 +117,8 @@ class FmDemodulator(
     private var signalQualityCount = 0
     private var squelchOpen = true
     private var squelchLevel = 1f
-    private val squelchAttack = 0.08f
-    private val squelchRelease = 0.03f
+    private val squelchAttack = 0.15f   // fast open when signal appears
+    private val squelchRelease = 0.005f // very slow fade to prevent flutter
 
     // Warmup: discard first N intermediate samples
     private var warmupSamples = 0
@@ -335,7 +335,7 @@ class FmDemodulator(
             signalQualityCount++
             if (signalQualityCount >= intermediateRate / 16) {
                 val avgModulation = signalQualityAcc / signalQualityCount
-                squelchOpen = avgModulation > 0.03 && avgModulation < 2.5
+                squelchOpen = avgModulation > 0.02
                 signalQualityAcc = 0.0
                 signalQualityCount = 0
             }
