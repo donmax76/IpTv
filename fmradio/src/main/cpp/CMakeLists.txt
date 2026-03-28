@@ -7,5 +7,5 @@ target_link_libraries(fmradio_native log)
 
 # Native DSP — FM demodulator in C++ for zero-jitter audio
 add_library(fmradio_dsp SHARED fm_dsp.cpp)
-target_compile_options(fmradio_dsp PRIVATE -O3 -ffast-math -march=armv7-a -mfpu=neon)
+target_compile_options(fmradio_dsp PRIVATE -O3 -ffast-math)
 target_link_libraries(fmradio_dsp log)

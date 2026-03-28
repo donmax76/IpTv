@@ -44,7 +44,7 @@ android {
         }
     }
 
-    ndkVersion = "25.2.9519653"
+    ndkVersion = "26.1.10909125"
 
     signingConfigs {
         getByName("debug") {
