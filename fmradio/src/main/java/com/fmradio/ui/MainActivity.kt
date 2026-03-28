@@ -141,6 +141,8 @@ class MainActivity : Activity() {
                 runOnUiThread {
                     currentFrequency = freq
                     updateFrequencyDisplay(freq)
+                    updateStationNameDisplay(freq)
+                    clearRdsDisplay()
                     seekFrequency.progress = frequencyToProgress(freq)
                     stationAdapter.setSelectedFrequency(freq)
                     stationStorage.lastFrequency = freq

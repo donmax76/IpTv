@@ -239,8 +239,14 @@ class FmRadioService : Service() {
         )
 
         val freqText = String.format("%.1f MHz", currentFrequency / 1e6)
-        val title = currentRdsData.ps.takeIf { it.isNotBlank() } ?: freqText
-        val subtitle = if (currentRdsData.rt.isNotBlank()) currentRdsData.rt else currentBand.displayName
+        // Priority: RDS PS → user-entered station name → frequency
+        val stationName = stationStorage.loadStations()
+            .find { Math.abs(it.frequencyHz - currentFrequency) < 50000 }
+            ?.name?.takeIf { it.isNotBlank() }
+        val title = currentRdsData.ps.takeIf { it.isNotBlank() }
+            ?: stationName
+            ?: freqText
+        val subtitle = if (currentRdsData.rt.isNotBlank()) currentRdsData.rt else freqText
 
         mediaSession?.setMetadata(
             MediaMetadata.Builder()
