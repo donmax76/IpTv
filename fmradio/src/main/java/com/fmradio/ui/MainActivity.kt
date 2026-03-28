@@ -647,15 +647,35 @@ class MainActivity : Activity() {
     }
 
     private fun updateStationNameDisplay(freq: Long) {
-        // Show user-entered name below frequency.
-        // When RDS PS arrives, updateRdsDisplay() will replace it.
+        // Show cached RDS PS → user name → hide (priority order)
+        // When live RDS PS arrives, updateRdsDisplay() will replace it.
         val station = stationStorage.loadStations().find {
             Math.abs(it.frequencyHz - freq) < 50000
         }
-        if (station != null && station.name.isNotEmpty()) {
-            tvStationName.text = station.name
-            tvStationName.setTextColor(getColor(R.color.lcd_amber)) // yellow for user name
-            tvStationName.visibility = View.VISIBLE
+        if (station != null) {
+            if (station.rdsPs.isNotBlank()) {
+                // Show cached RDS name immediately (cyan)
+                tvStationName.text = station.rdsPs
+                tvStationName.setTextColor(getColor(R.color.lcd_cyan))
+                tvStationName.visibility = View.VISIBLE
+                // Also show cached RDS RT if available
+                if (station.rdsRt.isNotBlank()) {
+                    tvRdsRt.text = station.rdsRt
+                    tvRdsRt.visibility = View.VISIBLE
+                }
+                if (station.rdsPty.isNotBlank()) {
+                    tvRdsPty.text = station.rdsPty
+                    tvRdsPty.visibility = View.VISIBLE
+                }
+                tvRdsIndicator.setTextColor(getColor(R.color.lcd_green))
+            } else if (station.name.isNotEmpty()) {
+                // Show user-entered name (amber)
+                tvStationName.text = station.name
+                tvStationName.setTextColor(getColor(R.color.lcd_amber))
+                tvStationName.visibility = View.VISIBLE
+            } else {
+                tvStationName.visibility = View.GONE
+            }
         } else {
             tvStationName.visibility = View.GONE
         }
@@ -750,13 +770,13 @@ class MainActivity : Activity() {
 
     private fun updateSignalBars(db: Float) {
         // Map signal strength dB to 0-4 bars
-        // FC0013 has lower gain than R820T, so thresholds are wider
+        // With FC0013 max gain, noise floor ~-46dB, strong station ~-8dB
         val bars = when {
-            db > -15f -> 4
-            db > -25f -> 3
-            db > -35f -> 2
-            db > -42f -> 1
-            else      -> 0
+            db > -8f  -> 4  // excellent
+            db > -12f -> 3  // good
+            db > -18f -> 2  // moderate
+            db > -30f -> 1  // weak
+            else      -> 0  // no signal
         }
         val barText = when (bars) {
             0 -> "▁   "
