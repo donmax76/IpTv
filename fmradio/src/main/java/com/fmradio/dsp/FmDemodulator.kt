@@ -91,7 +91,7 @@ class FmDemodulator(
 
     private var pilotNcoPhase = 0.0
     private var pilotNcoFreq = 2.0 * PI * 19000.0 / intermediateRate
-    private val pilotLoopBw = 2.0 * PI * 5.0 / intermediateRate
+    private val pilotLoopBw = 2.0 * PI * 15.0 / intermediateRate  // 15 Hz — faster tracking for car multipath
     private val pilotAlpha: Double
     private val pilotBeta: Double
 
@@ -313,7 +313,7 @@ class FmDemodulator(
             pilotStrengthCount++
             if (pilotStrengthCount >= pilotDetectWindow) {
                 pilotStrength = pilotStrengthAcc / pilotStrengthCount
-                isStereo = pilotStrength > 0.02f
+                isStereo = pilotStrength > 0.05f  // high threshold — mono unless very strong pilot
                 pilotStrengthAcc = 0f
                 pilotStrengthCount = 0
             }
