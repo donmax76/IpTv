@@ -89,6 +89,9 @@ class FmRadioService : Service() {
     var currentFrequency: Long = 100000000L
         private set
 
+    @Volatile
+    private var rdsGeneration = 0  // increments on freq change, RDS thread checks this
+
     var currentBand: FmScanner.Band = FmScanner.Band.FM_BROADCAST
 
     @Volatile
@@ -264,6 +267,7 @@ class FmRadioService : Service() {
             }
         }
 
+        rdsGeneration++  // invalidate any pending RDS data in queue
         demodulator?.reset()
         rdsDecoder?.reset()
         currentRdsData = RdsDecoder.RdsData()
@@ -300,19 +304,20 @@ class FmRadioService : Service() {
         }
 
         // Wideband listener sends RDS data to separate thread — never blocks DSP
-        val rdsChannel = Channel<Pair<FloatArray, Double>>(4)
+        // Triple: samples, pilotPhase, generation (to discard stale data after freq change)
+        val rdsChannel = Channel<Triple<FloatArray, Double, Int>>(4)
 
         demodulator?.widebandListener = { widebandSamples, count, pilotPhase ->
             if (count > 0) {
-                // Copy data for RDS thread (DSP thread must not be blocked)
                 val copy = widebandSamples.copyOf(count)
-                rdsChannel.trySend(Pair(copy, pilotPhase))
+                rdsChannel.trySend(Triple(copy, pilotPhase, rdsGeneration))
             }
         }
 
         // RDS decoder runs in its own thread — no impact on audio
         serviceScope.launch(rdsDispatcher) {
-            for ((samples, phase) in rdsChannel) {
+            for ((samples, phase, gen) in rdsChannel) {
+                if (gen != rdsGeneration) continue  // discard stale data from old frequency
                 val rds = rdsDecoder ?: continue
                 rds.process(samples, phase)
             }
