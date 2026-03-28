@@ -407,19 +407,20 @@ class FmRadioService : Service() {
             var lastDemodLog = System.currentTimeMillis()
 
             try {
+                val ndsp = nativeDsp  // local val for smart cast
                 for (iqData in iqChannel) {
                     if (!isPlaying) break
 
                     // Use native C++ DSP if available, else Kotlin
                     val audioSamples: ShortArray?
                     val audioCount: Int
-                    if (nativeDsp != null) {
-                        val nr = nativeDsp.process(iqData)
+                    if (ndsp != null) {
+                        val nr = ndsp.process(iqData)
                         audioSamples = nr.samples
                         audioCount = nr.count
                         // Send wideband to RDS
                         val wbListener = demodulator?.widebandListener
-                        wbListener?.invoke(nativeDsp.getWbBuffer(), audioCount / 24, nativeDsp.getPilotPhase())
+                        wbListener?.invoke(ndsp.getWbBuffer(), audioCount / 24, ndsp.getPilotPhase())
                     } else {
                         val result = demodulator?.demodulate(iqData)
                         audioSamples = result?.samples
@@ -436,13 +437,13 @@ class FmRadioService : Service() {
                     // Log demod stats periodically
                     val now = System.currentTimeMillis()
                     if (demodCallCount <= 3 || now - lastDemodLog > 5000) {
-                        val sigDb = nativeDsp?.getSignalDb() ?: demodulator?.currentSignalStrengthDb ?: -100f
-                        val stereo = nativeDsp?.getIsStereo() ?: (demodulator?.isStereo == true)
-                        DebugLog.log("DSP", "demod #$demodCallCount: iq=${iqData.size}B → audio=$audioCount samples, total=$totalAudioSamples, sig=${String.format("%.1f", sigDb)}dB, stereo=$stereo${if (nativeDsp != null) " [NATIVE]" else ""}")
+                        val sigDb = ndsp?.getSignalDb() ?: demodulator?.currentSignalStrengthDb ?: -100f
+                        val stereo = ndsp?.getIsStereo() ?: (demodulator?.isStereo == true)
+                        DebugLog.log("DSP", "demod #$demodCallCount: iq=${iqData.size}B → audio=$audioCount samples, total=$totalAudioSamples, sig=${String.format("%.1f", sigDb)}dB, stereo=$stereo${if (ndsp != null) " [NATIVE]" else ""}")
                         lastDemodLog = now
                     }
 
-                    val stereoNow = nativeDsp?.getIsStereo() ?: (demodulator?.isStereo == true)
+                    val stereoNow = ndsp?.getIsStereo() ?: (demodulator?.isStereo == true)
                     if (stereoNow != lastStereo) {
                         lastStereo = stereoNow
                         onStereoChanged?.invoke(stereoNow)
@@ -451,7 +452,7 @@ class FmRadioService : Service() {
                     signalUpdateCounter++
                     if (signalUpdateCounter >= 4) {
                         signalUpdateCounter = 0
-                        val db = nativeDsp?.getSignalDb() ?: demodulator?.currentSignalStrengthDb ?: -100f
+                        val db = ndsp?.getSignalDb() ?: demodulator?.currentSignalStrengthDb ?: -100f
                         if (kotlin.math.abs(db - lastSignalDb) > 0.5f) {
                             lastSignalDb = db
                             onSignalStrengthChanged?.invoke(db)
