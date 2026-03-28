@@ -257,8 +257,9 @@ class FmDemodulator(
         val widebandBuf = if (wbListener != null) wbBuf else null
         var wbCount = 0
 
-        // RDS: process every callback for fast station name display
-        val doRds = wbListener != null
+        // RDS: process every 2nd callback to save CPU for audio quality
+        val doRds = wbListener != null && (rdsCallbackCounter % 2 == 0)
+        rdsCallbackCounter++
 
         val lut = BYTE_TO_FLOAT
 
@@ -347,7 +348,7 @@ class FmDemodulator(
             signalQualityCount++
             if (signalQualityCount >= intermediateRate / 16) {
                 val avgModulation = signalQualityAcc / signalQualityCount
-                squelchOpen = avgModulation > 0.05 && avgModulation < 2.5
+                squelchOpen = avgModulation > 0.03 && avgModulation < 2.5
                 signalQualityAcc = 0.0
                 signalQualityCount = 0
             }
