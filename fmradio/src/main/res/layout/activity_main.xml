@@ -669,10 +669,10 @@
         </ScrollView>
     </LinearLayout>
 
-    <!-- ======== RIGHT PANEL: Stations (fixed width, not full height) ======== -->
+    <!-- ======== RIGHT PANEL: Stations (fixed width, same height as left) ======== -->
     <LinearLayout
         android:layout_width="260dp"
-        android:layout_height="wrap_content"
+        android:layout_height="match_parent"
         android:orientation="vertical"
         android:background="@drawable/bg_car_radio"
         android:padding="8dp"
@@ -740,13 +740,14 @@
                 android:gravity="center" />
         </LinearLayout>
 
-        <!-- Station list (scrollable, doesn't push panel below left panel) -->
+        <!-- Station list -->
         <ListView
             android:id="@+id/lvStations"
             android:layout_width="match_parent"
-            android:layout_height="300dp"
+            android:layout_height="0dp"
+            android:layout_weight="1"
             android:clipToPadding="false"
-            android:paddingBottom="40dp"
+            android:paddingBottom="50dp"
             android:divider="@android:color/transparent"
             android:dividerHeight="2dp"
             android:scrollbarThumbVertical="@color/lcd_dim" />

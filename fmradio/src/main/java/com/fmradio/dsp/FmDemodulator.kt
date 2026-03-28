@@ -49,7 +49,7 @@ class FmDemodulator(
     private var prevQ = 0f
 
     // FM deviation gain
-    private val fmGain = (intermediateRate.toFloat() / (2f * PI.toFloat() * 75000f)) * 1.0f
+    private val fmGain = (intermediateRate.toFloat() / (2f * PI.toFloat() * 75000f)) * 0.85f
 
     // De-emphasis filter (50µs time constant for Europe/Russia)
     private var deEmphasisStateL = 0f
@@ -400,7 +400,7 @@ class FmDemodulator(
             }
 
             // Scale to 16-bit PCM
-            val gain = muteRamp * 30000f
+            val gain = muteRamp * 22000f
             val sampleL = (outL * gain).toInt().coerceIn(-32767, 32767)
             val sampleR = (outR * gain).toInt().coerceIn(-32767, 32767)
 
