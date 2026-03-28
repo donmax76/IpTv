@@ -412,7 +412,7 @@ class FmDemodulator(
             }
 
             // Scale to 16-bit PCM with soft limiting
-            val gain = muteRamp * 22000f
+            val gain = muteRamp * 25000f
             val rawL = outL * gain
             val rawR = outR * gain
             // Soft limiter: tanh-style compression to prevent hard clipping

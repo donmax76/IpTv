@@ -983,7 +983,7 @@ class RtlSdrDevice(private val context: Context) {
                     if (enabled) {
                         // Manual mode with max gain (matches Windows rtl_fm behavior)
                         fc0013WriteReg(0x0D, reg0d or 0x08)   // bit 3=1 → AGC off
-                        fc0013WriteReg(0x12, 0x08)             // mixer gain high (0x00=low,0x08=high,0x0A=max)
+                        fc0013WriteReg(0x12, 0x0A)             // mixer gain max
                         fc0013WriteReg(0x13, 0x1F)             // IF gain max
                         // LNA already at 0x10 (max) from init
                     } else {
