@@ -5,7 +5,7 @@ import kotlin.math.*
 /**
  * High-quality FM demodulation pipeline based on SDR++/rtl_fm/librtlsdr.
  *
- * IQ (1152 kHz) → DC removal → IF LPF (±120 kHz) → Decimate /6 → FM discriminator (192 kHz)
+ * IQ (1152 kHz) → DC removal → IF LPF (±150 kHz) → Decimate /6 → FM discriminator (192 kHz)
  *   → Pilot PLL (locks 19 kHz) → pilotPhase×2 = 38 kHz for stereo L-R
  *   → Wideband baseband output + pilotPhase (for RDS decoder at 192 kHz)
  *   → Stereo decode: L+R (mono LPF) and L-R (38 kHz demod + LPF)
@@ -13,9 +13,9 @@ import kotlin.math.*
  *
  * Optimized for real-time on ARM:
  *   - Byte→float LUT (no division per sample)
- *   - 16-tap audio LPF (reduced from 32)
+ *   - 24-tap IF + audio LPF
  *   - Zero-copy output via DemodResult (no copyOf)
- *   - RDS processed every 2nd callback
+ *   - RDS in separate thread (zero DSP impact)
  */
 class FmDemodulator(
     private val inputSampleRate: Int = RECOMMENDED_SAMPLE_RATE,
@@ -367,7 +367,7 @@ class FmDemodulator(
             if (stage2Counter < stage2Decimation) continue
             stage2Counter = 0
 
-            // Apply audio LPF (32 taps)
+            // Apply audio LPF (24 taps)
             var filtMono = 0f
             var filtDiff = 0f
             for (j in 0 until audioLpfOrder) {
