@@ -257,9 +257,8 @@ class FmDemodulator(
         val widebandBuf = if (wbListener != null) wbBuf else null
         var wbCount = 0
 
-        // RDS: process every 2nd callback to save CPU for audio quality
-        val doRds = wbListener != null && (rdsCallbackCounter % 2 == 0)
-        rdsCallbackCounter++
+        // RDS: process every callback — RDS runs in separate thread now
+        val doRds = wbListener != null
 
         val lut = BYTE_TO_FLOAT
 

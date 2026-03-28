@@ -54,6 +54,13 @@ class FmRadioService : Service() {
         }
     }.asCoroutineDispatcher()
 
+    // Dedicated single-thread dispatcher for RDS decoding (separate from DSP)
+    private val rdsDispatcher = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "FmRdsDecoder").apply {
+            priority = Thread.NORM_PRIORITY
+        }
+    }.asCoroutineDispatcher()
+
     inner class LocalBinder : Binder() {
         fun getService(): FmRadioService = this@FmRadioService
     }
@@ -292,17 +299,22 @@ class FmRadioService : Service() {
             }
         }
 
-        // Wideband listener now receives (buffer, count, pilotPhase) — zero-copy
+        // Wideband listener sends RDS data to separate thread — never blocks DSP
+        val rdsChannel = Channel<Pair<FloatArray, Double>>(4)
+
         demodulator?.widebandListener = { widebandSamples, count, pilotPhase ->
-            val rds = rdsDecoder
-            if (rds != null && count > 0) {
-                // RDS decoder needs FloatArray of exact size — use subarray view
-                if (count == widebandSamples.size) {
-                    rds.process(widebandSamples, pilotPhase)
-                } else {
-                    // Only copy when needed (count < buffer size)
-                    rds.process(widebandSamples.copyOf(count), pilotPhase)
-                }
+            if (count > 0) {
+                // Copy data for RDS thread (DSP thread must not be blocked)
+                val copy = widebandSamples.copyOf(count)
+                rdsChannel.trySend(Pair(copy, pilotPhase))
+            }
+        }
+
+        // RDS decoder runs in its own thread — no impact on audio
+        serviceScope.launch(rdsDispatcher) {
+            for ((samples, phase) in rdsChannel) {
+                val rds = rdsDecoder ?: continue
+                rds.process(samples, phase)
             }
         }
 
