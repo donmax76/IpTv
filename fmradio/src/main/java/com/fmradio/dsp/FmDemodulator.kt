@@ -63,9 +63,9 @@ class FmDemodulator(
     private var ifBufQ = FloatArray(ifLpfOrder)
     private var ifBufIdx = 0
 
-    // Audio low-pass filters — 16 taps (reduced from 32 for real-time on ARM)
-    // 15 kHz cutoff at 192 kHz: normalized = 0.078. 16 taps gives ~40 dB rejection — adequate for FM audio
-    private val audioLpfOrder = 16
+    // Audio low-pass filters — 32 taps for clean pilot/stereo rejection
+    // 15 kHz cutoff at 192 kHz: 32 taps gives ~80 dB rejection of 19 kHz pilot
+    private val audioLpfOrder = 32
     private val audioLpfCoeffs: FloatArray
     private var monoLpfBuf = FloatArray(audioLpfOrder)
     private var monoLpfIdx = 0
@@ -215,6 +215,18 @@ class FmDemodulator(
         if (x < 0) r = PI.toFloat() - r
         if (y < 0) r = -r
         return r
+    }
+
+    /** Soft limiter — prevents hard clipping artifacts on peaks */
+    private fun softLimit(x: Float): Int {
+        val limit = 28000f
+        return if (x > limit) {
+            (limit + (x - limit) / (1f + (x - limit) / 4000f)).toInt().coerceAtMost(32767)
+        } else if (x < -limit) {
+            (-limit + (x + limit) / (1f - (x + limit) / 4000f)).toInt().coerceAtLeast(-32767)
+        } else {
+            x.toInt()
+        }
     }
 
     /**
@@ -399,10 +411,13 @@ class FmDemodulator(
                 muteRamp = (muteRamp + muteRampUp).coerceAtMost(1f)
             }
 
-            // Scale to 16-bit PCM
+            // Scale to 16-bit PCM with soft limiting
             val gain = muteRamp * 22000f
-            val sampleL = (outL * gain).toInt().coerceIn(-32767, 32767)
-            val sampleR = (outR * gain).toInt().coerceIn(-32767, 32767)
+            val rawL = outL * gain
+            val rawR = outR * gain
+            // Soft limiter: tanh-style compression to prevent hard clipping
+            val sampleL = softLimit(rawL)
+            val sampleR = softLimit(rawR)
 
             if (audioCount + 1 < audioOut.size) {
                 audioOut[audioCount++] = sampleL.toShort()
