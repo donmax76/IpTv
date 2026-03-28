@@ -36,17 +36,15 @@ android {
         versionName = gitVersionName()
     }
 
-    // Native USB library (optional — requires NDK)
-    // To enable: install NDK via sdkmanager "ndk;25.2.9519653"
-    // then uncomment the block below.
-    // Without NDK, app uses Java USB API fallback (NativeUsb.kt handles this).
-    //
-    // externalNativeBuild {
-    //     cmake {
-    //         path = file("src/main/cpp/CMakeLists.txt")
-    //         version = "3.18.1"
-    //     }
-    // }
+    // Native DSP library for real-time FM demodulation (C++ via JNI)
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.18.1"
+        }
+    }
+
+    ndkVersion = "25.2.9519653"
 
     signingConfigs {
         getByName("debug") {
