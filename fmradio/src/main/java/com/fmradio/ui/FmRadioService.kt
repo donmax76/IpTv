@@ -50,7 +50,9 @@ class FmRadioService : Service() {
     // Dedicated single-thread dispatcher for DSP processing
     private val dspDispatcher = Executors.newSingleThreadExecutor { r ->
         Thread(r, "FmDspProcess").apply {
-            priority = Thread.MAX_PRIORITY - 1
+            priority = Thread.MAX_PRIORITY
+            // Set Android audio priority to prevent CPU throttling
+            try { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO) } catch (_: Exception) {}
         }
     }.asCoroutineDispatcher()
 
@@ -79,6 +81,7 @@ class FmRadioService : Service() {
     private var mediaSession: MediaSession? = null
     private var audioManager: AudioManager? = null
     private var audioFocusRequest: AudioFocusRequest? = null
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
 
     private lateinit var stationStorage: StationStorage
 
@@ -116,6 +119,9 @@ class FmRadioService : Service() {
         super.onCreate()
         stationStorage = StationStorage(this)
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        // Keep CPU running when app is in background — critical for audio playback
+        val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "FmRadio::Playback")
         createNotificationChannel()
         initMediaSession()
     }
@@ -287,6 +293,9 @@ class FmRadioService : Service() {
         if (isPlaying) return
         val dev = device ?: return
 
+        // Acquire wake lock to prevent CPU throttling in background
+        try { wakeLock?.acquire(4 * 60 * 60 * 1000L) } catch (_: Exception) {}
+
         cancelSeek()
 
         val sampleRate = FmDemodulator.RECOMMENDED_SAMPLE_RATE
@@ -435,6 +444,9 @@ class FmRadioService : Service() {
 
     fun stopPlayback() {
         isPlaying = false
+
+        // Release wake lock
+        try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) {}
 
         cancelSeek()
 
