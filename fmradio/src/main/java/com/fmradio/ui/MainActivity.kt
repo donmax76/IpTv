@@ -300,7 +300,6 @@ class MainActivity : Activity() {
         stationAdapter = StationAdapter(
             stations = emptyList(),
             onStationClick = { tuneToStation(it) },
-            onFavoriteClick = { toggleFavorite(it) },
             onLongClick = { showStationOptions(it) }
         )
         lvStations.adapter = stationAdapter
@@ -825,11 +824,6 @@ class MainActivity : Activity() {
         else showToast("No PTY data")
     }
 
-    private fun toggleFavorite(station: RadioStation) {
-        stationStorage.toggleFavorite(station.frequencyHz)
-        loadSavedStations()
-    }
-
     private fun showAddStationDialog() {
         val layout = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
@@ -876,13 +870,11 @@ class MainActivity : Activity() {
             .setTitle(station.displayName)
             .setItems(arrayOf(
                 getString(R.string.option_rename),
-                getString(R.string.option_delete),
-                getString(R.string.option_toggle_favorite)
+                getString(R.string.option_delete)
             )) { _, which ->
                 when (which) {
                     0 -> showRenameDialog(station)
                     1 -> { stationStorage.removeStation(station.frequencyHz); loadSavedStations() }
-                    2 -> toggleFavorite(station)
                 }
             }.show()
     }
