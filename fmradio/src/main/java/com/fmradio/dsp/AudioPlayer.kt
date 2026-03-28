@@ -24,12 +24,12 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         private const val TAG = "AudioPlayer"
         // Ring buffer: ~4s of stereo audio at 48kHz (L,R interleaved)
         private const val RING_BUFFER_SAMPLES = 384000  // 48000 frames × 2 ch × 4 sec
-        // Drain ANY available data once we have at least 512 samples (~5ms)
-        // Must be well below per-callback output (~2730 samples) to avoid skipping batches
-        private const val LOW_WATERMARK = 512
+        // Drain when at least 2048 samples available (~21ms)
+        // Keeps buffer from emptying completely — prevents micro-gaps
+        private const val LOW_WATERMARK = 2048
         private const val HIGH_WATERMARK = 345600 // 90% full — trigger overflow drop
-        // Pre-buffer: accumulate this much before starting AudioTrack drain
-        private const val PRE_BUFFER_SAMPLES = 19200  // ~200ms stereo — smooth start
+        // Pre-buffer: accumulate before starting AudioTrack drain
+        private const val PRE_BUFFER_SAMPLES = 24000  // ~250ms stereo — smooth start
         // Fade-in on initial playback start to prevent pop
         private const val FADE_IN_SAMPLES = 4800  // ~50ms stereo
         // Crossfade on buffer overflow to prevent click
@@ -114,8 +114,8 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             try {
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
             } catch (_: Throwable) {}
-            // Chunk array sized for max single write — actual write may be smaller
-            val maxChunk = 8192
+            // Drain in smaller chunks — keeps buffer level more stable
+            val maxChunk = 4096
             val chunk = ShortArray(maxChunk)
 
             try { while (isPlaying) {

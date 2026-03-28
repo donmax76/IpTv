@@ -367,7 +367,7 @@ class FmDemodulator(
             if (stage2Counter < stage2Decimation) continue
             stage2Counter = 0
 
-            // Apply audio LPF (16 taps)
+            // Apply audio LPF (32 taps)
             var filtMono = 0f
             var filtDiff = 0f
             for (j in 0 until audioLpfOrder) {
