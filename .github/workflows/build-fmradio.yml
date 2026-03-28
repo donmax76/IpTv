@@ -21,6 +21,9 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install NDK
+        run: sdkmanager "ndk;25.2.9519653"
+
       - name: Build FM Radio APK (debug + release)
         run: |
           chmod +x gradlew
