@@ -56,16 +56,16 @@ class FmDemodulator(
     private var deEmphasisStateR = 0f
     private val deEmphasisAlpha: Float
 
-    // IF low-pass filter (before stage 1 decimation) — 32 taps
-    private val ifLpfOrder = 32
+    // IF low-pass filter (before stage 1 decimation) — 24 taps
+    private val ifLpfOrder = 24
     private val ifLpfCoeffs: FloatArray
     private var ifBufI = FloatArray(ifLpfOrder)
     private var ifBufQ = FloatArray(ifLpfOrder)
     private var ifBufIdx = 0
 
-    // Audio low-pass filters — 32 taps for clean pilot/stereo rejection
-    // 15 kHz cutoff at 192 kHz: 32 taps gives ~80 dB rejection of 19 kHz pilot
-    private val audioLpfOrder = 32
+    // Audio low-pass filters — 24 taps (balance between quality and CPU)
+    // 15 kHz cutoff at 192 kHz: 24 taps gives ~60 dB pilot rejection
+    private val audioLpfOrder = 24
     private val audioLpfCoeffs: FloatArray
     private var monoLpfBuf = FloatArray(audioLpfOrder)
     private var monoLpfIdx = 0

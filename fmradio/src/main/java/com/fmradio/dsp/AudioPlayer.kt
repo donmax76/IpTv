@@ -134,13 +134,15 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                     DebugLog.log("AUD", "Pre-buffer filled ($avail samples), draining to AudioTrack")
                 }
 
-                // Drain whatever is available (up to maxChunk), as long as above LOW_WATERMARK
-                if (avail < LOW_WATERMARK) {
+                // Drain but keep LOW_WATERMARK reserve — never empty the buffer
+                if (avail < LOW_WATERMARK * 2) {
                     try { Thread.sleep(1) } catch (_: InterruptedException) { break }
                     continue
                 }
 
-                val toDrain = avail.coerceAtMost(maxChunk) and 0x7FFFFFFE  // even count for stereo
+                // Only drain what's above the reserve
+                val drainable = avail - LOW_WATERMARK
+                val toDrain = drainable.coerceAtMost(maxChunk) and 0x7FFFFFFE  // even for stereo
 
                 if (toDrain == 0) {
                     try { Thread.sleep(1) } catch (_: InterruptedException) { break }
