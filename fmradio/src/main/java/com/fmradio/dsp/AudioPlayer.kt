@@ -91,8 +91,9 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             lastWriteLog = now
         }
 
-        // Direct write — AudioTrack handles buffering internally
-        track.write(samples, 0, count)
+        // Non-blocking write — never stalls DSP thread
+        // Returns number of samples actually written
+        track.write(samples, 0, count, AudioTrack.WRITE_NON_BLOCKING)
     }
 
     fun setVolume(volume: Float) {
