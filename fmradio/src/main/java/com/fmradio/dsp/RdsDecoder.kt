@@ -127,9 +127,10 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     @Volatile
     private var dataChanged = false
 
-    // Fallback 57 kHz NCO (used when no pilot phase is available)
-    private var fallbackCarrierPhase = 0.0
-    private val fallbackCarrierInc = 2.0 * PI * 57000.0 / sampleRate
+    // 57 kHz carrier phase — must be continuous across blocks for RDS sync
+    private var carrierPhase = 0.0
+    private val carrierInc = 2.0 * PI * 57000.0 / sampleRate
+    private var carrierLocked = false
 
     init {
         // RDS LPF: 2.5 kHz cutoff with Blackman-Harris window
@@ -180,18 +181,29 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
      * @param pilotPhase Current pilot PLL phase from FmDemodulator (19 kHz, radians)
      */
     fun process(baseband: FloatArray, pilotPhase: Double) {
-        // RDS carrier = 3 × pilot frequency (57 kHz = 3 × 19 kHz)
-        val pilotInc = 2.0 * PI * 19000.0 / sampleRate
-        var rdsCarrierPhase = pilotPhase * 3.0
+        // Lock carrier to 3× pilot on first call, then run continuously
+        if (!carrierLocked) {
+            carrierPhase = pilotPhase * 3.0
+            carrierLocked = true
+        }
+
+        // Gently correct carrier towards pilot-locked phase (avoid hard reset)
+        val targetPhase = pilotPhase * 3.0
+        var phaseDiff = targetPhase - carrierPhase
+        // Normalize to ±π
+        while (phaseDiff > PI) phaseDiff -= 2 * PI
+        while (phaseDiff < -PI) phaseDiff += 2 * PI
+        // Slow correction — 0.01 per block to avoid glitches
+        carrierPhase += phaseDiff * 0.01
 
         for (idx in baseband.indices) {
             val sample = baseband[idx]
 
-            // Generate 57 kHz carrier from 3× pilot phase
-            val cosC = cos(rdsCarrierPhase).toFloat()
-            val sinC = sin(rdsCarrierPhase).toFloat()
-            rdsCarrierPhase += pilotInc * 3.0
-            if (rdsCarrierPhase > 2 * PI) rdsCarrierPhase -= 2 * PI
+            // Generate 57 kHz carrier — continuous phase across blocks
+            val cosC = cos(carrierPhase).toFloat()
+            val sinC = sin(carrierPhase).toFloat()
+            carrierPhase += carrierInc
+            if (carrierPhase > 2 * PI) carrierPhase -= 2 * PI
 
             // Mix down to baseband
             rdsLpfBufI[rdsLpfIdx] = sample * cosC
@@ -229,10 +241,10 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
      */
     fun process(baseband: FloatArray) {
         for (sample in baseband) {
-            val cosCarrier = cos(fallbackCarrierPhase).toFloat()
-            val sinCarrier = sin(fallbackCarrierPhase).toFloat()
-            fallbackCarrierPhase += fallbackCarrierInc
-            if (fallbackCarrierPhase > 2 * PI) fallbackCarrierPhase -= 2 * PI
+            val cosCarrier = cos(carrierPhase).toFloat()
+            val sinCarrier = sin(carrierPhase).toFloat()
+            carrierPhase += carrierInc
+            if (carrierPhase > 2 * PI) carrierPhase -= 2 * PI
 
             rdsLpfBufI[rdsLpfIdx] = sample * cosCarrier
             rdsLpfBufQ[rdsLpfIdx] = sample * sinCarrier
@@ -557,6 +569,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         msFlag = false
         afFrequencies.clear()
         dataChanged = false
-        fallbackCarrierPhase = 0.0
+        carrierPhase = 0.0
+        carrierLocked = false
     }
 }
