@@ -49,7 +49,7 @@ class FmDemodulator(
     private var prevQ = 0f
 
     // FM deviation gain
-    private val fmGain = (intermediateRate.toFloat() / (2f * PI.toFloat() * 75000f)) * 0.85f
+    private val fmGain = (intermediateRate.toFloat() / (2f * PI.toFloat() * 75000f)) * 0.75f
 
     // De-emphasis filter (50µs time constant for Europe/Russia)
     private var deEmphasisStateL = 0f
@@ -217,18 +217,6 @@ class FmDemodulator(
         return r
     }
 
-    /** Soft limiter — prevents hard clipping artifacts on peaks */
-    private fun softLimit(x: Float): Int {
-        val limit = 28000f
-        return if (x > limit) {
-            (limit + (x - limit) / (1f + (x - limit) / 4000f)).toInt().coerceAtMost(32767)
-        } else if (x < -limit) {
-            (-limit + (x + limit) / (1f - (x + limit) / 4000f)).toInt().coerceAtLeast(-32767)
-        } else {
-            x.toInt()
-        }
-    }
-
     /**
      * Demodulate raw IQ samples to stereo audio PCM (interleaved L,R,L,R...).
      * Returns DemodResult with pre-allocated buffer and count — zero allocation.
@@ -325,7 +313,7 @@ class FmDemodulator(
             pilotStrengthCount++
             if (pilotStrengthCount >= pilotDetectWindow) {
                 pilotStrength = pilotStrengthAcc / pilotStrengthCount
-                isStereo = pilotStrength > 0.01f
+                isStereo = pilotStrength > 0.02f
                 pilotStrengthAcc = 0f
                 pilotStrengthCount = 0
             }
@@ -411,13 +399,10 @@ class FmDemodulator(
                 muteRamp = (muteRamp + muteRampUp).coerceAtMost(1f)
             }
 
-            // Scale to 16-bit PCM with soft limiting
+            // Scale to 16-bit PCM
             val gain = muteRamp * 25000f
-            val rawL = outL * gain
-            val rawR = outR * gain
-            // Soft limiter: tanh-style compression to prevent hard clipping
-            val sampleL = softLimit(rawL)
-            val sampleR = softLimit(rawR)
+            val sampleL = (outL * gain).toInt().coerceIn(-32767, 32767)
+            val sampleR = (outR * gain).toInt().coerceIn(-32767, 32767)
 
             if (audioCount + 1 < audioOut.size) {
                 audioOut[audioCount++] = sampleL.toShort()

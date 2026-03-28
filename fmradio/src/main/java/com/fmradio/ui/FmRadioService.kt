@@ -304,20 +304,26 @@ class FmRadioService : Service() {
         }
 
         // Wideband listener sends RDS data to separate thread — never blocks DSP
-        // Triple: samples, pilotPhase, generation (to discard stale data after freq change)
-        val rdsChannel = Channel<Triple<FloatArray, Double, Int>>(4)
+        // Pre-allocate RDS buffers to avoid GC pressure (2 ping-pong buffers)
+        val rdsBuf0 = FloatArray(6000)
+        val rdsBuf1 = FloatArray(6000)
+        var rdsFlip = false
+        val rdsChannel = Channel<Triple<FloatArray, Double, Int>>(2)
 
         demodulator?.widebandListener = { widebandSamples, count, pilotPhase ->
-            if (count > 0) {
-                val copy = widebandSamples.copyOf(count)
-                rdsChannel.trySend(Triple(copy, pilotPhase, rdsGeneration))
+            if (count > 0 && count <= 6000) {
+                // Use pre-allocated ping-pong buffers instead of copyOf
+                val buf = if (rdsFlip) rdsBuf0 else rdsBuf1
+                rdsFlip = !rdsFlip
+                System.arraycopy(widebandSamples, 0, buf, 0, count)
+                rdsChannel.trySend(Triple(buf, pilotPhase, rdsGeneration))
             }
         }
 
         // RDS decoder runs in its own thread — no impact on audio
         serviceScope.launch(rdsDispatcher) {
             for ((samples, phase, gen) in rdsChannel) {
-                if (gen != rdsGeneration) continue  // discard stale data from old frequency
+                if (gen != rdsGeneration) continue
                 val rds = rdsDecoder ?: continue
                 rds.process(samples, phase)
             }
