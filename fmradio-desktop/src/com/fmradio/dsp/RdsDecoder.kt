@@ -84,7 +84,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private val psPending = CharArray(8) { ' ' }
     private val psConfirmed = CharArray(8) { ' ' }
     private val psHitCount = IntArray(4)
-    private val PS_CONFIRM_THRESHOLD = 2
+    private val PS_CONFIRM_THRESHOLD = 3  // Require 3 identical receptions (more reliable)
 
     // RT data
     private val rtChars = CharArray(64) { ' ' }
@@ -212,7 +212,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         // Clock recovery: adjust phase on zero crossings
         if ((sample > 0 && prevRdsSample <= 0) || (sample < 0 && prevRdsSample >= 0)) {
             val error = clockPhase - samplesPerBit / 2
-            val correction = (error * 0.12f).coerceIn(-samplesPerBit * 0.2f, samplesPerBit * 0.2f)
+            val correction = (error * 0.05f).coerceIn(-samplesPerBit * 0.1f, samplesPerBit * 0.1f)
             clockPhase -= correction
         }
         prevRdsSample = sample
