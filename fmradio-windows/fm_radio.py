@@ -193,10 +193,10 @@ class FmDemodulator:
         # DC offset removal
         self.dc_i = 0.0
         self.dc_q = 0.0
-        self.dc_alpha = 0.9999
+        self.dc_alpha = 0.99997  # ~5 Hz cutoff — preserves bass
 
         # FM gain — normalize atan2 output to proper audio level
-        self.fm_gain = (self.intermediate_rate / (2 * np.pi * 75000)) * 0.7
+        self.fm_gain = (self.intermediate_rate / (2 * np.pi * 75000)) * 0.5  # 12dB headroom
 
         # IF low-pass filter (120 kHz cutoff, 128 taps, Blackman-Harris)
         self.if_filter = self._design_filter(128, 120e3, sample_rate)
@@ -221,7 +221,7 @@ class FmDemodulator:
         # Pilot PLL (19 kHz, SDR++/gr-rds approach)
         self.pilot_nco_phase = 0.0
         self.pilot_nco_freq = 2.0 * np.pi * 19000.0 / self.intermediate_rate
-        pilot_loop_bw = 2.0 * np.pi * 5.0 / self.intermediate_rate
+        pilot_loop_bw = 2.0 * np.pi * 1.0 / self.intermediate_rate  # 1 Hz — stable tracking
         damp = 0.707
         self.pilot_alpha = 2.0 * damp * pilot_loop_bw
         self.pilot_beta = pilot_loop_bw ** 2
@@ -237,8 +237,15 @@ class FmDemodulator:
         self.pilot_bpf_a2 = (1.0 - bpf_alpha) / a0
         self.pilot_bpf_state = [0.0, 0.0, 0.0, 0.0]  # x1, x2, y1, y2
 
-        # Stereo detection
+        # Pilot PLL frequency bounds
+        self.pilot_freq_min = 2.0 * np.pi * 18500.0 / self.intermediate_rate
+        self.pilot_freq_max = 2.0 * np.pi * 19500.0 / self.intermediate_rate
+
+        # Stereo detection with hysteresis
         self.is_stereo = False
+        self.stereo_lock_threshold = 0.001
+        self.stereo_unlock_threshold = 0.0003
+        self.stereo_blend = 0.0
         self.pilot_strength_acc = 0.0
         self.pilot_strength_count = 0
         self.pilot_detect_window = int(self.intermediate_rate / 4)
@@ -305,24 +312,35 @@ class FmDemodulator:
         for k in range(n_inter):
             bb = raw_baseband[k]
 
-            # Pilot PLL: bandpass → phase detector → NCO
+            # Pilot PLL: bandpass → phase detector → NCO (frequency clamped)
             pilot_sig = self._pilot_bpf(bb)
             pilot_error = pilot_sig * np.cos(self.pilot_nco_phase)
-            self.pilot_nco_freq += self.pilot_beta * pilot_error
+            self.pilot_nco_freq = np.clip(
+                self.pilot_nco_freq + self.pilot_beta * pilot_error,
+                self.pilot_freq_min, self.pilot_freq_max)
             self.pilot_nco_phase += self.pilot_nco_freq + self.pilot_alpha * pilot_error
             if self.pilot_nco_phase > 2 * np.pi:
                 self.pilot_nco_phase -= 2 * np.pi
             elif self.pilot_nco_phase < 0:
                 self.pilot_nco_phase += 2 * np.pi
 
-            # Pilot strength for stereo detection
+            # Pilot strength for stereo detection (with hysteresis)
             self.pilot_strength_acc += pilot_sig * pilot_sig
             self.pilot_strength_count += 1
             if self.pilot_strength_count >= self.pilot_detect_window:
                 avg = self.pilot_strength_acc / self.pilot_strength_count
-                self.is_stereo = avg > 0.0005
+                if self.is_stereo:
+                    self.is_stereo = avg > self.stereo_unlock_threshold
+                else:
+                    self.is_stereo = avg > self.stereo_lock_threshold
                 self.pilot_strength_acc = 0.0
                 self.pilot_strength_count = 0
+
+            # Smooth stereo blend
+            if self.is_stereo and self.stereo_blend < 1.0:
+                self.stereo_blend = min(self.stereo_blend + 0.002, 1.0)
+            elif not self.is_stereo and self.stereo_blend > 0.0:
+                self.stereo_blend = max(self.stereo_blend - 0.0005, 0.0)
 
             # Scale for audio path
             scaled = bb * self.fm_gain
@@ -344,13 +362,9 @@ class FmDemodulator:
         mono_dec = mono_filt[::self.stage2_dec]
         diff_dec = diff_filt[::self.stage2_dec]
 
-        # Stereo matrix: L = (L+R + L-R)/2, R = (L+R - L-R)/2
-        if self.is_stereo:
-            left = (mono_dec + diff_dec) * 0.5
-            right = (mono_dec - diff_dec) * 0.5
-        else:
-            left = mono_dec
-            right = mono_dec
+        # Stereo matrix with smooth blend (no pops on transitions)
+        left = mono_dec + diff_dec * self.stereo_blend * 0.5
+        right = mono_dec - diff_dec * self.stereo_blend * 0.5
 
         # De-emphasis filter (50µs, separate L/R states)
         for i in range(len(left)):
@@ -387,6 +401,7 @@ class FmDemodulator:
         self.pilot_nco_freq = 2.0 * np.pi * 19000.0 / self.intermediate_rate
         self.pilot_bpf_state = [0.0, 0.0, 0.0, 0.0]
         self.is_stereo = False
+        self.stereo_blend = 0.0
         self.pilot_strength_acc = 0.0
         self.pilot_strength_count = 0
 
