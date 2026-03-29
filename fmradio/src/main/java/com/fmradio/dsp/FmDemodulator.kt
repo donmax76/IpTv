@@ -116,7 +116,7 @@ class FmDemodulator(
     private var signalQualityAcc = 0.0
     private var signalQualityCount = 0
     private var squelchOpen = true
-    private var squelchLevel = 1f
+    private var squelchLevel = 1f  // always fully open — no squelch for FM broadcast
     private val squelchAttack = 0.15f   // fast open when signal appears
     private val squelchRelease = 0.005f // very slow fade to prevent flutter
 
@@ -329,21 +329,8 @@ class FmDemodulator(
                 signalPowerCount = 0
             }
 
-            // ===== Signal quality for squelch =====
-            val absBaseband = abs(rawBaseband)
-            signalQualityAcc += absBaseband
-            signalQualityCount++
-            if (signalQualityCount >= intermediateRate / 16) {
-                val avgModulation = signalQualityAcc / signalQualityCount
-                squelchOpen = avgModulation > 0.02
-                signalQualityAcc = 0.0
-                signalQualityCount = 0
-            }
-            if (squelchOpen && squelchLevel < 1f) {
-                squelchLevel = (squelchLevel + squelchAttack).coerceAtMost(1f)
-            } else if (!squelchOpen && squelchLevel > 0f) {
-                squelchLevel = (squelchLevel - squelchRelease).coerceAtLeast(0f)
-            }
+            // Squelch disabled for FM broadcast — user selects stations manually
+            // Squelch causes amplitude trembling on weak/multipath signals
 
             // Wideband output for RDS decoder (only on RDS-active callbacks)
             if (doRds && widebandBuf != null && wbCount < widebandBuf.size) {
@@ -392,8 +379,8 @@ class FmDemodulator(
             deEmphasisStateL += deEmphasisAlpha * (left - deEmphasisStateL)
             deEmphasisStateR += deEmphasisAlpha * (right - deEmphasisStateR)
 
-            val outL = deEmphasisStateL * squelchLevel
-            val outR = deEmphasisStateR * squelchLevel
+            val outL = deEmphasisStateL
+            val outR = deEmphasisStateR
 
             if (muteRamp < 1f) {
                 muteRamp = (muteRamp + muteRampUp).coerceAtMost(1f)

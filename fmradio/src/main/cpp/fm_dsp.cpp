@@ -355,19 +355,7 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
             d.sigPowerCount = 0;
         }
 
-        // Squelch
-        float absBB = fabsf(rawBB);
-        d.sqQualityAcc += absBB;
-        if (++d.sqQualityCount >= INTERMEDIATE_RATE / 16) {
-            double avgMod = d.sqQualityAcc / d.sqQualityCount;
-            d.squelchOpen = avgMod > 0.02;
-            d.sqQualityAcc = 0;
-            d.sqQualityCount = 0;
-        }
-        if (d.squelchOpen && d.squelchLevel < 1.0f)
-            d.squelchLevel = fminf(d.squelchLevel + 0.15f, 1.0f);
-        else if (!d.squelchOpen && d.squelchLevel > 0.0f)
-            d.squelchLevel = fmaxf(d.squelchLevel - 0.005f, 0.0f);
+        // Squelch disabled — causes amplitude trembling on weak/multipath signals
 
         // Wideband for RDS
         if (wb && d.wbCount < (int)wbLen) {
@@ -410,8 +398,8 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
         d.deEmphStateL += d.deEmphAlpha * (left - d.deEmphStateL);
         d.deEmphStateR += d.deEmphAlpha * (right - d.deEmphStateR);
 
-        float outL = d.deEmphStateL * d.squelchLevel;
-        float outR = d.deEmphStateR * d.squelchLevel;
+        float outL = d.deEmphStateL;
+        float outR = d.deEmphStateR;
 
         if (d.muteRamp < 1.0f)
             d.muteRamp = fminf(d.muteRamp + 0.05f, 1.0f);

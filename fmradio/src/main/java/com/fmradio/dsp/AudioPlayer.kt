@@ -113,22 +113,10 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             lastWriteLog = now
         }
 
-        // Write with retry: non-blocking first, short sleep + retry if partial
-        var offset = 0
-        var remaining = count
-        var retries = 0
-        while (remaining > 0 && retries < 3) {
-            val written = track.write(samples, offset, remaining, AudioTrack.WRITE_NON_BLOCKING)
-            if (written > 0) {
-                offset += written
-                remaining -= written
-                retries = 0  // reset retries on success
-            } else {
-                retries++
-                try { Thread.sleep(2) } catch (_: InterruptedException) { break }
-            }
-        }
-        // If still remaining after retries, drop — better than blocking forever
+        // Blocking write — guarantees zero sample loss.
+        // IQ channel depth=16 (450ms) absorbs DSP thread pause.
+        // This is the ONLY approach that doesn't lose samples.
+        track.write(samples, 0, count)
     }
 
     fun setVolume(volume: Float) {
