@@ -767,16 +767,27 @@ class MainActivity : Activity() {
         updateStationNameDisplay(currentFrequency)
     }
 
+    private var smoothedSignalDb = -100f
+    private var lastBars = 0
+
     private fun updateSignalBars(db: Float) {
-        // Map signal strength dB to 0-4 bars
-        // With FC0013 max gain, noise floor ~-46dB, strong station ~-8dB
+        // Smooth signal: 80% old + 20% new — prevents jumping at speed
+        smoothedSignalDb = smoothedSignalDb * 0.8f + db * 0.2f
+
         val bars = when {
-            db > -8f  -> 4  // excellent
-            db > -12f -> 3  // good
-            db > -18f -> 2  // moderate
-            db > -30f -> 1  // weak
-            else      -> 0  // no signal
+            smoothedSignalDb > -8f  -> 4
+            smoothedSignalDb > -12f -> 3
+            smoothedSignalDb > -18f -> 2
+            smoothedSignalDb > -30f -> 1
+            else      -> 0
         }
+
+        // Hysteresis: only change bars if difference > 1 or sustained
+        if (bars == lastBars) return
+        // Allow immediate drop but require bigger jump to go up
+        if (bars > lastBars && (smoothedSignalDb - db) > 2f) return
+        lastBars = bars
+
         val barText = when (bars) {
             0 -> "▁   "
             1 -> "▁▃  "

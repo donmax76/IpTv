@@ -110,7 +110,7 @@ class FmDemodulator(
         private set
     private var signalPowerAcc = 0.0
     private var signalPowerCount = 0
-    private val signalPowerWindow = intermediateRate / 16
+    private val signalPowerWindow = intermediateRate / 4  // update 4x/sec — smooth for car display
 
     // Squelch based on signal quality
     private var signalQualityAcc = 0.0
