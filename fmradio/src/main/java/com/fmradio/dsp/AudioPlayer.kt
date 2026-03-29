@@ -91,9 +91,10 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             lastWriteLog = now
         }
 
-        // Non-blocking write — never stalls DSP thread
-        // Returns number of samples actually written
-        track.write(samples, 0, count, AudioTrack.WRITE_NON_BLOCKING)
+        // Blocking write — ensures no samples are lost.
+        // DSP thread pauses when AudioTrack buffer is full,
+        // IQ channel (depth 8) absorbs USB data during pause.
+        track.write(samples, 0, count)
     }
 
     fun setVolume(volume: Float) {

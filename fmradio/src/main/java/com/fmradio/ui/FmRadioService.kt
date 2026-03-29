@@ -38,7 +38,7 @@ class FmRadioService : Service() {
         // Smaller USB buffer = more frequent callbacks = lower latency
         private const val USB_BUFFER_SIZE = 32768
         // IQ data queue depth: 4 buffers ≈ 4×14ms = 56ms of data
-        private const val IQ_QUEUE_DEPTH = 8
+        private const val IQ_QUEUE_DEPTH = 16  // 16 × 28ms = 450ms buffer for AudioTrack blocking
     }
 
     // Dedicated single-thread dispatcher for USB streaming
