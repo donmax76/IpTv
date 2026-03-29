@@ -340,7 +340,7 @@ class FmDemodulator(
             val absBaseband = abs(rawBaseband)
             signalQualityAcc += absBaseband
             signalQualityCount++
-            if (signalQualityCount >= intermediateRate / 2) {  // ~100ms window for driving stability
+            if (signalQualityCount >= intermediateRate / 2) {  // ~500ms window for driving stability
                 val avgModulation = signalQualityAcc / signalQualityCount
                 // Hysteresis: different thresholds for open vs close prevents chattering
                 squelchOpen = if (squelchOpen) {

@@ -122,6 +122,9 @@ class FmDemodulator(
     private val muteRampUp = 1f / (0.05f * audioSampleRate)    // 50ms fade-in
     private val muteRampDown = 1f / (0.02f * audioSampleRate)  // 20ms fade-out
 
+    // Synchronization lock for reset vs demodulate thread safety
+    private val dspLock = java.util.concurrent.locks.ReentrantLock()
+
     init {
         // De-emphasis: 50µs time constant (Europe/Russia standard)
         val tau = 50e-6f
@@ -209,6 +212,11 @@ class FmDemodulator(
      * @return ShortArray of interleaved stereo samples (L,R,L,R,...)
      */
     fun demodulate(iqData: ByteArray): ShortArray {
+        if (!dspLock.tryLock()) return ShortArray(0)
+        try { return demodulateInternal(iqData) } finally { dspLock.unlock() }
+    }
+
+    private fun demodulateInternal(iqData: ByteArray): ShortArray {
         val numIqSamples = iqData.size / 2
         val maxAudioSamples = numIqSamples / (stage1Decimation * stage2Decimation) + 2
         // Stereo output: 2 samples per audio frame (L, R)
@@ -433,6 +441,8 @@ class FmDemodulator(
     }
 
     fun reset() {
+        dspLock.lock()
+        try {
         prevI = 0f; prevQ = 0f; deEmphasisStateL = 0f; deEmphasisStateR = 0f
         dcI = 0f; dcQ = 0f
         ifBufI = FloatArray(ifLpfOrder); ifBufQ = FloatArray(ifLpfOrder); ifBufIdx = 0
@@ -449,5 +459,6 @@ class FmDemodulator(
         squelchOpen = false; squelchLevel = 0f
         warmupSamples = 0
         muteRamp = 0f  // Start muted, ramp up smoothly
+        } finally { dspLock.unlock() }
     }
 }

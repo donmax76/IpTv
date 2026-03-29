@@ -116,13 +116,12 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                 val toDrain = if (available >= chunkSize) chunkSize
                               else if (available >= 512) available and 0x7FFFFFFE
                               else {
-                                  // Underrun: fade to silence from last output sample to prevent click
+                                  // Underrun: linear fade to silence from last output sample
                                   val silenceChunk = ShortArray(chunkSize)
+                                  val baseSample = lastOutputSample
                                   for (i in 0 until chunkSize) {
                                       val fadeOut = (chunkSize - i).toFloat() / chunkSize
-                                      val s = (lastOutputSample * fadeOut * 0.5f).toInt().coerceIn(-32767, 32767)
-                                      silenceChunk[i] = s.toShort()
-                                      lastOutputSample = s
+                                      silenceChunk[i] = (baseSample * fadeOut).toInt().coerceIn(-32767, 32767).toShort()
                                   }
                                   lastOutputSample = 0
                                   try {

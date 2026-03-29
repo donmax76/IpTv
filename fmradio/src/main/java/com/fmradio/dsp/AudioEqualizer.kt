@@ -12,6 +12,9 @@ import kotlin.math.*
  */
 class AudioEqualizer(private val sampleRate: Int = 48000) {
 
+    // Lock to synchronize coefficient updates with process() calls
+    private val eqLock = java.util.concurrent.locks.ReentrantLock()
+
     // Bass biquad coefficients (shared for L/R — same filter design)
     private var bassB0 = 1f; private var bassB1 = 0f; private var bassB2 = 0f
     private var bassA1 = 0f; private var bassA2 = 0f
@@ -28,14 +31,16 @@ class AudioEqualizer(private val sampleRate: Int = 48000) {
 
     var bassGainDb: Float = 0f
         set(value) {
-            field = value.coerceIn(-10f, 10f)
-            computeBassCoeffs()
+            eqLock.lock()
+            try { field = value.coerceIn(-10f, 10f); computeBassCoeffs() }
+            finally { eqLock.unlock() }
         }
 
     var trebleGainDb: Float = 0f
         set(value) {
-            field = value.coerceIn(-10f, 10f)
-            computeTrebleCoeffs()
+            eqLock.lock()
+            try { field = value.coerceIn(-10f, 10f); computeTrebleCoeffs() }
+            finally { eqLock.unlock() }
         }
 
     init {
@@ -99,6 +104,8 @@ class AudioEqualizer(private val sampleRate: Int = 48000) {
         if (abs(bassGainDb) < 0.1f && abs(trebleGainDb) < 0.1f) {
             return
         }
+        eqLock.lock()
+        try {
 
         var i = 0
         while (i < count - 1) {
@@ -122,6 +129,8 @@ class AudioEqualizer(private val sampleRate: Int = 48000) {
 
             i += 2
         }
+
+        } finally { eqLock.unlock() }
     }
 
     fun reset() {
