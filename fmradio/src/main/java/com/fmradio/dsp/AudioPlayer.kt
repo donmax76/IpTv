@@ -179,7 +179,8 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             val freeSpace = RING_BUFFER_SAMPLES - bufferedSamples
             if (count > freeSpace) {
                 // Overflow: drop oldest samples with crossfade to prevent click
-                val toDrop = count - freeSpace + RING_BUFFER_SAMPLES / 8
+                // Round to even to preserve L/R stereo pair alignment
+                val toDrop = (count - freeSpace + RING_BUFFER_SAMPLES / 8) and 0x7FFFFFFE.toInt()
                 if (toDrop > 0 && toDrop <= bufferedSamples) {
                     val fadeLen = CROSSFADE_SAMPLES.coerceAtMost(bufferedSamples - toDrop)
                     val newReadPos = (readPos + toDrop) % RING_BUFFER_SAMPLES

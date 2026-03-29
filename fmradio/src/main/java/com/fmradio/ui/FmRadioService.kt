@@ -255,13 +255,9 @@ class FmRadioService : Service() {
             }
         }
 
-        // RDS: skip every other callback to save ~50% CPU on 48-tap filter
-        var rdsCallbackCounter = 0
+        // RDS: process every callback for continuous bit sync and error correction
         demodulator?.widebandListener = { widebandBuf, count, pilotPhase ->
-            rdsCallbackCounter++
-            if (rdsCallbackCounter % 2 == 0) {
-                rdsDecoder?.process(widebandBuf, count, pilotPhase)
-            }
+            rdsDecoder?.process(widebandBuf, count, pilotPhase)
         }
 
         equalizer = AudioEqualizer(48000)

@@ -32,7 +32,7 @@ class FmDemodulator(
     // Use faster alpha for quicker convergence on frequency change
     private var dcI = 0f
     private var dcQ = 0f
-    private val dcAlpha = 0.9995f  // ~50 Hz cutoff at 1.152 MHz — converges in ~2000 samples (~2ms)
+    private val dcAlpha = 0.99997f  // ~5 Hz cutoff at 1.152 MHz — preserves bass down to 20 Hz
 
     // FM discriminator state
     private var prevI = 0f
@@ -41,7 +41,7 @@ class FmDemodulator(
     // FM deviation gain — converts atan2 output to proper audio level
     // Max phase change per sample = 2π × 75000/192000 ≈ 2.454 rad
     // We want 100% modulation to map to ~±0.7 to leave headroom
-    private val fmGain = (intermediateRate.toFloat() / (2f * PI.toFloat() * 75000f)) * 0.7f
+    private val fmGain = (intermediateRate.toFloat() / (2f * PI.toFloat() * 75000f)) * 0.5f  // 0.5 for 12dB headroom
 
     // De-emphasis filter (50µs time constant for Europe/Russia)
     private var deEmphasisStateL = 0f
@@ -78,7 +78,7 @@ class FmDemodulator(
 
     private var pilotNcoPhase = 0.0
     private var pilotNcoFreq = 2.0 * PI * 19000.0 / intermediateRate
-    private val pilotLoopBw = 2.0 * PI * 5.0 / intermediateRate
+    private val pilotLoopBw = 2.0 * PI * 1.0 / intermediateRate  // 1 Hz bandwidth — stable PLL tracking
     private val pilotAlpha: Double
     private val pilotBeta: Double
 
@@ -86,6 +86,17 @@ class FmDemodulator(
     private var pilotStrengthAcc = 0f
     private var pilotStrengthCount = 0
     private val pilotDetectWindow = intermediateRate / 4
+
+    // Pilot PLL frequency bounds (prevent runaway on noise)
+    private val pilotFreqMin = 2.0 * PI * 18500.0 / intermediateRate
+    private val pilotFreqMax = 2.0 * PI * 19500.0 / intermediateRate
+
+    // Stereo detection with hysteresis + smooth blend
+    private val stereoLockThreshold = 0.001f
+    private val stereoUnlockThreshold = 0.0003f
+    private var stereoBlend = 0f
+    private val stereoBlendAttack = 0.002f
+    private val stereoBlendRelease = 0.0005f
 
     @Volatile
     var isStereo = false
@@ -107,13 +118,8 @@ class FmDemodulator(
 
     // Crossfade for seamless muting during frequency change
     private var muteRamp = 0f  // 0 = muted, 1 = full volume
-    private val muteRampUp = 0.005f   // ~200 audio samples to reach full volume
-    private val muteRampDown = 0.05f  // ~20 audio samples to mute
-
-    // ========== rtl_fm LUT atan2 (for maximum performance) ==========
-    private val atanLutSize = 131072
-    private val atanLutCoef = 8
-    private val atanLut: IntArray
+    private val muteRampUp = 1f / (0.05f * audioSampleRate)    // 50ms fade-in
+    private val muteRampDown = 1f / (0.02f * audioSampleRate)  // 20ms fade-out
 
     init {
         // De-emphasis: 50µs time constant (Europe/Russia standard)
@@ -142,11 +148,6 @@ class FmDemodulator(
         pilotAlpha = 2.0 * damp * bw
         pilotBeta = bw * bw
 
-        // Build rtl_fm-style atan2 lookup table for fast integer FM demod
-        atanLut = IntArray(atanLutSize + 1)
-        for (i in 0..atanLutSize) {
-            atanLut[i] = (atan(i.toDouble() / (1 shl atanLutCoef)) / PI * (1 shl 14)).toInt()
-        }
     }
 
     private fun designLowPassFilter(order: Int, normalizedCutoff: Float): FloatArray {
@@ -260,7 +261,7 @@ class FmDemodulator(
                 warmupSamples++
                 val pilotSig = pilotBpf(rawBaseband.toDouble())
                 val pilotError = pilotSig * cos(pilotNcoPhase)
-                pilotNcoFreq += pilotBeta * pilotError
+                pilotNcoFreq = (pilotNcoFreq + pilotBeta * pilotError).coerceIn(pilotFreqMin, pilotFreqMax)
                 pilotNcoPhase += pilotNcoFreq + pilotAlpha * pilotError
                 if (pilotNcoPhase > 2 * PI) pilotNcoPhase -= 2 * PI
                 if (pilotNcoPhase < 0) pilotNcoPhase += 2 * PI
@@ -270,26 +271,37 @@ class FmDemodulator(
             // ===== Pilot PLL: lock to 19 kHz pilot tone =====
             val pilotSig = pilotBpf(rawBaseband.toDouble())
             val pilotError = pilotSig * cos(pilotNcoPhase)
-            pilotNcoFreq += pilotBeta * pilotError
+            pilotNcoFreq = (pilotNcoFreq + pilotBeta * pilotError).coerceIn(pilotFreqMin, pilotFreqMax)
             pilotNcoPhase += pilotNcoFreq + pilotAlpha * pilotError
             if (pilotNcoPhase > 2 * PI) pilotNcoPhase -= 2 * PI
             if (pilotNcoPhase < 0) pilotNcoPhase += 2 * PI
 
-            // Pilot strength measurement
+            // Pilot strength measurement with hysteresis
             pilotStrengthAcc += (pilotSig * pilotSig).toFloat()
             pilotStrengthCount++
             if (pilotStrengthCount >= pilotDetectWindow) {
                 pilotStrength = pilotStrengthAcc / pilotStrengthCount
-                isStereo = pilotStrength > 0.0005f
+                isStereo = if (isStereo) {
+                    pilotStrength > stereoUnlockThreshold
+                } else {
+                    pilotStrength > stereoLockThreshold
+                }
                 pilotStrengthAcc = 0f
                 pilotStrengthCount = 0
+            }
+
+            // Smooth stereo blend
+            if (isStereo && stereoBlend < 1f) {
+                stereoBlend = (stereoBlend + stereoBlendAttack).coerceAtMost(1f)
+            } else if (!isStereo && stereoBlend > 0f) {
+                stereoBlend = (stereoBlend - stereoBlendRelease).coerceAtLeast(0f)
             }
 
             // ===== Signal quality for squelch (wide window + hysteresis) =====
             val absBaseband = abs(rawBaseband)
             signalQualityAcc += absBaseband
             signalQualityCount++
-            if (signalQualityCount >= intermediateRate / 4) {  // ~50ms window (was 12ms)
+            if (signalQualityCount >= intermediateRate / 2) {  // ~100ms window for stability
                 val avgModulation = signalQualityAcc / signalQualityCount
                 squelchOpen = if (squelchOpen) {
                     avgModulation > squelchCloseThreshold && avgModulation < 2.0
@@ -343,16 +355,9 @@ class FmDemodulator(
                 filtDiff += diffLpfBuf[dIdx] * audioLpfCoeffs[j]
             }
 
-            // Stereo matrix: L = (L+R + L-R) / 2, R = (L+R - L-R) / 2
-            val left: Float
-            val right: Float
-            if (isStereo) {
-                left = (filtMono + filtDiff) * 0.5f
-                right = (filtMono - filtDiff) * 0.5f
-            } else {
-                left = filtMono
-                right = filtMono
-            }
+            // Stereo matrix with smooth blend (prevents pops on stereo/mono switch)
+            val left = filtMono + filtDiff * stereoBlend * 0.5f
+            val right = filtMono - filtDiff * stereoBlend * 0.5f
 
             // De-emphasis filter (50µs) — separate state for L and R
             deEmphasisStateL += deEmphasisAlpha * (left - deEmphasisStateL)
@@ -368,7 +373,7 @@ class FmDemodulator(
             }
 
             // Scale to 16-bit PCM
-            val gain = muteRamp * 24000f
+            val gain = muteRamp * 28000f  // With fmGain=0.5, max output ~±14000 = 12dB headroom
             val sampleL = (outL * gain).toInt().coerceIn(-32767, 32767)
             val sampleR = (outR * gain).toInt().coerceIn(-32767, 32767)
 
@@ -437,6 +442,7 @@ class FmDemodulator(
         pilotNcoFreq = 2.0 * PI * 19000.0 / intermediateRate
         for (i in pilotBpfState.indices) pilotBpfState[i] = 0.0
         pilotStrength = 0f; pilotStrengthAcc = 0f; pilotStrengthCount = 0
+        stereoBlend = 0f
         isStereo = false
         signalQualityAcc = 0.0; signalQualityCount = 0
         squelchOpen = false; squelchLevel = 0f
