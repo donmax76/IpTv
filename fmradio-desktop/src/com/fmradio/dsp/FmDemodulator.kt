@@ -107,8 +107,9 @@ class FmDemodulator(
     private var signalQualityCount = 0
     private var squelchOpen = false  // Start closed to avoid initial burst of noise
     private var squelchLevel = 0f
-    private val squelchAttack = 0.015f   // ~65ms to open (smooth fade-in)
-    private val squelchRelease = 0.005f  // ~200ms to close (slow fade-out)
+    // Squelch ramp rates (per intermediate sample at 192 kHz)
+    private val squelchAttack = 1f / (0.1f * intermediateRate)   // 100ms to open (smooth fade-in)
+    private val squelchRelease = 1f / (0.3f * intermediateRate)  // 300ms to close (gradual)
     private val squelchOpenThreshold = 0.06f   // Modulation level to OPEN squelch
     private val squelchCloseThreshold = 0.02f  // Modulation level to CLOSE squelch (hysteresis)
 
