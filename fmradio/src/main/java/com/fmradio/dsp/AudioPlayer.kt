@@ -6,9 +6,10 @@ import android.media.AudioTrack
 import android.util.Log
 
 /**
- * Simplified stereo audio player — writes directly to AudioTrack.
- * No ring buffer, no drain thread, no locks = no jitter.
- * AudioTrack's internal buffer handles smoothing.
+ * Stereo audio player with non-blocking writes and retry.
+ * Uses WRITE_NON_BLOCKING with immediate retry to avoid both:
+ * - Blocking DSP thread (which overflows IQ channel)
+ * - Losing samples (which causes clicks)
  */
 class AudioPlayer(private val sampleRate: Int = 48000) {
 
@@ -34,8 +35,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             Log.e(TAG, "Invalid min buffer size: $minBufSize")
             return
         }
-        // Large internal buffer for jitter absorption
-        val bufferSize = minBufSize * 8
+        val bufferSize = minBufSize * 10  // large buffer for smooth playback
 
         try {
             audioTrack = AudioTrack.Builder()
@@ -54,10 +54,32 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                 )
                 .setBufferSizeInBytes(bufferSize)
                 .setTransferMode(AudioTrack.MODE_STREAM)
+                .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                 .build()
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to create AudioTrack", e)
-            return
+            // Fallback without PERFORMANCE_MODE_LOW_LATENCY for older devices
+            try {
+                audioTrack = AudioTrack.Builder()
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build()
+                    )
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                            .setSampleRate(sampleRate)
+                            .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                            .build()
+                    )
+                    .setBufferSizeInBytes(bufferSize)
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .build()
+            } catch (e2: Exception) {
+                Log.e(TAG, "Failed to create AudioTrack", e2)
+                return
+            }
         }
 
         try {
@@ -74,7 +96,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         lastWriteLog = 0L
     }
 
-    /** Write samples directly to AudioTrack — called from DSP thread */
+    /** Write samples with retry — minimizes both blocking and sample loss */
     fun writeSamples(samples: ShortArray, count: Int = samples.size) {
         if (!isPlaying || count <= 0) return
         val track = audioTrack ?: return
@@ -91,10 +113,22 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             lastWriteLog = now
         }
 
-        // Blocking write — ensures no samples are lost.
-        // DSP thread pauses when AudioTrack buffer is full,
-        // IQ channel (depth 8) absorbs USB data during pause.
-        track.write(samples, 0, count)
+        // Write with retry: non-blocking first, short sleep + retry if partial
+        var offset = 0
+        var remaining = count
+        var retries = 0
+        while (remaining > 0 && retries < 3) {
+            val written = track.write(samples, offset, remaining, AudioTrack.WRITE_NON_BLOCKING)
+            if (written > 0) {
+                offset += written
+                remaining -= written
+                retries = 0  // reset retries on success
+            } else {
+                retries++
+                try { Thread.sleep(2) } catch (_: InterruptedException) { break }
+            }
+        }
+        // If still remaining after retries, drop — better than blocking forever
     }
 
     fun setVolume(volume: Float) {

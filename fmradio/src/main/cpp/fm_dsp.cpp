@@ -245,6 +245,11 @@ Java_com_fmradio_dsp_NativeFmDsp_getPilotPhase(JNIEnv*, jobject) {
     return g_dsp.pilotNcoPhase;
 }
 
+JNIEXPORT jint JNICALL
+Java_com_fmradio_dsp_NativeFmDsp_getWbCount(JNIEnv*, jobject) {
+    return g_dsp.wbCount;
+}
+
 /**
  * Main demodulation function.
  * Input: byte[] IQ data (unsigned 8-bit, interleaved I,Q,I,Q,...)

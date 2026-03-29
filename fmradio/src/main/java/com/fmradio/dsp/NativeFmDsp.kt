@@ -28,6 +28,7 @@ class NativeFmDsp {
     external fun getSignalDb(): Float
     external fun getIsStereo(): Boolean
     external fun getPilotPhase(): Double
+    external fun getWbCount(): Int
     external fun demodulate(iqData: ByteArray, audioOut: ShortArray, wbOut: FloatArray?): Int
 
     /** Demodulate IQ data, return audio count and fill pre-allocated buffers */

@@ -418,9 +418,12 @@ class FmRadioService : Service() {
                         val nr = ndsp.process(iqData)
                         audioSamples = nr.samples
                         audioCount = nr.count
-                        // Send wideband to RDS
+                        // Send wideband to RDS with CORRECT count from C++
                         val wbListener = demodulator?.widebandListener
-                        wbListener?.invoke(ndsp.getWbBuffer(), audioCount / 24, ndsp.getPilotPhase())
+                        val wbCount = ndsp.getWbCount()
+                        if (wbCount > 0) {
+                            wbListener?.invoke(ndsp.getWbBuffer(), wbCount, ndsp.getPilotPhase())
+                        }
                     } else {
                         val result = demodulator?.demodulate(iqData)
                         audioSamples = result?.samples
