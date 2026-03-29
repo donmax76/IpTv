@@ -103,15 +103,17 @@ class FmDemodulator(
         private set
     private var signalPowerAcc = 0.0
     private var signalPowerCount = 0
-    private val signalPowerWindow = intermediateRate / 8  // ~125ms update rate
+    private val signalPowerWindow = intermediateRate / 3  // ~333ms update rate (smooth for driving)
 
-    // Squelch based on signal quality — faster response
+    // Squelch based on signal quality — tuned for mobile/driving stability
     private var signalQualityAcc = 0.0
     private var signalQualityCount = 0
     private var squelchOpen = true  // Start OPEN so user hears audio immediately
     private var squelchLevel = 1f   // Start at full level — squelch closes if no signal
-    private val squelchAttack = 0.05f   // ~20ms to open (fast fade-in)
-    private val squelchRelease = 0.01f  // ~100ms to close (gradual mute)
+    private val squelchAttack = 0.015f   // ~65ms to open (smooth fade-in, no clicks)
+    private val squelchRelease = 0.005f  // ~200ms to close (slow fade-out for driving)
+    private val squelchOpenThreshold = 0.03f   // Modulation level to OPEN squelch
+    private val squelchCloseThreshold = 0.008f // Modulation level to CLOSE squelch (hysteresis gap)
 
     // Warmup: discard first N intermediate samples to flush stale filter state
     private var warmupSamples = 0
@@ -318,13 +320,18 @@ class FmDemodulator(
                 signalPowerCount = 0
             }
 
-            // ===== Signal quality for squelch =====
+            // ===== Signal quality for squelch (wide window + hysteresis for driving) =====
             val absBaseband = abs(rawBaseband)
             signalQualityAcc += absBaseband
             signalQualityCount++
-            if (signalQualityCount >= intermediateRate / 16) {
+            if (signalQualityCount >= intermediateRate / 4) {  // ~50ms window (was 12ms)
                 val avgModulation = signalQualityAcc / signalQualityCount
-                squelchOpen = avgModulation > 0.01 && avgModulation < 3.0
+                // Hysteresis: different thresholds for open vs close prevents chattering
+                squelchOpen = if (squelchOpen) {
+                    avgModulation > squelchCloseThreshold && avgModulation < 3.0
+                } else {
+                    avgModulation > squelchOpenThreshold && avgModulation < 3.0
+                }
                 signalQualityAcc = 0.0
                 signalQualityCount = 0
             }

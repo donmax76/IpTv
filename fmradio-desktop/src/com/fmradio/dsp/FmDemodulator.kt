@@ -91,13 +91,15 @@ class FmDemodulator(
     var isStereo = false
         private set
 
-    // Squelch based on signal quality — faster response
+    // Squelch based on signal quality — tuned for stability
     private var signalQualityAcc = 0.0
     private var signalQualityCount = 0
     private var squelchOpen = false  // Start closed to avoid initial burst of noise
     private var squelchLevel = 0f
-    private val squelchAttack = 0.03f   // ~33ms to open (smooth fade-in)
-    private val squelchRelease = 0.02f  // ~50ms to close (fast mute on noise)
+    private val squelchAttack = 0.015f   // ~65ms to open (smooth fade-in)
+    private val squelchRelease = 0.005f  // ~200ms to close (slow fade-out)
+    private val squelchOpenThreshold = 0.06f   // Modulation level to OPEN squelch
+    private val squelchCloseThreshold = 0.02f  // Modulation level to CLOSE squelch (hysteresis)
 
     // Warmup: discard first N intermediate samples to flush stale filter state
     private var warmupSamples = 0
@@ -283,13 +285,17 @@ class FmDemodulator(
                 pilotStrengthCount = 0
             }
 
-            // ===== Signal quality for squelch =====
+            // ===== Signal quality for squelch (wide window + hysteresis) =====
             val absBaseband = abs(rawBaseband)
             signalQualityAcc += absBaseband
             signalQualityCount++
-            if (signalQualityCount >= intermediateRate / 16) {
+            if (signalQualityCount >= intermediateRate / 4) {  // ~50ms window (was 12ms)
                 val avgModulation = signalQualityAcc / signalQualityCount
-                squelchOpen = avgModulation > 0.05 && avgModulation < 2.0
+                squelchOpen = if (squelchOpen) {
+                    avgModulation > squelchCloseThreshold && avgModulation < 2.0
+                } else {
+                    avgModulation > squelchOpenThreshold && avgModulation < 2.0
+                }
                 signalQualityAcc = 0.0
                 signalQualityCount = 0
             }
