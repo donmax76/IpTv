@@ -168,7 +168,7 @@ struct DspState {
         float dt = 1.0f / AUDIO_RATE;
         deEmphAlpha = dt / (tau + dt);
 
-        sigPowerWindow = INTERMEDIATE_RATE / 16;
+        sigPowerWindow = INTERMEDIATE_RATE / 4;  // 4 updates/sec — smooth for car display
         warmupThreshold = INTERMEDIATE_RATE / 50;
 
         LOGI("Native DSP initialized: rate=%d intermediate=%d audio=%d", SAMPLE_RATE, INTERMEDIATE_RATE, AUDIO_RATE);
@@ -198,7 +198,7 @@ struct DspState {
         squelchOpen = true;
         squelchLevel = 1.0f;
         warmupSamples = 0;
-        muteRamp = 1.0f;
+        muteRamp = 0.0f;  // start muted, ramp up after filters settle
         wbCount = 0;
     }
 

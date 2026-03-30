@@ -193,21 +193,12 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             lastDebugLog = now
         }
 
-        // Lock carrier to 3× pilot on first call, then run continuously
-        if (!carrierLocked) {
-            carrierPhase = (pilotPhase * 3.0) % (2.0 * PI)
-            if (carrierPhase < 0) carrierPhase += 2.0 * PI
-            carrierLocked = true
-        }
-
-        // Correct carrier phase towards pilot-locked 57 kHz
-        val targetPhase = (pilotPhase * 3.0) % (2.0 * PI)
-        var phaseDiff = targetPhase - (carrierPhase % (2.0 * PI))
-        // Normalize to ±π
-        if (phaseDiff > PI) phaseDiff -= 2 * PI
-        if (phaseDiff < -PI) phaseDiff += 2 * PI
-        // Fast correction for proper lock
-        carrierPhase += phaseDiff * 0.3
+        // Hard-lock carrier to 3× pilot phase every block.
+        // pilotPhase is END of block, so back-calculate start phase.
+        val phasePerSample = carrierInc
+        carrierPhase = ((pilotPhase * 3.0) - baseband.size * phasePerSample) % (2.0 * PI)
+        if (carrierPhase < 0) carrierPhase += 2.0 * PI
+        carrierLocked = true
 
         for (idx in baseband.indices) {
             val sample = baseband[idx]

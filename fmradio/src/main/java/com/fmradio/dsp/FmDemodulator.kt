@@ -509,7 +509,7 @@ class FmDemodulator(
         signalQualityAcc = 0.0; signalQualityCount = 0
         squelchOpen = true; squelchLevel = 1f
         warmupSamples = 0
-        muteRamp = 1.0f
+        muteRamp = 0f  // start muted, ramp up after filters settle
         rdsCallbackCounter = 0
         resetting = false
     }
