@@ -283,13 +283,6 @@ class FmScanner(private val device: RtlSdrDevice) {
         }
     }
 
-    fun isScanning(): Boolean = scanning
-
-    /** True while the scan coroutine is actively using the device */
-    @Volatile
-    var isBusy = false
-        private set
-
     private fun mergeCloseStations(stations: List<ScanResult>, minSpacing: Long): List<ScanResult> {
         if (stations.isEmpty()) return emptyList()
         val sorted = stations.sortedBy { it.frequencyHz }
