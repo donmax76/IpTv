@@ -196,7 +196,7 @@ class FmDemodulator:
         self.dc_alpha = 0.9999
 
         # FM gain — normalize atan2 output to proper audio level
-        self.fm_gain = (self.intermediate_rate / (2 * np.pi * 75000)) * 0.7
+        self.fm_gain = (self.intermediate_rate / (2 * np.pi * 75000)) * 0.75
 
         # IF low-pass filter (120 kHz cutoff, 128 taps, Blackman-Harris)
         self.if_filter = self._design_filter(128, 120e3, sample_rate)

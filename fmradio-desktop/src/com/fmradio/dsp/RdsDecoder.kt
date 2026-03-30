@@ -156,11 +156,11 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
      * @param pilotPhase Current pilot PLL phase from FmDemodulator (19 kHz, radians)
      */
     fun process(baseband: FloatArray, pilotPhase: Double) {
-        // Calculate carrier phase increment per sample from pilot
         // RDS carrier = 3 × pilot frequency (57 kHz = 3 × 19 kHz)
-        val pilotInc = 2.0 * PI * 19000.0 / sampleRate
-        // Estimate pilot phase at start of this buffer
-        var rdsCarrierPhase = pilotPhase * 3.0
+        val carrierInc = 2.0 * PI * 57000.0 / sampleRate
+        // Hard-lock carrier to 3× pilot, back-calculate start phase
+        var rdsCarrierPhase = ((pilotPhase * 3.0) - baseband.size * carrierInc) % (2.0 * PI)
+        if (rdsCarrierPhase < 0) rdsCarrierPhase += 2.0 * PI
 
         for (idx in baseband.indices) {
             val sample = baseband[idx]
@@ -168,7 +168,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             // Generate 57 kHz carrier from 3× pilot phase
             val cosC = cos(rdsCarrierPhase).toFloat()
             val sinC = sin(rdsCarrierPhase).toFloat()
-            rdsCarrierPhase += pilotInc * 3.0
+            rdsCarrierPhase += carrierInc
             if (rdsCarrierPhase > 2 * PI) rdsCarrierPhase -= 2 * PI
 
             // Mix down to baseband

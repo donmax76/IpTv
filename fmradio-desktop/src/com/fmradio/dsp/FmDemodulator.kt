@@ -41,7 +41,7 @@ class FmDemodulator(
     // FM deviation gain — converts atan2 output to proper audio level
     // Max phase change per sample = 2π × 75000/192000 ≈ 2.454 rad
     // We want 100% modulation to map to ~±0.7 to leave headroom
-    private val fmGain = (intermediateRate.toFloat() / (2f * PI.toFloat() * 75000f)) * 0.7f
+    private val fmGain = (intermediateRate.toFloat() / (2f * PI.toFloat() * 75000f)) * 0.75f
 
     // De-emphasis filter (50µs time constant for Europe/Russia)
     private var deEmphasisStateL = 0f
@@ -283,21 +283,7 @@ class FmDemodulator(
                 pilotStrengthCount = 0
             }
 
-            // ===== Signal quality for squelch =====
-            val absBaseband = abs(rawBaseband)
-            signalQualityAcc += absBaseband
-            signalQualityCount++
-            if (signalQualityCount >= intermediateRate / 16) {
-                val avgModulation = signalQualityAcc / signalQualityCount
-                squelchOpen = avgModulation > 0.05 && avgModulation < 2.0
-                signalQualityAcc = 0.0
-                signalQualityCount = 0
-            }
-            if (squelchOpen && squelchLevel < 1f) {
-                squelchLevel = (squelchLevel + squelchAttack).coerceAtMost(1f)
-            } else if (!squelchOpen && squelchLevel > 0f) {
-                squelchLevel = (squelchLevel - squelchRelease).coerceAtLeast(0f)
-            }
+            // Squelch disabled — causes amplitude trembling on weak/multipath signals
 
             // Wideband output for RDS decoder
             if (widebandBuf != null && wbCount < widebandBuf.size) {
@@ -352,9 +338,8 @@ class FmDemodulator(
             deEmphasisStateL += deEmphasisAlpha * (left - deEmphasisStateL)
             deEmphasisStateR += deEmphasisAlpha * (right - deEmphasisStateR)
 
-            // Apply squelch with smooth level
-            val outL = deEmphasisStateL * squelchLevel
-            val outR = deEmphasisStateR * squelchLevel
+            val outL = deEmphasisStateL
+            val outR = deEmphasisStateR
 
             // Mute ramp for seamless frequency change (avoids initial burst)
             if (muteRamp < 1f) {
