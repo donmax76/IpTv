@@ -611,7 +611,7 @@ class FmRadioService : Service() {
 
                     val samples = dev.readSamples(32768, 500)
                     if (samples != null) {
-                        val signalDb = tempDemod.measureFilteredSignalStrength(samples)
+                        val signalDb = tempDemod.measureSignalStrength(samples)
                         if (signalDb > SEEK_THRESHOLD) {
                             found = freq
                             break

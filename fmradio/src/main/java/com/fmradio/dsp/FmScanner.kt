@@ -156,6 +156,12 @@ class FmScanner(private val device: RtlSdrDevice) {
     @Volatile
     private var scanning = false
 
+    @Volatile
+    var isBusy = false
+        private set
+
+    fun isScanning(): Boolean = scanning
+
     private val demodulator = FmDemodulator()
 
     /**
