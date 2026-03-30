@@ -7,9 +7,6 @@ import kotlinx.coroutines.*
 /**
  * Wideband radio scanner with configurable band presets.
  * Supports full RTL-SDR R820T range: 24 MHz - 1766 MHz.
- *
- * Fixed: endpoint stall after stopStreaming(), adaptive threshold,
- * increased measurement samples for better detection.
  */
 class FmScanner(private val device: RtlSdrDevice) {
 
@@ -25,12 +22,11 @@ class FmScanner(private val device: RtlSdrDevice) {
         const val RTL_SDR_MIN_FREQ = 24000000L      // 24 MHz
         const val RTL_SDR_MAX_FREQ = 1766000000L     // 1766 MHz
 
-        // Signal threshold for station detection (dB above noise floor)
-        private const val SIGNAL_THRESHOLD = -20f  // absolute minimum threshold
-        private const val NOISE_MARGIN_DB = 3f     // dB above noise floor to detect a station
-        private const val SETTLE_TIME_MS = 60L     // FC0013 needs 30ms VCO cal + PLL settle
-        private const val MEASUREMENT_SAMPLES = 32768  // increased from 16384 for better accuracy
-        private const val MEASUREMENTS_PER_FREQ = 2    // reduced from 3 since samples are larger
+        // Signal threshold for station detection (dB)
+        private const val SIGNAL_THRESHOLD = -15f
+        private const val SETTLE_TIME_MS = 80L
+        private const val MEASUREMENT_SAMPLES = 65536
+        private const val MEASUREMENTS_PER_FREQ = 3
     }
 
     /**
@@ -179,7 +175,6 @@ class FmScanner(private val device: RtlSdrDevice) {
         var currentStep = 0
 
         Log.i(TAG, "Starting scan: ${startFreq/1e6} - ${endFreq/1e6} MHz, step=${step/1e3} kHz")
-        DebugLog.log("SCAN", "Start: ${startFreq/1e6}-${endFreq/1e6} MHz, step=${step/1e3}kHz, threshold=$threshold dB")
 
         try {
             if (device.isStreaming) {
@@ -187,38 +182,25 @@ class FmScanner(private val device: RtlSdrDevice) {
                 delay(100)
             }
 
-            // CRITICAL: Full USB reset before scan — clears endpoint stall left by stopStreaming()
-            // Without this, readSamples() returns null because the bulk endpoint is stalled (EPIPE)
-            device.fullReset()
-            delay(50)
-
             device.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
             device.setAutoGain(true)
-            delay(20)
+            delay(50)
 
-            // Measure noise floor at an off-station frequency
+            // Measure noise floor
             var noiseFloor = -30f
-            val noiseFreq = (startFreq - step * 5).coerceAtLeast(RTL_SDR_MIN_FREQ)
+            val noiseFreq = (startFreq - step).coerceAtLeast(RTL_SDR_MIN_FREQ)
             device.setFrequency(noiseFreq)
-            delay(SETTLE_TIME_MS * 2)  // extra settle for noise measurement
+            delay(SETTLE_TIME_MS)
             device.resetBuffer()
-            val noiseSamples = device.readSamples(MEASUREMENT_SAMPLES, 500)
+            val noiseSamples = device.readSamples(MEASUREMENT_SAMPLES)
             if (noiseSamples != null) {
-                noiseFloor = demodulator.measureFilteredSignalStrength(noiseSamples)
-                DebugLog.log("SCAN", "Noise floor at ${noiseFreq/1e6} MHz: $noiseFloor dB (${noiseSamples.size}B)")
-            } else {
-                DebugLog.log("SCAN", "WARNING: noise floor read returned null — USB may be stalled")
+                noiseFloor = demodulator.measureSignalStrength(noiseSamples)
             }
 
-            // Adaptive threshold: noise floor + margin (relative detection)
-            // Use noise-relative threshold for weak signals (e.g. FC0013 with low gain)
-            val adaptiveThreshold = noiseFloor + NOISE_MARGIN_DB
+            val adaptiveThreshold = maxOf(threshold, noiseFloor + 6f)
             Log.i(TAG, "Noise floor: $noiseFloor dB, threshold: $adaptiveThreshold dB")
-            DebugLog.log("SCAN", "Adaptive threshold: $adaptiveThreshold dB")
 
             var freq = startFreq
-            var nullReadStreak = 0
-
             while (freq <= endFreq && scanning) {
                 device.setFrequency(freq)
                 delay(SETTLE_TIME_MS)
@@ -228,26 +210,10 @@ class FmScanner(private val device: RtlSdrDevice) {
                 var validMeasurements = 0
 
                 for (m in 0 until MEASUREMENTS_PER_FREQ) {
-                    val samples = device.readSamples(MEASUREMENT_SAMPLES, 500)
+                    val samples = device.readSamples(MEASUREMENT_SAMPLES)
                     if (samples != null && samples.isNotEmpty()) {
-                        val sig = demodulator.measureFilteredSignalStrength(samples)
-                        signalSum += sig
+                        signalSum += demodulator.measureSignalStrength(samples)
                         validMeasurements++
-                        nullReadStreak = 0
-                    } else {
-                        nullReadStreak++
-                        // If too many null reads in a row, USB is broken — try to recover
-                        if (nullReadStreak >= 6) {
-                            DebugLog.log("SCAN", "USB stall detected at ${freq/1e6} MHz, recovering...")
-                            device.fullReset()
-                            delay(100)
-                            device.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
-                            device.setAutoGain(true)
-                            device.setFrequency(freq)
-                            delay(SETTLE_TIME_MS * 2)
-                            device.resetBuffer()
-                            nullReadStreak = 0
-                        }
                     }
                 }
 
@@ -257,7 +223,6 @@ class FmScanner(private val device: RtlSdrDevice) {
                         val result = ScanResult(freq, avgSignal)
                         stations.add(result)
                         Log.i(TAG, "Signal found: ${result.displayFrequency} MHz ($avgSignal dB)")
-                        DebugLog.log("SCAN", "FOUND: ${result.displayFrequency} MHz = ${String.format("%.1f", avgSignal)} dB")
                         withContext(Dispatchers.Main) { listener.onStationFound(result) }
                     }
                 }
@@ -270,7 +235,6 @@ class FmScanner(private val device: RtlSdrDevice) {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Scan error", e)
-            DebugLog.log("SCAN", "ERROR: ${e.javaClass.simpleName}: ${e.message}")
             withContext(Dispatchers.Main) { listener.onScanError(e.message ?: "Unknown error") }
         }
 
@@ -287,7 +251,6 @@ class FmScanner(private val device: RtlSdrDevice) {
         val mergedStations = mergeCloseStations(stations, step * 2)
 
         Log.i(TAG, "Scan complete. Found ${mergedStations.size} signals")
-        DebugLog.log("SCAN", "Complete: ${mergedStations.size} stations found")
         withContext(Dispatchers.Main) { listener.onScanComplete(mergedStations) }
         mergedStations
     }
@@ -304,6 +267,7 @@ class FmScanner(private val device: RtlSdrDevice) {
     /** Stop scan and wait for the scan coroutine to fully exit */
     suspend fun stopScanAndWait() {
         scanning = false
+        // Give the scan loop time to exit (it may be blocking on USB read)
         withContext(Dispatchers.IO) {
             var waitMs = 0
             while (isBusy && waitMs < 2000) {

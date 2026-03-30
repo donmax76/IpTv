@@ -355,7 +355,7 @@ class FmRadioService : Service() {
             for (pkt in rdsChannel) {
                 if (pkt.gen != rdsGeneration) continue
                 val rds = rdsDecoder ?: continue
-                rds.process(pkt.samples, pkt.phase)
+                rds.process(pkt.samples, pkt.samples.size, pkt.phase)
             }
         }
 
@@ -408,11 +408,12 @@ class FmRadioService : Service() {
 
             try {
                 val ndsp = nativeDsp  // local val for smart cast
+                val audioBuf = ShortArray(2800 * 2)  // pre-allocated audio buffer
                 for (iqData in iqChannel) {
                     if (!isPlaying) break
 
                     // Use native C++ DSP if available, else Kotlin
-                    val audioSamples: ShortArray?
+                    val audioSamples: ShortArray
                     val audioCount: Int
                     if (ndsp != null) {
                         val nr = ndsp.process(iqData)
@@ -425,9 +426,8 @@ class FmRadioService : Service() {
                             wbListener?.invoke(ndsp.getWbBuffer(), wbCount, ndsp.getPilotPhase())
                         }
                     } else {
-                        val result = demodulator?.demodulate(iqData)
-                        audioSamples = result?.samples
-                        audioCount = result?.count ?: 0
+                        audioCount = demodulator?.demodulate(iqData, audioBuf) ?: 0
+                        audioSamples = audioBuf
                     }
                     demodCallCount++
 
