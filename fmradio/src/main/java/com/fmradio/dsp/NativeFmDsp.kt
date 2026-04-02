@@ -6,17 +6,11 @@ package com.fmradio.dsp
  */
 class NativeFmDsp {
     companion object {
+        // C++ DSP disabled — Kotlin DSP has superior audio quality:
+        // 48-tap IF LPF, squelch hysteresis, stereo smooth blend, thread safety.
+        // C++ DSP needs to be updated to match before re-enabling.
         var available = false
             private set
-
-        init {
-            try {
-                System.loadLibrary("fmradio_dsp")
-                available = true
-            } catch (e: UnsatisfiedLinkError) {
-                available = false
-            }
-        }
     }
 
     // Pre-allocated buffers — reused every call, zero GC

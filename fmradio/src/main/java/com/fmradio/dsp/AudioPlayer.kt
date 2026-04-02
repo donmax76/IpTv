@@ -27,7 +27,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         private const val LOW_WATERMARK = 512    // ~5ms stereo — drain as soon as possible
         private const val HIGH_WATERMARK = 345600 // 90% full — trigger overflow drop
         // Pre-buffer: accumulate this much before starting AudioTrack drain
-        private const val PRE_BUFFER_SAMPLES = 14400  // ~150ms stereo (48000*2*0.15)
+        private const val PRE_BUFFER_SAMPLES = 19200  // ~200ms stereo — extra buffer for driving stability
         // Fade-in on initial playback start to prevent pop
         private const val FADE_IN_SAMPLES = 4800  // ~50ms stereo
         // Crossfade on buffer overflow to prevent click
