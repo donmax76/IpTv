@@ -114,6 +114,7 @@ class FmRadioService : Service() {
     var onSeekComplete: ((Long?) -> Unit)? = null
     var onPlaybackStateChanged: ((Boolean) -> Unit)? = null
     var onSignalStrengthChanged: ((Float) -> Unit)? = null
+    var onAudioData: ((ShortArray, Int) -> Unit)? = null
 
     override fun onBind(intent: Intent): IBinder = binder
 
@@ -435,6 +436,10 @@ class FmRadioService : Service() {
                         totalAudioSamples += audioCount
                         equalizer?.process(audioSamples, audioCount)
                         audioPlayer?.writeSamples(audioSamples, audioCount)
+                        // Send audio data for spectrum visualization (every 3rd block to save CPU)
+                        if (demodCallCount % 3 == 0L) {
+                            onAudioData?.invoke(audioSamples, audioCount)
+                        }
                     }
 
                     // Log demod stats periodically

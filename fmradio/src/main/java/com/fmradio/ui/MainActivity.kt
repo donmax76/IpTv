@@ -85,6 +85,7 @@ class MainActivity : Activity() {
     private lateinit var tvBandEnd: TextView
 
     private lateinit var tvStationName: TextView
+    private lateinit var spectrumView: SpectrumView
 
     private lateinit var btnSeekBack: ImageButton
     private lateinit var btnFreqDown: ImageButton
@@ -170,6 +171,9 @@ class MainActivity : Activity() {
             }
             radioService?.onSignalStrengthChanged = { db ->
                 runOnUiThread { updateSignalBars(db) }
+            }
+            radioService?.onAudioData = { samples, count ->
+                spectrumView.updateAudio(samples, count)
             }
             radioService?.onPlaybackStateChanged = { playing ->
                 runOnUiThread {
@@ -267,6 +271,7 @@ class MainActivity : Activity() {
         tvBandEnd = findViewById(R.id.tvBandEnd)
 
         tvStationName = findViewById(R.id.tvStationName)
+        spectrumView = findViewById(R.id.spectrumView)
 
         btnSeekBack = findViewById(R.id.btnSeekBack)
         btnFreqDown = findViewById(R.id.btnFreqDown)
@@ -629,6 +634,7 @@ class MainActivity : Activity() {
         clearRdsDisplay()
         updateStereoIndicator(false)
         updateSignalBars(-100f)
+        spectrumView.clear()
     }
 
     private fun setFrequency(frequencyHz: Long) {

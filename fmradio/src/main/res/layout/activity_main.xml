@@ -283,6 +283,14 @@
                         android:visibility="gone" />
                 </LinearLayout>
 
+                <!-- Audio spectrum visualizer -->
+                <com.fmradio.ui.SpectrumView
+                    android:id="@+id/spectrumView"
+                    android:layout_width="match_parent"
+                    android:layout_height="60dp"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="4dp" />
+
                 <!-- Frequency scale bar -->
                 <LinearLayout
                     android:layout_width="match_parent"
