@@ -321,6 +321,15 @@
                         android:textSize="13sp"
                         android:fontFamily="monospace" />
                 </LinearLayout>
+
+                <!-- Audio spectrum visualizer -->
+                <com.fmradio.ui.SpectrumView
+                    android:id="@+id/spectrumView"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:layout_marginTop="4dp" />
+
             </LinearLayout>
 
             <!-- ========= MAIN CONTROLS ROW ========= -->
@@ -588,15 +597,6 @@
 
             </LinearLayout>
         </LinearLayout>
-
-        <!-- Audio spectrum visualizer at bottom of left panel -->
-        <com.fmradio.ui.SpectrumView
-            android:id="@+id/spectrumView"
-            android:layout_width="match_parent"
-            android:layout_height="80dp"
-            android:layout_marginTop="4dp"
-            android:background="#FF080810" />
-
     </LinearLayout>
 
     <!-- ======== DEBUG LOG PANEL (hidden by default) ======== -->
