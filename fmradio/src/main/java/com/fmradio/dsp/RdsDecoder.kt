@@ -82,8 +82,9 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     // Matched filter for RDS symbol shaping (root raised cosine-like, improves SNR)
     private val matchedFilterOrder = 20
     private val matchedFilter: FloatArray
-    // Double-buffer trick
-    private var matchedBuf = FloatArray(matchedFilterOrder * 2)
+    // Double-buffer trick — separate I and Q matched filter buffers for complex DBPSK
+    private var matchedBufI = FloatArray(matchedFilterOrder * 2)
+    private var matchedBufQ = FloatArray(matchedFilterOrder * 2)
     private var matchedBufIdx = 0
 
     // Bit clock recovery (PLL-based)
@@ -91,8 +92,9 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private var clockPhase = 0f
     private var prevRdsSample = 0f
 
-    // Differential decoding
-    private var prevBit = 0
+    // Complex differential decoding — stores previous symbol's I/Q for phase-agnostic detection
+    private var prevSymI = 0f
+    private var prevSymQ = 0f
 
     // Bit stream buffer for group assembly
     private var bitBuffer = 0L
@@ -209,24 +211,34 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             if (rdsDecimCounter < rdsDecimation) continue
             rdsDecimCounter = 0
 
-            // Apply RDS lowpass filter — no modulo in inner loop
+            // Apply RDS lowpass filter to BOTH I and Q — we don't know the carrier
+            // phase offset between pilot and RDS subcarrier, so we need the full complex
+            // baseband for phase-agnostic differential BPSK detection.
             var filtI = 0f
+            var filtQ = 0f
             val rdsBase = rdsLpfIdx
             for (j in 0 until rdsLpfOrder) {
-                filtI += rdsLpfBufI[rdsBase + rdsLpfOrder - 1 - j] * rdsLpfCoeffs[j]
+                val p = rdsBase + rdsLpfOrder - 1 - j
+                filtI += rdsLpfBufI[p] * rdsLpfCoeffs[j]
+                filtQ += rdsLpfBufQ[p] * rdsLpfCoeffs[j]
             }
 
-            // Apply matched filter (double-buffer, no modulo)
-            matchedBuf[matchedBufIdx] = filtI
-            matchedBuf[matchedBufIdx + matchedFilterOrder] = filtI
+            // Apply matched filter to both I and Q
+            matchedBufI[matchedBufIdx] = filtI
+            matchedBufI[matchedBufIdx + matchedFilterOrder] = filtI
+            matchedBufQ[matchedBufIdx] = filtQ
+            matchedBufQ[matchedBufIdx + matchedFilterOrder] = filtQ
             matchedBufIdx = (matchedBufIdx + 1) % matchedFilterOrder
-            var matched = 0f
+            var mI = 0f
+            var mQ = 0f
             val mBase = matchedBufIdx
             for (j in 0 until matchedFilterOrder) {
-                matched += matchedBuf[mBase + matchedFilterOrder - 1 - j] * matchedFilter[j]
+                val p = mBase + matchedFilterOrder - 1 - j
+                mI += matchedBufI[p] * matchedFilter[j]
+                mQ += matchedBufQ[p] * matchedFilter[j]
             }
 
-            processRdsSample(matched)
+            processRdsSample(mI, mQ)
         }
     }
 
@@ -253,41 +265,61 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             rdsDecimCounter = 0
 
             var filtI = 0f
+            var filtQ = 0f
             val rdsBase = rdsLpfIdx
             for (j in 0 until rdsLpfOrder) {
-                filtI += rdsLpfBufI[rdsBase + rdsLpfOrder - 1 - j] * rdsLpfCoeffs[j]
+                val p = rdsBase + rdsLpfOrder - 1 - j
+                filtI += rdsLpfBufI[p] * rdsLpfCoeffs[j]
+                filtQ += rdsLpfBufQ[p] * rdsLpfCoeffs[j]
             }
 
-            matchedBuf[matchedBufIdx] = filtI
-            matchedBuf[matchedBufIdx + matchedFilterOrder] = filtI
+            matchedBufI[matchedBufIdx] = filtI
+            matchedBufI[matchedBufIdx + matchedFilterOrder] = filtI
+            matchedBufQ[matchedBufIdx] = filtQ
+            matchedBufQ[matchedBufIdx + matchedFilterOrder] = filtQ
             matchedBufIdx = (matchedBufIdx + 1) % matchedFilterOrder
-            var matched = 0f
+            var mI = 0f
+            var mQ = 0f
             val mBase = matchedBufIdx
             for (j in 0 until matchedFilterOrder) {
-                matched += matchedBuf[mBase + matchedFilterOrder - 1 - j] * matchedFilter[j]
+                val p = mBase + matchedFilterOrder - 1 - j
+                mI += matchedBufI[p] * matchedFilter[j]
+                mQ += matchedBufQ[p] * matchedFilter[j]
             }
 
-            processRdsSample(matched)
+            processRdsSample(mI, mQ)
         }
     }
 
-    private fun processRdsSample(sample: Float) {
+    /**
+     * Complex differential BPSK decoder — phase-agnostic.
+     *
+     * Since the 57 kHz RDS subcarrier has an unknown phase offset relative to the
+     * pilot-derived carrier (hardware group delay + spec says RDS is in quadrature
+     * with the third pilot harmonic), we cannot rely on a single I or Q channel.
+     * Instead we compute the complex product curr * conj(prev) at each symbol
+     * decision; its real part is positive when the symbol matches the previous one
+     * and negative when it flipped — exactly what DBPSK requires, independent of
+     * absolute carrier phase.
+     */
+    private fun processRdsSample(mI: Float, mQ: Float) {
         clockPhase += 1f
 
         if (clockPhase >= samplesPerBit) {
             clockPhase -= samplesPerBit
 
-            // Decision: BPSK symbol
-            val bit = if (sample > 0) 1 else 0
-
-            // Differential decoding (RDS uses differential BPSK)
-            val decodedBit = bit xor prevBit
-            prevBit = bit
+            // Complex differential: Re{ curr * conj(prev) } = mI*prevI + mQ*prevQ
+            val dot = mI * prevSymI + mQ * prevSymQ
+            val decodedBit = if (dot > 0f) 0 else 1  // same phase = 0, flipped = 1
+            prevSymI = mI
+            prevSymQ = mQ
 
             processBit(decodedBit)
         }
 
-        // Clock recovery: adjust phase on zero crossings with clamped correction
+        // Clock recovery: track zero crossings on the magnitude-signed channel
+        // (use whichever of I/Q has larger magnitude — most of the signal energy)
+        val sample = if (abs(mI) >= abs(mQ)) mI else mQ
         if ((sample > 0 && prevRdsSample <= 0) || (sample < 0 && prevRdsSample >= 0)) {
             val error = clockPhase - samplesPerBit / 2
             val correction = (error * 0.05f).coerceIn(-samplesPerBit * 0.1f, samplesPerBit * 0.1f)
@@ -541,11 +573,13 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         rdsLpfBufQ = FloatArray(rdsLpfOrder * 2)
         rdsLpfIdx = 0
         rdsDecimCounter = 0
-        matchedBuf = FloatArray(matchedFilterOrder * 2)
+        matchedBufI = FloatArray(matchedFilterOrder * 2)
+        matchedBufQ = FloatArray(matchedFilterOrder * 2)
         matchedBufIdx = 0
         clockPhase = 0f
         prevRdsSample = 0f
-        prevBit = 0
+        prevSymI = 0f
+        prevSymQ = 0f
         bitBuffer = 0L
         bitCount = 0
         synced = false
