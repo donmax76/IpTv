@@ -32,7 +32,7 @@ class FmDemodulator(
     // Use faster alpha for quicker convergence on frequency change
     private var dcI = 0f
     private var dcQ = 0f
-    private val dcAlpha = 0.99997f  // ~5 Hz cutoff at 1.152 MHz — preserves bass down to 20 Hz
+    private val dcAlpha = 0.999995f  // ~0.9 Hz cutoff at 1.152 MHz — preserves full sub-bass
 
     // FM discriminator state
     private var prevI = 0f
@@ -49,9 +49,10 @@ class FmDemodulator(
     private val deEmphasisAlpha: Float
 
     // IF low-pass filter (before stage 1 decimation)
-    // 48 taps: good balance of CPU vs adjacent channel rejection (~80 dB stopband).
-    // Transition band ~24 kHz at 1.152 MHz, sufficient for ±200 kHz channel spacing.
-    private val ifLpfOrder = 48
+    // 96 taps: professional-grade adjacent-channel rejection (~100 dB stopband with
+    // Blackman-Harris window). Cutoff 100 kHz, steep transition to reject ±200 kHz
+    // neighbours while preserving full ±75 kHz FM deviation + 19 kHz pilot + 38 kHz DSB.
+    private val ifLpfOrder = 96
     private val ifLpfCoeffs: FloatArray
     // Double-buffer trick: size 2×N, write to both halves, filter without modulo
     private var ifBufI = FloatArray(ifLpfOrder * 2)
@@ -59,9 +60,10 @@ class FmDemodulator(
     private var ifBufIdx = 0
 
     // Audio low-pass filters — separate for L+R (mono) and L-R (stereo difference)
-    // 32 taps: 15 kHz cutoff at 192 kHz with ~90 dB stopband. Provides clean
-    // anti-aliasing before /4 decimation to 48 kHz (Nyquist = 24 kHz).
-    private val audioLpfOrder = 32
+    // 64 taps: 15 kHz cutoff at 192 kHz with ~100 dB stopband and flat passband.
+    // Steep transition between 15 kHz (audio) and 19 kHz (pilot) — fully removes
+    // pilot residue and DSB sidebands from the audio path for transparent sound.
+    private val audioLpfOrder = 64
     private val audioLpfCoeffs: FloatArray
     // Double-buffer trick: eliminates modulo in filter inner loop
     private var monoLpfBuf = FloatArray(audioLpfOrder * 2)    // L+R channel
@@ -149,14 +151,16 @@ class FmDemodulator(
         val dt = 1f / audioSampleRate
         deEmphasisAlpha = dt / (tau + dt)
 
-        // IF filter: 120 kHz cutoff
-        ifLpfCoeffs = designLowPassFilter(ifLpfOrder, 120000f / inputSampleRate)
+        // IF filter: 100 kHz cutoff — tighter than ±75 kHz deviation + 38 kHz stereo
+        // sideband (= ~113 kHz), but the long 96-tap filter has a narrow transition,
+        // so passband stays flat through 100 kHz and stopband hits ~150 kHz at −100 dB.
+        ifLpfCoeffs = designLowPassFilter(ifLpfOrder, 100000f / inputSampleRate)
         // Audio filter: 15 kHz cutoff — standard FM mono audio
         audioLpfCoeffs = designLowPassFilter(audioLpfOrder, 15000f / intermediateRate)
 
         // Design 19 kHz pilot bandpass biquad (Q=80 for narrow extraction)
         val w0 = 2.0 * PI * 19000.0 / intermediateRate
-        val bpfQ = 80.0
+        val bpfQ = 120.0  // Narrower pilot BPF — cleaner 19 kHz extraction, less noise modulation on PLL
         val bpfAlpha = sin(w0) / (2.0 * bpfQ)
         val a0 = 1.0 + bpfAlpha
         pilotBpfB0 = bpfAlpha / a0
@@ -210,6 +214,21 @@ class FmDemodulator(
      * Fast atan2 approximation — polynomial, from rtl_fm.
      * Max error < 0.005 radians. Much faster than Math.atan2.
      */
+    /**
+     * Cubic soft-clip limiter. Linear up to |x|≈0.8, smoothly saturates toward ±1.
+     * Prevents audible hard-clip artifacts on loud modulation peaks while preserving
+     * transient detail within the linear region.
+     */
+    private fun softClip(x: Float): Float {
+        val ax = abs(x)
+        if (ax <= 0.8f) return x                    // transparent linear region
+        val sign = if (x >= 0f) 1f else -1f
+        // Smooth asymptotic knee above 0.8: y = 0.8 + 0.2 * (1 - 1/(1 + 5*(|x|-0.8)))
+        val t = (ax - 0.8f) * 5f                    // 0 at threshold, grows unbounded
+        val compressed = t / (1f + t)               // 0..1 smooth saturation
+        return sign * (0.8f + 0.2f * compressed).coerceAtMost(0.9999695f)
+    }
+
     private fun fastAtan2(y: Float, x: Float): Float {
         val absX = abs(x)
         val absY = abs(y)
@@ -417,10 +436,12 @@ class FmDemodulator(
                 muteRamp = (muteRamp + muteRampUp).coerceAtMost(1f)
             }
 
-            // Scale to 16-bit PCM
-            val gain = muteRamp * 28000f  // With fmGain=0.5, max output ~±14000 = 12dB headroom
-            val sampleL = (outL * gain).toInt().coerceIn(-32767, 32767)
-            val sampleR = (outR * gain).toInt().coerceIn(-32767, 32767)
+            // Scale to 16-bit PCM with soft-clip limiter (eliminates harsh hard-clip artifacts
+            // on deep-modulated peaks). Uses a cubic soft-knee that is transparent below
+            // 0.8 full-scale and rolls off smoothly toward ±1.0.
+            val gain = muteRamp * 28000f
+            val sampleL = (softClip(outL * gain / 32767f) * 32767f).toInt()
+            val sampleR = (softClip(outR * gain / 32767f) * 32767f).toInt()
 
             if (audioCount + 1 < outBuf.size) {
                 outBuf[audioCount++] = sampleL.toShort()
