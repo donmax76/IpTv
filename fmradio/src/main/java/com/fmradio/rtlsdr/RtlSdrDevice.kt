@@ -733,7 +733,9 @@ class RtlSdrDevice(private val context: Context) {
             0x00, // reg 0x11
             0x00, // reg 0x12: Mixer gain (0x00=low, 0x08=high, 0x0A=max)
             0x00, // reg 0x13: IF gain (bits 0-4: 2dB/step, bits 5-7: 1dB/step)
-            0x10, // reg 0x14: LNA max gain (0x10), VHF band (bits 5-6=0x00)
+            0x08, // reg 0x14: LNA middle gain (0x08), VHF band (bits 5-6=0x00)
+                  //          was 0x10 (max) which saturated the ADC on strong FM —
+                  //          setAutoGain(true) applies the working-level values.
             0x01, // reg 0x15
         )
 
@@ -975,19 +977,29 @@ class RtlSdrDevice(private val context: Context) {
                     }
                 }
                 TunerType.FC0013, TunerType.FC0012 -> {
-                    // FC0013: use manual gain at max (same as Windows SDR software).
-                    // FC0013 auto AGC (reg 0x08=0xFF) is too slow (~17s convergence).
-                    // From old-dab/rtlsdr: bit 3 of reg 0x0D = AGC_FORCE (1=off, 0=on)
-                    // Manual gain with max IF gain = instant reception.
+                    // FC0013: manual gain, but MODERATE not max. Previous "max all"
+                    // setting (LNA 0x10 + mixer 0x0A + IF 0x1F = 62 dB IF gain)
+                    // saturates the RTL2832U 8-bit ADC on strong FM stations,
+                    // producing the harsh distortion the user was hearing even on
+                    // signals that sound fine on other receivers at the same spot.
+                    //
+                    // New values give ~30 dB less total gain, well below saturation,
+                    // while still more sensitive than auto AGC (which takes ~17 s
+                    // to converge on FC0013 — unusable for FM).
+                    //   LNA   0x0D:  set by reg 0x14 (bit 4 — middle, not max)
+                    //   Mixer 0x12:  0x08 (high, not 0x0A max)
+                    //   IF    0x13:  0x12 (~36 dB, not 0x1F = 62 dB)
                     val reg0d = fc0013ReadReg(0x0D) ?: fc0013Regs[0x0D]
                     if (enabled) {
-                        // Manual mode with max gain (matches Windows rtl_fm behavior)
+                        // Manual mode at moderate gain
                         fc0013WriteReg(0x0D, reg0d or 0x08)   // bit 3=1 → AGC off
-                        fc0013WriteReg(0x12, 0x0A)             // mixer gain max
-                        fc0013WriteReg(0x13, 0x1F)             // IF gain max
-                        // LNA already at 0x10 (max) from init
+                        val reg14 = (fc0013ReadReg(0x14) ?: fc0013Regs[0x14]) and 0x60
+                        fc0013WriteReg(0x14, reg14 or 0x08)   // LNA middle (was 0x10 max)
+                        fc0013WriteReg(0x12, 0x08)            // mixer high (was 0x0A max)
+                        fc0013WriteReg(0x13, 0x12)            // IF ~36 dB (was 0x1F = 62 dB)
                     } else {
-                        // Auto AGC (slow, not recommended for FM)
+                        // Auto AGC (slow, not recommended for FM — only used by scanner
+                        // in combination with an explicit setGain() call afterwards)
                         fc0013WriteReg(0x0D, reg0d and 0xF7)  // bit 3=0 → AGC on
                     }
                 }
