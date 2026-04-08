@@ -15,13 +15,15 @@ class NativeFmDsp {
     companion object {
         private const val TAG = "NativeFmDsp"
 
-        @JvmStatic
         var available = false
             private set
 
         init {
             available = try {
-                System.loadLibrary("fmradio_native")
+                // libfmradio_dsp.so — built by cpp/CMakeLists.txt from fm_dsp.cpp.
+                // Separate from NativeUsb's "fmradio_native" so a missing Linux USB
+                // header in the NDK sysroot can't block the DSP build.
+                System.loadLibrary("fmradio_dsp")
                 Log.i(TAG, "Native FM DSP library loaded")
                 true
             } catch (e: UnsatisfiedLinkError) {
