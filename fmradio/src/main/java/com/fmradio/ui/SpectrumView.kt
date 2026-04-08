@@ -27,6 +27,15 @@ class SpectrumView @JvmOverloads constructor(
         maskFilter = BlurMaskFilter(8f, BlurMaskFilter.Blur.OUTER)
     }
 
+    // Shadow buffer: DSP thread copies audio samples here, main thread
+    // reads them during onDraw. This offloads the 32x log10 band analysis
+    // from the hot DSP path (was measurably stealing audio budget).
+    private val audioShadow = ShortArray(4096)
+    private var audioShadowCount = 0
+    private val shadowLock = Any()
+    @Volatile
+    private var hasNewAudio = false
+
     // Gradient colors: green → cyan → magenta
     private val barColors = IntArray(BAR_COUNT).also { colors ->
         for (i in 0 until BAR_COUNT) {
@@ -47,21 +56,38 @@ class SpectrumView @JvmOverloads constructor(
     }
 
     /**
-     * Update visualizer with audio samples (interleaved stereo L,R,L,R...).
-     * Call from audio thread — lightweight computation.
+     * Called from the DSP thread. Copies samples into a shadow buffer and
+     * schedules a redraw. All heavy analysis (log10 × BAR_COUNT) happens on
+     * the UI thread during onDraw so it never steals time from the audio
+     * budget.
      */
     fun updateAudio(samples: ShortArray, count: Int) {
         if (count < BAR_COUNT * 2) return
+        synchronized(shadowLock) {
+            val n = count.coerceAtMost(audioShadow.size)
+            System.arraycopy(samples, 0, audioShadow, 0, n)
+            audioShadowCount = n
+            hasNewAudio = true
+        }
+        postInvalidate()
+    }
 
-        // Simple band-energy analysis (not full FFT — fast enough for visualization)
-        val samplesPerBar = count / (BAR_COUNT * 2)  // /2 for stereo
+    private fun analyzeShadow() {
+        val count: Int
+        synchronized(shadowLock) {
+            if (!hasNewAudio) return
+            count = audioShadowCount
+            hasNewAudio = false
+        }
+        if (count < BAR_COUNT * 2) return
+        val samplesPerBar = count / (BAR_COUNT * 2)
         for (i in 0 until BAR_COUNT) {
             var energy = 0.0
             val start = i * samplesPerBar * 2
             for (j in 0 until samplesPerBar * 2) {
                 val idx = start + j
                 if (idx < count) {
-                    val s = samples[idx].toFloat() / 32767f
+                    val s = audioShadow[idx].toFloat() / 32767f
                     energy += s * s
                 }
             }
@@ -70,9 +96,6 @@ class SpectrumView @JvmOverloads constructor(
             val normalized = ((db - MIN_DB) / (MAX_DB - MIN_DB)).coerceIn(0f, 1f)
             barHeights[i] = normalized
         }
-
-        // Smooth on UI thread
-        postInvalidate()
     }
 
     /** Clear bars (e.g. when playback stops) */
@@ -84,6 +107,7 @@ class SpectrumView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        analyzeShadow()
         val w = width.toFloat()
         val h = height.toFloat()
         if (w <= 0 || h <= 0) return
