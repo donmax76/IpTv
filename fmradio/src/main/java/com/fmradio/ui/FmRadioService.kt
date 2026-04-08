@@ -342,7 +342,7 @@ class FmRadioService : Service() {
 
         // Wideband listener sends RDS data to separate thread — never blocks DSP
         // Use pre-allocated holders to avoid GC pressure (zero allocation in DSP thread)
-        class RdsPacket(val samples: FloatArray, var phase: Double = 0.0, var gen: Int = 0)
+        class RdsPacket(val samples: FloatArray, var count: Int = 0, var phase: Double = 0.0, var gen: Int = 0)
         val rdsPacket0 = RdsPacket(FloatArray(6000))
         val rdsPacket1 = RdsPacket(FloatArray(6000))
         var rdsFlip = false
@@ -353,6 +353,7 @@ class FmRadioService : Service() {
                 val pkt = if (rdsFlip) rdsPacket0 else rdsPacket1
                 rdsFlip = !rdsFlip
                 System.arraycopy(widebandSamples, 0, pkt.samples, 0, count)
+                pkt.count = count
                 pkt.phase = pilotPhase
                 pkt.gen = rdsGeneration
                 rdsChannel.trySend(pkt)
@@ -364,7 +365,13 @@ class FmRadioService : Service() {
             for (pkt in rdsChannel) {
                 if (pkt.gen != rdsGeneration) continue
                 val rds = rdsDecoder ?: continue
-                rds.process(pkt.samples, pkt.samples.size, pkt.phase)
+                // Pass pkt.count — the number of valid samples actually written,
+                // NOT samples.size (which is the full 6000-float buffer). Using
+                // samples.size meant the decoder processed stale data after the
+                // valid region, which corrupted the BPSK clock recovery and
+                // prevented block sync from ever holding — effectively killing
+                // RDS completely.
+                rds.process(pkt.samples, pkt.count, pkt.phase)
             }
         }
 
