@@ -38,32 +38,34 @@ class FmDemodulator(
     private var prevI = 0f
     private var prevQ = 0f
 
-    // FM deviation gain — converts atan2 output to proper audio level
-    // Max phase change per sample = 2π × 75000/192000 ≈ 2.454 rad
-    // We want 100% modulation to map to ~±0.7 to leave headroom
-    private val fmGain = (intermediateRate.toFloat() / (2f * PI.toFloat() * 75000f)) * 0.5f  // 0.5 for 12dB headroom
+    // FM deviation gain — converts atan2 output to proper audio level.
+    // 100% modulation (±75 kHz) maps to ~±0.82 — close to the soft-clip knee at 0.8.
+    // The soft-clip limiter handles peaks above this safely, so we don't waste 12 dB
+    // of headroom that other broadcast FM receivers don't waste either.
+    private val fmGain = (intermediateRate.toFloat() / (2f * PI.toFloat() * 75000f)) * 0.82f
 
     // De-emphasis filter (50µs time constant for Europe/Russia)
     private var deEmphasisStateL = 0f
     private var deEmphasisStateR = 0f
     private val deEmphasisAlpha: Float
 
-    // IF low-pass filter (before stage 1 decimation)
-    // 96 taps: professional-grade adjacent-channel rejection (~100 dB stopband with
-    // Blackman-Harris window). Cutoff 100 kHz, steep transition to reject ±200 kHz
-    // neighbours while preserving full ±75 kHz FM deviation + 19 kHz pilot + 38 kHz DSB.
-    private val ifLpfOrder = 96
+    // IF low-pass filter (before stage 1 decimation).
+    // 64 taps with Blackman-Harris: ~95 dB stopband, ~45 kHz transition band at
+    // 1.152 MHz fs. Cutoff 120 kHz so the full ±100 kHz FM-broadcast spectrum
+    // (Carson) passes flat — no peak clipping → no demodulation distortion.
+    // Modest CPU bump over the historical 48 taps; safe on mid-range phones.
+    private val ifLpfOrder = 64
     private val ifLpfCoeffs: FloatArray
     // Double-buffer trick: size 2×N, write to both halves, filter without modulo
     private var ifBufI = FloatArray(ifLpfOrder * 2)
     private var ifBufQ = FloatArray(ifLpfOrder * 2)
     private var ifBufIdx = 0
 
-    // Audio low-pass filters — separate for L+R (mono) and L-R (stereo difference)
-    // 64 taps: 15 kHz cutoff at 192 kHz with ~100 dB stopband and flat passband.
-    // Steep transition between 15 kHz (audio) and 19 kHz (pilot) — fully removes
-    // pilot residue and DSB sidebands from the audio path for transparent sound.
-    private val audioLpfOrder = 64
+    // Audio low-pass filters — separate for L+R (mono) and L-R (stereo difference).
+    // 32 taps: 15 kHz cutoff at 192 kHz with ~90 dB stopband — clean anti-alias
+    // before /4 decimation to 48 kHz. Lower CPU than longer filters; the 19 kHz
+    // pilot residue is well below the noise floor of broadcast FM at this length.
+    private val audioLpfOrder = 32
     private val audioLpfCoeffs: FloatArray
     // Double-buffer trick: eliminates modulo in filter inner loop
     private var monoLpfBuf = FloatArray(audioLpfOrder * 2)    // L+R channel
@@ -151,16 +153,15 @@ class FmDemodulator(
         val dt = 1f / audioSampleRate
         deEmphasisAlpha = dt / (tau + dt)
 
-        // IF filter: 100 kHz cutoff — tighter than ±75 kHz deviation + 38 kHz stereo
-        // sideband (= ~113 kHz), but the long 96-tap filter has a narrow transition,
-        // so passband stays flat through 100 kHz and stopband hits ~150 kHz at −100 dB.
-        ifLpfCoeffs = designLowPassFilter(ifLpfOrder, 100000f / inputSampleRate)
+        // IF filter: 120 kHz cutoff. Wide enough to pass full FM broadcast spectrum
+        // (Carson ≈ ±90 kHz incl. RDS at ±57 kHz) flat — no edge clipping.
+        ifLpfCoeffs = designLowPassFilter(ifLpfOrder, 120000f / inputSampleRate)
         // Audio filter: 15 kHz cutoff — standard FM mono audio
         audioLpfCoeffs = designLowPassFilter(audioLpfOrder, 15000f / intermediateRate)
 
         // Design 19 kHz pilot bandpass biquad (Q=80 for narrow extraction)
         val w0 = 2.0 * PI * 19000.0 / intermediateRate
-        val bpfQ = 120.0  // Narrower pilot BPF — cleaner 19 kHz extraction, less noise modulation on PLL
+        val bpfQ = 80.0  // Q=80 — fast pilot lock without ringing, stable on transients
         val bpfAlpha = sin(w0) / (2.0 * bpfQ)
         val a0 = 1.0 + bpfAlpha
         pilotBpfB0 = bpfAlpha / a0
