@@ -469,6 +469,68 @@
                     android:background="@drawable/bg_button_metal" />
             </LinearLayout>
 
+            <!-- DSP A/B test toggles — GAIN | NOTCH | PLL | DC -->
+            <!-- Tap to toggle each DSP tweak live, compare by ear. -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:baselineAligned="false"
+                android:gravity="center_vertical"
+                android:layout_marginTop="3dp">
+
+                <Button
+                    android:id="@+id/btnTestGain"
+                    android:layout_width="0dp"
+                    android:layout_height="30dp"
+                    android:layout_weight="1"
+                    android:text="GAIN"
+                    android:textColor="@color/lcd_dim"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:background="@drawable/bg_button_metal"
+                    android:layout_marginEnd="3dp" />
+
+                <Button
+                    android:id="@+id/btnTestNotch"
+                    android:layout_width="0dp"
+                    android:layout_height="30dp"
+                    android:layout_weight="1"
+                    android:text="NOTCH"
+                    android:textColor="@color/lcd_dim"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:background="@drawable/bg_button_metal"
+                    android:layout_marginEnd="3dp" />
+
+                <Button
+                    android:id="@+id/btnTestPll"
+                    android:layout_width="0dp"
+                    android:layout_height="30dp"
+                    android:layout_weight="1"
+                    android:text="PLL"
+                    android:textColor="@color/lcd_dim"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:background="@drawable/bg_button_metal"
+                    android:layout_marginEnd="3dp" />
+
+                <Button
+                    android:id="@+id/btnTestDc"
+                    android:layout_width="0dp"
+                    android:layout_height="30dp"
+                    android:layout_weight="1"
+                    android:text="DC"
+                    android:textColor="@color/lcd_dim"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:background="@drawable/bg_button_metal" />
+            </LinearLayout>
+
             <!-- ========= Volume + EQ (moved inside main panel) ========= -->
             <LinearLayout
                 android:layout_width="match_parent"

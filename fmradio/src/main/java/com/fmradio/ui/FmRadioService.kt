@@ -343,6 +343,8 @@ class FmRadioService : Service() {
         } else null
         if (nativeDsp != null) {
             DebugLog.log("SVC", "Using NATIVE C++ DSP (zero-jitter)")
+            // Re-apply any test flags the user set before playback started
+            try { nativeDsp?.setTestFlags(testFlags) } catch (_: Throwable) {}
         } else {
             DebugLog.log("SVC", "Using Kotlin DSP (native not available)")
         }
@@ -607,6 +609,20 @@ class FmRadioService : Service() {
     }
 
     fun setVolume(volume: Float) { audioPlayer?.setVolume(volume.coerceIn(0f, 1f)) }
+
+    // ========= DSP A/B test flags (runtime toggles for sound quality tuning) =========
+    @Volatile
+    var testFlags: Int = 0
+        private set
+
+    fun setTestFlags(flags: Int) {
+        testFlags = flags
+        try { nativeDsp?.setTestFlags(flags) } catch (_: Throwable) {}
+    }
+
+    fun toggleTestFlag(bit: Int) {
+        setTestFlags(testFlags xor bit)
+    }
 
     fun setBass(level: Int) {
         equalizer?.bassGainDb = (level - 10).toFloat()

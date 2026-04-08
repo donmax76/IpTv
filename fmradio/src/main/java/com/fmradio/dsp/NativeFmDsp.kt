@@ -48,6 +48,20 @@ class NativeFmDsp {
     external fun getWbCount(): Int
     external fun demodulate(iqData: ByteArray, audioOut: ShortArray, wbOut: FloatArray?): Int
 
+    /**
+     * Runtime A/B test flag bitfield. See TEST_* constants below.
+     * Allows toggling DSP tweaks live from the UI without rebuilding.
+     */
+    external fun setTestFlags(flags: Int)
+    external fun getTestFlags(): Int
+
+    object TestFlag {
+        const val GAIN  = 0x01  // lower fmGain: more headroom before soft-clip
+        const val NOTCH = 0x02  // 19 kHz notch on audio: kill pilot residue
+        const val PLL   = 0x04  // faster pilot PLL: better on fading
+        const val DC    = 0x08  // aggressive IQ DC blocker: kill zero-IF pumping
+    }
+
     /** Demodulate IQ data, return audio count and fill pre-allocated buffers */
     fun process(iqData: ByteArray): DemodResult {
         val count = demodulate(iqData, audioBuffer, wbBuffer)

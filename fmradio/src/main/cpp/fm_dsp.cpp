@@ -157,11 +157,41 @@ struct DspState {
     int wbCount = 0;
     double wbStartPilotPhase = 0.0;
 
+    // ========== Runtime A/B test flags (bitfield) ==========
+    // Bit 0 = TEST_GAIN   — lower fmGain 0.82 → 0.65 (more headroom, softer peaks)
+    // Bit 1 = TEST_NOTCH  — enable 19 kHz biquad notch on audio (kill pilot residue)
+    // Bit 2 = TEST_PLL    — faster pilot PLL 1 Hz → 5 Hz (less jitter on fading)
+    // Bit 3 = TEST_DC     — aggressive IQ DC blocker 0.999995 → 0.99995
+    int testFlags = 0;
+    static constexpr int TEST_GAIN = 0x01;
+    static constexpr int TEST_NOTCH = 0x02;
+    static constexpr int TEST_PLL = 0x04;
+    static constexpr int TEST_DC = 0x08;
+
+    // Two pre-computed gain values, selected by TEST_GAIN flag at runtime.
+    float fmGainDefault;
+    float fmGainLow;
+
+    // Pilot PLL: two sets of (alpha, beta) pre-computed. TEST_PLL switches.
+    double pilotAlphaSlow, pilotBetaSlow;
+    double pilotAlphaFast, pilotBetaFast;
+
+    // 19 kHz notch biquads (separate state for L/R channels).
+    // Applied AFTER the stereo matrix but BEFORE de-emphasis.
+    double notchB0 = 1.0, notchB1 = 0.0, notchB2 = 0.0;
+    double notchA1 = 0.0, notchA2 = 0.0;
+    double notchLX1 = 0, notchLX2 = 0, notchLY1 = 0, notchLY2 = 0;
+    double notchRX1 = 0, notchRX2 = 0, notchRY1 = 0, notchRY2 = 0;
+
     void init() {
         if (initialized) return;
         initialized = true;
 
-        fmGain = (float)INTERMEDIATE_RATE / (2.0f * PI_F * 75000.0f) * 0.82f;
+        // Two fmGain presets, selected at runtime by TEST_GAIN flag
+        float fmGainBase = (float)INTERMEDIATE_RATE / (2.0f * PI_F * 75000.0f);
+        fmGainDefault = fmGainBase * 0.82f;  // current production value
+        fmGainLow     = fmGainBase * 0.65f;  // TEST 1: more headroom
+        fmGain = fmGainDefault;
 
         // IF filter: 120 kHz cutoff (full FM broadcast bandwidth)
         designLpf(ifCoeffs, IF_LPF_ORDER, 120000.0f / SAMPLE_RATE);
@@ -171,18 +201,40 @@ struct DspState {
         // Pilot BPF (Q=80, 19 kHz)
         double w0 = 2.0 * PI_D * 19000.0 / INTERMEDIATE_RATE;
         double bpfAlpha = sin(w0) / (2.0 * 80.0);
-        double a0 = 1.0 + bpfAlpha;
-        pilotBpfB0 = bpfAlpha / a0;
-        pilotBpfB2 = -bpfAlpha / a0;
-        pilotBpfA1 = (-2.0 * cos(w0)) / a0;
-        pilotBpfA2 = (1.0 - bpfAlpha) / a0;
+        double a0p = 1.0 + bpfAlpha;
+        pilotBpfB0 = bpfAlpha / a0p;
+        pilotBpfB2 = -bpfAlpha / a0p;
+        pilotBpfA1 = (-2.0 * cos(w0)) / a0p;
+        pilotBpfA2 = (1.0 - bpfAlpha) / a0p;
 
-        // PLL: critically damped, 1 Hz loop bandwidth
+        // PLL: two pre-computed (alpha, beta) sets
         pilotNcoFreq = 2.0 * PI_D * 19000.0 / INTERMEDIATE_RATE;
-        double loopBw = 2.0 * PI_D * 1.0 / INTERMEDIATE_RATE;
         double damp = 0.707;
-        pilotAlpha = 2.0 * damp * loopBw;
-        pilotBeta = loopBw * loopBw;
+        double loopBwSlow = 2.0 * PI_D * 1.0 / INTERMEDIATE_RATE;   // 1 Hz
+        double loopBwFast = 2.0 * PI_D * 5.0 / INTERMEDIATE_RATE;   // 5 Hz
+        pilotAlphaSlow = 2.0 * damp * loopBwSlow;
+        pilotBetaSlow  = loopBwSlow * loopBwSlow;
+        pilotAlphaFast = 2.0 * damp * loopBwFast;
+        pilotBetaFast  = loopBwFast * loopBwFast;
+        pilotAlpha = pilotAlphaSlow;
+        pilotBeta  = pilotBetaSlow;
+
+        // 19 kHz biquad notch (RBJ cookbook). Q=10 → ~1.9 kHz wide notch at
+        // AUDIO_RATE = 48 kHz. Runs on the final L/R audio samples when
+        // TEST_NOTCH is enabled.
+        {
+            double w0n = 2.0 * PI_D * 19000.0 / AUDIO_RATE;
+            double cw0 = cos(w0n);
+            double sw0 = sin(w0n);
+            double Q = 10.0;
+            double alphaN = sw0 / (2.0 * Q);
+            double a0n = 1.0 + alphaN;
+            notchB0 = 1.0 / a0n;
+            notchB1 = (-2.0 * cw0) / a0n;
+            notchB2 = 1.0 / a0n;
+            notchA1 = (-2.0 * cw0) / a0n;
+            notchA2 = (1.0 - alphaN) / a0n;
+        }
         pilotFreqMin = 2.0 * PI_D * 18500.0 / INTERMEDIATE_RATE;
         pilotFreqMax = 2.0 * PI_D * 19500.0 / INTERMEDIATE_RATE;
 
@@ -229,6 +281,36 @@ struct DspState {
         muteRamp = 0.0f;
         wbCount = 0;
         wbStartPilotPhase = 0.0;
+        notchLX1 = notchLX2 = notchLY1 = notchLY2 = 0;
+        notchRX1 = notchRX2 = notchRY1 = notchRY2 = 0;
+        // Don't reset testFlags — user controls them from UI
+    }
+
+    void applyTestFlags() {
+        fmGain = (testFlags & TEST_GAIN) ? fmGainLow : fmGainDefault;
+        if (testFlags & TEST_PLL) {
+            pilotAlpha = pilotAlphaFast;
+            pilotBeta  = pilotBetaFast;
+        } else {
+            pilotAlpha = pilotAlphaSlow;
+            pilotBeta  = pilotBetaSlow;
+        }
+    }
+
+    inline double notchL(double x) {
+        double y = notchB0 * x + notchB1 * notchLX1 + notchB2 * notchLX2
+                 - notchA1 * notchLY1 - notchA2 * notchLY2;
+        notchLX2 = notchLX1; notchLX1 = x;
+        notchLY2 = notchLY1; notchLY1 = y;
+        return y;
+    }
+
+    inline double notchR(double x) {
+        double y = notchB0 * x + notchB1 * notchRX1 + notchB2 * notchRX2
+                 - notchA1 * notchRY1 - notchA2 * notchRY2;
+        notchRX2 = notchRX1; notchRX1 = x;
+        notchRY2 = notchRY1; notchRY1 = y;
+        return y;
     }
 
     inline double pilotBpf(double input) {
@@ -281,6 +363,21 @@ Java_com_fmradio_dsp_NativeFmDsp_getWbCount(JNIEnv*, jobject) {
     return g_dsp.wbCount;
 }
 
+JNIEXPORT void JNICALL
+Java_com_fmradio_dsp_NativeFmDsp_setTestFlags(JNIEnv*, jobject, jint flags) {
+    g_dsp.testFlags = flags;
+    // Clear notch state when disabling to avoid thump on re-enable
+    if (!(flags & DspState::TEST_NOTCH)) {
+        g_dsp.notchLX1 = g_dsp.notchLX2 = g_dsp.notchLY1 = g_dsp.notchLY2 = 0;
+        g_dsp.notchRX1 = g_dsp.notchRX2 = g_dsp.notchRY1 = g_dsp.notchRY2 = 0;
+    }
+}
+
+JNIEXPORT jint JNICALL
+Java_com_fmradio_dsp_NativeFmDsp_getTestFlags(JNIEnv*, jobject) {
+    return g_dsp.testFlags;
+}
+
 /**
  * Main demodulation function.
  * Input: byte[] IQ data (unsigned 8-bit, interleaved I,Q,I,Q,...)
@@ -295,6 +392,12 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
 {
     DspState& d = g_dsp;
     if (!d.initialized) { d.init(); initLut(); }
+
+    // Apply current runtime test flags (cheap, just picks pre-computed values)
+    d.applyTestFlags();
+    // TEST_DC: more aggressive IQ DC blocker (0.99995 vs 0.999995)
+    const float dcA = (d.testFlags & DspState::TEST_DC) ? 0.99995f : 0.999995f;
+    const bool useNotch = (d.testFlags & DspState::TEST_NOTCH) != 0;
 
     jsize iqLen = env->GetArrayLength(iqArray);
     jsize audioLen = env->GetArrayLength(audioArray);
@@ -318,9 +421,9 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
         float iSample = byteLut[(uint8_t)iq[i*2]];
         float qSample = byteLut[(uint8_t)iq[i*2+1]];
 
-        // DC removal (IIR high-pass)
-        d.dcI = d.dcAlpha * d.dcI + (1.0f - d.dcAlpha) * iSample;
-        d.dcQ = d.dcAlpha * d.dcQ + (1.0f - d.dcAlpha) * qSample;
+        // DC removal (IIR high-pass) — alpha controlled by TEST_DC
+        d.dcI = dcA * d.dcI + (1.0f - dcA) * iSample;
+        d.dcQ = dcA * d.dcQ + (1.0f - dcA) * qSample;
         iSample -= d.dcI;
         qSample -= d.dcQ;
 
@@ -445,6 +548,13 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
         // Stereo matrix with smooth blend
         float left  = filtMono + filtDiff * d.stereoBlend * 0.5f;
         float right = filtMono - filtDiff * d.stereoBlend * 0.5f;
+
+        // TEST_NOTCH: 19 kHz biquad notch to kill any pilot leakage that
+        // got past the 32-tap audio LPF. Only runs when toggle is active.
+        if (useNotch) {
+            left  = (float)d.notchL((double)left);
+            right = (float)d.notchR((double)right);
+        }
 
         // De-emphasis (50µs) — separate state for L/R
         d.deEmphStateL += d.deEmphAlpha * (left - d.deEmphStateL);
