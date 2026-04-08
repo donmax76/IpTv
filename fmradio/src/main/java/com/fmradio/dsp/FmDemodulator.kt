@@ -146,6 +146,10 @@ class FmDemodulator(
     // Pre-allocated wideband buffer for RDS (zero-copy to listener)
     // Max input: 32768 bytes = 16384 IQ → 2730 intermediate samples
     private val wbBuf = FloatArray(6000)
+    // Pilot NCO phase at wbBuf[0] — captured on the first wideband sample
+    // of each call so the RDS decoder can reconstruct the 57 kHz carrier
+    // starting at the correct phase for that buffer.
+    private var wbStartPilotPhase = 0.0
 
     init {
         // De-emphasis: 50µs time constant (Europe/Russia standard)
@@ -377,8 +381,10 @@ class FmDemodulator(
                 squelchLevel = (squelchLevel - squelchRelease).coerceAtLeast(0f)
             }
 
-            // Wideband output for RDS decoder
+            // Wideband output for RDS decoder — capture pilot phase at sample 0
+            // so the RDS carrier reconstruction aligns with the buffer start.
             if (widebandBuf != null && wbCount < wbBuf.size) {
+                if (wbCount == 0) wbStartPilotPhase = pilotNcoPhase
                 widebandBuf[wbCount++] = rawBaseband
             }
 
@@ -450,9 +456,11 @@ class FmDemodulator(
             }
         }
 
-        // Send wideband data to RDS with current pilot phase (zero-copy: pass count)
+        // Send wideband data to RDS with the phase captured at wbBuf[0]
+        // (not the current end-of-buffer phase, which introduced a constant
+        // per-buffer rotation and broke DBPSK decoding across boundaries).
         if (wbListener != null && wbCount > 0) {
-            wbListener.invoke(widebandBuf!!, wbCount, pilotNcoPhase)
+            wbListener.invoke(widebandBuf!!, wbCount, wbStartPilotPhase)
         }
 
         return audioCount

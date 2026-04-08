@@ -1193,9 +1193,13 @@ class RtlSdrDevice(private val context: Context) {
             var nullReads = 0
             while (isStreaming && isActive) {
                 try {
-                    // Short timeout (vs the 5s default) so cancellation propagates
-                    // within ~200 ms — critical for clean handoff to scanner.
-                    val data = readSamples(bufferSize, 200)
+                    // 500 ms read timeout: long enough to be reliable under normal
+                    // load (reads normally complete in ~14 ms at 1.152 Msps with a
+                    // 32 KB buffer), short enough that cancellation propagates
+                    // within ~500 ms. Shorter values caused intermittent early
+                    // timeouts that dropped audio; the default 5 s was too slow
+                    // for scanner handoff after stopPlayback().
+                    val data = readSamples(bufferSize, 500)
                     if (data != null && data.isNotEmpty()) {
                         readCount++
                         totalBytes += data.size
