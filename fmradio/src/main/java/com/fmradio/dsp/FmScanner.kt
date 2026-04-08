@@ -183,10 +183,15 @@ class FmScanner(private val device: RtlSdrDevice) {
         Log.i(TAG, "Starting scan: ${startFreq/1e6} - ${endFreq/1e6} MHz, step=${step/1e3} kHz")
 
         try {
-            if (device.isStreaming) {
-                device.stopStreaming()
-                delay(100)
-            }
+            // Stop any in-flight streaming UNCONDITIONALLY. The isStreaming flag may
+            // already be false (cleared by stopPlayback) while the streaming coroutine
+            // is still mid-read inside readSamples(). Both share asyncReadBuffer, so
+            // racing two readers gives null/garbage and the scanner sees no signal.
+            // The fullReset() below cancels in-flight URBs, drains stale data, and
+            // clears endpoint stalls so the scanner has the bus to itself.
+            device.stopStreaming()
+            delay(150)  // let any inflight USB read time out before we touch the bus
+            try { device.fullReset() } catch (e: Exception) { Log.w(TAG, "pre-scan fullReset failed", e) }
 
             device.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
             device.setAutoGain(true)

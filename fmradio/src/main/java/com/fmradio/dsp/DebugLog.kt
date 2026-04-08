@@ -21,7 +21,8 @@ object DebugLog {
 
     private const val TAG = "FmDebugLog"
     private const val MAX_UI_LINES = 500
-    private const val LOG_FILE_NAME = "fmradio_debug.log"
+    private const val LOG_FILE_NAME = "fmradio_debug.txt"
+    private const val OLD_LOG_FILE_NAME = "fmradio_debug.old.txt"
 
     private val uiLines = ArrayDeque<String>(MAX_UI_LINES + 10)
     private val sdf = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
@@ -49,11 +50,19 @@ object DebugLog {
         try {
             val dir = File(ctx.getExternalFilesDir(null), "logs")
             dir.mkdirs()
-            logFile = File(dir, LOG_FILE_NAME)
+
+            // One-time migration: if a legacy .log file exists, rename it to .txt
+            // so users with old installs see their existing history.
+            val legacy = File(dir, "fmradio_debug.log")
+            val target = File(dir, LOG_FILE_NAME)
+            if (legacy.exists() && !target.exists()) {
+                legacy.renameTo(target)
+            }
+            logFile = target
 
             // Rotate: if log > 2MB, rename to .old and start fresh
             if (logFile!!.exists() && logFile!!.length() > 2 * 1024 * 1024) {
-                val old = File(dir, "fmradio_debug.old.log")
+                val old = File(dir, OLD_LOG_FILE_NAME)
                 old.delete()
                 logFile!!.renameTo(old)
                 logFile = File(dir, LOG_FILE_NAME)
@@ -129,11 +138,37 @@ object DebugLog {
     }
 
     /**
-     * Create a share Intent for the log file.
+     * Export the current log as a freshly named .txt file for sharing.
+     * The exported file uses a timestamped name like fmradio_log_2026-04-08_12-34-56.txt
+     * so receiving apps (mail, messengers) treat it as plain text and don't fall
+     * back to a generic .bin/octet-stream extension.
+     */
+    fun exportToTxt(ctx: Context): File? {
+        flush()
+        val src = logFile ?: return null
+        if (!src.exists()) return null
+        return try {
+            val dir = File(ctx.getExternalFilesDir(null), "logs")
+            dir.mkdirs()
+            val stamp = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(Date())
+            val out = File(dir, "fmradio_log_$stamp.txt")
+            src.inputStream().use { input ->
+                out.outputStream().use { output -> input.copyTo(output) }
+            }
+            out
+        } catch (e: Exception) {
+            Log.e(TAG, "exportToTxt failed", e)
+            null
+        }
+    }
+
+    /**
+     * Create a share Intent for the log file. Builds a fresh timestamped .txt
+     * snapshot so the receiving app sees a real text file.
      * Use: startActivity(Intent.createChooser(getShareIntent(ctx), "Share log"))
      */
     fun getShareIntent(ctx: Context): Intent? {
-        val file = saveToFile(ctx) ?: return null
+        val file = exportToTxt(ctx) ?: return null
         if (!file.exists()) return null
 
         val uri = try {
@@ -147,7 +182,9 @@ object DebugLog {
             type = "text/plain"
             putExtra(Intent.EXTRA_STREAM, uri)
             putExtra(Intent.EXTRA_SUBJECT, "FM Radio Debug Log ${sdfFull.format(Date())}")
+            putExtra(Intent.EXTRA_TITLE, file.name)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            clipData = android.content.ClipData.newRawUri(file.name, uri)
         }
     }
 

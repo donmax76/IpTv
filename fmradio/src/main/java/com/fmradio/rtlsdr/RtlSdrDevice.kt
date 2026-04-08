@@ -1140,6 +1140,10 @@ class RtlSdrDevice(private val context: Context) {
 
     // Scope for streaming coroutine — cancelled on stopStreaming/close
     private var streamingScope: CoroutineScope? = null
+    // Job of the streaming read loop — joined on stopStreaming so callers know
+    // the USB endpoint is fully released before they touch it again.
+    @Volatile
+    private var streamingJob: Job? = null
 
     fun startStreaming(bufferSize: Int = 16384, callback: (ByteArray) -> Unit): Job {
         isStreaming = true
@@ -1180,7 +1184,7 @@ class RtlSdrDevice(private val context: Context) {
         streamingScope?.cancel()
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         streamingScope = scope
-        return scope.launch {
+        val job = scope.launch {
             Log.i(TAG, "Streaming started (bufSize=$bufferSize)")
             DebugLog.log("USB", "Streaming started, bufSize=$bufferSize")
             var readCount = 0L
@@ -1189,7 +1193,9 @@ class RtlSdrDevice(private val context: Context) {
             var nullReads = 0
             while (isStreaming && isActive) {
                 try {
-                    val data = readSamples(bufferSize)
+                    // Short timeout (vs the 5s default) so cancellation propagates
+                    // within ~200 ms — critical for clean handoff to scanner.
+                    val data = readSamples(bufferSize, 200)
                     if (data != null && data.isNotEmpty()) {
                         readCount++
                         totalBytes += data.size
@@ -1235,12 +1241,33 @@ class RtlSdrDevice(private val context: Context) {
             }
             Log.i(TAG, "Streaming stopped")
         }
+        streamingJob = job
+        return job
     }
 
+    /**
+     * Stop the streaming read loop. Blocks (with a short timeout) until the
+     * read coroutine has actually exited so the USB endpoint is free for
+     * subsequent operations like scanning. Without this wait, an in-flight
+     * readSamples() can race with new readers and corrupt asyncReadBuffer.
+     */
     fun stopStreaming() {
         isStreaming = false
-        streamingScope?.cancel()
+        val job = streamingJob
+        val scope = streamingScope
+        streamingJob = null
         streamingScope = null
+        scope?.cancel()
+        // Poll-wait (no runBlocking — safe from any thread, can't deadlock)
+        // up to 500 ms for the read loop to actually exit. Combined with the
+        // 200 ms read timeout above, this almost always returns within 250 ms.
+        if (job != null) {
+            var waited = 0
+            while (job.isActive && waited < 500) {
+                try { Thread.sleep(20) } catch (_: InterruptedException) { break }
+                waited += 20
+            }
+        }
     }
 
     /**
