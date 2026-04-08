@@ -304,9 +304,17 @@ class FmRadioService : Service() {
 
         val sampleRate = FmDemodulator.RECOMMENDED_SAMPLE_RATE
 
-        // Try native C++ DSP first (zero jitter), fall back to Kotlin
+        // Try native C++ DSP first (zero jitter), fall back to Kotlin.
+        // Wrap in try/catch so a missing JNI symbol on a stale build doesn't
+        // crash startup — we just fall back to the Kotlin demodulator.
         nativeDsp = if (NativeFmDsp.available) {
-            NativeFmDsp().also { it.init() }
+            try {
+                NativeFmDsp().also { it.init() }
+            } catch (e: Throwable) {
+                Log.e(TAG, "Native DSP init failed, falling back to Kotlin", e)
+                DebugLog.log("SVC", "Native DSP init failed: ${e.javaClass.simpleName}: ${e.message}")
+                null
+            }
         } else null
         if (nativeDsp != null) {
             DebugLog.log("SVC", "Using NATIVE C++ DSP (zero-jitter)")

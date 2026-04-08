@@ -194,8 +194,14 @@ class FmScanner(private val device: RtlSdrDevice) {
             try { device.fullReset() } catch (e: Exception) { Log.w(TAG, "pre-scan fullReset failed", e) }
 
             device.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
-            device.setAutoGain(true)
-            delay(50)
+            // CRITICAL: use FIXED manual gain for scanning, not auto AGC.
+            // R820T's hardware AGC equalises amplitude across the band, so peaks
+            // and noise become indistinguishable and the scanner finds nothing.
+            // Manual gain at index 14 (~40 dB) gives a clean SNR contrast that
+            // makes stations jump well above the noise floor.
+            device.setAutoGain(false)
+            device.setGain(14)
+            delay(80)
 
             // Measure noise floor
             var noiseFloor = -30f

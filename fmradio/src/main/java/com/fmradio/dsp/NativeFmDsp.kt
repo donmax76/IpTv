@@ -1,16 +1,37 @@
 package com.fmradio.dsp
 
+import android.util.Log
+
 /**
  * JNI bridge to native C++ FM demodulator.
  * All heavy DSP runs in native code — no GC pauses, no jitter.
+ *
+ * The native library is shared with NativeUsb (libfmradio_native.so) and
+ * loaded once at class init. If the library is missing or doesn't expose the
+ * native symbols (e.g., ABI mismatch on an old build), `available` stays
+ * false and FmRadioService falls back to the Kotlin FmDemodulator.
  */
 class NativeFmDsp {
     companion object {
-        // C++ DSP disabled — Kotlin DSP has superior audio quality:
-        // 48-tap IF LPF, squelch hysteresis, stereo smooth blend, thread safety.
-        // C++ DSP needs to be updated to match before re-enabling.
+        private const val TAG = "NativeFmDsp"
+
+        @JvmStatic
         var available = false
             private set
+
+        init {
+            available = try {
+                System.loadLibrary("fmradio_native")
+                Log.i(TAG, "Native FM DSP library loaded")
+                true
+            } catch (e: UnsatisfiedLinkError) {
+                Log.w(TAG, "Native FM DSP library not available: ${e.message}")
+                false
+            } catch (e: Throwable) {
+                Log.e(TAG, "Native FM DSP load failed", e)
+                false
+            }
+        }
     }
 
     // Pre-allocated buffers — reused every call, zero GC
