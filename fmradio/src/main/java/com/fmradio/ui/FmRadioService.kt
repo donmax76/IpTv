@@ -37,23 +37,48 @@ class FmRadioService : Service() {
         private const val SEEK_THRESHOLD = -15f
         // Smaller USB buffer = more frequent callbacks = lower latency
         private const val USB_BUFFER_SIZE = 32768
-        // IQ data queue depth: 4 buffers ≈ 4×14ms = 56ms of data
-        private const val IQ_QUEUE_DEPTH = 16  // 16 × 28ms = 450ms buffer for AudioTrack blocking
+        // IQ data queue depth. Each buffer is 32 KB = ~14 ms of IQ at 1.152 Msps,
+        // so 32 × 14 ms ≈ 450 ms of headroom before the channel fills and
+        // trySend drops samples. Enough to absorb brief scheduler pauses
+        // (e.g. when the app is backgrounded and Android briefly reshuffles
+        // the foreground cgroup) without audible drops.
+        private const val IQ_QUEUE_DEPTH = 32
     }
 
-    // Dedicated single-thread dispatcher for USB streaming
+    // Dedicated single-thread dispatcher for USB streaming.
+    // IMPORTANT: Process.setThreadPriority() without a TID argument sets the
+    // CALLING thread's priority. A ThreadFactory lambda runs on whoever calls
+    // execute() first (usually the main thread), so we must set the Android
+    // priority from INSIDE the worker thread body, not in the factory. Without
+    // this, the new worker runs at default background priority and drifts onto
+    // LITTLE cores when the app loses UI focus → audio stutters.
     private val usbDispatcher = Executors.newSingleThreadExecutor { r ->
-        Thread(r, "FmUsbStream").apply {
+        Thread({
+            try {
+                android.os.Process.setThreadPriority(
+                    android.os.Process.THREAD_PRIORITY_AUDIO
+                )
+            } catch (_: Throwable) {}
+            r.run()
+        }, "FmUsbStream").apply {
             priority = Thread.MAX_PRIORITY - 1
         }
     }.asCoroutineDispatcher()
 
-    // Dedicated single-thread dispatcher for DSP processing
+    // Dedicated single-thread dispatcher for DSP processing.
+    // Same wrapping trick as usbDispatcher — setThreadPriority must be called
+    // from inside the worker body so the foreground audio scheduling class
+    // sticks to the DSP thread, not to whoever launched the service.
     private val dspDispatcher = Executors.newSingleThreadExecutor { r ->
-        Thread(r, "FmDspProcess").apply {
+        Thread({
+            try {
+                android.os.Process.setThreadPriority(
+                    android.os.Process.THREAD_PRIORITY_URGENT_AUDIO
+                )
+            } catch (_: Throwable) {}
+            r.run()
+        }, "FmDspProcess").apply {
             priority = Thread.MAX_PRIORITY
-            // Set Android audio priority to prevent CPU throttling
-            try { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO) } catch (_: Exception) {}
         }
     }.asCoroutineDispatcher()
 
