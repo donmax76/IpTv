@@ -91,6 +91,16 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         isPlaying = true
 
         playbackThread = Thread({
+          // Bind this thread to the Android audio scheduler class so the OS
+          // keeps it on the big cores and gives it priority even when the
+          // app is in background. Without this, quality degrades noticeably
+          // when the screen turns off because the drain thread drifts onto
+          // the little cores and misses AudioTrack.write() deadlines.
+          try {
+              android.os.Process.setThreadPriority(
+                  android.os.Process.THREAD_PRIORITY_URGENT_AUDIO
+              )
+          } catch (_: Throwable) {}
           try {
             val chunkSize = 4096  // 2048 stereo frames — larger chunks reduce overhead
             val chunk = ShortArray(chunkSize)

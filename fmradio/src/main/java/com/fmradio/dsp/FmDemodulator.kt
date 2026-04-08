@@ -101,9 +101,14 @@ class FmDemodulator(
     private val pilotFreqMin = 2.0 * PI * 18500.0 / intermediateRate
     private val pilotFreqMax = 2.0 * PI * 19500.0 / intermediateRate
 
-    // Stereo detection with hysteresis + smooth blend
-    private val stereoLockThreshold = 0.001f    // Pilot strength to engage stereo
-    private val stereoUnlockThreshold = 0.0003f // Pilot strength to disengage (hysteresis)
+    // Stereo detection with hysteresis + smooth blend.
+    // Thresholds are tuned for the pilot BPF (Q=80 @ 19 kHz) output on top
+    // of the raw atan2 baseband. Pure noise gives ~0.008-0.010 squared-mean,
+    // a real broadcast pilot (10% AM modulation) gives ~0.025-0.035. Use
+    // 0.020 lock / 0.012 unlock to keep the gap clean and avoid false stereo
+    // on dead frequencies.
+    private val stereoLockThreshold = 0.020f
+    private val stereoUnlockThreshold = 0.012f
     private var stereoBlend = 0f                // 0 = mono, 1 = full stereo
     private val stereoBlendAttack = 0.002f      // ~500 samples to reach full stereo (~10ms)
     private val stereoBlendRelease = 0.0005f    // ~2000 samples to go mono (~40ms)

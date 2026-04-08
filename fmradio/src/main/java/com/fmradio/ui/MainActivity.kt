@@ -777,21 +777,24 @@ class MainActivity : Activity() {
     private var lastBars = 0
 
     private fun updateSignalBars(db: Float) {
-        // Smooth signal: 80% old + 20% new — prevents jumping at speed
-        smoothedSignalDb = smoothedSignalDb * 0.8f + db * 0.2f
+        // No extra UI smoothing here — FmRadioService already measures signal
+        // over a 333 ms window, which is smooth enough for the bars display.
+        // The previous EMA (smoothed * 0.8 + db * 0.2) combined with the
+        // service-side delta gate (abs(db - lastSignalDb) > 0.5) meant that
+        // on a stable signal the UI got exactly one update from -100 dB to
+        // the real level and then no more, so the smoothed value was stuck at
+        // ~20% of the way there and bars took minutes (or never) to fill up.
+        smoothedSignalDb = db
 
         val bars = when {
-            smoothedSignalDb > -8f  -> 4
-            smoothedSignalDb > -12f -> 3
-            smoothedSignalDb > -18f -> 2
-            smoothedSignalDb > -30f -> 1
+            db > -8f  -> 4
+            db > -12f -> 3
+            db > -18f -> 2
+            db > -30f -> 1
             else      -> 0
         }
 
-        // Hysteresis: only change bars if difference > 1 or sustained
         if (bars == lastBars) return
-        // Allow immediate drop but require bigger jump to go up
-        if (bars > lastBars && (smoothedSignalDb - db) > 2f) return
         lastBars = bars
 
         val barText = when (bars) {

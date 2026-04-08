@@ -123,8 +123,12 @@ struct DspState {
     float pilotStrength = 0;
     bool isStereo = false;
     int pilotDetectWindow;
-    static constexpr float STEREO_LOCK = 0.001f;
-    static constexpr float STEREO_UNLOCK = 0.0003f;
+    // Raised thresholds: on pure atan2 noise the 19 kHz BPF output has
+    // squared-mean around 0.008–0.010. A real broadcast pilot (10% AM
+    // modulation on top of the FM deviation) gives ~0.025–0.035. Use
+    // 0.020 lock / 0.012 unlock to cleanly separate the two.
+    static constexpr float STEREO_LOCK = 0.020f;
+    static constexpr float STEREO_UNLOCK = 0.012f;
     // Smooth blend
     float stereoBlend = 0.0f;
     static constexpr float STEREO_BLEND_ATTACK = 0.002f;
