@@ -144,6 +144,17 @@ struct DspState {
     float signalDb = -100.0f;
     int sigPowerWindow;
 
+    // Squelch — mutes noise on empty/weak frequencies.
+    // Uses modulation-level measurement with hysteresis to avoid chattering.
+    double sqQualityAcc = 0;
+    int sqQualityCount = 0;
+    bool squelchOpen = true;
+    float squelchLevel = 1.0f;
+    static constexpr float SQ_OPEN_THRESH = 0.03f;
+    static constexpr float SQ_CLOSE_THRESH = 0.008f;
+    float squelchAttack;   // rate to open (per intermediate sample)
+    float squelchRelease;  // rate to close
+
     // Warmup
     int warmupSamples = 0;
     int warmupThreshold;
@@ -246,6 +257,8 @@ struct DspState {
         deEmphAlpha = dt / (tau + dt);
 
         sigPowerWindow = INTERMEDIATE_RATE / 3;
+        squelchAttack  = 1.0f / (0.1f * INTERMEDIATE_RATE);   // 100ms to open
+        squelchRelease = 1.0f / (0.3f * INTERMEDIATE_RATE);   // 300ms to close
         warmupThreshold = INTERMEDIATE_RATE / 10;
 
         muteRampUp = 1.0f / (0.05f * AUDIO_RATE);
@@ -277,6 +290,8 @@ struct DspState {
         sigPowerAcc = 0;
         sigPowerCount = 0;
         signalDb = -100.0f;
+        sqQualityAcc = 0; sqQualityCount = 0;
+        squelchOpen = true; squelchLevel = 1.0f;
         warmupSamples = 0;
         muteRamp = 0.0f;
         wbCount = 0;
@@ -511,6 +526,28 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
             d.sigPowerCount = 0;
         }
 
+        // Squelch — measure modulation level, mute on empty frequencies
+        {
+            float absBB = fabsf(rawBB);
+            d.sqQualityAcc += absBB;
+            d.sqQualityCount++;
+            if (d.sqQualityCount >= INTERMEDIATE_RATE / 2) {  // ~500ms window
+                double avgMod = d.sqQualityAcc / d.sqQualityCount;
+                d.squelchOpen = d.squelchOpen
+                    ? (avgMod > DspState::SQ_CLOSE_THRESH && avgMod < 3.0)
+                    : (avgMod > DspState::SQ_OPEN_THRESH && avgMod < 3.0);
+                d.sqQualityAcc = 0;
+                d.sqQualityCount = 0;
+            }
+            if (d.squelchOpen && d.squelchLevel < 1.0f) {
+                d.squelchLevel += d.squelchAttack;
+                if (d.squelchLevel > 1.0f) d.squelchLevel = 1.0f;
+            } else if (!d.squelchOpen && d.squelchLevel > 0.0f) {
+                d.squelchLevel -= d.squelchRelease;
+                if (d.squelchLevel < 0.0f) d.squelchLevel = 0.0f;
+            }
+        }
+
         // Wideband for RDS — capture pilot phase at first sample
         if (wb && d.wbCount < (int)wbLen) {
             if (d.wbCount == 0) d.wbStartPilotPhase = d.pilotNcoPhase;
@@ -559,6 +596,10 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
         // De-emphasis (50µs) — separate state for L/R
         d.deEmphStateL += d.deEmphAlpha * (left - d.deEmphStateL);
         d.deEmphStateR += d.deEmphAlpha * (right - d.deEmphStateR);
+
+        // Apply squelch level
+        d.deEmphStateL *= d.squelchLevel;
+        d.deEmphStateR *= d.squelchLevel;
 
         // Mute ramp on startup
         if (d.muteRamp < 1.0f) {

@@ -225,6 +225,14 @@ class MainActivity : Activity() {
         setContentView(R.layout.activity_main)
 
         stationStorage = StationStorage(this)
+        // Auto-restore stations from backup if empty (fresh install / reinstall)
+        if (stationStorage.loadStations().isEmpty()) {
+            val restored = stationStorage.importFromBackup()
+            if (restored > 0) {
+                android.widget.Toast.makeText(this,
+                    "Восстановлено $restored станций из бэкапа", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
         permissionHelper = UsbPermissionHelper(this)
         permissionHelper.register()
 
