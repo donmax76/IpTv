@@ -319,6 +319,10 @@ class MainActivity : Activity() {
         btnAddStation = findViewById(R.id.btnAddStation)
         btnAddStation.isClickable = true
 
+        // Export/Import station buttons
+        findViewById<android.widget.TextView>(R.id.btnExportStations).setOnClickListener { exportStations() }
+        findViewById<android.widget.TextView>(R.id.btnImportStations).setOnClickListener { importStations() }
+
         lvStations = findViewById(R.id.lvStations)
         stationAdapter = StationAdapter(
             stations = emptyList(),
@@ -963,6 +967,30 @@ class MainActivity : Activity() {
             }
             .setNegativeButton(getString(R.string.btn_cancel), null)
             .show()
+    }
+
+    private fun exportStations() {
+        val intent = stationStorage.getExportShareIntent()
+        if (intent != null) {
+            startActivity(Intent.createChooser(intent, "Экспорт станций"))
+        } else {
+            showToast("Ошибка экспорта")
+        }
+    }
+
+    private fun importStations() {
+        val file = java.io.File(getExternalFilesDir(null), "backup/fm_stations.json")
+        if (!file.exists()) {
+            showToast("Файл бэкапа не найден")
+            return
+        }
+        val count = stationStorage.importFromFile(file)
+        if (count > 0) {
+            loadSavedStations()
+            showToast("Импортировано $count станций")
+        } else {
+            showToast("Ошибка импорта")
+        }
     }
 
     private fun loadSavedStations() {

@@ -786,6 +786,38 @@
                 android:clickable="true"
                 android:focusable="true"
                 android:padding="0dp" />
+
+            <TextView
+                android:id="@+id/btnExportStations"
+                android:layout_width="30dp"
+                android:layout_height="36dp"
+                android:text="↑"
+                android:textColor="@color/lcd_cyan"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace"
+                android:gravity="center"
+                android:background="@drawable/bg_button_metal"
+                android:clickable="true"
+                android:focusable="true"
+                android:padding="0dp"
+                android:layout_marginStart="3dp" />
+
+            <TextView
+                android:id="@+id/btnImportStations"
+                android:layout_width="30dp"
+                android:layout_height="36dp"
+                android:text="↓"
+                android:textColor="@color/lcd_cyan"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace"
+                android:gravity="center"
+                android:background="@drawable/bg_button_metal"
+                android:clickable="true"
+                android:focusable="true"
+                android:padding="0dp"
+                android:layout_marginStart="3dp" />
         </LinearLayout>
 
         <!-- Scan progress (hidden by default) -->
