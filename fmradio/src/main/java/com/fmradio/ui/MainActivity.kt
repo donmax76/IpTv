@@ -990,16 +990,50 @@ class MainActivity : Activity() {
     }
 
     private fun importStations() {
-        // Try Downloads first, then internal backup
-        var count = stationStorage.importFromDownloads()
-        if (count <= 0) {
-            count = stationStorage.importFromBackup()
+        // Open file picker so user can choose any .json file
+        try {
+            val intent = android.content.Intent(android.content.Intent.ACTION_GET_CONTENT).apply {
+                type = "*/*"
+                addCategory(android.content.Intent.CATEGORY_OPENABLE)
+            }
+            startActivityForResult(android.content.Intent.createChooser(intent, "Выберите fm_stations.json"), REQUEST_IMPORT_STATIONS)
+        } catch (e: Exception) {
+            // Fallback: try Downloads then backup
+            var count = stationStorage.importFromDownloads()
+            if (count <= 0) count = stationStorage.importFromBackup()
+            if (count > 0) {
+                loadSavedStations()
+                showToast("Импортировано $count станций")
+            } else {
+                showToast("Файл не найден")
+            }
         }
-        if (count > 0) {
-            loadSavedStations()
-            showToast("Импортировано $count станций")
-        } else {
-            showToast("Файл не найден в Downloads")
+    }
+
+    companion object {
+        private const val REQUEST_IMPORT_STATIONS = 9001
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_IMPORT_STATIONS && resultCode == RESULT_OK) {
+            val uri = data?.data ?: return
+            try {
+                val json = contentResolver.openInputStream(uri)?.bufferedReader()?.readText() ?: return
+                // Write to temp file and import
+                val tmp = java.io.File(cacheDir, "import_stations.json")
+                tmp.writeText(json)
+                val count = stationStorage.importFromFile(tmp)
+                tmp.delete()
+                if (count > 0) {
+                    loadSavedStations()
+                    showToast("Импортировано $count станций")
+                } else {
+                    showToast("Ошибка: неверный формат файла")
+                }
+            } catch (e: Exception) {
+                showToast("Ошибка импорта: ${e.message}")
+            }
         }
     }
 
