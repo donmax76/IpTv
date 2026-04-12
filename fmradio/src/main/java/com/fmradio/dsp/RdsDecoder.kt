@@ -418,17 +418,17 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         // EBU Latin table (0x80-0xFF) — covers most European special chars
         // and the Cyrillic block that Russian FM stations use.
         return when (code) {
-            // CP1251 Cyrillic mapping (0xC0-0xFF = А-я, most Russian stations use this)
+            // CP1251 Cyrillic mapping (0xC0-0xFF = А-я, Russian/Azerbaijani stations)
             in 0xC0..0xFF -> (code - 0xC0 + 0x0410).toChar()  // А=0x0410, Б=0x0411, ...я=0x044F
-            // EBU Latin special characters (Western European)
+            // EBU Latin special characters (Western European + Azerbaijani)
             0x80 -> 'á'; 0x81 -> 'à'; 0x82 -> 'é'; 0x83 -> 'è'
             0x84 -> 'í'; 0x85 -> 'ì'; 0x86 -> 'ó'; 0x87 -> 'ò'
             0x88 -> 'ú'; 0x89 -> 'ù'; 0x8A -> 'Ñ'; 0x8B -> 'Ç'
-            0x8C -> 'Ş'; 0x8D -> 'ß'; 0x8E -> '¡'; 0x8F -> 'İ'
+            0x8C -> 'Ş'; 0x8D -> 'ß'; 0x8E -> 'Ə'; 0x8F -> 'İ'  // Ə = Azerbaijani schwa
             0x90 -> 'â'; 0x91 -> 'ä'; 0x92 -> 'ê'; 0x93 -> 'ë'
             0x94 -> 'î'; 0x95 -> 'ï'; 0x96 -> 'ô'; 0x97 -> 'ö'
             0x98 -> 'û'; 0x99 -> 'ü'; 0x9A -> 'ñ'; 0x9B -> 'ç'
-            0x9C -> 'ş'; 0x9D -> 'ğ'; 0x9E -> 'ı'; 0x9F -> 'ĳ'
+            0x9C -> 'ş'; 0x9D -> 'ğ'; 0x9E -> 'ə'; 0x9F -> 'ı'  // ə = Azerbaijani schwa lowercase
             0xA0 -> 'ª'; 0xA1 -> 'α'; 0xA2 -> '©'; 0xA3 -> '‰'
             0xA4 -> 'Ğ'; 0xA5 -> 'ě'; 0xA6 -> 'ň'; 0xA7 -> 'ő'
             0xA8 -> 'π'; 0xA9 -> '€'; 0xAA -> '£'; 0xAB -> '$'

@@ -4,53 +4,32 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.util.Log
-import java.util.concurrent.locks.ReentrantLock
 
 /**
- * Stereo audio output player with ring buffer to smooth out USB/SDR timing jitter.
- * Accepts interleaved stereo samples (L,R,L,R,...) from FmDemodulator.
- * Uses a dedicated playback thread to decouple USB reads from audio output.
+ * Stereo audio output — thin wrapper around AudioTrack.
  *
- * Key design:
- *  - Pre-buffering: accumulate ~200ms before first drain to absorb USB jitter
- *  - Fade-in: 50ms ramp on initial playback to prevent startup pop
- *  - Fade-to-silence on underrun: smooth ramp to zero prevents clicks
- *  - Crossfade on overflow: prevents audible discontinuity when dropping samples
- *  - Large ring buffer: 4s of stereo audio for maximum jitter tolerance
+ * Previous versions used a ring buffer + dedicated drain thread.
+ * That architecture introduced a whole class of underrun/overflow bugs:
+ * lock contention between writer and reader, fade-to-silence on underrun,
+ * crossfade on overflow — each a potential source of audible clicks.
+ *
+ * New approach: write directly to AudioTrack from the DSP thread.
+ * AudioTrack's own internal buffer (10× minimum) handles all jitter
+ * absorption. write() blocks when full, pacing the DSP naturally.
+ * No ring buffer, no drain thread, no lock, no underrun logic.
  */
 class AudioPlayer(private val sampleRate: Int = 48000) {
 
     companion object {
         private const val TAG = "AudioPlayer"
-        // Ring buffer: ~4s of stereo audio at 48kHz (L,R interleaved)
-        private const val RING_BUFFER_SAMPLES = 384000  // 48000 frames × 2 ch × 4 sec
-        private const val LOW_WATERMARK = 512    // ~5ms stereo — drain as soon as possible
-        private const val HIGH_WATERMARK = 345600 // 90% full — trigger overflow drop
-        // Pre-buffer: accumulate this much before starting AudioTrack drain
-        private const val PRE_BUFFER_SAMPLES = 19200  // ~200ms stereo — extra buffer for driving stability
         // Fade-in on initial playback start to prevent pop
-        private const val FADE_IN_SAMPLES = 4800  // ~50ms stereo
-        // Crossfade on buffer overflow to prevent click
-        private const val CROSSFADE_SAMPLES = 2048
+        private const val FADE_IN_FRAMES = 2400  // ~50ms at 48 kHz
     }
 
     private var audioTrack: AudioTrack? = null
     @Volatile
     private var isPlaying = false
-
-    // Ring buffer (interleaved stereo: L,R,L,R,...)
-    private val ringBuffer = ShortArray(RING_BUFFER_SAMPLES)
-    private var writePos = 0
-    private var readPos = 0
-    private var bufferedSamples = 0
-    private val lock = ReentrantLock()
-
-    private var playbackThread: Thread? = null
-    @Volatile
-    private var preBufferFilled = false
-    private var samplesPlayed = 0L
-    private var lastOutputSample = 0
-    private var underrunCount = 0L
+    private var framesWritten = 0L
 
     fun start() {
         if (isPlaying) return
@@ -60,9 +39,8 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             AudioFormat.CHANNEL_OUT_STEREO,
             AudioFormat.ENCODING_PCM_16BIT
         )
-        // Use 10× minimum for extra headroom against underruns.
-        // This is critical on car head units (BYD DiLink) where Android's
-        // audio HAL may have longer scheduling intervals than phones.
+        // Large buffer absorbs scheduling jitter on car head units (BYD DiLink)
+        // where the audio HAL may have longer scheduling intervals than phones.
         val bufferSize = minBufSize * 10
 
         audioTrack = AudioTrack.Builder()
@@ -83,139 +61,41 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
 
-        writePos = 0
-        readPos = 0
-        bufferedSamples = 0
-        preBufferFilled = false
-        samplesPlayed = 0L
-        lastOutputSample = 0
-
+        framesWritten = 0L
         audioTrack?.play()
         isPlaying = true
 
-        playbackThread = Thread({
-          // Bind this thread to the Android audio scheduler class so the OS
-          // keeps it on the big cores and gives it priority even when the
-          // app is in background. Without this, quality degrades noticeably
-          // when the screen turns off because the drain thread drifts onto
-          // the little cores and misses AudioTrack.write() deadlines.
-          try {
-              android.os.Process.setThreadPriority(
-                  android.os.Process.THREAD_PRIORITY_URGENT_AUDIO
-              )
-          } catch (_: Throwable) {}
-          try {
-            val chunkSize = 4096  // 2048 stereo frames — larger chunks reduce overhead
-            val chunk = ShortArray(chunkSize)
-
-            while (isPlaying) {
-                // Wait for pre-buffer to fill before first drain
-                if (!preBufferFilled) {
-                    lock.lock()
-                    val avail = bufferedSamples
-                    lock.unlock()
-                    if (avail < PRE_BUFFER_SAMPLES) {
-                        try { Thread.sleep(5) } catch (_: InterruptedException) { break }
-                        continue
-                    }
-                    preBufferFilled = true
-                    Log.i(TAG, "Pre-buffer filled ($avail samples), starting drain")
-                }
-
-                val available: Int
-                lock.lock()
-                try { available = bufferedSamples } finally { lock.unlock() }
-
-                val toDrain = if (available >= chunkSize) chunkSize
-                              else if (available >= 512) available and 0x7FFFFFFE
-                              else {
-                                  // Underrun: ring buffer drained below 512 samples.
-                                  // Log for diagnostics — each underrun = audible click/gap.
-                                  underrunCount++
-                                  if (underrunCount <= 5 || underrunCount % 50 == 0) {
-                                      DebugLog.log("AUD", "UNDERRUN #$underrunCount: avail=$available played=$samplesPlayed")
-                                  }
-                                  val silenceChunk = ShortArray(chunkSize)
-                                  val baseSample = lastOutputSample
-                                  for (i in 0 until chunkSize) {
-                                      val fadeOut = (chunkSize - i).toFloat() / chunkSize
-                                      silenceChunk[i] = (baseSample * fadeOut).toInt().coerceIn(-32767, 32767).toShort()
-                                  }
-                                  lastOutputSample = 0
-                                  try {
-                                      audioTrack?.write(silenceChunk, 0, chunkSize)
-                                  } catch (_: Exception) {}
-                                  try { Thread.sleep(5) } catch (_: InterruptedException) { break }
-                                  continue
-                              }
-
-                if (toDrain == 0) {
-                    try { Thread.sleep(5) } catch (_: InterruptedException) { break }
-                    continue
-                }
-
-                lock.lock()
-                try {
-                    for (i in 0 until toDrain) {
-                        chunk[i] = ringBuffer[readPos]
-                        readPos = (readPos + 1) % RING_BUFFER_SAMPLES
-                    }
-                    bufferedSamples -= toDrain
-                } finally { lock.unlock() }
-
-                // Apply fade-in on initial playback start
-                for (i in 0 until toDrain) {
-                    if (samplesPlayed < FADE_IN_SAMPLES) {
-                        val fadeGain = samplesPlayed.toFloat() / FADE_IN_SAMPLES
-                        chunk[i] = (chunk[i] * fadeGain).toInt().coerceIn(-32767, 32767).toShort()
-                    }
-                    lastOutputSample = chunk[i].toInt()
-                    samplesPlayed++
-                }
-
-                try {
-                    audioTrack?.write(chunk, 0, toDrain)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error writing audio", e)
-                }
-            }
-          } catch (t: Throwable) {
-            Log.e(TAG, "Audio drain thread crashed", t)
-          }
-        }, "FmAudioDrain")
-        playbackThread?.priority = Thread.MAX_PRIORITY
-        playbackThread?.start()
-
-        Log.i(TAG, "Stereo audio started (${sampleRate}Hz, buf=$bufferSize, ring=$RING_BUFFER_SAMPLES)")
+        Log.i(TAG, "Audio started (${sampleRate}Hz, buf=$bufferSize, direct-write mode)")
     }
 
+    /**
+     * Write interleaved stereo samples (L,R,L,R,...) to AudioTrack.
+     * Called from the DSP thread. Blocks if AudioTrack buffer is full,
+     * which naturally paces the DSP to match the audio sample rate.
+     */
     fun writeSamples(samples: ShortArray, count: Int = samples.size) {
         if (!isPlaying || count <= 0) return
-        lock.lock()
-        try {
-            val freeSpace = RING_BUFFER_SAMPLES - bufferedSamples
-            if (count > freeSpace) {
-                // Overflow: drop oldest samples with crossfade to prevent click
-                // Round to even to preserve L/R stereo pair alignment
-                val toDrop = (count - freeSpace + RING_BUFFER_SAMPLES / 8) and 0x7FFFFFFE.toInt()
-                if (toDrop > 0 && toDrop <= bufferedSamples) {
-                    val fadeLen = CROSSFADE_SAMPLES.coerceAtMost(bufferedSamples - toDrop)
-                    val newReadPos = (readPos + toDrop) % RING_BUFFER_SAMPLES
-                    for (i in 0 until fadeLen) {
-                        val fadeIn = i.toFloat() / fadeLen
-                        val oldIdx = (newReadPos + i) % RING_BUFFER_SAMPLES
-                        ringBuffer[oldIdx] = (ringBuffer[oldIdx] * fadeIn).toInt().toShort()
-                    }
-                    readPos = newReadPos
-                    bufferedSamples -= toDrop
+
+        // Fade-in on initial playback to prevent startup pop
+        val framesToWrite = count / 2
+        if (framesWritten < FADE_IN_FRAMES) {
+            for (i in 0 until count step 2) {
+                val frame = framesWritten + i / 2
+                if (frame < FADE_IN_FRAMES) {
+                    val gain = frame.toFloat() / FADE_IN_FRAMES
+                    samples[i] = (samples[i] * gain).toInt().coerceIn(-32767, 32767).toShort()
+                    samples[i + 1] = (samples[i + 1] * gain).toInt().coerceIn(-32767, 32767).toShort()
                 }
             }
-            for (i in 0 until count) {
-                ringBuffer[writePos] = samples[i]
-                writePos = (writePos + 1) % RING_BUFFER_SAMPLES
-            }
-            bufferedSamples += count
-        } finally { lock.unlock() }
+        }
+
+        try {
+            audioTrack?.write(samples, 0, count)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error writing audio", e)
+        }
+
+        framesWritten += framesToWrite
     }
 
     fun setVolume(volume: Float) {
@@ -225,9 +105,6 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
 
     fun stop() {
         isPlaying = false
-        playbackThread?.interrupt()
-        try { playbackThread?.join(500) } catch (_: InterruptedException) {}
-        playbackThread = null
         try {
             audioTrack?.pause()
             audioTrack?.flush()
@@ -237,12 +114,8 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             Log.e(TAG, "Error stopping audio", e)
         }
         audioTrack = null
-        writePos = 0; readPos = 0; bufferedSamples = 0
-        preBufferFilled = false
-        samplesPlayed = 0L
-        lastOutputSample = 0
-        underrunCount = 0L
-        Log.i(TAG, "Audio playback stopped")
+        framesWritten = 0L
+        Log.i(TAG, "Audio stopped")
     }
 
     fun isActive(): Boolean = isPlaying
