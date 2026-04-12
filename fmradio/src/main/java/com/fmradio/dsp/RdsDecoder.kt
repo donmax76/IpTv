@@ -380,8 +380,12 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 bitCount = 0
 
                 if (blockIndex >= 4) {
-                    // Stricter: require 3 of 4 valid blocks
-                    if (goodBlocks >= 3) {
+                    // Accept groups with 2+ valid blocks. Block B (group type,
+                    // flags) is always validated by syndrome; if it's wrong,
+                    // decodeGroup reads stale groupData[1] which is harmless
+                    // (wrong group type → no match in when() → nothing decoded).
+                    // Lowered from 3 for better coverage on FC0013's lower SNR.
+                    if (goodBlocks >= 2) {
                         decodeGroup()
                     }
                     blockIndex = 0
@@ -404,41 +408,66 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         return reg
     }
 
+    /** RDS end-of-text marker (IEC 62106: 0x0D = end of RadioText) */
+    private val RDS_END_OF_TEXT = 0x0D
+
     private fun isValidRdsChar(c: Char): Boolean {
-        return c.code in 0x20..0xFF  // Printable ASCII + extended (EBU Latin / CP1251)
+        return c.code in 0x20..0xFF
     }
 
     /**
-     * Convert an RDS byte to a Unicode character using the EBU Latin character
-     * set (IEC 62106, Annex E). Russian/CIS stations commonly transmit Cyrillic
-     * via code table 1 (similar to ISO 8859-5) or use raw CP1251 bytes — we
-     * handle both by mapping the full 0x80-0xFF range.
+     * Convert an RDS byte to a Unicode character.
+     *
+     * Uses the standard EBU Latin character set (IEC 62106, Annex E, code
+     * table 00) for 0x80-0xBF. For 0xC0-0xFF uses ISO 8859-1 (Latin-1)
+     * passthrough — this is what most Western and Azerbaijani stations send.
+     *
+     * NOTE: CP1251 Cyrillic was previously mapped at 0xC0-0xFF but this broke
+     * standard Latin characters. Proper Cyrillic support requires RDS code
+     * table switching via Group 1A ODA, which is not yet implemented.
+     *
+     * Returns Char(0x0D) for the RDS end-of-text marker.
      */
     private fun rdsCharToUnicode(code: Int): Char {
-        if (code in 0x20..0x7E) return code.toChar()  // ASCII passthrough
-        // EBU Latin table (0x80-0xFF) — covers most European special chars
-        // and the Cyrillic block that Russian FM stations use.
+        // ASCII passthrough
+        if (code in 0x20..0x7E) return code.toChar()
+
+        // RDS end-of-text marker — returned as-is, caller must handle
+        if (code == RDS_END_OF_TEXT) return '\r'
+
         return when (code) {
-            // CP1251 Cyrillic mapping (0xC0-0xFF = А-я, Russian/Azerbaijani stations)
-            in 0xC0..0xFF -> (code - 0xC0 + 0x0410).toChar()  // А=0x0410, Б=0x0411, ...я=0x044F
-            // EBU Latin special characters (Western European + Azerbaijani)
+            // EBU Latin code table 00, row 8 (0x80-0x8F)
             0x80 -> 'á'; 0x81 -> 'à'; 0x82 -> 'é'; 0x83 -> 'è'
             0x84 -> 'í'; 0x85 -> 'ì'; 0x86 -> 'ó'; 0x87 -> 'ò'
             0x88 -> 'ú'; 0x89 -> 'ù'; 0x8A -> 'Ñ'; 0x8B -> 'Ç'
-            0x8C -> 'Ş'; 0x8D -> 'ß'; 0x8E -> 'Ə'; 0x8F -> 'İ'  // Ə = Azerbaijani schwa
+            0x8C -> 'Ş'; 0x8D -> 'ß'; 0x8E -> 'Ə'; 0x8F -> 'İ'
+
+            // EBU Latin code table 00, row 9 (0x90-0x9F)
             0x90 -> 'â'; 0x91 -> 'ä'; 0x92 -> 'ê'; 0x93 -> 'ë'
             0x94 -> 'î'; 0x95 -> 'ï'; 0x96 -> 'ô'; 0x97 -> 'ö'
             0x98 -> 'û'; 0x99 -> 'ü'; 0x9A -> 'ñ'; 0x9B -> 'ç'
-            0x9C -> 'ş'; 0x9D -> 'ğ'; 0x9E -> 'ə'; 0x9F -> 'ı'  // ə = Azerbaijani schwa lowercase
+            0x9C -> 'ş'; 0x9D -> 'ğ'; 0x9E -> 'ə'; 0x9F -> 'ı'
+
+            // EBU Latin code table 00, row A (0xA0-0xAF)
             0xA0 -> 'ª'; 0xA1 -> 'α'; 0xA2 -> '©'; 0xA3 -> '‰'
             0xA4 -> 'Ğ'; 0xA5 -> 'ě'; 0xA6 -> 'ň'; 0xA7 -> 'ő'
             0xA8 -> 'π'; 0xA9 -> '€'; 0xAA -> '£'; 0xAB -> '$'
             0xAC -> '←'; 0xAD -> '↑'; 0xAE -> '→'; 0xAF -> '↓'
+
+            // EBU Latin code table 00, row B (0xB0-0xBF)
             0xB0 -> 'º'; 0xB1 -> '¹'; 0xB2 -> '²'; 0xB3 -> '³'
             0xB4 -> '±'; 0xB5 -> 'İ'; 0xB6 -> 'ń'; 0xB7 -> 'ű'
             0xB8 -> 'µ'; 0xB9 -> '¿'; 0xBA -> '÷'; 0xBB -> '°'
             0xBC -> '¼'; 0xBD -> '½'; 0xBE -> '¾'; 0xBF -> '§'
-            else -> code.toChar()  // pass through as-is
+
+            // 0xC0-0xFF: ISO 8859-1 (Latin-1) passthrough.
+            // Covers À-ÿ (common accented Latin characters).
+            // The RDS spec defines 0xC0-0xCF as combining diacritical marks
+            // but virtually no real FM station uses them — they use pre-composed
+            // characters from 0x80-0xBF or plain ASCII instead.
+            in 0xC0..0xFF -> code.toChar()
+
+            else -> ' '  // control chars and undefined → space
         }
     }
 
@@ -550,36 +579,46 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         val segmentAddr = blockB and 0x0F
 
         if (!versionB) {
-            // Version A: 4 chars per segment
+            // Version A: 4 chars per segment from blocks C and D
             val pos = segmentAddr * 4
             if (pos + 3 < rtChars.size) {
-                val c1 = rdsCharToUnicode((blockC shr 8) and 0xFF)
-                val c2 = rdsCharToUnicode(blockC and 0xFF)
-                val c3 = rdsCharToUnicode((blockD shr 8) and 0xFF)
-                val c4 = rdsCharToUnicode(blockD and 0xFF)
-
+                val chars = intArrayOf(
+                    (blockC shr 8) and 0xFF, blockC and 0xFF,
+                    (blockD shr 8) and 0xFF, blockD and 0xFF
+                )
                 var anyValid = false
-                if (isValidRdsChar(c1)) { rtChars[pos] = c1; anyValid = true }
-                if (isValidRdsChar(c2)) { rtChars[pos + 1] = c2; anyValid = true }
-                if (isValidRdsChar(c3)) { rtChars[pos + 2] = c3; anyValid = true }
-                if (isValidRdsChar(c4)) { rtChars[pos + 3] = c4; anyValid = true }
-
+                for (j in 0..3) {
+                    if (chars[j] == RDS_END_OF_TEXT) {
+                        // 0x0D = end of RadioText. Truncate here, clear the rest.
+                        rtLength = pos + j
+                        for (k in rtLength until rtChars.size) rtChars[k] = ' '
+                        dataChanged = true
+                        return
+                    }
+                    val c = rdsCharToUnicode(chars[j])
+                    if (isValidRdsChar(c)) { rtChars[pos + j] = c; anyValid = true }
+                }
                 if (anyValid) {
                     rtLength = maxOf(rtLength, pos + 4)
                     dataChanged = true
                 }
             }
         } else {
-            // Version B: 2 chars per segment
+            // Version B: 2 chars per segment from block D
             val pos = segmentAddr * 2
             if (pos + 1 < rtChars.size) {
-                val c1 = rdsCharToUnicode((blockD shr 8) and 0xFF)
-                val c2 = rdsCharToUnicode(blockD and 0xFF)
-
+                val chars = intArrayOf((blockD shr 8) and 0xFF, blockD and 0xFF)
                 var anyValid = false
-                if (isValidRdsChar(c1)) { rtChars[pos] = c1; anyValid = true }
-                if (isValidRdsChar(c2)) { rtChars[pos + 1] = c2; anyValid = true }
-
+                for (j in 0..1) {
+                    if (chars[j] == RDS_END_OF_TEXT) {
+                        rtLength = pos + j
+                        for (k in rtLength until rtChars.size) rtChars[k] = ' '
+                        dataChanged = true
+                        return
+                    }
+                    val c = rdsCharToUnicode(chars[j])
+                    if (isValidRdsChar(c)) { rtChars[pos + j] = c; anyValid = true }
+                }
                 if (anyValid) {
                     rtLength = maxOf(rtLength, pos + 2)
                     dataChanged = true
