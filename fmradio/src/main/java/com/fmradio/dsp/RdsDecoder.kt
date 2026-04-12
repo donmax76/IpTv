@@ -114,7 +114,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private val psPending = CharArray(8) { ' ' }
     private val psConfirmed = CharArray(8) { ' ' }
     private val psHitCount = IntArray(4)
-    private val PS_CONFIRM_THRESHOLD = 3  // Require 3 identical receptions (more reliable while driving)
+    private val PS_CONFIRM_THRESHOLD = 2  // Require 2 identical receptions (3 was too strict for FC0013's SNR)
 
     // RT data
     private val rtChars = CharArray(64) { ' ' }

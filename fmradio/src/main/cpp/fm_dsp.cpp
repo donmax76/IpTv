@@ -526,27 +526,12 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
             d.sigPowerCount = 0;
         }
 
-        // Squelch — measure modulation level, mute on empty frequencies
-        {
-            float absBB = fabsf(rawBB);
-            d.sqQualityAcc += absBB;
-            d.sqQualityCount++;
-            if (d.sqQualityCount >= INTERMEDIATE_RATE / 2) {  // ~500ms window
-                double avgMod = d.sqQualityAcc / d.sqQualityCount;
-                d.squelchOpen = d.squelchOpen
-                    ? (avgMod > DspState::SQ_CLOSE_THRESH && avgMod < 3.0)
-                    : (avgMod > DspState::SQ_OPEN_THRESH && avgMod < 3.0);
-                d.sqQualityAcc = 0;
-                d.sqQualityCount = 0;
-            }
-            if (d.squelchOpen && d.squelchLevel < 1.0f) {
-                d.squelchLevel += d.squelchAttack;
-                if (d.squelchLevel > 1.0f) d.squelchLevel = 1.0f;
-            } else if (!d.squelchOpen && d.squelchLevel > 0.0f) {
-                d.squelchLevel -= d.squelchRelease;
-                if (d.squelchLevel < 0.0f) d.squelchLevel = 0.0f;
-            }
-        }
+        // Squelch DISABLED for FC0013 — causes amplitude trembling on
+        // weak/multipath signals. The squelch oscillates between open and
+        // close on marginal stations, modulating audio level → audible
+        // "дрожащий" (trembling) effect the user reported.
+        // TODO: re-enable with signal-quality based squelch instead of
+        // modulation-level based, or make it tuner-specific.
 
         // Wideband for RDS — capture pilot phase at first sample
         if (wb && d.wbCount < (int)wbLen) {
@@ -596,10 +581,6 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
         // De-emphasis (50µs) — separate state for L/R
         d.deEmphStateL += d.deEmphAlpha * (left - d.deEmphStateL);
         d.deEmphStateR += d.deEmphAlpha * (right - d.deEmphStateR);
-
-        // Apply squelch level
-        d.deEmphStateL *= d.squelchLevel;
-        d.deEmphStateR *= d.squelchLevel;
 
         // Mute ramp on startup
         if (d.muteRamp < 1.0f) {

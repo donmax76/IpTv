@@ -205,7 +205,12 @@ class FmScanner(private val device: RtlSdrDevice) {
             //   setAutoGain(true)  = hardware AGC (equalises everything)   ← BAD for scan
             when (device.getTunerType()) {
                 RtlSdrDevice.TunerType.FC0013, RtlSdrDevice.TunerType.FC0012 -> {
-                    device.setAutoGain(true)  // FC: manual mode with moderate fixed gain
+                    // FC0013: manual mode (setAutoGain(true) = manual on FC),
+                    // then reduce LNA to minimum for better scan contrast.
+                    // High IF/mixer gain + low LNA = good SNR difference
+                    // between stations and noise.
+                    device.setAutoGain(true)
+                    device.setGain(0)  // LNA minimum (0x02)
                 }
                 else -> {
                     device.setAutoGain(false) // R820T: manual mode
