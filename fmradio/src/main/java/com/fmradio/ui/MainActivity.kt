@@ -471,6 +471,17 @@ class MainActivity : Activity() {
         // Debug panel
         btnDebug.setOnClickListener { toggleDebugPanel() }
         btnDebugSave.setOnClickListener { shareDebugLog() }
+        findViewById<Button>(R.id.btnDebugLogToggle).setOnClickListener { v ->
+            val btn = v as Button
+            DebugLog.fileLoggingEnabled = !DebugLog.fileLoggingEnabled
+            if (DebugLog.fileLoggingEnabled) {
+                btn.text = "LOG:ON"
+                btn.setTextColor(getColor(R.color.lcd_green))
+            } else {
+                btn.text = "LOG:OFF"
+                btn.setTextColor(0xFFFF4444.toInt())
+            }
+        }
         btnDebugClear.setOnClickListener { DebugLog.clear(); tvDebugLog.text = "" }
         btnDebugClose.setOnClickListener { toggleDebugPanel() }
     }

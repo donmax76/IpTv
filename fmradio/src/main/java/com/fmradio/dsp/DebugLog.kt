@@ -37,6 +37,11 @@ object DebugLog {
     @Volatile
     var enabled = false
 
+    /** File logging — when OFF, no disk I/O and no memory buffering.
+     *  Toggle from debug panel. Default OFF to save memory/storage. */
+    @Volatile
+    var fileLoggingEnabled = false
+
     /** Callback for real-time UI updates — set/read under lock to prevent race */
     @Volatile
     var onNewLine: ((String) -> Unit)? = null
@@ -82,28 +87,29 @@ object DebugLog {
      * Log a message. ALWAYS writes to file. Shows in UI only if enabled.
      */
     fun log(tag: String, message: String) {
+        // Skip everything when both file logging and UI are off — zero overhead
+        if (!fileLoggingEnabled && !enabled) return
+
         val ts = sdf.format(Date())
         val line = "$ts [$tag] $message"
 
-        // Always write to file
-        try {
-            logWriter?.println(line)
-        } catch (_: Exception) {}
-
-        // Buffer for UI
-        synchronized(lock) {
-            uiLines.addLast(line)
-            while (uiLines.size > MAX_UI_LINES) uiLines.removeFirst()
+        // Write to file only if file logging is enabled
+        if (fileLoggingEnabled) {
+            try {
+                logWriter?.println(line)
+            } catch (_: Exception) {}
         }
 
-        // Notify UI if panel is open — capture callback to avoid race with toggle
+        // Buffer for UI only if panel is open
         if (enabled) {
+            synchronized(lock) {
+                uiLines.addLast(line)
+                while (uiLines.size > MAX_UI_LINES) uiLines.removeFirst()
+            }
             val callback = onNewLine
             try {
                 callback?.invoke(line)
-            } catch (_: Exception) {
-                // View may have been detached — ignore
-            }
+            } catch (_: Exception) {}
         }
     }
 
