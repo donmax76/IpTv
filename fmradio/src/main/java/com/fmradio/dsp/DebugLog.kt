@@ -73,11 +73,9 @@ object DebugLog {
                 logFile = File(dir, LOG_FILE_NAME)
             }
 
-            logWriter = PrintWriter(FileWriter(logFile, true), true)
-            logWriter?.println("=== FM Radio Debug Log started ${sdfFull.format(Date())} ===")
-            logWriter?.println("=== Device: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) ===")
-            logWriter?.flush()
-            Log.i(TAG, "Log file: ${logFile?.absolutePath}")
+            // Don't open writer here — only when LOG toggle is turned ON.
+            // This prevents constant disk I/O when logging is disabled.
+            Log.i(TAG, "Log file ready: ${logFile?.absolutePath}")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to init log file", e)
         }
@@ -96,6 +94,11 @@ object DebugLog {
         // Write to file only if file logging is enabled
         if (fileLoggingEnabled) {
             try {
+                if (logWriter == null) {
+                    logWriter = PrintWriter(FileWriter(logFile, true), true)
+                    logWriter?.println("=== Log started ${sdfFull.format(Date())} ===")
+                    logWriter?.println("=== Device: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) ===")
+                }
                 logWriter?.println(line)
             } catch (_: Exception) {}
         }

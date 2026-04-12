@@ -991,12 +991,17 @@ class RtlSdrDevice(private val context: Context) {
                     //   IF    0x13:  0x12 (~36 dB, not 0x1F = 62 dB)
                     val reg0d = fc0013ReadReg(0x0D) ?: fc0013Regs[0x0D]
                     if (enabled) {
-                        // Manual mode at moderate gain
+                        // Manual mode — balanced gain that doesn't saturate the
+                        // 8-bit ADC on strong stations but keeps enough SNR for
+                        // clean RDS (57 kHz subcarrier) and audio.
+                        // Previous IF=0x12 (~36 dB) was too low → noisy audio,
+                        // garbled RDS. Previous IF=0x1F (62 dB) clipped the ADC.
+                        // IF=0x1A (~52 dB) is the sweet spot.
                         fc0013WriteReg(0x0D, reg0d or 0x08)   // bit 3=1 → AGC off
                         val reg14 = (fc0013ReadReg(0x14) ?: fc0013Regs[0x14]) and 0x60
-                        fc0013WriteReg(0x14, reg14 or 0x08)   // LNA middle (was 0x10 max)
-                        fc0013WriteReg(0x12, 0x08)            // mixer high (was 0x0A max)
-                        fc0013WriteReg(0x13, 0x12)            // IF ~36 dB (was 0x1F = 62 dB)
+                        fc0013WriteReg(0x14, reg14 or 0x08)   // LNA middle
+                        fc0013WriteReg(0x12, 0x0A)            // mixer max (restored)
+                        fc0013WriteReg(0x13, 0x1A)            // IF ~52 dB (was 0x12=36, 0x1F=62)
                     } else {
                         // Auto AGC (slow, not recommended for FM — only used by scanner
                         // in combination with an explicit setGain() call afterwards)
