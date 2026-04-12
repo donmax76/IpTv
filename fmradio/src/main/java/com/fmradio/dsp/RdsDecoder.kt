@@ -121,6 +121,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private val rtPending = CharArray(64) { ' ' }
     private var rtLength = 0
     private var rtConfirmedLength = 0
+    private var rtAbFlag = -1  // RT A/B flag: toggles when station changes text → clear buffer
 
     // RDS decoded fields
     private var piCode = 0
@@ -536,6 +537,16 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     // Group 2: RadioText (4 chars per group in version A, 2 in version B)
     // Only triggers dataChanged when at least one valid character is found
     private fun decodeGroup2(blockB: Int, blockC: Int, blockD: Int, versionB: Boolean) {
+        // RT A/B flag (bit 4 of blockB): when it toggles, station changed the
+        // text → clear the entire RT buffer so old chars don't mix with new.
+        val abFlag = (blockB shr 4) and 0x01
+        if (rtAbFlag >= 0 && abFlag != rtAbFlag) {
+            for (i in rtChars.indices) rtChars[i] = ' '
+            rtLength = 0
+            dataChanged = true
+        }
+        rtAbFlag = abFlag
+
         val segmentAddr = blockB and 0x0F
 
         if (!versionB) {
@@ -629,6 +640,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         for (i in rtPending.indices) rtPending[i] = ' '
         rtLength = 0
         rtConfirmedLength = 0
+        rtAbFlag = -1
         piCode = 0
         ptyCode = 0
         tpFlag = false
