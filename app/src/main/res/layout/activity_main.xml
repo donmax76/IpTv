@@ -23,7 +23,6 @@
         app:menu="@menu/bottom_navigation"
         app:itemRippleColor="@color/primary"
         android:focusable="true"
-        android:descendantFocusability="afterDescendants"
-        android:nextFocusUpId="@+id/fragmentContainer"/>
+        android:descendantFocusability="afterDescendants"/>
 
 </RelativeLayout>
