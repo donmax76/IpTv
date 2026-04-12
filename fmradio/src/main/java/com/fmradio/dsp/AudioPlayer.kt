@@ -50,6 +50,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
     private var preBufferFilled = false
     private var samplesPlayed = 0L
     private var lastOutputSample = 0
+    private var underrunCount = 0L
 
     fun start() {
         if (isPlaying) return
@@ -59,8 +60,10 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             AudioFormat.CHANNEL_OUT_STEREO,
             AudioFormat.ENCODING_PCM_16BIT
         )
-        // Use 6× minimum for extra headroom against underruns
-        val bufferSize = minBufSize * 6
+        // Use 10× minimum for extra headroom against underruns.
+        // This is critical on car head units (BYD DiLink) where Android's
+        // audio HAL may have longer scheduling intervals than phones.
+        val bufferSize = minBufSize * 10
 
         audioTrack = AudioTrack.Builder()
             .setAudioAttributes(
@@ -126,7 +129,12 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                 val toDrain = if (available >= chunkSize) chunkSize
                               else if (available >= 512) available and 0x7FFFFFFE
                               else {
-                                  // Underrun: linear fade to silence from last output sample
+                                  // Underrun: ring buffer drained below 512 samples.
+                                  // Log for diagnostics — each underrun = audible click/gap.
+                                  underrunCount++
+                                  if (underrunCount <= 5 || underrunCount % 50 == 0) {
+                                      DebugLog.log("AUD", "UNDERRUN #$underrunCount: avail=$available played=$samplesPlayed")
+                                  }
                                   val silenceChunk = ShortArray(chunkSize)
                                   val baseSample = lastOutputSample
                                   for (i in 0 until chunkSize) {
@@ -233,6 +241,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         preBufferFilled = false
         samplesPlayed = 0L
         lastOutputSample = 0
+        underrunCount = 0L
         Log.i(TAG, "Audio playback stopped")
     }
 

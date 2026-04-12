@@ -404,7 +404,41 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     }
 
     private fun isValidRdsChar(c: Char): Boolean {
-        return c.code in 0x20..0x7E  // Printable ASCII
+        return c.code in 0x20..0xFF  // Printable ASCII + extended (EBU Latin / CP1251)
+    }
+
+    /**
+     * Convert an RDS byte to a Unicode character using the EBU Latin character
+     * set (IEC 62106, Annex E). Russian/CIS stations commonly transmit Cyrillic
+     * via code table 1 (similar to ISO 8859-5) or use raw CP1251 bytes — we
+     * handle both by mapping the full 0x80-0xFF range.
+     */
+    private fun rdsCharToUnicode(code: Int): Char {
+        if (code in 0x20..0x7E) return code.toChar()  // ASCII passthrough
+        // EBU Latin table (0x80-0xFF) — covers most European special chars
+        // and the Cyrillic block that Russian FM stations use.
+        return when (code) {
+            // CP1251 Cyrillic mapping (0xC0-0xFF = А-я, most Russian stations use this)
+            in 0xC0..0xFF -> (code - 0xC0 + 0x0410).toChar()  // А=0x0410, Б=0x0411, ...я=0x044F
+            // EBU Latin special characters (Western European)
+            0x80 -> 'á'; 0x81 -> 'à'; 0x82 -> 'é'; 0x83 -> 'è'
+            0x84 -> 'í'; 0x85 -> 'ì'; 0x86 -> 'ó'; 0x87 -> 'ò'
+            0x88 -> 'ú'; 0x89 -> 'ù'; 0x8A -> 'Ñ'; 0x8B -> 'Ç'
+            0x8C -> 'Ş'; 0x8D -> 'ß'; 0x8E -> '¡'; 0x8F -> 'İ'
+            0x90 -> 'â'; 0x91 -> 'ä'; 0x92 -> 'ê'; 0x93 -> 'ë'
+            0x94 -> 'î'; 0x95 -> 'ï'; 0x96 -> 'ô'; 0x97 -> 'ö'
+            0x98 -> 'û'; 0x99 -> 'ü'; 0x9A -> 'ñ'; 0x9B -> 'ç'
+            0x9C -> 'ş'; 0x9D -> 'ğ'; 0x9E -> 'ı'; 0x9F -> 'ĳ'
+            0xA0 -> 'ª'; 0xA1 -> 'α'; 0xA2 -> '©'; 0xA3 -> '‰'
+            0xA4 -> 'Ğ'; 0xA5 -> 'ě'; 0xA6 -> 'ň'; 0xA7 -> 'ő'
+            0xA8 -> 'π'; 0xA9 -> '€'; 0xAA -> '£'; 0xAB -> '$'
+            0xAC -> '←'; 0xAD -> '↑'; 0xAE -> '→'; 0xAF -> '↓'
+            0xB0 -> 'º'; 0xB1 -> '¹'; 0xB2 -> '²'; 0xB3 -> '³'
+            0xB4 -> '±'; 0xB5 -> 'İ'; 0xB6 -> 'ń'; 0xB7 -> 'ű'
+            0xB8 -> 'µ'; 0xB9 -> '¿'; 0xBA -> '÷'; 0xBB -> '°'
+            0xBC -> '¼'; 0xBD -> '½'; 0xBE -> '¾'; 0xBF -> '§'
+            else -> code.toChar()  // pass through as-is
+        }
     }
 
     private fun decodeGroup() {
@@ -455,9 +489,9 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         val segmentAddr = blockB and 0x03
         val pos = segmentAddr * 2
 
-        // PS characters from block D
-        val c1 = ((blockD shr 8) and 0xFF).toChar()
-        val c2 = (blockD and 0xFF).toChar()
+        // PS characters from block D — map through EBU Latin → Unicode
+        val c1 = rdsCharToUnicode((blockD shr 8) and 0xFF)
+        val c2 = rdsCharToUnicode(blockD and 0xFF)
 
         if (isValidRdsChar(c1) && isValidRdsChar(c2)) {
             // Consistency checking: require PS_CONFIRM_THRESHOLD identical receptions
@@ -508,10 +542,10 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             // Version A: 4 chars per segment
             val pos = segmentAddr * 4
             if (pos + 3 < rtChars.size) {
-                val c1 = ((blockC shr 8) and 0xFF).toChar()
-                val c2 = (blockC and 0xFF).toChar()
-                val c3 = ((blockD shr 8) and 0xFF).toChar()
-                val c4 = (blockD and 0xFF).toChar()
+                val c1 = rdsCharToUnicode((blockC shr 8) and 0xFF)
+                val c2 = rdsCharToUnicode(blockC and 0xFF)
+                val c3 = rdsCharToUnicode((blockD shr 8) and 0xFF)
+                val c4 = rdsCharToUnicode(blockD and 0xFF)
 
                 var anyValid = false
                 if (isValidRdsChar(c1)) { rtChars[pos] = c1; anyValid = true }
@@ -528,8 +562,8 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             // Version B: 2 chars per segment
             val pos = segmentAddr * 2
             if (pos + 1 < rtChars.size) {
-                val c1 = ((blockD shr 8) and 0xFF).toChar()
-                val c2 = (blockD and 0xFF).toChar()
+                val c1 = rdsCharToUnicode((blockD shr 8) and 0xFF)
+                val c2 = rdsCharToUnicode(blockD and 0xFF)
 
                 var anyValid = false
                 if (isValidRdsChar(c1)) { rtChars[pos] = c1; anyValid = true }

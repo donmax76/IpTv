@@ -194,13 +194,24 @@ class FmScanner(private val device: RtlSdrDevice) {
             try { device.fullReset() } catch (e: Exception) { Log.w(TAG, "pre-scan fullReset failed", e) }
 
             device.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
-            // CRITICAL: use FIXED manual gain for scanning, not auto AGC.
-            // R820T's hardware AGC equalises amplitude across the band, so peaks
-            // and noise become indistinguishable and the scanner finds nothing.
-            // Manual gain at index 14 (~40 dB) gives a clean SNR contrast that
-            // makes stations jump well above the noise floor.
-            device.setAutoGain(false)
-            device.setGain(14)
+            // Use FIXED manual gain for scanning — auto AGC doesn't converge
+            // within the 80 ms settle window per frequency.
+            //
+            // FC0013/FC0012 have INVERTED auto/manual logic in our setAutoGain():
+            //   setAutoGain(true)  = manual mode (moderate gain, instant)  ← GOOD for scan
+            //   setAutoGain(false) = auto AGC (~17 s convergence)          ← BAD for scan
+            // R820T/R828D have the standard mapping:
+            //   setAutoGain(false) = manual mode + setGain(14) works       ← GOOD for scan
+            //   setAutoGain(true)  = hardware AGC (equalises everything)   ← BAD for scan
+            when (device.tunerType) {
+                RtlSdrDevice.TunerType.FC0013, RtlSdrDevice.TunerType.FC0012 -> {
+                    device.setAutoGain(true)  // FC: manual mode with moderate fixed gain
+                }
+                else -> {
+                    device.setAutoGain(false) // R820T: manual mode
+                    device.setGain(14)        // high fixed gain
+                }
+            }
             delay(80)
 
             // Measure noise floor
