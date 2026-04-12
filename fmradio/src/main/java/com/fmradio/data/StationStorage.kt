@@ -3,6 +3,7 @@ package com.fmradio.data
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.os.Environment
 import android.util.Log
 import androidx.core.content.FileProvider
 import org.json.JSONArray
@@ -321,6 +322,36 @@ class StationStorage(context: Context) {
      */
     fun importFromBackup(): Int {
         val file = File(ctx.getExternalFilesDir(null), "backup/fm_stations.json")
+        if (!file.exists()) return 0
+        return importFromFile(file)
+    }
+
+    /**
+     * Export stations to Downloads folder (user-accessible).
+     * Returns the saved file path, or null on failure.
+     */
+    fun exportToDownloads(): File? {
+        val src = exportToFile() ?: return null
+        return try {
+            val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            downloads.mkdirs()
+            val dst = File(downloads, "fm_stations.json")
+            src.copyTo(dst, overwrite = true)
+            Log.i("StationStorage", "Exported to ${dst.absolutePath}")
+            dst
+        } catch (e: Exception) {
+            Log.e("StationStorage", "Export to Downloads failed", e)
+            null
+        }
+    }
+
+    /**
+     * Import stations from Downloads folder.
+     * Returns number of stations imported, or -1 on failure.
+     */
+    fun importFromDownloads(): Int {
+        val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val file = File(downloads, "fm_stations.json")
         if (!file.exists()) return 0
         return importFromFile(file)
     }

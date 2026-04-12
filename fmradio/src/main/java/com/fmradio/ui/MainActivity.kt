@@ -981,26 +981,25 @@ class MainActivity : Activity() {
     }
 
     private fun exportStations() {
-        val intent = stationStorage.getExportShareIntent()
-        if (intent != null) {
-            startActivity(Intent.createChooser(intent, "Экспорт станций"))
+        val file = stationStorage.exportToDownloads()
+        if (file != null) {
+            showToast("Сохранено: Downloads/fm_stations.json")
         } else {
             showToast("Ошибка экспорта")
         }
     }
 
     private fun importStations() {
-        val file = java.io.File(getExternalFilesDir(null), "backup/fm_stations.json")
-        if (!file.exists()) {
-            showToast("Файл бэкапа не найден")
-            return
+        // Try Downloads first, then internal backup
+        var count = stationStorage.importFromDownloads()
+        if (count <= 0) {
+            count = stationStorage.importFromBackup()
         }
-        val count = stationStorage.importFromFile(file)
         if (count > 0) {
             loadSavedStations()
             showToast("Импортировано $count станций")
         } else {
-            showToast("Ошибка импорта")
+            showToast("Файл не найден в Downloads")
         }
     }
 
