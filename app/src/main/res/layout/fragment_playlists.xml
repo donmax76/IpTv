@@ -36,7 +36,8 @@
         android:layout_height="match_parent"
         android:layout_below="@id/headerLayout"
         android:clipToPadding="false"
-        android:padding="8dp"/>
+        android:padding="8dp"
+        android:focusable="false"/>
 
     <ProgressBar
         android:id="@+id/progressBar"

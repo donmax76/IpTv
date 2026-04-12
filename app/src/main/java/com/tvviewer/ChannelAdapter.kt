@@ -1,5 +1,6 @@
 package com.tvviewer
 
+import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -76,8 +77,37 @@ class ChannelAdapter(
             ContextCompat.getColor(context, if (isFav) R.color.favorite_active else R.color.favorite_inactive)
         )
 
+        holder.btnFavorite.isFocusable = true
+        holder.btnFavorite.isFocusableInTouchMode = false
         holder.btnFavorite.setOnClickListener { onFavoriteClick(channel) }
         holder.itemView.setOnClickListener { onChannelClick(channel) }
+
+        // D-pad: center/enter selects channel, right focuses favorite button
+        holder.itemView.setOnKeyListener { _, keyCode, event ->
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                when (keyCode) {
+                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                        holder.itemView.performClick()
+                        true
+                    }
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                        holder.btnFavorite.requestFocus()
+                        true
+                    }
+                    else -> false
+                }
+            } else false
+        }
+
+        // D-pad on favorite button: left goes back to card
+        holder.btnFavorite.setOnKeyListener { _, keyCode, event ->
+            if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                holder.itemView.requestFocus()
+                true
+            } else {
+                false
+            }
+        }
     }
 
     override fun getItemCount() = channels.size

@@ -1,11 +1,16 @@
 package com.tvviewer
 
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.os.Bundle
+import android.util.Log
 import android.view.KeyEvent
+import android.view.View
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.bottomnavigation.BottomNavigationView
+import kotlinx.coroutines.launch
 
 class MainActivity : BaseActivity() {
 
@@ -35,6 +40,9 @@ class MainActivity : BaseActivity() {
 
         if (savedInstanceState == null) {
             bottomNav.selectedItemId = R.id.nav_playlists
+
+            // Auto-check for updates on start
+            checkForUpdatesOnStart()
 
             // Autoplay last channel if enabled
             if (prefs.autoplayLast) {
@@ -96,16 +104,135 @@ class MainActivity : BaseActivity() {
         bottomNav.selectedItemId = R.id.nav_channels
     }
 
-    // D-pad support for navigation
+    // D-pad / remote control navigation
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         when (keyCode) {
-            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
-            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
-            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                // Let the system handle focus navigation
+            // Left/Right on D-pad - navigate between bottom nav tabs
+            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                // If focus is on bottom nav or nothing in the fragment has focus, navigate tabs
+                val focusedView = currentFocus
+                if (focusedView == null || isBottomNavFocused(focusedView)) {
+                    selectPreviousTab()
+                    return true
+                }
                 return super.onKeyDown(keyCode, event)
+            }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                val focusedView = currentFocus
+                if (focusedView == null || isBottomNavFocused(focusedView)) {
+                    selectNextTab()
+                    return true
+                }
+                return super.onKeyDown(keyCode, event)
+            }
+            // D-pad Up - when on bottom nav, move focus to content area
+            KeyEvent.KEYCODE_DPAD_UP -> {
+                val focusedView = currentFocus
+                if (focusedView == null || isBottomNavFocused(focusedView)) {
+                    // Move focus to the fragment content
+                    val container = findViewById<View>(R.id.fragmentContainer)
+                    val firstFocusable = container?.findFocus() ?: findFirstFocusableInFragment()
+                    if (firstFocusable != null) {
+                        firstFocusable.requestFocus()
+                        return true
+                    }
+                }
+                return super.onKeyDown(keyCode, event)
+            }
+            // D-pad Down - when at bottom of content, move to bottom nav
+            KeyEvent.KEYCODE_DPAD_DOWN -> {
+                // Let default focus navigation handle it first
+                // If the current fragment can't move focus down, it will reach bottom nav
+                return super.onKeyDown(keyCode, event)
+            }
+            // D-pad Center / Enter - select current tab or item
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                return super.onKeyDown(keyCode, event)
+            }
+            // Menu key - focus the bottom navigation
+            KeyEvent.KEYCODE_MENU -> {
+                bottomNav.requestFocus()
+                return true
             }
         }
         return super.onKeyDown(keyCode, event)
+    }
+
+    private fun isBottomNavFocused(view: View): Boolean {
+        var v: View? = view
+        while (v != null) {
+            if (v == bottomNav) return true
+            val parent = v.parent
+            v = if (parent is View) parent else null
+        }
+        return false
+    }
+
+    private fun findFirstFocusableInFragment(): View? {
+        val fm = supportFragmentManager
+        val currentFragment = fm.fragments.firstOrNull { !it.isHidden && it.isVisible }
+        return currentFragment?.view?.let { findFirstFocusable(it) }
+    }
+
+    private fun findFirstFocusable(view: View): View? {
+        if (view.isFocusable && view.visibility == View.VISIBLE) return view
+        if (view is android.view.ViewGroup) {
+            for (i in 0 until view.childCount) {
+                val child = view.getChildAt(i)
+                val result = findFirstFocusable(child)
+                if (result != null) return result
+            }
+        }
+        return null
+    }
+
+    private val tabIds = listOf(
+        R.id.nav_playlists,
+        R.id.nav_channels,
+        R.id.nav_tv_guide,
+        R.id.nav_favorites,
+        R.id.nav_settings
+    )
+
+    private fun selectPreviousTab() {
+        val currentIdx = tabIds.indexOf(bottomNav.selectedItemId)
+        if (currentIdx > 0) {
+            bottomNav.selectedItemId = tabIds[currentIdx - 1]
+        }
+    }
+
+    private fun selectNextTab() {
+        val currentIdx = tabIds.indexOf(bottomNav.selectedItemId)
+        if (currentIdx < tabIds.size - 1) {
+            bottomNav.selectedItemId = tabIds[currentIdx + 1]
+        }
+    }
+
+    private fun checkForUpdatesOnStart() {
+        lifecycleScope.launch {
+            try {
+                val result = UpdateChecker.check(prefs.updateCheckUrl)
+                val updateInfo = result.getOrNull()
+                if (updateInfo != null && updateInfo.versionCode > BuildConfig.VERSION_CODE) {
+                    val message = buildString {
+                        append("${getString(R.string.current_version)}: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+                        append("\n${getString(R.string.new_version)}: ${updateInfo.versionName} (${updateInfo.versionCode})")
+                        if (updateInfo.releaseNotes.isNotBlank()) {
+                            append("\n\n${updateInfo.releaseNotes.take(500)}")
+                        }
+                    }
+                    AlertDialog.Builder(this@MainActivity, R.style.Theme_TVViewer_Dialog)
+                        .setTitle(getString(R.string.update_available, updateInfo.versionName))
+                        .setMessage(message)
+                        .setPositiveButton(R.string.update_download) { _, _ ->
+                            UpdateInstaller.downloadAndInstall(this@MainActivity, updateInfo.downloadUrl)
+                        }
+                        .setNegativeButton(R.string.cancel, null)
+                        .show()
+                }
+            } catch (e: Exception) {
+                Log.d("MainActivity", "Auto update check failed", e)
+            }
+        }
     }
 }

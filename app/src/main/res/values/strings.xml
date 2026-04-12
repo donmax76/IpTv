@@ -202,4 +202,7 @@
     <string name="screen_unlocked">Экран разблокирован</string>
     <string name="no_audio_tracks">Нет доступных аудиодорожек</string>
     <string name="no_subtitle_tracks">Нет субтитров</string>
+    <string name="checking_updates">Проверка обновлений…</string>
+    <string name="current_version">Текущая версия</string>
+    <string name="new_version">Новая версия</string>
 </resources>

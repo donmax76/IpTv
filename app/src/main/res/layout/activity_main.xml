@@ -21,6 +21,9 @@
         app:itemTextColor="@color/bottom_nav_color"
         app:labelVisibilityMode="labeled"
         app:menu="@menu/bottom_navigation"
-        app:itemRippleColor="@color/primary"/>
+        app:itemRippleColor="@color/primary"
+        android:focusable="true"
+        android:descendantFocusability="afterDescendants"
+        android:nextFocusUpId="@+id/fragmentContainer"/>
 
 </RelativeLayout>

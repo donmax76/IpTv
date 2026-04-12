@@ -7,7 +7,10 @@
     app:cardBackgroundColor="@color/card_background"
     app:cardCornerRadius="16dp"
     app:cardElevation="4dp"
-    app:strokeWidth="0dp">
+    app:strokeWidth="0dp"
+    android:focusable="true"
+    android:focusableInTouchMode="false"
+    android:foreground="@drawable/item_playlist_focused">
 
     <RelativeLayout
         android:layout_width="match_parent"

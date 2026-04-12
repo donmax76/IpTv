@@ -49,7 +49,9 @@
         android:textSize="14sp"
         android:inputType="text"
         android:imeOptions="actionSearch"
-        android:singleLine="true"/>
+        android:singleLine="true"
+        android:focusable="true"
+        android:nextFocusDownId="@+id/categoriesRecyclerView"/>
 
     <!-- Category chips -->
     <androidx.recyclerview.widget.RecyclerView
@@ -59,7 +61,10 @@
         android:layout_marginBottom="8dp"
         android:clipToPadding="false"
         android:paddingStart="16dp"
-        android:paddingEnd="16dp"/>
+        android:paddingEnd="16dp"
+        android:focusable="false"
+        android:nextFocusUpId="@+id/searchEditText"
+        android:nextFocusDownId="@+id/channelsRecyclerView"/>
 
     <!-- Channel list -->
     <FrameLayout
@@ -76,7 +81,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:clipToPadding="false"
-                android:paddingBottom="8dp"/>
+                android:paddingBottom="8dp"
+                android:focusable="false"
+                android:nextFocusUpId="@+id/categoriesRecyclerView"/>
 
         </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 

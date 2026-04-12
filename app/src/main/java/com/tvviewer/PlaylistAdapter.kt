@@ -1,5 +1,6 @@
 package com.tvviewer
 
+import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -44,6 +45,10 @@ class PlaylistAdapter(
             }
         }
 
+        // Make delete button focusable for D-pad
+        holder.btnDelete.isFocusable = isCustom
+        holder.btnDelete.isFocusableInTouchMode = false
+
         // Different icon tint for built-in vs custom
         holder.icon.setColorFilter(
             if (isCustom) holder.itemView.context.getColor(R.color.secondary)
@@ -51,6 +56,21 @@ class PlaylistAdapter(
         )
 
         holder.itemView.setOnClickListener { onPlaylistClick(playlist) }
+
+        // Handle D-pad center/enter on focused card
+        holder.itemView.setOnKeyListener { _, keyCode, event ->
+            if (event.action == KeyEvent.ACTION_DOWN &&
+                (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER)) {
+                holder.itemView.performClick()
+                true
+            } else if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && isCustom) {
+                // D-pad right to focus delete button
+                holder.btnDelete.requestFocus()
+                true
+            } else {
+                false
+            }
+        }
     }
 
     override fun getItemCount() = playlists.size

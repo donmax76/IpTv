@@ -28,12 +28,27 @@ class CategoryAdapter(
         holder.categoryName.text = category
         holder.categoryName.isSelected = position == selectedPosition
 
+        // Make focusable for D-pad navigation
+        holder.itemView.isFocusable = true
+        holder.itemView.isFocusableInTouchMode = false
+
         holder.itemView.setOnClickListener {
             val prev = selectedPosition
             selectedPosition = holder.adapterPosition
             notifyItemChanged(prev)
             notifyItemChanged(selectedPosition)
             onCategoryClick(category)
+        }
+
+        // Handle D-pad center/enter press on focused item
+        holder.itemView.setOnKeyListener { _, keyCode, event ->
+            if (event.action == android.view.KeyEvent.ACTION_DOWN &&
+                (keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER || keyCode == android.view.KeyEvent.KEYCODE_ENTER)) {
+                holder.itemView.performClick()
+                true
+            } else {
+                false
+            }
         }
     }
 

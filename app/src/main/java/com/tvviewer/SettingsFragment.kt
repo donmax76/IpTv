@@ -509,14 +509,24 @@ class SettingsFragment : Fragment() {
     }
 
     private fun checkForUpdates(versionText: TextView) {
+        versionText.text = getString(R.string.checking_updates)
         lifecycleScope.launch {
             try {
                 val prefs = AppPreferences(requireContext())
                 val result = UpdateChecker.check(prefs.updateCheckUrl)
                 val updateInfo = result.getOrNull()
+                versionText.text = getString(R.string.version_format, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)
                 if (updateInfo != null && updateInfo.versionCode > BuildConfig.VERSION_CODE) {
+                    val message = buildString {
+                        append("${getString(R.string.current_version)}: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+                        append("\n${getString(R.string.new_version)}: ${updateInfo.versionName} (${updateInfo.versionCode})")
+                        if (updateInfo.releaseNotes.isNotBlank()) {
+                            append("\n\n${updateInfo.releaseNotes.take(500)}")
+                        }
+                    }
                     AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
                         .setTitle(getString(R.string.update_available, updateInfo.versionName))
+                        .setMessage(message)
                         .setPositiveButton(R.string.update_download) { _, _ ->
                             UpdateInstaller.downloadAndInstall(requireContext(), updateInfo.downloadUrl)
                         }
@@ -526,6 +536,7 @@ class SettingsFragment : Fragment() {
                     Toast.makeText(requireContext(), R.string.update_latest, Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
+                versionText.text = getString(R.string.version_format, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)
                 Toast.makeText(requireContext(), R.string.update_check_failed, Toast.LENGTH_SHORT).show()
             }
         }

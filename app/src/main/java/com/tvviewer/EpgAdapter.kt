@@ -1,5 +1,6 @@
 package com.tvviewer
 
+import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -49,6 +50,17 @@ class EpgAdapter(
         }
 
         holder.itemView.setOnClickListener { onChannelClick(channel) }
+
+        // D-pad: center/enter selects channel
+        holder.itemView.setOnKeyListener { _, keyCode, event ->
+            if (event.action == KeyEvent.ACTION_DOWN &&
+                (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER)) {
+                holder.itemView.performClick()
+                true
+            } else {
+                false
+            }
+        }
 
         // Find current programme
         val currentProg = item.programmes.firstOrNull { now in it.start..it.end }
