@@ -103,8 +103,7 @@ class RtlSdrDevice(private val context: Context) {
     private var isOpen = false
     private var centerFrequency: Long = 100000000L // 100 MHz default
     private var sampleRate: Int = DEFAULT_SAMPLE_RATE
-    var tunerType: TunerType = TunerType.R820T
-        private set
+    private var tunerType: TunerType = TunerType.R820T
     // Scan results from probeI2CMethods: address that responded and its raw read data
     private var scanAddr: Int = 0
     private var scanData: Int = -1

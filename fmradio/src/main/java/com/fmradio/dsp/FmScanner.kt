@@ -203,7 +203,7 @@ class FmScanner(private val device: RtlSdrDevice) {
             // R820T/R828D have the standard mapping:
             //   setAutoGain(false) = manual mode + setGain(14) works       ← GOOD for scan
             //   setAutoGain(true)  = hardware AGC (equalises everything)   ← BAD for scan
-            when (device.tunerType) {
+            when (device.getTunerType()) {
                 RtlSdrDevice.TunerType.FC0013, RtlSdrDevice.TunerType.FC0012 -> {
                     device.setAutoGain(true)  // FC: manual mode with moderate fixed gain
                 }
