@@ -3,12 +3,12 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginStart="12dp"
-    android:layout_marginEnd="12dp"
-    android:layout_marginTop="4dp"
-    android:layout_marginBottom="4dp"
+    android:layout_marginStart="@dimen/channel_card_margin_h"
+    android:layout_marginEnd="@dimen/channel_card_margin_h"
+    android:layout_marginTop="@dimen/channel_card_margin_v"
+    android:layout_marginBottom="@dimen/channel_card_margin_v"
     app:cardBackgroundColor="@color/card_background"
-    app:cardCornerRadius="12dp"
+    app:cardCornerRadius="@dimen/channel_card_radius"
     app:cardElevation="2dp"
     app:strokeWidth="0dp"
     android:focusable="true"
@@ -19,7 +19,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="12dp">
+        android:padding="@dimen/channel_card_padding">
 
         <!-- Channel header -->
         <LinearLayout
@@ -31,8 +31,8 @@
 
             <ImageView
                 android:id="@+id/epgChannelLogo"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
+                android:layout_width="@dimen/epg_channel_logo"
+                android:layout_height="@dimen/epg_channel_logo"
                 android:scaleType="fitCenter"
                 android:adjustViewBounds="true"
                 android:src="@drawable/ic_channel_placeholder"/>
@@ -44,7 +44,7 @@
                 android:layout_weight="1"
                 android:layout_marginStart="10dp"
                 android:textColor="@color/text_primary"
-                android:textSize="15sp"
+                android:textSize="@dimen/epg_channel_name_text"
                 android:textStyle="bold"
                 android:singleLine="true"
                 android:ellipsize="end"/>
@@ -79,7 +79,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:textColor="@color/secondary"
-                android:textSize="12sp"
+                android:textSize="@dimen/epg_time_text"
                 android:textStyle="bold"
                 android:layout_marginEnd="8dp"/>
 
@@ -102,13 +102,12 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textColor="@color/text_primary"
-                    android:textSize="13sp"
+                    android:textSize="@dimen/epg_title_text"
                     android:maxLines="2"
                     android:ellipsize="end"/>
 
             </LinearLayout>
 
-            <!-- Progress bar for current show -->
             <ProgressBar
                 android:id="@+id/epgNowProgress"
                 style="?android:attr/progressBarStyleHorizontal"

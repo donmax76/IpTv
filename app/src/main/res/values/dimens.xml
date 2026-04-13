@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Default phone dimensions -->
+    <dimen name="channel_logo_size">48dp</dimen>
+    <dimen name="channel_logo_size_overlay">36dp</dimen>
+    <dimen name="channel_name_text">15sp</dimen>
+    <dimen name="channel_epg_text">12sp</dimen>
+    <dimen name="channel_number_size">28dp</dimen>
+    <dimen name="channel_number_text">11sp</dimen>
+    <dimen name="channel_card_padding">12dp</dimen>
+    <dimen name="channel_card_margin_h">12dp</dimen>
+    <dimen name="channel_card_margin_v">4dp</dimen>
+    <dimen name="channel_card_radius">12dp</dimen>
+    <dimen name="favorite_btn_size">36dp</dimen>
+
+    <dimen name="category_chip_height">36dp</dimen>
+    <dimen name="category_chip_text">13sp</dimen>
+    <dimen name="category_chip_padding_h">16dp</dimen>
+
+    <dimen name="playlist_card_padding">16dp</dimen>
+    <dimen name="playlist_card_radius">16dp</dimen>
+    <dimen name="playlist_icon_size">48dp</dimen>
+    <dimen name="playlist_name_text">16sp</dimen>
+    <dimen name="playlist_url_text">12sp</dimen>
+
+    <dimen name="search_height">44dp</dimen>
+    <dimen name="search_text">14sp</dimen>
+    <dimen name="search_margin_h">16dp</dimen>
+
+    <dimen name="title_text">24sp</dimen>
+    <dimen name="subtitle_text">13sp</dimen>
+    <dimen name="section_padding">16dp</dimen>
+
+    <dimen name="epg_channel_logo">36dp</dimen>
+    <dimen name="epg_channel_name_text">15sp</dimen>
+    <dimen name="epg_time_text">12sp</dimen>
+    <dimen name="epg_title_text">13sp</dimen>
+    <dimen name="epg_prog_time_text">11sp</dimen>
+    <dimen name="epg_prog_title_text">12sp</dimen>
+
+    <integer name="grid_columns">3</integer>
+
+    <dimen name="settings_item_min_height">48dp</dimen>
+    <dimen name="settings_title_text">16sp</dimen>
+    <dimen name="settings_value_text">13sp</dimen>
+
+    <dimen name="bottom_nav_icon">24dp</dimen>
+    <dimen name="bottom_nav_text">12sp</dimen>
+
+    <!-- Player overlay -->
+    <dimen name="player_button_size">40dp</dimen>
+    <dimen name="player_channel_name_text">16sp</dimen>
+    <dimen name="player_epg_text">13sp</dimen>
+    <dimen name="overlay_channel_logo">36dp</dimen>
+    <dimen name="overlay_channel_name_text">13sp</dimen>
+    <dimen name="overlay_channel_number_size">26dp</dimen>
+</resources>

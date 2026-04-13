@@ -124,7 +124,8 @@ class ChannelsFragment : Fragment() {
 
     private fun setupRecyclerView() {
         if (prefs.listDisplayMode == "grid") {
-            recyclerView.layoutManager = GridLayoutManager(requireContext(), 3)
+            val columns = resources.getInteger(R.integer.grid_columns)
+            recyclerView.layoutManager = GridLayoutManager(requireContext(), columns)
         } else {
             recyclerView.layoutManager = LinearLayoutManager(requireContext())
         }

@@ -10,7 +10,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:padding="@dimen/section_padding">
 
         <TextView
             android:id="@+id/playlistTitle"
@@ -18,7 +18,7 @@
             android:layout_height="wrap_content"
             android:text="@string/channels"
             android:textColor="@color/text_primary"
-            android:textSize="24sp"
+            android:textSize="@dimen/title_text"
             android:textStyle="bold"/>
 
         <TextView
@@ -26,7 +26,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textColor="@color/text_secondary"
-            android:textSize="13sp"
+            android:textSize="@dimen/subtitle_text"
             android:layout_marginTop="2dp"/>
 
     </LinearLayout>
@@ -35,9 +35,9 @@
     <EditText
         android:id="@+id/searchEditText"
         android:layout_width="match_parent"
-        android:layout_height="44dp"
-        android:layout_marginStart="16dp"
-        android:layout_marginEnd="16dp"
+        android:layout_height="@dimen/search_height"
+        android:layout_marginStart="@dimen/search_margin_h"
+        android:layout_marginEnd="@dimen/search_margin_h"
         android:layout_marginBottom="8dp"
         android:background="@drawable/bg_search"
         android:drawableStart="@drawable/ic_search"
@@ -46,7 +46,7 @@
         android:hint="@string/search_channels"
         android:textColorHint="@color/text_hint"
         android:textColor="@color/text_primary"
-        android:textSize="14sp"
+        android:textSize="@dimen/search_text"
         android:inputType="text"
         android:imeOptions="actionSearch"
         android:singleLine="true"
@@ -59,8 +59,8 @@
         android:layout_height="wrap_content"
         android:layout_marginBottom="8dp"
         android:clipToPadding="false"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
+        android:paddingStart="@dimen/section_padding"
+        android:paddingEnd="@dimen/section_padding"
         android:focusable="false"/>
 
     <!-- Channel list -->
@@ -106,7 +106,7 @@
                 android:layout_height="wrap_content"
                 android:text="@string/select_playlist_first"
                 android:textColor="@color/text_hint"
-                android:textSize="16sp"/>
+                android:textSize="@dimen/settings_title_text"/>
 
         </LinearLayout>
 
