@@ -1,0 +1,58 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [ main, 'claude/**' ]
+    paths:
+      - 'windows/**'
+      - '.github/workflows/build-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        pip install PyQt5>=5.15.0 python-vlc>=3.0.0 requests>=2.28.0 pyinstaller
+
+    - name: Build EXE with PyInstaller
+      run: |
+        cd windows
+        pyinstaller --onefile --windowed --name TVViewer --hidden-import m3u_parser --hidden-import epg_parser --add-data "m3u_parser.py;." --add-data "epg_parser.py;." tvviewer.py
+
+    - name: Prepare release files
+      run: |
+        mkdir release_output
+        copy windows\dist\TVViewer.exe release_output\TVViewer.exe
+
+    - name: Upload EXE artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: TVViewer-Windows
+        path: release_output/TVViewer.exe
+        if-no-files-found: error
+
+    - name: Create Release
+      if: github.event_name == 'push'
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: win-v5.3-build${{ github.run_number }}
+        name: TVViewer v5.3 Windows (Build ${{ github.run_number }})
+        files: release_output/TVViewer.exe
+        fail_on_unmatched_files: true
+        make_latest: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

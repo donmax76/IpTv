@@ -11,6 +11,13 @@ import json
 import time
 import threading
 from datetime import datetime
+
+# PyInstaller support: add bundled data path
+if getattr(sys, 'frozen', False):
+    _base_path = sys._MEIPASS
+    sys.path.insert(0, _base_path)
+else:
+    _base_path = os.path.dirname(os.path.abspath(__file__))
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QListWidget, QListWidgetItem,
