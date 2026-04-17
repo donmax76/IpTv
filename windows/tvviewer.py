@@ -209,7 +209,13 @@ class Config:
         self.last_playlist_url = ""
         self.last_playlist_name = ""
         self.last_epg_url = ""
+        self.last_channel_url = ""
+        self.last_category = "All"
         self.volume = 80
+        self.network_caching_ms = 3000     # VLC :network-caching
+        self.autoplay_last = False         # open last channel on startup
+        self.remember_fullscreen = False   # restore fullscreen on player open
+        self.sleep_timer_minutes = 0       # 0 = off
         self.load()
 
     def load(self):
@@ -222,7 +228,13 @@ class Config:
                 self.last_playlist_url = data.get('last_playlist_url', '')
                 self.last_playlist_name = data.get('last_playlist_name', '')
                 self.last_epg_url = data.get('last_epg_url', '')
-                self.volume = data.get('volume', 80)
+                self.last_channel_url = data.get('last_channel_url', '')
+                self.last_category = data.get('last_category', 'All')
+                self.volume = int(data.get('volume', 80))
+                self.network_caching_ms = int(data.get('network_caching_ms', 3000))
+                self.autoplay_last = bool(data.get('autoplay_last', False))
+                self.remember_fullscreen = bool(data.get('remember_fullscreen', False))
+                self.sleep_timer_minutes = int(data.get('sleep_timer_minutes', 0))
             except Exception:
                 pass
 
@@ -233,7 +245,13 @@ class Config:
             'last_playlist_url': self.last_playlist_url,
             'last_playlist_name': self.last_playlist_name,
             'last_epg_url': self.last_epg_url,
+            'last_channel_url': self.last_channel_url,
+            'last_category': self.last_category,
             'volume': self.volume,
+            'network_caching_ms': self.network_caching_ms,
+            'autoplay_last': self.autoplay_last,
+            'remember_fullscreen': self.remember_fullscreen,
+            'sleep_timer_minutes': self.sleep_timer_minutes,
         }
         try:
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
@@ -395,7 +413,14 @@ class ChannelsPage(QWidget):
         self.categories = []
         self.selected_category = "All"
         self.epg_data = {}
+        self.ch_to_index = {}  # id(ch) -> index in self.channels (O(1) lookup)
         self.init_ui()
+
+        # Debounce search input so typing doesn't rebuild the whole list per keystroke
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(200)
+        self._search_timer.timeout.connect(self.filter_channels)
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -413,7 +438,7 @@ class ChannelsPage(QWidget):
 
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Search channels...")
-        self.search_edit.textChanged.connect(self.filter_channels)
+        self.search_edit.textChanged.connect(self._on_search_text)
         layout.addWidget(self.search_edit)
         layout.addSpacing(8)
 
@@ -444,14 +469,20 @@ class ChannelsPage(QWidget):
 
     def set_channels(self, channels, name="", epg_data=None):
         self.channels = channels
+        self.ch_to_index = {id(ch): i for i, ch in enumerate(channels)}
         if epg_data:
             self.epg_data = epg_data
         self.title_label.setText(name or "Channels")
         cats = sorted(set(ch.group for ch in channels if ch.group))
         self.categories = ["All"] + cats
-        self.selected_category = "All"
+        # Restore last category if still present
+        last_cat = getattr(self.config, 'last_category', '') or "All"
+        self.selected_category = last_cat if last_cat in self.categories else "All"
         self.rebuild_categories()
         self.filter_channels()
+
+    def _on_search_text(self, _text: str):
+        self._search_timer.start()
 
     def set_epg(self, epg_data):
         self.epg_data = epg_data
@@ -475,34 +506,52 @@ class ChannelsPage(QWidget):
 
     def select_category(self, cat):
         self.selected_category = cat
+        self.config.last_category = cat
+        self.config.save()
         self.rebuild_categories()
         self.filter_channels()
 
     def filter_channels(self):
         query = self.search_edit.text().strip().lower()
-        self.filtered = []
+        cat = self.selected_category
+        favs = self.config.favorites
+        epg = self.epg_data
+        # Build filtered list once
+        filtered = []
         for ch in self.channels:
-            if self.selected_category != "All" and ch.group != self.selected_category:
+            if cat != "All" and ch.group != cat:
                 continue
             if query and query not in ch.name.lower():
                 continue
-            self.filtered.append(ch)
+            filtered.append(ch)
+        self.filtered = filtered
 
-        self.channel_list.clear()
-        for i, ch in enumerate(self.filtered):
-            now_prog, next_prog = get_now_next(self.epg_data, ch.tvg_id)
-            epg_text = ""
-            if now_prog:
-                t = datetime.fromtimestamp(now_prog.start).strftime('%H:%M')
-                epg_text = f"  {t} {now_prog.title}"
-            fav = " ♥" if ch.url in self.config.favorites else ""
-            group = f" [{ch.group}]" if ch.group else ""
-            text = f"{i+1}. {ch.name}{fav}{group}{epg_text}"
-            item = QListWidgetItem(text)
-            item.setData(Qt.UserRole, self.channels.index(ch))
-            self.channel_list.addItem(item)
+        # Show EPG titles only for small lists to keep the UI responsive
+        show_epg = len(filtered) <= 500
+        ch_to_index = self.ch_to_index
+        lst = self.channel_list
+        lst.setUpdatesEnabled(False)
+        try:
+            lst.clear()
+            for i, ch in enumerate(filtered):
+                epg_text = ""
+                if show_epg:
+                    now_prog, _ = get_now_next(epg, ch.tvg_id)
+                    if now_prog:
+                        try:
+                            t = datetime.fromtimestamp(now_prog.start).strftime('%H:%M')
+                            epg_text = f"  {t} {now_prog.title}"
+                        except (OSError, ValueError):
+                            pass
+                fav = " ♥" if ch.url in favs else ""
+                group = f" [{ch.group}]" if ch.group else ""
+                item = QListWidgetItem(f"{i+1}. {ch.name}{fav}{group}{epg_text}")
+                item.setData(Qt.UserRole, ch_to_index.get(id(ch), -1))
+                lst.addItem(item)
+        finally:
+            lst.setUpdatesEnabled(True)
 
-        self.count_label.setText(f"{len(self.filtered)} channels")
+        self.count_label.setText(f"{len(filtered)} channels")
 
     def on_channel_click(self, item):
         idx = item.data(Qt.UserRole)
@@ -550,14 +599,22 @@ class FavoritesPage(QWidget):
     def refresh(self, channels, epg_data):
         self.channels = channels
         self.epg_data = epg_data
-        self.fav_channels = [ch for ch in channels if ch.url in self.config.favorites]
-        self.fav_list.clear()
-        for ch in self.fav_channels:
-            now_prog, _ = get_now_next(epg_data, ch.tvg_id)
-            epg = f"  {now_prog.title}" if now_prog else ""
-            item = QListWidgetItem(f"♥ {ch.name}{epg}")
-            item.setData(Qt.UserRole, channels.index(ch))
-            self.fav_list.addItem(item)
+        favs = self.config.favorites
+        self.fav_list.setUpdatesEnabled(False)
+        try:
+            self.fav_list.clear()
+            self.fav_channels = []
+            for idx, ch in enumerate(channels):
+                if ch.url not in favs:
+                    continue
+                self.fav_channels.append(ch)
+                now_prog, _ = get_now_next(epg_data, ch.tvg_id)
+                epg = f"  {now_prog.title}" if now_prog else ""
+                item = QListWidgetItem(f"♥ {ch.name}{epg}")
+                item.setData(Qt.UserRole, idx)
+                self.fav_list.addItem(item)
+        finally:
+            self.fav_list.setUpdatesEnabled(True)
         self.count_label.setText(f"{len(self.fav_channels)} favorites")
 
     def on_click(self, item):
@@ -572,6 +629,9 @@ class FavoritesPage(QWidget):
 class PlayerPage(QWidget):
     back_requested = pyqtSignal()
 
+    ASPECT_RATIOS = ["", "16:9", "4:3", "1:1", "16:10", "2.35:1"]
+    SPEED_VALUES = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+
     def __init__(self, config: Config):
         super().__init__()
         self.config = config
@@ -581,8 +641,23 @@ class PlayerPage(QWidget):
         self.vlc_instance = None
         self.player = None
         self.current_media = None
+        self._aspect_idx = 0
+        self._speed_idx = 2  # 1.0x
+        self._number_input = ""
+        self._sleep_deadline = 0  # monotonic ms; 0 = off
         self.init_ui()
         self.init_vlc()
+
+        # Sleep timer tick (once per minute)
+        self._sleep_timer = QTimer(self)
+        self._sleep_timer.setInterval(10 * 1000)
+        self._sleep_timer.timeout.connect(self._tick_sleep)
+
+        # Number-input commit timer (D-pad-style channel selection)
+        self._number_timer = QTimer(self)
+        self._number_timer.setSingleShot(True)
+        self._number_timer.setInterval(1500)
+        self._number_timer.timeout.connect(self._apply_number_input)
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -654,7 +729,38 @@ class PlayerPage(QWidget):
         self.vol_slider.valueChanged.connect(self.set_volume)
         ctrl.addWidget(self.vol_slider)
 
+        # Extra player controls
+        self.btn_aspect = QPushButton("Aspect: auto")
+        self.btn_aspect.clicked.connect(self.cycle_aspect_ratio)
+        ctrl.addWidget(self.btn_aspect)
+
+        self.btn_speed = QPushButton("1.0x")
+        self.btn_speed.clicked.connect(self.cycle_speed)
+        ctrl.addWidget(self.btn_speed)
+
+        self.btn_audio = QPushButton("Audio")
+        self.btn_audio.clicked.connect(self.cycle_audio_track)
+        ctrl.addWidget(self.btn_audio)
+
+        self.btn_sleep = QPushButton("Sleep")
+        self.btn_sleep.clicked.connect(self.configure_sleep_timer)
+        ctrl.addWidget(self.btn_sleep)
+
+        self.btn_fullscreen = QPushButton("⛶")
+        self.btn_fullscreen.setToolTip("Fullscreen (F11)")
+        self.btn_fullscreen.clicked.connect(self.toggle_fullscreen)
+        ctrl.addWidget(self.btn_fullscreen)
+
         ctrl.addStretch()
+        self.number_label = QLabel("")
+        self.number_label.setStyleSheet(
+            f"color: {COLORS['secondary']}; font-weight: bold; font-size: 18px;")
+        ctrl.addWidget(self.number_label)
+
+        self.sleep_label = QLabel("")
+        self.sleep_label.setStyleSheet(f"color: {COLORS['text_hint']}; font-size: 12px;")
+        ctrl.addWidget(self.sleep_label)
+
         self.clock_label = QLabel("")
         self.clock_label.setStyleSheet(f"color: {COLORS['text_hint']}; font-size: 13px;")
         ctrl.addWidget(self.clock_label)
@@ -699,7 +805,7 @@ class PlayerPage(QWidget):
         # Release previous media to avoid resource accumulation across channel switches
         prev = self.current_media
         media = self.vlc_instance.media_new(url)
-        media.add_option(':network-caching=3000')
+        media.add_option(f':network-caching={int(self.config.network_caching_ms)}')
         self.player.set_media(media)
         self.current_media = media
         if prev is not None:
@@ -714,8 +820,17 @@ class PlayerPage(QWidget):
         elif sys.platform == "darwin":
             self.player.set_nsobject(int(self.video_frame.winId()))
         self.player.audio_set_volume(self.config.volume)
+        # Restore aspect ratio & speed per current selection
+        self._apply_aspect_ratio()
+        try:
+            self.player.set_rate(self.SPEED_VALUES[self._speed_idx])
+        except Exception:
+            pass
         self.player.play()
         self.btn_play.setText("Pause")
+        # Remember last channel for autoplay-last
+        self.config.last_channel_url = url
+        self.config.save()
 
     def toggle_play(self):
         if not self.player:
@@ -780,6 +895,142 @@ class PlayerPage(QWidget):
     def update_clock(self):
         self.clock_label.setText(datetime.now().strftime('%H:%M'))
 
+    # --- Aspect ratio ---
+
+    def cycle_aspect_ratio(self):
+        self._aspect_idx = (self._aspect_idx + 1) % len(self.ASPECT_RATIOS)
+        self._apply_aspect_ratio()
+
+    def _apply_aspect_ratio(self):
+        if not self.player:
+            return
+        ratio = self.ASPECT_RATIOS[self._aspect_idx]
+        label = ratio if ratio else "auto"
+        try:
+            self.player.video_set_aspect_ratio(ratio.encode() if ratio else None)
+        except Exception:
+            pass
+        self.btn_aspect.setText(f"Aspect: {label}")
+
+    # --- Playback speed ---
+
+    def cycle_speed(self):
+        self._speed_idx = (self._speed_idx + 1) % len(self.SPEED_VALUES)
+        speed = self.SPEED_VALUES[self._speed_idx]
+        if self.player:
+            try:
+                self.player.set_rate(speed)
+            except Exception:
+                pass
+        self.btn_speed.setText(f"{speed:g}x")
+
+    # --- Audio track ---
+
+    def cycle_audio_track(self):
+        if not self.player:
+            return
+        try:
+            tracks = self.player.audio_get_track_description() or []
+            # Filter out the -1 "deactivate" pseudo-track
+            usable = [t for t in tracks if t and t[0] >= 0]
+            if len(usable) < 2:
+                self.epg_bar.setText("Single audio track")
+                return
+            cur = self.player.audio_get_track()
+            ids = [t[0] for t in usable]
+            try:
+                pos = ids.index(cur)
+            except ValueError:
+                pos = -1
+            nxt = usable[(pos + 1) % len(usable)]
+            self.player.audio_set_track(nxt[0])
+            name = nxt[1].decode(errors='ignore') if isinstance(nxt[1], (bytes, bytearray)) else str(nxt[1])
+            self.btn_audio.setText(f"Audio: {name[:12]}")
+        except Exception:
+            pass
+
+    # --- Fullscreen ---
+
+    def toggle_fullscreen(self):
+        w = self.window()
+        if w is None:
+            return
+        if w.isFullScreen():
+            w.showNormal()
+        else:
+            w.showFullScreen()
+
+    # --- Sleep timer ---
+
+    def configure_sleep_timer(self):
+        from PyQt5.QtWidgets import QInputDialog
+        mins, ok = QInputDialog.getInt(
+            self, "Sleep timer",
+            "Minutes until pause (0 = off):",
+            max(0, self.config.sleep_timer_minutes), 0, 240, 5)
+        if not ok:
+            return
+        self._start_sleep_timer(mins)
+
+    def _start_sleep_timer(self, minutes: int):
+        self.config.sleep_timer_minutes = int(minutes)
+        self.config.save()
+        if minutes <= 0:
+            self._sleep_deadline = 0
+            self._sleep_timer.stop()
+            self.sleep_label.setText("")
+            return
+        self._sleep_deadline = int(time.monotonic() * 1000) + minutes * 60 * 1000
+        self._sleep_timer.start()
+        self._update_sleep_label()
+
+    def _update_sleep_label(self):
+        if self._sleep_deadline <= 0:
+            self.sleep_label.setText("")
+            return
+        remaining_ms = self._sleep_deadline - int(time.monotonic() * 1000)
+        if remaining_ms <= 0:
+            self.sleep_label.setText("")
+            return
+        mins = remaining_ms // 60000 + 1
+        self.sleep_label.setText(f"💤 {mins} min")
+
+    def _tick_sleep(self):
+        if self._sleep_deadline <= 0:
+            return
+        remaining_ms = self._sleep_deadline - int(time.monotonic() * 1000)
+        if remaining_ms <= 0:
+            self._sleep_deadline = 0
+            self._sleep_timer.stop()
+            self.sleep_label.setText("")
+            if self.player:
+                try: self.player.pause()
+                except Exception: pass
+            self.btn_play.setText("Play")
+            return
+        self._update_sleep_label()
+
+    # --- Number input (digit keys select channel number) ---
+
+    def _handle_digit(self, digit: int):
+        self._number_input += str(digit)
+        self.number_label.setText(self._number_input)
+        self._number_timer.start()
+
+    def _apply_number_input(self):
+        txt = self._number_input
+        self._number_input = ""
+        self.number_label.setText("")
+        if not txt or not self.channels:
+            return
+        try:
+            num = int(txt)
+        except ValueError:
+            return
+        if 1 <= num <= len(self.channels):
+            self.current_index = num - 1
+            self.play_channel(self.current_index, self.channels, self.epg_data)
+
     def stop(self):
         if self.player:
             self.player.stop()
@@ -800,6 +1051,10 @@ class PlayerPage(QWidget):
 
     def keyPressEvent(self, event):
         key = event.key()
+        # Digit keys: compose channel number (non-keypad and keypad)
+        if Qt.Key_0 <= key <= Qt.Key_9:
+            self._handle_digit(key - Qt.Key_0)
+            return
         if key == Qt.Key_Space:
             self.toggle_play()
         elif key == Qt.Key_Up:
@@ -807,13 +1062,32 @@ class PlayerPage(QWidget):
         elif key == Qt.Key_Down:
             self.switch_channel(1)
         elif key == Qt.Key_Escape:
-            self.back_requested.emit()
+            if self.window() is not None and self.window().isFullScreen():
+                self.window().showNormal()
+            else:
+                self.back_requested.emit()
         elif key == Qt.Key_F:
             self.toggle_favorite()
         elif key == Qt.Key_Plus or key == Qt.Key_VolumeUp:
             self.vol_slider.setValue(min(100, self.vol_slider.value() + 5))
         elif key == Qt.Key_Minus or key == Qt.Key_VolumeDown:
             self.vol_slider.setValue(max(0, self.vol_slider.value() - 5))
+        elif key == Qt.Key_F11:
+            self.toggle_fullscreen()
+        elif key == Qt.Key_A:
+            self.cycle_aspect_ratio()
+        elif key == Qt.Key_T:
+            self.cycle_audio_track()
+        elif key == Qt.Key_BracketRight:
+            self.cycle_speed()
+        elif key == Qt.Key_BracketLeft:
+            # Cycle backward
+            self._speed_idx = (self._speed_idx - 1) % len(self.SPEED_VALUES)
+            speed = self.SPEED_VALUES[self._speed_idx]
+            if self.player:
+                try: self.player.set_rate(speed)
+                except Exception: pass
+            self.btn_speed.setText(f"{speed:g}x")
         else:
             super().keyPressEvent(event)
 
@@ -822,22 +1096,26 @@ class PlayerPage(QWidget):
 # Settings Page
 # ============================================================
 class SettingsPage(QWidget):
+    settings_changed = pyqtSignal()
+
     def __init__(self, config: Config):
         super().__init__()
         self.config = config
         self.init_ui()
 
     def init_ui(self):
+        from PyQt5.QtWidgets import QCheckBox, QSpinBox
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
 
         title = QLabel("Settings")
         title.setFont(QFont('Segoe UI', 22, QFont.Bold))
         layout.addWidget(title)
-        layout.addSpacing(16)
+        layout.addSpacing(8)
 
         # VLC status
         vlc_status = "VLC: Installed" if HAS_VLC else "VLC: Not found - install VLC and python-vlc"
@@ -847,22 +1125,89 @@ class SettingsPage(QWidget):
         layout.addWidget(vlc_label)
         layout.addSpacing(12)
 
-        # Version
-        ver_label = QLabel("TVViewer v5.3 (Windows Desktop)")
-        ver_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 14px;")
-        layout.addWidget(ver_label)
+        # --- Playback section ---
+        layout.addWidget(self._section("Playback"))
+
+        # Buffer / network caching
+        buf_row = QHBoxLayout()
+        buf_row.addWidget(QLabel("Buffer (network cache):"))
+        self.buf_combo = QComboBox()
+        self.buf_combo.addItem("Low (1500 ms)", 1500)
+        self.buf_combo.addItem("Normal (3000 ms)", 3000)
+        self.buf_combo.addItem("High (6000 ms)", 6000)
+        self.buf_combo.addItem("Very high (10000 ms)", 10000)
+        self._set_combo_by_value(self.buf_combo, self.config.network_caching_ms, default_idx=1)
+        self.buf_combo.currentIndexChanged.connect(self._save_buffer)
+        buf_row.addWidget(self.buf_combo, 1)
+        layout.addLayout(buf_row)
+
+        # Default volume
+        vol_row = QHBoxLayout()
+        vol_row.addWidget(QLabel("Default volume:"))
+        self.vol_spin = QSpinBox()
+        self.vol_spin.setRange(0, 100)
+        self.vol_spin.setSuffix("%")
+        self.vol_spin.setValue(self.config.volume)
+        self.vol_spin.valueChanged.connect(self._save_volume)
+        vol_row.addWidget(self.vol_spin)
+        vol_row.addStretch()
+        layout.addLayout(vol_row)
+
+        # Sleep timer default
+        sleep_row = QHBoxLayout()
+        sleep_row.addWidget(QLabel("Sleep timer (default):"))
+        self.sleep_spin = QSpinBox()
+        self.sleep_spin.setRange(0, 240)
+        self.sleep_spin.setSuffix(" min (0 = off)")
+        self.sleep_spin.setValue(self.config.sleep_timer_minutes)
+        self.sleep_spin.valueChanged.connect(self._save_sleep)
+        sleep_row.addWidget(self.sleep_spin)
+        sleep_row.addStretch()
+        layout.addLayout(sleep_row)
+
+        # --- Behaviour section ---
         layout.addSpacing(8)
+        layout.addWidget(self._section("Behaviour"))
+
+        self.cb_autoplay = QCheckBox("Autoplay last channel on startup")
+        self.cb_autoplay.setChecked(self.config.autoplay_last)
+        self.cb_autoplay.toggled.connect(self._save_autoplay)
+        layout.addWidget(self.cb_autoplay)
+
+        self.cb_fullscreen = QCheckBox("Open player in fullscreen")
+        self.cb_fullscreen.setChecked(self.config.remember_fullscreen)
+        self.cb_fullscreen.toggled.connect(self._save_fullscreen)
+        layout.addWidget(self.cb_fullscreen)
+
+        # --- Data section ---
+        layout.addSpacing(8)
+        layout.addWidget(self._section("Data"))
+
+        data_row = QHBoxLayout()
+        btn_clear_fav = QPushButton("Clear favorites")
+        btn_clear_fav.clicked.connect(self._clear_favorites)
+        data_row.addWidget(btn_clear_fav)
+        btn_reset = QPushButton("Reset settings")
+        btn_reset.clicked.connect(self._reset_settings)
+        data_row.addWidget(btn_reset)
+        data_row.addStretch()
+        layout.addLayout(data_row)
+
+        # --- Info section ---
+        layout.addSpacing(12)
+        ver_label = QLabel("TVViewer v5.3 (Windows Desktop)")
+        ver_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 13px;")
+        layout.addWidget(ver_label)
 
         info = QLabel(
             "Keyboard shortcuts (Player):\n"
-            "  Space - Play/Pause\n"
-            "  Up/Down - Switch channels\n"
-            "  +/- - Volume\n"
-            "  F - Toggle favorite\n"
-            "  Esc - Back to channels\n\n"
-            "Double-click a channel or playlist to open it."
+            "  Space — play/pause        F11 — fullscreen\n"
+            "  Up/Down — switch channel  [ / ] — speed - / +\n"
+            "  + / - — volume            A — aspect ratio\n"
+            "  F — toggle favorite       T — audio track\n"
+            "  0–9 — channel number      Esc — back\n"
         )
-        info.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 13px;")
+        info.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 12px;")
         info.setWordWrap(True)
         layout.addWidget(info)
 
@@ -872,6 +1217,74 @@ class SettingsPage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(scroll)
+
+    def _section(self, text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setStyleSheet(
+            f"color: {COLORS['secondary']}; font-size: 13px; font-weight: bold;"
+            f" padding: 4px 0;")
+        return lbl
+
+    @staticmethod
+    def _set_combo_by_value(combo: QComboBox, value, default_idx: int = 0):
+        for i in range(combo.count()):
+            if combo.itemData(i) == value:
+                combo.setCurrentIndex(i)
+                return
+        combo.setCurrentIndex(default_idx)
+
+    def _save_buffer(self, _idx):
+        self.config.network_caching_ms = int(self.buf_combo.currentData())
+        self.config.save()
+        self.settings_changed.emit()
+
+    def _save_volume(self, v):
+        self.config.volume = int(v)
+        self.config.save()
+        self.settings_changed.emit()
+
+    def _save_sleep(self, v):
+        self.config.sleep_timer_minutes = int(v)
+        self.config.save()
+
+    def _save_autoplay(self, checked):
+        self.config.autoplay_last = bool(checked)
+        self.config.save()
+
+    def _save_fullscreen(self, checked):
+        self.config.remember_fullscreen = bool(checked)
+        self.config.save()
+
+    def _clear_favorites(self):
+        reply = QMessageBox.question(
+            self, "Clear favorites",
+            "Remove all favorites?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            self.config.favorites.clear()
+            self.config.save()
+            self.settings_changed.emit()
+
+    def _reset_settings(self):
+        reply = QMessageBox.question(
+            self, "Reset settings",
+            "Reset all settings to defaults? Playlists and favorites are kept.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+        self.config.volume = 80
+        self.config.network_caching_ms = 3000
+        self.config.autoplay_last = False
+        self.config.remember_fullscreen = False
+        self.config.sleep_timer_minutes = 0
+        self.config.save()
+        # Refresh UI
+        self.vol_spin.setValue(self.config.volume)
+        self._set_combo_by_value(self.buf_combo, self.config.network_caching_ms, 1)
+        self.sleep_spin.setValue(0)
+        self.cb_autoplay.setChecked(False)
+        self.cb_fullscreen.setChecked(False)
+        self.settings_changed.emit()
 
 
 # ============================================================
@@ -918,6 +1331,7 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.player_page)
 
         self.settings_page = SettingsPage(self.config)
+        self.settings_page.settings_changed.connect(self._on_settings_changed)
         self.stack.addWidget(self.settings_page)
 
         main_layout.addWidget(self.stack, 1)
@@ -986,6 +1400,13 @@ class MainWindow(QMainWindow):
         elif self.config.last_epg_url:
             self.load_epg(self.config.last_epg_url)
 
+        # Autoplay last channel (best-effort: match by URL)
+        if self.config.autoplay_last and self.config.last_channel_url:
+            for i, ch in enumerate(self.channels):
+                if ch.url == self.config.last_channel_url:
+                    self.play_channel(i)
+                    break
+
     def on_playlist_error(self, error: str):
         self.channels_page.status_label.setText(f"Error: {error}")
 
@@ -1005,9 +1426,17 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(3)
         self.update_nav_highlight(-1)
         self.player_page.play_channel(index, self.channels, self.epg_data)
+        # Apply remembered fullscreen preference
+        if self.config.remember_fullscreen and not self.isFullScreen():
+            self.showFullScreen()
+        # Start sleep timer if configured
+        if self.config.sleep_timer_minutes > 0:
+            self.player_page._start_sleep_timer(self.config.sleep_timer_minutes)
 
     def show_channels(self):
         self.player_page.stop()
+        if self.isFullScreen():
+            self.showNormal()
         self.switch_page(1)
 
     def auto_load_last(self):
@@ -1015,6 +1444,14 @@ class MainWindow(QMainWindow):
         name = self.config.last_playlist_name
         if url:
             self.load_playlist(name or "Playlist", url)
+
+    def _on_settings_changed(self):
+        # Push new default volume to the running player
+        self.player_page.vol_slider.setValue(self.config.volume)
+        # Refresh channel list (favorite state / category visibility may have changed)
+        self.channels_page.filter_channels()
+        if self.stack.currentIndex() == 2:
+            self.favorites_page.refresh(self.channels, self.epg_data)
 
     def closeEvent(self, event):
         self.player_page.stop()
