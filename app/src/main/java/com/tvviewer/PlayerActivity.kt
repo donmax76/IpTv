@@ -1130,7 +1130,11 @@ class PlayerActivity : BaseActivity() {
 
     override fun onPause() {
         super.onPause()
-        player?.pause()
+        // Keep playing in Picture-in-Picture mode
+        val inPip = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode
+        if (!inPip) {
+            player?.pause()
+        }
     }
 
     override fun onResume() {

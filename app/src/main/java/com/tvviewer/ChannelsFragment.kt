@@ -170,8 +170,9 @@ class ChannelsFragment : Fragment() {
                 // Load EPG - first from cache, then from network
                 lifecycleScope.launch {
                     try {
+                        val ctx = context ?: return@launch
                         // Try loading from cache first for instant display
-                        val cached = EpgRepository.loadFromCache(requireContext())
+                        val cached = EpgRepository.loadFromCache(ctx)
                         if (cached != null && cached.isNotEmpty() && epgData.isEmpty()) {
                             epgData = cached
                             ChannelDataHolder.epgData = epgData
@@ -183,8 +184,8 @@ class ChannelsFragment : Fragment() {
                         val epgUrl = result.epgUrl ?: prefs.lastEpgUrl
                         if (!epgUrl.isNullOrBlank()) {
                             prefs.lastEpgUrl = epgUrl
-                            val freshData = EpgRepository.fetchEpg(epgUrl, context)
-                            if (freshData.isNotEmpty()) {
+                            val freshData = EpgRepository.fetchEpg(epgUrl, ctx)
+                            if (freshData.isNotEmpty() && isAdded) {
                                 epgData = freshData
                                 ChannelDataHolder.epgData = epgData
                                 prefs.epgLastUpdate = System.currentTimeMillis()
@@ -201,11 +202,12 @@ class ChannelsFragment : Fragment() {
                 prefs.lastPlaylistName = name
             } catch (e: Exception) {
                 Log.e("ChannelsFragment", "Load error", e)
+                if (!isAdded) return@launch
                 progressBar.visibility = View.GONE
                 swipeRefresh.isRefreshing = false
                 emptyLayout.visibility = View.VISIBLE
                 emptyText.text = getString(R.string.load_failed)
-                ErrorLogger.logException(requireContext(), e)
+                context?.let { ErrorLogger.logException(it, e) }
             }
         }
     }

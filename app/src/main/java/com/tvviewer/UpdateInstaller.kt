@@ -21,6 +21,11 @@ object UpdateInstaller {
     private var receiver: BroadcastReceiver? = null
 
     fun downloadAndInstall(context: Context, downloadUrl: String) {
+        // Guard against re-entry while a previous download is still pending
+        if (receiver != null) {
+            Toast.makeText(context, context.getString(R.string.update_downloading), Toast.LENGTH_SHORT).show()
+            return
+        }
         val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         val request = DownloadManager.Request(Uri.parse(downloadUrl)).apply {
             setTitle("TVViewer Update")

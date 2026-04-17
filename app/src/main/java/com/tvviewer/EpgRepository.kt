@@ -55,34 +55,29 @@ object EpgRepository {
                 .header("Accept-Encoding", "gzip")
                 .header("User-Agent", "Mozilla/5.0")
                 .build()
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                Log.e(TAG, "EPG HTTP error: ${response.code}")
-                return@withContext loadFromCache(context) ?: emptyMap()
-            }
-
-            val body = response.body ?: run {
-                return@withContext loadFromCache(context) ?: emptyMap()
-            }
-
-            // Handle gzip
-            val bodyString = try {
-                val contentEncoding = response.header("Content-Encoding")
-                val contentType = response.header("Content-Type") ?: ""
-                if (contentEncoding == "gzip" || epgUrl.endsWith(".gz") || contentType.contains("gzip")) {
-                    val bytes = body.bytes()
-                    try {
-                        GZIPInputStream(bytes.inputStream()).bufferedReader().readText()
-                    } catch (e: Exception) {
-                        // Not actually gzipped
-                        String(bytes)
-                    }
-                } else {
-                    body.string()
+            val bodyString = client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "EPG HTTP error: ${response.code}")
+                    return@withContext loadFromCache(context) ?: emptyMap()
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "EPG body read error", e)
-                return@withContext loadFromCache(context) ?: emptyMap()
+                val body = response.body ?: return@withContext loadFromCache(context) ?: emptyMap()
+                try {
+                    val contentEncoding = response.header("Content-Encoding")
+                    val contentType = response.header("Content-Type") ?: ""
+                    if (contentEncoding == "gzip" || epgUrl.endsWith(".gz") || contentType.contains("gzip")) {
+                        val bytes = body.bytes()
+                        try {
+                            GZIPInputStream(bytes.inputStream()).bufferedReader().readText()
+                        } catch (e: Exception) {
+                            String(bytes)
+                        }
+                    } else {
+                        body.string()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "EPG body read error", e)
+                    return@withContext loadFromCache(context) ?: emptyMap()
+                }
             }
 
             Log.d(TAG, "EPG data size: ${bodyString.length} chars")

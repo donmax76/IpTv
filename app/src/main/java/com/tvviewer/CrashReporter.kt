@@ -34,34 +34,42 @@ object CrashReporter {
     }
 
     private fun sendToUrl(urlString: String, json: String) {
+        var conn: HttpURLConnection? = null
         try {
             val url = URL(urlString)
-            val conn = url.openConnection() as HttpURLConnection
-            conn.requestMethod = "POST"
-            conn.doOutput = true
-            conn.setRequestProperty("Content-Type", "application/json")
-            conn.connectTimeout = 5000
-            conn.readTimeout = 5000
+            conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json")
+                connectTimeout = 5000
+                readTimeout = 5000
+            }
             conn.outputStream.use { it.write(json.toByteArray(Charsets.UTF_8)) }
             Log.d(TAG, "Crash sent to URL, response: ${conn.responseCode}")
         } catch (e: Exception) {
             Log.e(TAG, "Send to URL failed", e)
+        } finally {
+            conn?.disconnect()
         }
     }
 
     private fun sendToFirebase(projectId: String, json: String) {
+        var conn: HttpURLConnection? = null
         try {
             val url = URL("https://$projectId-default-rtdb.firebaseio.com/crashes.json")
-            val conn = url.openConnection() as HttpURLConnection
-            conn.requestMethod = "POST"
-            conn.doOutput = true
-            conn.setRequestProperty("Content-Type", "application/json")
-            conn.connectTimeout = 5000
-            conn.readTimeout = 5000
+            conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json")
+                connectTimeout = 5000
+                readTimeout = 5000
+            }
             conn.outputStream.use { it.write(json.toByteArray(Charsets.UTF_8)) }
             Log.d(TAG, "Crash sent to Firebase, response: ${conn.responseCode}")
         } catch (e: Exception) {
             Log.e(TAG, "Send to Firebase failed", e)
+        } finally {
+            conn?.disconnect()
         }
     }
 }
