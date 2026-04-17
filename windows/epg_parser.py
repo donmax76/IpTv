@@ -67,11 +67,11 @@ def fetch_epg(epg_url: str, cache_dir: str = ".") -> EpgData:
         'Accept-Encoding': 'gzip',
     }
 
-    response = requests.get(epg_url, headers=headers, timeout=120,
-                            allow_redirects=True, stream=True)
-    response.raise_for_status()
+    with requests.get(epg_url, headers=headers, timeout=120,
+                      allow_redirects=True, stream=True) as response:
+        response.raise_for_status()
+        content = response.content
 
-    content = response.content
     # Check if gzipped
     if content[:2] == b'\x1f\x8b':
         content = gzip.decompress(content)

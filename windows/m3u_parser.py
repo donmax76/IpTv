@@ -104,9 +104,9 @@ def fetch_playlist(url: str, timeout: int = 30) -> PlaylistResult:
     headers = {
         'User-Agent': 'TVViewer/5.3 (Windows Desktop)',
     }
-    response = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
-    response.raise_for_status()
-    content = response.text
+    with requests.get(url, headers=headers, timeout=timeout, allow_redirects=True) as response:
+        response.raise_for_status()
+        content = response.text
     return parse_m3u(content)
 
 

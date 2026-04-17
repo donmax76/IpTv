@@ -580,6 +580,7 @@ class PlayerPage(QWidget):
         self.epg_data = {}
         self.vlc_instance = None
         self.player = None
+        self.current_media = None
         self.init_ui()
         self.init_vlc()
 
@@ -695,9 +696,17 @@ class PlayerPage(QWidget):
         if not self.player:
             self.epg_bar.setText("VLC not installed. Install VLC and python-vlc.")
             return
+        # Release previous media to avoid resource accumulation across channel switches
+        prev = self.current_media
         media = self.vlc_instance.media_new(url)
         media.add_option(':network-caching=3000')
         self.player.set_media(media)
+        self.current_media = media
+        if prev is not None:
+            try:
+                prev.release()
+            except Exception:
+                pass
         if sys.platform == "win32":
             self.player.set_hwnd(int(self.video_frame.winId()))
         elif sys.platform == "linux":
@@ -774,6 +783,20 @@ class PlayerPage(QWidget):
     def stop(self):
         if self.player:
             self.player.stop()
+
+    def release_vlc(self):
+        if self.current_media is not None:
+            try: self.current_media.release()
+            except Exception: pass
+            self.current_media = None
+        if self.player is not None:
+            try: self.player.release()
+            except Exception: pass
+            self.player = None
+        if self.vlc_instance is not None:
+            try: self.vlc_instance.release()
+            except Exception: pass
+            self.vlc_instance = None
 
     def keyPressEvent(self, event):
         key = event.key()
@@ -995,6 +1018,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.player_page.stop()
+        self.player_page.release_vlc()
         self.config.save()
         event.accept()
 
