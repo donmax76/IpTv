@@ -85,7 +85,15 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             // Blocking write with large buffer (20× = ~800ms). Non-blocking was
             // dropping frames silently causing crackling. Blocking paces the DSP
             // naturally and AudioTrack's 800ms buffer absorbs scheduling jitter.
-            audioTrack?.write(samples, 0, count)
+            val written = audioTrack?.write(samples, 0, count) ?: 0
+
+            // Log write details only when file logging is active (avoid overhead otherwise)
+            if (DebugLog.fileLoggingEnabled) {
+                val track = audioTrack
+                val headPos = track?.playbackHeadPosition ?: 0
+                val state = track?.playState ?: 0
+                DebugLog.log(TAG, "write: count=$count written=$written head=$headPos state=$state totalFrames=$framesWritten")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error writing audio", e)
         }

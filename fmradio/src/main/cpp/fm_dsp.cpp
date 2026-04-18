@@ -168,6 +168,10 @@ struct DspState {
     int wbCount = 0;
     double wbStartPilotPhase = 0.0;
 
+    // Periodic diagnostic logging
+    int logCounter = 0;
+    static constexpr int LOG_INTERVAL = 5 * AUDIO_RATE;  // every 5 sec worth of audio samples
+
     // ========== Runtime A/B test flags (bitfield) ==========
     // Bit 0 = TEST_GAIN   — lower fmGain 0.82 → 0.65 (more headroom, softer peaks)
     // Bit 1 = TEST_NOTCH  — enable 19 kHz biquad notch on audio (kill pilot residue)
@@ -599,6 +603,15 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
             audio[audioCount++] = (jshort)sL;
             audio[audioCount++] = (jshort)sR;
         }
+    }
+
+    // Periodic diagnostic logging (~every 5 seconds of audio)
+    d.logCounter += audioCount / 2;  // audioCount is L+R interleaved, so /2 for frames
+    if (d.logCounter >= DspState::LOG_INTERVAL) {
+        d.logCounter -= DspState::LOG_INTERVAL;
+        LOGI("DSP: audio=%d sig=%.1f stereo=%d blend=%.2f pilot=%.4f dc=%.4f/%.4f wb=%d gain=%.3f flags=0x%x",
+             audioCount, d.signalDb, (int)d.isStereo, d.stereoBlend,
+             d.pilotNcoFreq, d.dcI, d.dcQ, d.wbCount, d.fmGain, d.testFlags);
     }
 
     // Release arrays

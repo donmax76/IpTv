@@ -135,6 +135,16 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     @Volatile
     private var dataChanged = false
 
+    // Diagnostic logging counters
+    private var totalBitsProcessed = 0L
+    private var totalGoodBlocks = 0L
+    private var totalBadBlocks = 0L
+    private var totalGroupsDecoded = 0L
+    private var lastStatsLogTime = 0L
+    private companion object Stats {
+        private const val STATS_LOG_INTERVAL_MS = 5000L  // log every 5 seconds
+    }
+
     // Fallback 57 kHz NCO (used when no pilot phase is available)
     private var fallbackCarrierPhase = 0.0
     private val fallbackCarrierInc = 2.0 * PI * 57000.0 / sampleRate

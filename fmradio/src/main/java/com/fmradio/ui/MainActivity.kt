@@ -110,12 +110,6 @@ class MainActivity : Activity() {
     private lateinit var btnPty: Button
     private lateinit var btnBand: Button
 
-    // DSP A/B test toggles
-    private lateinit var btnTestGain: Button
-    private lateinit var btnTestNotch: Button
-    private lateinit var btnTestPll: Button
-    private lateinit var btnTestDc: Button
-
     private lateinit var layoutScanning: View
     private lateinit var progressScan: ProgressBar
     private lateinit var tvScanStatus: TextView
@@ -307,11 +301,6 @@ class MainActivity : Activity() {
         btnTa = findViewById(R.id.btnTa)
         btnPty = findViewById(R.id.btnPty)
         btnBand = findViewById(R.id.btnBand)
-        btnTestGain  = findViewById(R.id.btnTestGain)
-        btnTestNotch = findViewById(R.id.btnTestNotch)
-        btnTestPll   = findViewById(R.id.btnTestPll)
-        btnTestDc    = findViewById(R.id.btnTestDc)
-
         layoutScanning = findViewById(R.id.layoutScanning)
         progressScan = findViewById(R.id.progressScan)
         tvScanStatus = findViewById(R.id.tvScanStatus)
@@ -461,13 +450,6 @@ class MainActivity : Activity() {
         btnPty.setOnClickListener { showPtyInfo() }
         btnBand.setOnClickListener { showBandSelector() }
 
-        // DSP A/B test toggles
-        btnTestGain.setOnClickListener  { toggleTestFlag(com.fmradio.dsp.NativeFmDsp.TestFlag.GAIN) }
-        btnTestNotch.setOnClickListener { toggleTestFlag(com.fmradio.dsp.NativeFmDsp.TestFlag.NOTCH) }
-        btnTestPll.setOnClickListener   { toggleTestFlag(com.fmradio.dsp.NativeFmDsp.TestFlag.PLL) }
-        btnTestDc.setOnClickListener    { toggleTestFlag(com.fmradio.dsp.NativeFmDsp.TestFlag.DC) }
-        updateTestButtonStates(0)
-
         // Debug panel
         btnDebug.setOnClickListener { toggleDebugPanel() }
         btnDebugSave.setOnClickListener { shareDebugLog() }
@@ -547,34 +529,6 @@ class MainActivity : Activity() {
             Log.e("FMRadio", "Debug panel error", e)
             DebugLog.log("UI", "Debug panel error: ${e.message}")
         }
-    }
-
-    /**
-     * Toggle one DSP A/B test flag and push the new bitfield into the service.
-     * Each flag tunes one specific DSP parameter so the user can compare
-     * sound quality by ear in real time without rebuilding the APK.
-     */
-    private fun toggleTestFlag(bit: Int) {
-        val svc = radioService ?: return
-        svc.toggleTestFlag(bit)
-        updateTestButtonStates(svc.testFlags)
-    }
-
-    private fun updateTestButtonStates(flags: Int) {
-        val activeColor = getColor(R.color.lcd_green)
-        val inactiveColor = getColor(R.color.lcd_dim)
-        btnTestGain.setTextColor(
-            if (flags and com.fmradio.dsp.NativeFmDsp.TestFlag.GAIN != 0) activeColor else inactiveColor
-        )
-        btnTestNotch.setTextColor(
-            if (flags and com.fmradio.dsp.NativeFmDsp.TestFlag.NOTCH != 0) activeColor else inactiveColor
-        )
-        btnTestPll.setTextColor(
-            if (flags and com.fmradio.dsp.NativeFmDsp.TestFlag.PLL != 0) activeColor else inactiveColor
-        )
-        btnTestDc.setTextColor(
-            if (flags and com.fmradio.dsp.NativeFmDsp.TestFlag.DC != 0) activeColor else inactiveColor
-        )
     }
 
     private fun showBandSelector() {
