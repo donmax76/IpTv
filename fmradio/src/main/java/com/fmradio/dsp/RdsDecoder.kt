@@ -353,6 +353,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         bitBuffer = ((bitBuffer shl 1) or bit.toLong()) and 0x3FFFFFFL  // 26 bits
 
         bitCount++
+        totalBitsProcessed++
 
         if (!synced) {
             // Try to find sync by checking syndrome on every bit
@@ -366,6 +367,8 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                     bitCount = 0
                     goodBlocks = 1
                     badBlocks = 0
+                    Log.d(TAG, "RDS sync ACQUIRED at bit $totalBitsProcessed")
+                    DebugLog.log(TAG, "RDS sync ACQUIRED at bit $totalBitsProcessed")
                 }
             }
         } else {
@@ -383,12 +386,16 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 if (syndrome == expectedOffset) {
                     groupData[blockIndex] = ((bitBuffer shr 10) and 0xFFFF).toInt()
                     goodBlocks++
+                    totalGoodBlocks++
                     // Heal bad block counter on good reception
                     badBlocks = (badBlocks - 1).coerceAtLeast(0)
                 } else {
                     badBlocks++
+                    totalBadBlocks++
                     // More tolerant: stay synced through noise bursts
                     if (badBlocks > 12) {
+                        Log.d(TAG, "RDS sync LOST (badBlocks=$badBlocks) at bit $totalBitsProcessed")
+                        DebugLog.log(TAG, "RDS sync LOST (badBlocks=$badBlocks) at bit $totalBitsProcessed")
                         synced = false
                         bitCount = 0
                         return
@@ -505,6 +512,25 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         val groupType = (blockB shr 12) and 0x0F
         val versionB = (blockB and 0x0800) != 0
         ptyCode = (blockB shr 5) and 0x1F
+
+        totalGroupsDecoded++
+
+        // Log decoded group details
+        val versionStr = if (versionB) "B" else "A"
+        val psStr = String(psChars).trim()
+        val rtStr = String(rtChars, 0, rtLength).trim()
+        Log.d(TAG, "Group ${groupType}${versionStr}: PI=%04X PTY=$ptyCode PS='$psStr' RT='$rtStr'".format(piCode))
+        DebugLog.log(TAG, "Group ${groupType}${versionStr}: PI=%04X PTY=$ptyCode PS='$psStr' RT='$rtStr'".format(piCode))
+
+        // Periodic bit error statistics
+        val now = System.currentTimeMillis()
+        if (now - lastStatsLogTime >= STATS_LOG_INTERVAL_MS) {
+            lastStatsLogTime = now
+            val total = totalGoodBlocks + totalBadBlocks
+            val errorRate = if (total > 0) totalBadBlocks.toFloat() / total * 100f else 0f
+            Log.d(TAG, "RDS stats: bits=$totalBitsProcessed groups=$totalGroupsDecoded good=$totalGoodBlocks bad=$totalBadBlocks BER=%.1f%% synced=$synced".format(errorRate))
+            DebugLog.log(TAG, "RDS stats: bits=$totalBitsProcessed groups=$totalGroupsDecoded good=$totalGoodBlocks bad=$totalBadBlocks BER=%.1f%% synced=$synced".format(errorRate))
+        }
 
         // TP (Traffic Programme) flag — bit 10 of block B
         tpFlag = (blockB and 0x0400) != 0
@@ -714,5 +740,10 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         afFrequencies.clear()
         dataChanged = false
         fallbackCarrierPhase = 0.0
+        totalBitsProcessed = 0L
+        totalGoodBlocks = 0L
+        totalBadBlocks = 0L
+        totalGroupsDecoded = 0L
+        lastStatsLogTime = 0L
     }
 }
