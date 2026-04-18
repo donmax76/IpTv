@@ -80,7 +80,9 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private var rdsDecimCounter = 0
 
     // Matched filter for RDS symbol shaping (root raised cosine-like, improves SNR)
-    private val matchedFilterOrder = 20
+    // 32 taps (was 20): longer filter = better noise rejection at the cost of
+    // latency (runs on RDS thread, not DSP — CPU is free).
+    private val matchedFilterOrder = 32
     private val matchedFilter: FloatArray
     // Double-buffer trick — separate I and Q matched filter buffers for complex DBPSK
     private var matchedBufI = FloatArray(matchedFilterOrder * 2)
@@ -323,7 +325,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         val sample = if (abs(mI) >= abs(mQ)) mI else mQ
         if ((sample > 0 && prevRdsSample <= 0) || (sample < 0 && prevRdsSample >= 0)) {
             val error = clockPhase - samplesPerBit / 2
-            val correction = (error * 0.05f).coerceIn(-samplesPerBit * 0.1f, samplesPerBit * 0.1f)
+            val correction = (error * 0.08f).coerceIn(-samplesPerBit * 0.15f, samplesPerBit * 0.15f)
             clockPhase -= correction
         }
         prevRdsSample = sample
@@ -369,7 +371,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 } else {
                     badBlocks++
                     // More tolerant: stay synced through noise bursts
-                    if (badBlocks > 20) {
+                    if (badBlocks > 40) {
                         synced = false
                         bitCount = 0
                         return
@@ -634,9 +636,16 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     /** Get current RDS data snapshot */
     fun getCurrentData(): RdsData = buildRdsData()
 
+    private fun sanitize(text: String): String {
+        return text
+            .replace(Regex("[\\x00-\\x1F\\x7F]"), "")  // remove control chars
+            .replace(Regex("\\s{3,}"), "  ")            // collapse 3+ spaces to 2
+            .trim()
+    }
+
     private fun buildRdsData(): RdsData {
-        val ps = String(psChars).trim()
-        val rt = String(rtChars, 0, rtLength).trim()
+        val ps = sanitize(String(psChars))
+        val rt = sanitize(String(rtChars, 0, rtLength))
         val ptyName = if (ptyCode in PTY_NAMES.indices) PTY_NAMES[ptyCode] else ""
         return RdsData(
             ps = ps,
