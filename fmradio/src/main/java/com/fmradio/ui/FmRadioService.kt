@@ -82,8 +82,15 @@ class FmRadioService : Service() {
 
     // Dedicated single-thread dispatcher for RDS decoding (separate from DSP)
     private val rdsDispatcher = Executors.newSingleThreadExecutor { r ->
-        Thread(r, "FmRdsDecoder").apply {
-            priority = Thread.NORM_PRIORITY
+        Thread({
+            try {
+                android.os.Process.setThreadPriority(
+                    android.os.Process.THREAD_PRIORITY_AUDIO
+                )
+            } catch (_: Throwable) {}
+            r.run()
+        }, "FmRdsDecoder").apply {
+            priority = Thread.MAX_PRIORITY - 2
         }
     }.asCoroutineDispatcher()
 

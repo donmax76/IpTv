@@ -82,9 +82,10 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         }
 
         try {
-            // Non-blocking: returns immediately with number of samples written.
-            // If AudioTrack buffer is full, writes partial or 0 — DSP never stalls.
-            audioTrack?.write(samples, 0, count, AudioTrack.WRITE_NON_BLOCKING)
+            // Blocking write with large buffer (20× = ~800ms). Non-blocking was
+            // dropping frames silently causing crackling. Blocking paces the DSP
+            // naturally and AudioTrack's 800ms buffer absorbs scheduling jitter.
+            audioTrack?.write(samples, 0, count)
         } catch (e: Exception) {
             Log.e(TAG, "Error writing audio", e)
         }

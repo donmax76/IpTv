@@ -480,8 +480,7 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
             if (newFreq < d.pilotFreqMin) newFreq = d.pilotFreqMin;
             else if (newFreq > d.pilotFreqMax) newFreq = d.pilotFreqMax;
             d.pilotNcoFreq = newFreq;
-            d.pilotNcoPhase += d.pilotNcoFreq + d.pilotAlpha * pe;
-            if (d.pilotNcoPhase > 2*PI_D) d.pilotNcoPhase -= 2*PI_D;
+            d.pilotNcoPhase = fmod(d.pilotNcoPhase + d.pilotNcoFreq + d.pilotAlpha * pe, 2*PI_D);
             if (d.pilotNcoPhase < 0) d.pilotNcoPhase += 2*PI_D;
             continue;
         }
@@ -493,8 +492,7 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
         if (newFreq < d.pilotFreqMin) newFreq = d.pilotFreqMin;
         else if (newFreq > d.pilotFreqMax) newFreq = d.pilotFreqMax;
         d.pilotNcoFreq = newFreq;
-        d.pilotNcoPhase += d.pilotNcoFreq + d.pilotAlpha * pilotErr;
-        if (d.pilotNcoPhase > 2*PI_D) d.pilotNcoPhase -= 2*PI_D;
+        d.pilotNcoPhase = fmod(d.pilotNcoPhase + d.pilotNcoFreq + d.pilotAlpha * pilotErr, 2*PI_D);
         if (d.pilotNcoPhase < 0) d.pilotNcoPhase += 2*PI_D;
 
         // Pilot strength with hysteresis

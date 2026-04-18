@@ -371,7 +371,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 } else {
                     badBlocks++
                     // More tolerant: stay synced through noise bursts
-                    if (badBlocks > 40) {
+                    if (badBlocks > 12) {
                         synced = false
                         bitCount = 0
                         return

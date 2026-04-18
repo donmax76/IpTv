@@ -1001,7 +1001,7 @@ class RtlSdrDevice(private val context: Context) {
                         val reg14 = (fc0013ReadReg(0x14) ?: fc0013Regs[0x14]) and 0x60
                         fc0013WriteReg(0x14, reg14 or 0x08)   // LNA middle
                         fc0013WriteReg(0x12, 0x0A)            // mixer max (restored)
-                        fc0013WriteReg(0x13, 0x1A)            // IF ~52 dB (was 0x12=36, 0x1F=62)
+                        fc0013WriteReg(0x13, 0x1C)            // IF ~56 dB (was 0x1A=52, before=0x12=36, max=0x1F=62)
                     } else {
                         // Auto AGC (slow, not recommended for FM — only used by scanner
                         // in combination with an explicit setGain() call afterwards)
@@ -1129,7 +1129,7 @@ class RtlSdrDevice(private val context: Context) {
                 zeroReads = 0
             } else if (read == 0) {
                 zeroReads++
-                if (zeroReads > 10) {
+                if (zeroReads > 3) {
                     return if (totalRead > 0) buffer.copyOf(totalRead) else null
                 }
             } else {
