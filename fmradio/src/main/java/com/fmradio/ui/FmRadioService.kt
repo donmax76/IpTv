@@ -37,12 +37,10 @@ class FmRadioService : Service() {
         private const val SEEK_THRESHOLD = -15f
         // Smaller USB buffer = more frequent callbacks = lower latency
         private const val USB_BUFFER_SIZE = 32768
-        // IQ data queue depth. Each buffer is 32 KB = ~14 ms of IQ at 1.152 Msps,
-        // so 32 × 14 ms ≈ 450 ms of headroom before the channel fills and
-        // trySend drops samples. Enough to absorb brief scheduler pauses
-        // (e.g. when the app is backgrounded and Android briefly reshuffles
-        // the foreground cgroup) without audible drops.
-        private const val IQ_QUEUE_DEPTH = 32
+        // IQ data queue depth. Each buffer is 32 KB = ~14 ms of IQ at 1.152 Msps.
+        // 64 × 14 ms ≈ 900 ms of headroom. On BYD DiLink the rear camera app
+        // causes ~500-1000 ms of thread starvation — this buffer absorbs it.
+        private const val IQ_QUEUE_DEPTH = 64
     }
 
     // Dedicated single-thread dispatcher for USB streaming.
@@ -574,8 +572,12 @@ class FmRadioService : Service() {
                 .setOnAudioFocusChangeListener { focusChange ->
                     when (focusChange) {
                         AudioManager.AUDIOFOCUS_LOSS -> {
-                            if (isPlaying) stopPlayback()
-                            onPlaybackStateChanged?.invoke(false)
+                            // DON'T stop playback — just mute. On car head units
+                            // (BYD DiLink) the camera app steals focus temporarily.
+                            // If we stopPlayback(), user has to manually restart.
+                            // Muting keeps the DSP pipeline running so audio resumes
+                            // instantly when focus returns.
+                            audioPlayer?.setVolume(0f)
                         }
                         AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                             audioPlayer?.setVolume(0f)

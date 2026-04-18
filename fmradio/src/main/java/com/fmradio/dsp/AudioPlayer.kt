@@ -6,18 +6,24 @@ import android.media.AudioTrack
 import android.util.Log
 
 /**
- * Stereo audio output — thin wrapper around AudioTrack.
+ * Stereo audio output — non-blocking write to AudioTrack.
  *
- * Writes directly to AudioTrack from the DSP thread. AudioTrack's own
- * internal buffer (10× minimum) handles jitter absorption. write() blocks
- * when full, pacing the DSP naturally. No ring buffer, no drain thread,
- * no lock, no underrun logic.
+ * Uses WRITE_NON_BLOCKING so the DSP thread NEVER stalls waiting for
+ * AudioTrack buffer space. On car head units (BYD DiLink) when the
+ * camera app opens, the system deprioritises our threads. With blocking
+ * write, DSP would stall → IQ channel fills → USB drops → stutter.
+ * With non-blocking, DSP keeps processing at USB rate; if AudioTrack
+ * can't accept all samples, we skip them (inaudible at matched rates,
+ * tiny glitch during system transitions but no sustained stutter).
+ *
+ * AudioTrack buffer is 20× minimum (~800 ms) to absorb scheduling
+ * jitter during camera/app switches.
  */
 class AudioPlayer(private val sampleRate: Int = 48000) {
 
     companion object {
         private const val TAG = "AudioPlayer"
-        private const val FADE_IN_FRAMES = 2400  // ~50ms at 48 kHz
+        private const val FADE_IN_FRAMES = 2400
     }
 
     private var audioTrack: AudioTrack? = null
@@ -33,7 +39,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             AudioFormat.CHANNEL_OUT_STEREO,
             AudioFormat.ENCODING_PCM_16BIT
         )
-        val bufferSize = minBufSize * 10
+        val bufferSize = minBufSize * 20
 
         audioTrack = AudioTrack.Builder()
             .setAudioAttributes(
@@ -57,7 +63,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         audioTrack?.play()
         isPlaying = true
 
-        Log.i(TAG, "Audio started (${sampleRate}Hz, buf=$bufferSize, direct-write mode)")
+        Log.i(TAG, "Audio started (${sampleRate}Hz, buf=$bufferSize, non-blocking mode)")
     }
 
     fun writeSamples(samples: ShortArray, count: Int = samples.size) {
@@ -76,7 +82,9 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         }
 
         try {
-            audioTrack?.write(samples, 0, count)
+            // Non-blocking: returns immediately with number of samples written.
+            // If AudioTrack buffer is full, writes partial or 0 — DSP never stalls.
+            audioTrack?.write(samples, 0, count, AudioTrack.WRITE_NON_BLOCKING)
         } catch (e: Exception) {
             Log.e(TAG, "Error writing audio", e)
         }
