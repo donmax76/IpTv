@@ -18,6 +18,9 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     companion object {
         private const val TAG = "RdsDecoder"
 
+        // Diagnostic logging interval
+        private const val STATS_LOG_INTERVAL_MS = 5000L  // log every 5 seconds
+
         // RDS bit rate
         private const val RDS_BITRATE = 1187.5
 
@@ -141,9 +144,6 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private var totalBadBlocks = 0L
     private var totalGroupsDecoded = 0L
     private var lastStatsLogTime = 0L
-    private companion object Stats {
-        private const val STATS_LOG_INTERVAL_MS = 5000L  // log every 5 seconds
-    }
 
     // Fallback 57 kHz NCO (used when no pilot phase is available)
     private var fallbackCarrierPhase = 0.0
