@@ -72,11 +72,11 @@ static inline float fastAtan2(float y, float x) {
 // ========== Soft-clip limiter ==========
 static inline float softClip(float x) {
     float ax = fabsf(x);
-    if (ax <= 0.8f) return x;
+    if (ax <= 0.95f) return x;  // wider linear region — less unnecessary compression
     float sign = (x >= 0.0f) ? 1.0f : -1.0f;
-    float t = (ax - 0.8f) * 5.0f;
+    float t = (ax - 0.95f) * 20.0f;  // steeper knee for clean limiting
     float compressed = t / (1.0f + t);
-    float v = 0.8f + 0.2f * compressed;
+    float v = 0.95f + 0.05f * compressed;
     if (v > 0.9999695f) v = 0.9999695f;
     return sign * v;
 }

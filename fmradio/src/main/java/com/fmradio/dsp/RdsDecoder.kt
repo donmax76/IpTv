@@ -157,7 +157,14 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             matchedFilter[i] *= w
             sum += abs(matchedFilter[i])
         }
-        for (i in matchedFilter.indices) matchedFilter[i] /= sum
+        // Normalize to unit DC gain (sum of coefficients, not absolute values).
+        // Wrong normalization reduced symbol amplitude → worse SNR on weak RDS.
+        val dcGain = matchedFilter.sum()
+        if (abs(dcGain) > 1e-6f) {
+            for (i in matchedFilter.indices) matchedFilter[i] /= dcGain
+        } else {
+            for (i in matchedFilter.indices) matchedFilter[i] /= sum
+        }
     }
 
     private fun designLowPassFilter(order: Int, normalizedCutoff: Float): FloatArray {

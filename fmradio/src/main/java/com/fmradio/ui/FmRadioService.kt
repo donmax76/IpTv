@@ -307,7 +307,7 @@ class FmRadioService : Service() {
         if (isPlaying) {
             serviceScope.launch {
                 device?.setFrequency(frequencyHz)
-                delay(20) // let PLL lock and FIFO flush stale data
+                delay(60) // FC0013 VCO calibration takes 30ms + margin for PLL lock
                 device?.resetBuffer()
             }
         }
@@ -378,7 +378,7 @@ class FmRadioService : Service() {
         val rdsPacket0 = RdsPacket(FloatArray(6000))
         val rdsPacket1 = RdsPacket(FloatArray(6000))
         var rdsFlip = false
-        val rdsChannel = Channel<RdsPacket>(2)
+        val rdsChannel = Channel<RdsPacket>(4)
 
         demodulator?.widebandListener = { widebandSamples, count, pilotPhase ->
             if (count > 0 && count <= 6000) {
@@ -579,15 +579,19 @@ class FmRadioService : Service() {
                 .setOnAudioFocusChangeListener { focusChange ->
                     when (focusChange) {
                         AudioManager.AUDIOFOCUS_LOSS -> {
-                            // DON'T stop playback — just mute. On car head units
-                            // (BYD DiLink) the camera app steals focus temporarily.
-                            // If we stopPlayback(), user has to manually restart.
-                            // Muting keeps the DSP pipeline running so audio resumes
-                            // instantly when focus returns.
                             audioPlayer?.setVolume(0f)
+                            // Auto-unmute after 3 seconds if GAIN not received
+                            serviceScope.launch {
+                                delay(3000)
+                                if (isPlaying) audioPlayer?.setVolume(1f)
+                            }
                         }
                         AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                             audioPlayer?.setVolume(0f)
+                            serviceScope.launch {
+                                delay(5000)
+                                if (isPlaying) audioPlayer?.setVolume(1f)
+                            }
                         }
                         AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                             audioPlayer?.setVolume(0.3f)
