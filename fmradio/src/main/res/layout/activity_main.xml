@@ -189,7 +189,7 @@
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
-                <!-- Clock display -->
+                <!-- Clock — centered above frequency -->
                 <TextClock
                     android:id="@+id/tvClock"
                     android:layout_width="match_parent"
@@ -197,12 +197,15 @@
                     android:format24Hour="HH:mm"
                     android:format12Hour="hh:mm a"
                     android:textColor="@color/lcd_green"
-                    android:textSize="32sp"
+                    android:textSize="40sp"
                     android:textStyle="bold"
                     android:fontFamily="monospace"
-                    android:gravity="end"
-                    android:layout_marginEnd="4dp"
-                    android:layout_marginTop="-4dp" />
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:shadowColor="@color/glow_green_strong"
+                    android:shadowDx="0"
+                    android:shadowDy="0"
+                    android:shadowRadius="15" />
 
                 <!-- Big frequency display -->
                 <LinearLayout
