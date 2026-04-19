@@ -32,7 +32,7 @@ class FmDemodulator(
     // Use faster alpha for quicker convergence on frequency change
     private var dcI = 0f
     private var dcQ = 0f
-    private val dcAlpha = 0.99997f  // ~5 Hz cutoff — original value, fast DC tracking for FC0013
+    private val dcAlpha = 0.9995f  // fast DC tracking — matches C++ DSP, important for FC0013 zero-IF
 
     // FM discriminator state
     private var prevI = 0f
@@ -41,8 +41,8 @@ class FmDemodulator(
     // FM deviation gain — converts atan2 output to proper audio level.
     // 100% modulation (±75 kHz) maps to ~±0.82 — close to the soft-clip knee at 0.8.
     // The soft-clip limiter handles peaks above this safely, so we don't waste 12 dB
-    // Original: 0.5 for 12dB headroom. Clean audio, no soft-clip activation.
-    private val fmGain = (intermediateRate.toFloat() / (2f * PI.toFloat() * 75000f)) * 0.5f
+    // Matches C++ DSP value. Below soft-clip knee (0.80) for clean audio.
+    private val fmGain = (intermediateRate.toFloat() / (2f * PI.toFloat() * 75000f)) * 0.75f
 
     // De-emphasis filter (50µs time constant for Europe/Russia)
     private var deEmphasisStateL = 0f
