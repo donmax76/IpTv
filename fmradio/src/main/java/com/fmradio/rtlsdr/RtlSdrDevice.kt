@@ -733,7 +733,7 @@ class RtlSdrDevice(private val context: Context) {
             0x00, // reg 0x11
             0x00, // reg 0x12: Mixer gain (0x00=low, 0x08=high, 0x0A=max)
             0x00, // reg 0x13: IF gain (bits 0-4: 2dB/step, bits 5-7: 1dB/step)
-            0x08, // reg 0x14: LNA middle gain (0x08), VHF band (bits 5-6=0x00)
+            0x10, // reg 0x14: LNA max gain (0x10), VHF band (bits 5-6=0x00) — ORIGINAL
                   //          was 0x10 (max) which saturated the ADC on strong FM —
                   //          setAutoGain(true) applies the working-level values.
             0x01, // reg 0x15
@@ -991,17 +991,14 @@ class RtlSdrDevice(private val context: Context) {
                     //   IF    0x13:  0x12 (~36 dB, not 0x1F = 62 dB)
                     val reg0d = fc0013ReadReg(0x0D) ?: fc0013Regs[0x0D]
                     if (enabled) {
-                        // Manual mode — balanced gain that doesn't saturate the
-                        // 8-bit ADC on strong stations but keeps enough SNR for
-                        // clean RDS (57 kHz subcarrier) and audio.
-                        // Previous IF=0x12 (~36 dB) was too low → noisy audio,
-                        // garbled RDS. Previous IF=0x1F (62 dB) clipped the ADC.
-                        // IF=0x1A (~52 dB) is the sweet spot.
+                        // Manual mode with ORIGINAL gain values (pre-session).
+                        // All my "improvements" (LNA middle, mixer high, IF 36-56 dB)
+                        // made things WORSE: whistle, noise, weak signal. Reverting
+                        // to the values that were working before this session.
                         fc0013WriteReg(0x0D, reg0d or 0x08)   // bit 3=1 → AGC off
-                        val reg14 = (fc0013ReadReg(0x14) ?: fc0013Regs[0x14]) and 0x60
-                        fc0013WriteReg(0x14, reg14 or 0x08)   // LNA middle
-                        fc0013WriteReg(0x12, 0x08)            // mixer high (0x0A=max caused whistle)
-                        fc0013WriteReg(0x13, 0x18)            // IF ~48 dB (balanced: no whistle, good SNR)
+                        fc0013WriteReg(0x12, 0x0A)            // mixer max (original)
+                        fc0013WriteReg(0x13, 0x1F)            // IF max 62 dB (original)
+                        // LNA stays at init value (0x10 max from reg 0x14)
                     } else {
                         // Auto AGC (slow, not recommended for FM — only used by scanner
                         // in combination with an explicit setGain() call afterwards)

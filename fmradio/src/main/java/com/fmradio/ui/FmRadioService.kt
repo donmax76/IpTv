@@ -441,6 +441,7 @@ class FmRadioService : Service() {
                 if (result.isFailure) {
                     // Channel full — DSP can't keep up, drop this buffer
                     // (better than blocking USB read which causes FIFO overflow)
+                    Log.w("FmRadio", "IQ channel full, dropped ${iqData.size}B")
                     DebugLog.log("USB", "IQ channel full, dropped ${iqData.size}B")
                 }
             }
