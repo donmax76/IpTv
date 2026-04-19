@@ -204,7 +204,7 @@ struct DspState {
 
         // Two fmGain presets, selected at runtime by TEST_GAIN flag
         float fmGainBase = (float)INTERMEDIATE_RATE / (2.0f * PI_F * 75000.0f);
-        fmGainDefault = fmGainBase * 0.82f;  // current production value
+        fmGainDefault = fmGainBase * 0.75f;  // ORIGINAL value (0.82 caused compression at soft-clip knee)
         fmGainLow     = fmGainBase * 0.65f;  // TEST 1: more headroom
         fmGain = fmGainDefault;
 
