@@ -33,7 +33,7 @@ static bool lutInit = false;
 static void initLut() {
     if (lutInit) return;
     for (int i = 0; i < 256; i++)
-        byteLut[i] = i / 127.5f - 1.0f;
+        byteLut[i] = (i - 128) / 128.0f;  // symmetric, no 0.5-LSB bias
     lutInit = true;
 }
 
@@ -241,7 +241,7 @@ struct DspState {
             double w0n = 2.0 * PI_D * 19000.0 / AUDIO_RATE;
             double cw0 = cos(w0n);
             double sw0 = sin(w0n);
-            double Q = 10.0;
+            double Q = 6.0;  // reduced from 10 for stability near Nyquist
             double alphaN = sw0 / (2.0 * Q);
             double a0n = 1.0 + alphaN;
             notchB0 = 1.0 / a0n;

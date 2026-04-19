@@ -167,13 +167,13 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             matchedFilter[i] *= w
             sum += abs(matchedFilter[i])
         }
-        // Normalize to unit DC gain (sum of coefficients, not absolute values).
-        // Wrong normalization reduced symbol amplitude → worse SNR on weak RDS.
-        val dcGain = matchedFilter.sum()
-        if (abs(dcGain) > 1e-6f) {
-            for (i in matchedFilter.indices) matchedFilter[i] /= dcGain
-        } else {
-            for (i in matchedFilter.indices) matchedFilter[i] /= sum
+        // Energy normalization (√Σx²) — correct for matched filters.
+        // Previous DC-gain normalization caused bad scaling when filter
+        // had negative coefficients from the window.
+        val energy = matchedFilter.map { it * it }.sum()
+        val normFactor = kotlin.math.sqrt(energy)
+        if (normFactor > 1e-6f) {
+            for (i in matchedFilter.indices) matchedFilter[i] /= normFactor
         }
     }
 
@@ -399,7 +399,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                     badBlocks++
                     totalBadBlocks++
                     // More tolerant: stay synced through noise bursts
-                    if (badBlocks > 12) {
+                    if (badBlocks > 25) {
                         Log.d(TAG, "RDS sync LOST (badBlocks=$badBlocks) at bit $totalBitsProcessed")
                         DebugLog.log(TAG, "RDS sync LOST (badBlocks=$badBlocks) at bit $totalBitsProcessed")
                         synced = false
