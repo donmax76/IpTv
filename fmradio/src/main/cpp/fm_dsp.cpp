@@ -419,8 +419,6 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
     d.applyTestFlags();
     // TEST_DC: more aggressive IQ DC blocker (0.99995 vs 0.999995)
     const float dcA = (d.testFlags & DspState::TEST_DC) ? 0.99995f : 0.999995f;
-    const bool useNotch = (d.testFlags & DspState::TEST_NOTCH) != 0;
-
     jsize iqLen = env->GetArrayLength(iqArray);
     jsize audioLen = env->GetArrayLength(audioArray);
     int numIqSamples = iqLen / 2;
@@ -578,9 +576,9 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
         float left  = filtMono + filtDiff * d.stereoBlend * 0.5f;
         float right = filtMono - filtDiff * d.stereoBlend * 0.5f;
 
-        // TEST_NOTCH: 19 kHz biquad notch to kill any pilot leakage that
-        // got past the 32-tap audio LPF. Only runs when toggle is active.
-        if (useNotch) {
+        // 19 kHz notch ALWAYS ON — pilot tone leaks through the 32-tap audio
+        // LPF at ~-25 dB, audible as high-frequency clicks/buzz on speakers.
+        {
             left  = (float)d.notchL((double)left);
             right = (float)d.notchR((double)right);
         }
