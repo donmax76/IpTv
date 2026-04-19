@@ -88,10 +88,12 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         }
 
         try {
-            // Blocking write with large buffer (20× = ~800ms). Non-blocking was
-            // dropping frames silently causing crackling. Blocking paces the DSP
-            // naturally and AudioTrack's 800ms buffer absorbs scheduling jitter.
-            val written = audioTrack?.write(samples, 0, count) ?: 0
+            // NON-BLOCKING write so DSP thread is NEVER delayed.
+            // With blocking write, each write stalls DSP for ~14ms when buffer
+            // is full → DSP misses 12% of USB packets → buffer drains to 0.
+            // Non-blocking + pre-buffer: DSP runs at full USB rate, buffer
+            // stays stable at ~14400 frames.
+            val written = audioTrack?.write(samples, 0, count, AudioTrack.WRITE_NON_BLOCKING) ?: 0
 
             // Log every 70th write (~1/sec) + any partial writes
             if (DebugLog.fileLoggingEnabled && (written < count || framesWritten % 70 == 0L)) {
