@@ -72,11 +72,11 @@ static inline float fastAtan2(float y, float x) {
 // ========== Soft-clip limiter ==========
 static inline float softClip(float x) {
     float ax = fabsf(x);
-    if (ax <= 0.95f) return x;  // wider linear region — less unnecessary compression
+    if (ax <= 0.8f) return x;
     float sign = (x >= 0.0f) ? 1.0f : -1.0f;
-    float t = (ax - 0.95f) * 20.0f;  // steeper knee for clean limiting
+    float t = (ax - 0.8f) * 5.0f;
     float compressed = t / (1.0f + t);
-    float v = 0.95f + 0.05f * compressed;
+    float v = 0.8f + 0.2f * compressed;
     if (v > 0.9999695f) v = 0.9999695f;
     return sign * v;
 }
@@ -487,7 +487,8 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
             if (newFreq < d.pilotFreqMin) newFreq = d.pilotFreqMin;
             else if (newFreq > d.pilotFreqMax) newFreq = d.pilotFreqMax;
             d.pilotNcoFreq = newFreq;
-            d.pilotNcoPhase = fmod(d.pilotNcoPhase + d.pilotNcoFreq + d.pilotAlpha * pe, 2*PI_D);
+            d.pilotNcoPhase += d.pilotNcoFreq + d.pilotAlpha * pe;
+            if (d.pilotNcoPhase > 2*PI_D) d.pilotNcoPhase -= 2*PI_D;
             if (d.pilotNcoPhase < 0) d.pilotNcoPhase += 2*PI_D;
             continue;
         }
@@ -499,7 +500,8 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
         if (newFreq < d.pilotFreqMin) newFreq = d.pilotFreqMin;
         else if (newFreq > d.pilotFreqMax) newFreq = d.pilotFreqMax;
         d.pilotNcoFreq = newFreq;
-        d.pilotNcoPhase = fmod(d.pilotNcoPhase + d.pilotNcoFreq + d.pilotAlpha * pilotErr, 2*PI_D);
+        d.pilotNcoPhase += d.pilotNcoFreq + d.pilotAlpha * pilotErr;
+        if (d.pilotNcoPhase > 2*PI_D) d.pilotNcoPhase -= 2*PI_D;
         if (d.pilotNcoPhase < 0) d.pilotNcoPhase += 2*PI_D;
 
         // Pilot strength with hysteresis

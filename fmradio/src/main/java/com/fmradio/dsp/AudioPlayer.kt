@@ -24,12 +24,17 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
     companion object {
         private const val TAG = "AudioPlayer"
         private const val FADE_IN_FRAMES = 2400
+        // Pre-buffer: accumulate this many frames before starting playback.
+        // Without this, AudioTrack buffer stays near-empty (128-683 frames =
+        // 3-14ms) and any scheduling jitter causes underrun → click.
+        private const val PRE_BUFFER_FRAMES = 14400  // 300ms at 48 kHz
     }
 
     private var audioTrack: AudioTrack? = null
     @Volatile
     private var isPlaying = false
     private var framesWritten = 0L
+    private var preBufferDone = false
 
     fun start() {
         if (isPlaying) return
@@ -60,7 +65,8 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             .build()
 
         framesWritten = 0L
-        audioTrack?.play()
+        preBufferDone = false
+        // DON'T play() yet — fill buffer first, then start in writeSamples()
         isPlaying = true
 
         Log.i(TAG, "Audio started (${sampleRate}Hz, buf=$bufferSize, non-blocking mode)")
@@ -99,6 +105,13 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         }
 
         framesWritten += framesToWrite
+
+        // Start playback only after buffer is sufficiently filled
+        if (!preBufferDone && framesWritten >= PRE_BUFFER_FRAMES) {
+            audioTrack?.play()
+            preBufferDone = true
+            Log.i(TAG, "Pre-buffer filled ($framesWritten frames), playback started")
+        }
     }
 
     fun setVolume(volume: Float) {
@@ -118,6 +131,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         }
         audioTrack = null
         framesWritten = 0L
+        preBufferDone = false
         Log.i(TAG, "Audio stopped")
     }
 
