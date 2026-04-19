@@ -339,7 +339,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         val sample = if (abs(mI) >= abs(mQ)) mI else mQ
         if ((sample > 0 && prevRdsSample <= 0) || (sample < 0 && prevRdsSample >= 0)) {
             val error = clockPhase - samplesPerBit / 2
-            val correction = (error * 0.03f).coerceIn(-samplesPerBit * 0.05f, samplesPerBit * 0.05f)
+            val correction = (error * 0.05f).coerceIn(-samplesPerBit * 0.1f, samplesPerBit * 0.1f)
             clockPhase -= correction
         }
         prevRdsSample = sample

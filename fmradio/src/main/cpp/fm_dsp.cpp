@@ -33,7 +33,7 @@ static bool lutInit = false;
 static void initLut() {
     if (lutInit) return;
     for (int i = 0; i < 256; i++)
-        byteLut[i] = (i - 128) / 128.0f;  // symmetric, no 0.5-LSB bias
+        byteLut[i] = i / 127.5f - 1.0f;  // original symmetric mapping
     lutInit = true;
 }
 
@@ -87,7 +87,7 @@ struct DspState {
 
     // DC removal
     float dcI = 0, dcQ = 0;
-    static constexpr float dcAlpha = 0.999995f;
+    static constexpr float dcAlpha = 0.9995f;  // original — faster DC tracking for FC0013 zero-IF
 
     // FM discriminator
     float prevI = 0, prevQ = 0;
@@ -225,8 +225,8 @@ struct DspState {
         // PLL: two pre-computed (alpha, beta) sets
         pilotNcoFreq = 2.0 * PI_D * 19000.0 / INTERMEDIATE_RATE;
         double damp = 0.707;
-        double loopBwSlow = 2.0 * PI_D * 1.0 / INTERMEDIATE_RATE;   // 1 Hz
-        double loopBwFast = 2.0 * PI_D * 5.0 / INTERMEDIATE_RATE;   // 5 Hz
+        double loopBwSlow = 2.0 * PI_D * 15.0 / INTERMEDIATE_RATE;  // 15 Hz — original, fast lock
+        double loopBwFast = 2.0 * PI_D * 15.0 / INTERMEDIATE_RATE;  // same (test toggle unused)
         pilotAlphaSlow = 2.0 * damp * loopBwSlow;
         pilotBetaSlow  = loopBwSlow * loopBwSlow;
         pilotAlphaFast = 2.0 * damp * loopBwFast;
