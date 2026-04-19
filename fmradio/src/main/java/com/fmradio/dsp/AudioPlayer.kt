@@ -24,10 +24,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
     companion object {
         private const val TAG = "AudioPlayer"
         private const val FADE_IN_FRAMES = 2400
-        // Pre-buffer: accumulate this many frames before starting playback.
-        // Without this, AudioTrack buffer stays near-empty (128-683 frames =
-        // 3-14ms) and any scheduling jitter causes underrun → click.
-        private const val PRE_BUFFER_FRAMES = 14400  // 300ms at 48 kHz
+        private const val PRE_BUFFER_FRAMES = 7200  // 150ms — fast channel switch + enough headroom
     }
 
     private var audioTrack: AudioTrack? = null
@@ -44,7 +41,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             AudioFormat.CHANNEL_OUT_STEREO,
             AudioFormat.ENCODING_PCM_16BIT
         )
-        val bufferSize = minBufSize * 50  // request maximum, Android may cap it
+        val bufferSize = minBufSize * 15  // enough headroom without 3-4 sec channel switch delay
 
         audioTrack = AudioTrack.Builder()
             .setAudioAttributes(
@@ -126,8 +123,10 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
     fun flush() {
         audioTrack?.pause()
         audioTrack?.flush()
-        audioTrack?.play()
-        framesWritten = audioTrack?.playbackHeadPosition?.toLong() ?: 0L
+        // Reset pre-buffer so new frequency accumulates 150ms before playing
+        framesWritten = 0L
+        preBufferDone = false
+        // play() will be called again from writeSamples when pre-buffer fills
     }
 
     fun stop() {
