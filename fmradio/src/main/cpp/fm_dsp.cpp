@@ -576,12 +576,13 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
         float left  = filtMono + filtDiff * d.stereoBlend * 0.5f;
         float right = filtMono - filtDiff * d.stereoBlend * 0.5f;
 
-        // 19 kHz notch ALWAYS ON — pilot tone leaks through the 32-tap audio
-        // LPF at ~-25 dB, audible as high-frequency clicks/buzz on speakers.
-        {
-            left  = (float)d.notchL((double)left);
-            right = (float)d.notchR((double)right);
-        }
+        // 19 kHz notch DISABLED — even Q=6 caused ringing at 79% Nyquist.
+        // The audio LPF at 15 kHz should be sufficient. If pilot leaks, it's
+        // above most speakers' reproduction range anyway.
+        // {
+        //     left  = (float)d.notchL((double)left);
+        //     right = (float)d.notchR((double)right);
+        // }
 
         // De-emphasis (50µs) — separate state for L/R
         d.deEmphStateL += d.deEmphAlpha * (left - d.deEmphStateL);
