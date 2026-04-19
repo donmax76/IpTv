@@ -435,28 +435,16 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private val RDS_END_OF_TEXT = 0x0D
 
     private fun isValidRdsChar(c: Char): Boolean {
-        return c.code in 0x20..0xFF
+        return c.code in 0x20..0xFE  // 0xFF = filler, 0x00-0x1F = control
     }
 
     /**
      * Convert an RDS byte to a Unicode character.
-     *
-     * Uses the standard EBU Latin character set (IEC 62106, Annex E, code
-     * table 00) for 0x80-0xBF. For 0xC0-0xFF uses ISO 8859-1 (Latin-1)
-     * passthrough — this is what most Western and Azerbaijani stations send.
-     *
-     * NOTE: CP1251 Cyrillic was previously mapped at 0xC0-0xFF but this broke
-     * standard Latin characters. Proper Cyrillic support requires RDS code
-     * table switching via Group 1A ODA, which is not yet implemented.
-     *
-     * Returns Char(0x0D) for the RDS end-of-text marker.
      */
     private fun rdsCharToUnicode(code: Int): Char {
-        // ASCII passthrough
-        if (code in 0x20..0x7E) return code.toChar()
-
-        // RDS end-of-text marker — returned as-is, caller must handle
+        if (code == 0xFF || code < 0x20) return ' '  // filler/control → space
         if (code == RDS_END_OF_TEXT) return '\r'
+        if (code in 0x20..0x7E) return code.toChar()
 
         return when (code) {
             // EBU Latin code table 00, row 8 (0x80-0x8F)
