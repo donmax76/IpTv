@@ -464,7 +464,9 @@ class FmRadioService : Service() {
             while (isPlaying) {
                 val iqData = iqQueue.poll()
                 if (iqData == null) {
-                    try { Thread.sleep(1) } catch (_: InterruptedException) { break }
+                    // Yield instead of sleep(1) — Android sleep(1) actually sleeps 10-15ms
+                    // due to scheduler granularity, wasting 1.5% throughput → buf drains.
+                    Thread.yield()
                     continue
                 }
 

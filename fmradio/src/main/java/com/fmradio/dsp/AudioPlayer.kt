@@ -86,11 +86,15 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         }
 
         try {
-            val written = audioTrack?.write(samples, 0, count, AudioTrack.WRITE_NON_BLOCKING) ?: 0
+            // Use BLOCKING write during pre-buffer (before play) to ensure all
+            // samples are accepted. Use NON-BLOCKING after play() to avoid
+            // stalling DSP when buffer is full during steady-state.
+            val writeMode = if (preBufferDone)
+                AudioTrack.WRITE_NON_BLOCKING
+            else
+                AudioTrack.WRITE_BLOCKING
 
-            // Only count ACTUALLY written frames (not requested).
-            // Bug: was counting all requested → framesWritten overstated →
-            // pre-buffer thought it was full when it wasn't → thin buffer.
+            val written = audioTrack?.write(samples, 0, count, writeMode) ?: 0
             val actualFrames = written / 2
 
             if (DebugLog.fileLoggingEnabled && (written < count || framesWritten % 70 == 0L)) {
@@ -105,12 +109,9 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             Log.e(TAG, "Error writing audio", e)
         }
 
-        // Start playback only after buffer is sufficiently filled
         if (!preBufferDone && framesWritten >= PRE_BUFFER_FRAMES) {
             audioTrack?.play()
             preBufferDone = true
-            val actualBuf = audioTrack?.bufferSizeInFrames ?: 0
-            Log.i(TAG, "Pre-buffer: $framesWritten frames written, actualBuf=$actualBuf, starting playback")
         }
     }
 
