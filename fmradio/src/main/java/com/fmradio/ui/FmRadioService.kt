@@ -419,115 +419,110 @@ class FmRadioService : Service() {
         var lastSignalDb = -100f
         var signalUpdateCounter = 0
 
-        // ===== Producer-Consumer Pipeline =====
-        // USB reads (producer) → Channel → DSP processing (consumer)
-        // This decouples USB timing from demod processing for maximum throughput
-        val iqChannel = Channel<ByteArray>(IQ_QUEUE_DEPTH)
+        // ===== Direct Thread Pipeline (no coroutine overhead) =====
+        // Previous Kotlin Channel + coroutine approach lost 12.5% of USB packets
+        // due to coroutine suspension/resumption latency on Xiaomi MIUI.
+        // Plain ConcurrentLinkedQueue + Thread eliminates this overhead.
+        val iqQueue = java.util.concurrent.ConcurrentLinkedQueue<ByteArray>()
 
         // Producer: USB setup + read loop on dedicated USB thread
         streamingJob = serviceScope.launch(usbDispatcher) {
             dev.setSampleRate(sampleRate)
             dev.setAutoGain(true)
-            dev.fullReset()  // clear stale USB state BEFORE tuning
+            dev.fullReset()
             dev.setFrequency(currentFrequency)
-            Thread.sleep(50) // let PLL lock + gain settle
+            Thread.sleep(50)
 
             Log.i(TAG, "USB setup done, starting streaming...")
             DebugLog.log("SVC", "USB setup done: rate=$sampleRate freq=${currentFrequency/1e6}MHz buf=$USB_BUFFER_SIZE")
 
             val innerJob = dev.startStreaming(USB_BUFFER_SIZE) { iqData ->
-                // Non-blocking send: if channel is full, drop oldest to prevent USB stall
-                val result = iqChannel.trySend(iqData)
-                if (result.isFailure) {
-                    // Channel full — DSP can't keep up, drop this buffer
-                    // (better than blocking USB read which causes FIFO overflow)
-                    Log.w("FmRadio", "IQ channel full, dropped ${iqData.size}B")
-                    DebugLog.log("USB", "IQ channel full, dropped ${iqData.size}B")
+                if (iqQueue.size < IQ_QUEUE_DEPTH) {
+                    iqQueue.add(iqData)
+                } else {
+                    Log.w("FmRadio", "IQ queue full (${iqQueue.size}), dropped ${iqData.size}B")
+                    DebugLog.log("USB", "IQ queue full, dropped ${iqData.size}B")
                 }
             }
             innerJob.join()
-            iqChannel.close()
         }
 
-        // Consumer: DSP processing on dedicated DSP thread
-        dspJob = serviceScope.launch(dspDispatcher) {
-            var demodCallCount = 0L
-            var totalAudioSamples = 0L
-            var lastDemodLog = System.currentTimeMillis()
+        // Consumer: DSP processing on dedicated plain Thread (NO coroutine)
+        val ndsp = nativeDsp
+        val audioBuf = ShortArray(2800 * 2)
+        var demodCallCount = 0L
+        var totalAudioSamples = 0L
+        var lastDemodLog = System.currentTimeMillis()
 
+        val dspThread = Thread({
             try {
-                val ndsp = nativeDsp  // local val for smart cast
-                val audioBuf = ShortArray(2800 * 2)  // pre-allocated audio buffer
-                for (iqData in iqChannel) {
-                    if (!isPlaying) break
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
+            } catch (_: Throwable) {}
 
-                    // Use native C++ DSP if available, else Kotlin
-                    val audioSamples: ShortArray
-                    val audioCount: Int
-                    if (ndsp != null) {
-                        val nr = ndsp.process(iqData)
-                        audioSamples = nr.samples
-                        audioCount = nr.count
-                        // Send wideband to RDS with CORRECT count from C++
-                        val wbListener = demodulator?.widebandListener
-                        val wbCount = ndsp.getWbCount()
-                        if (wbCount > 0) {
-                            // Pass pilot freq to RDS decoder for carrier tracking
-                            rdsDecoder?.setPilotFreq(ndsp.getPilotFreq())
-                            wbListener?.invoke(ndsp.getWbBuffer(), wbCount, ndsp.getPilotPhase())
-                        }
-                    } else {
-                        audioCount = demodulator?.demodulate(iqData, audioBuf) ?: 0
-                        audioSamples = audioBuf
+            while (isPlaying) {
+                val iqData = iqQueue.poll()
+                if (iqData == null) {
+                    try { Thread.sleep(1) } catch (_: InterruptedException) { break }
+                    continue
+                }
+
+                val audioSamples: ShortArray
+                val audioCount: Int
+                if (ndsp != null) {
+                    val nr = ndsp.process(iqData)
+                    audioSamples = nr.samples
+                    audioCount = nr.count
+                    val wbListener = demodulator?.widebandListener
+                    val wbCount = ndsp.getWbCount()
+                    if (wbCount > 0) {
+                        rdsDecoder?.setPilotFreq(ndsp.getPilotFreq())
+                        wbListener?.invoke(ndsp.getWbBuffer(), wbCount, ndsp.getPilotPhase())
                     }
-                    demodCallCount++
+                } else {
+                    audioCount = demodulator?.demodulate(iqData, audioBuf) ?: 0
+                    audioSamples = audioBuf
+                }
+                demodCallCount++
 
-                    if (audioSamples != null && audioCount > 0) {
-                        totalAudioSamples += audioCount
-                        equalizer?.process(audioSamples, audioCount)
-                        audioPlayer?.writeSamples(audioSamples, audioCount)
-                        // Send audio data for spectrum visualization (every 3rd block to save CPU)
-                        if (demodCallCount % 3 == 0L) {
-                            onAudioData?.invoke(audioSamples, audioCount)
-                        }
-                    }
-
-                    // Log full diagnostics every 1 second
-                    val now = System.currentTimeMillis()
-                    if (DebugLog.fileLoggingEnabled && (demodCallCount <= 3 || now - lastDemodLog > 1000)) {
-                        val sigDb = ndsp?.getSignalDb() ?: demodulator?.currentSignalStrengthDb ?: -100f
-                        val stereo = ndsp?.getIsStereo() ?: (demodulator?.isStereo == true)
-                        val wbCount = ndsp?.getWbCount() ?: 0
-                        val pilotPhase = ndsp?.getPilotPhase() ?: 0.0
-                        val pilotFreq = ndsp?.getPilotFreq() ?: 0.0
-                        val iqFill = iqChannel.toString() // shows buffer state
-                        DebugLog.log("DSP", "sig=${String.format("%.1f", sigDb)}dB stereo=$stereo wb=$wbCount pilotPh=${String.format("%.3f", pilotPhase)} pilotFr=${String.format("%.6f", pilotFreq)} freq=${currentFrequency/1e6}MHz demod#=$demodCallCount [NATIVE]")
-                        lastDemodLog = now
-                    }
-
-                    val stereoNow = ndsp?.getIsStereo() ?: (demodulator?.isStereo == true)
-                    if (stereoNow != lastStereo) {
-                        lastStereo = stereoNow
-                        onStereoChanged?.invoke(stereoNow)
-                    }
-
-                    signalUpdateCounter++
-                    if (signalUpdateCounter >= 4) {
-                        signalUpdateCounter = 0
-                        val db = ndsp?.getSignalDb() ?: demodulator?.currentSignalStrengthDb ?: -100f
-                        if (kotlin.math.abs(db - lastSignalDb) > 0.5f) {
-                            lastSignalDb = db
-                            onSignalStrengthChanged?.invoke(db)
-                        }
+                if (audioCount > 0) {
+                    totalAudioSamples += audioCount
+                    equalizer?.process(audioSamples, audioCount)
+                    audioPlayer?.writeSamples(audioSamples, audioCount)
+                    if (demodCallCount % 3 == 0L) {
+                        onAudioData?.invoke(audioSamples, audioCount)
                     }
                 }
-            } catch (e: CancellationException) {
-                // Normal cancellation
-            } catch (e: Throwable) {
-                Log.e(TAG, "DSP consumer error", e)
-                DebugLog.log("DSP", "CONSUMER ERROR: ${e.javaClass.simpleName}: ${e.message}")
+
+                val now = System.currentTimeMillis()
+                if (DebugLog.fileLoggingEnabled && (demodCallCount <= 3 || now - lastDemodLog > 1000)) {
+                    val sigDb = ndsp?.getSignalDb() ?: demodulator?.currentSignalStrengthDb ?: -100f
+                    val stereo = ndsp?.getIsStereo() ?: (demodulator?.isStereo == true)
+                    val wbCount = ndsp?.getWbCount() ?: 0
+                    val pilotPhase = ndsp?.getPilotPhase() ?: 0.0
+                    val pilotFreq = ndsp?.getPilotFreq() ?: 0.0
+                    DebugLog.log("DSP", "sig=${String.format("%.1f", sigDb)}dB stereo=$stereo wb=$wbCount q=${iqQueue.size} pilotFr=${String.format("%.6f", pilotFreq)} freq=${currentFrequency/1e6}MHz demod#=$demodCallCount [NATIVE]")
+                    lastDemodLog = now
+                }
+
+                val stereoNow = ndsp?.getIsStereo() ?: (demodulator?.isStereo == true)
+                if (stereoNow != lastStereo) {
+                    lastStereo = stereoNow
+                    onStereoChanged?.invoke(stereoNow)
+                }
+
+                signalUpdateCounter++
+                if (signalUpdateCounter >= 4) {
+                    signalUpdateCounter = 0
+                    val db = ndsp?.getSignalDb() ?: demodulator?.currentSignalStrengthDb ?: -100f
+                    if (kotlin.math.abs(db - lastSignalDb) > 0.5f) {
+                        lastSignalDb = db
+                        onSignalStrengthChanged?.invoke(db)
+                    }
+                }
             }
-        }
+        }, "FmDspDirect")
+        dspThread.priority = Thread.MAX_PRIORITY
+        dspThread.start()
 
         updateMediaSessionState()
         updateNotification()
