@@ -44,7 +44,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             AudioFormat.CHANNEL_OUT_STEREO,
             AudioFormat.ENCODING_PCM_16BIT
         )
-        val bufferSize = minBufSize * 20
+        val bufferSize = minBufSize * 50  // request maximum, Android may cap it
 
         audioTrack = AudioTrack.Builder()
             .setAudioAttributes(
@@ -69,7 +69,8 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         // DON'T play() yet — fill buffer first, then start in writeSamples()
         isPlaying = true
 
-        Log.i(TAG, "Audio started (${sampleRate}Hz, buf=$bufferSize, non-blocking mode)")
+        val actualBufFrames = audioTrack?.bufferSizeInFrames ?: 0
+        Log.i(TAG, "Audio started: ${sampleRate}Hz reqBuf=$bufferSize actualBuf=$actualBufFrames frames minBuf=$minBufSize")
     }
 
     fun writeSamples(samples: ShortArray, count: Int = samples.size) {
@@ -111,7 +112,8 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         if (!preBufferDone && framesWritten >= PRE_BUFFER_FRAMES) {
             audioTrack?.play()
             preBufferDone = true
-            Log.i(TAG, "Pre-buffer filled ($framesWritten frames), playback started")
+            val actualBuf = audioTrack?.bufferSizeInFrames ?: 0
+            Log.i(TAG, "Pre-buffer: $framesWritten frames written, actualBuf=$actualBuf, starting playback")
         }
     }
 
