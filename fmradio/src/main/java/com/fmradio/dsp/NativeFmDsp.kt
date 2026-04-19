@@ -45,6 +45,7 @@ class NativeFmDsp {
     external fun getSignalDb(): Float
     external fun getIsStereo(): Boolean
     external fun getPilotPhase(): Double
+    external fun getPilotFreq(): Double
     external fun getWbCount(): Int
     external fun demodulate(iqData: ByteArray, audioOut: ShortArray, wbOut: FloatArray?): Int
 

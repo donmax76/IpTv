@@ -372,9 +372,12 @@ Java_com_fmradio_dsp_NativeFmDsp_getIsStereo(JNIEnv*, jobject) {
 
 JNIEXPORT jdouble JNICALL
 Java_com_fmradio_dsp_NativeFmDsp_getPilotPhase(JNIEnv*, jobject) {
-    // Returns the pilot phase aligned with wbBuf[0] for the most recent
-    // demodulate() call — what RdsDecoder needs to reconstruct the carrier.
     return g_dsp.wbStartPilotPhase;
+}
+
+JNIEXPORT jdouble JNICALL
+Java_com_fmradio_dsp_NativeFmDsp_getPilotFreq(JNIEnv*, jobject) {
+    return g_dsp.pilotNcoFreq;
 }
 
 JNIEXPORT jint JNICALL

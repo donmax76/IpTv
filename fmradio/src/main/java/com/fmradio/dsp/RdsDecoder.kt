@@ -199,19 +199,23 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         return coeffs
     }
 
-    // Persistent 57 kHz carrier NCO — continuous across calls.
-    // Previous approach reset carrier from pilotPhase*3 each call, causing
-    // phase discontinuities if pilot PLL had any tracking error. This NCO
-    // runs continuously at exactly 57 kHz, independent of pilot lock.
+    // Persistent 57 kHz carrier NCO — FREQUENCY from pilot PLL, PHASE continuous.
+    // Free-running NCO (previous attempt) drifted because RTL2832U crystal has
+    // ppm offset → 57 kHz was actually 57000.57 Hz → phase mismatch after <1 sec.
+    // Pilot-locked with reset (original) had phase jumps between calls.
+    // This hybrid: frequency tracks crystal via pilot PLL, phase never resets.
     private var carrierPhase = 0.0
-    private val carrierInc = 2.0 * PI * 57000.0 / sampleRate
+    private var carrierInc = 2.0 * PI * 57000.0 / sampleRate  // initial guess, updated by setPilotFreq
+
+    /** Called by FmRadioService before each process() with the pilot PLL frequency */
+    fun setPilotFreq(pilotFreqRadPerSample: Double) {
+        // Pilot is at ~19 kHz, RDS subcarrier is 3× = ~57 kHz
+        carrierInc = pilotFreqRadPerSample * 3.0
+    }
 
     /**
      * Process wideband baseband samples.
-     * Uses persistent 57 kHz NCO carrier (not pilot-locked) for robustness.
-     * @param baseband Raw FM baseband at 192 kHz
-     * @param count Number of valid samples
-     * @param pilotPhase Pilot phase (currently unused — carrier is free-running)
+     * Carrier frequency tracks pilot PLL (crystal-accurate), phase is continuous.
      */
     fun process(baseband: FloatArray, count: Int, pilotPhase: Double) {
         for (idx in 0 until count) {
