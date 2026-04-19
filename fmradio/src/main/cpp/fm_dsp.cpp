@@ -225,8 +225,8 @@ struct DspState {
         // PLL: two pre-computed (alpha, beta) sets
         pilotNcoFreq = 2.0 * PI_D * 19000.0 / INTERMEDIATE_RATE;
         double damp = 0.707;
-        double loopBwSlow = 2.0 * PI_D * 15.0 / INTERMEDIATE_RATE;  // 15 Hz — original, fast lock
-        double loopBwFast = 2.0 * PI_D * 15.0 / INTERMEDIATE_RATE;  // same (test toggle unused)
+        double loopBwSlow = 2.0 * PI_D * 1.0 / INTERMEDIATE_RATE;   // 1 Hz — matches Kotlin, rejects noise
+        double loopBwFast = 2.0 * PI_D * 5.0 / INTERMEDIATE_RATE;  // 5 Hz — for test toggle
         pilotAlphaSlow = 2.0 * damp * loopBwSlow;
         pilotBetaSlow  = loopBwSlow * loopBwSlow;
         pilotAlphaFast = 2.0 * damp * loopBwFast;
