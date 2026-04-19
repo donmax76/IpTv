@@ -88,25 +88,24 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         }
 
         try {
-            // NON-BLOCKING write so DSP thread is NEVER delayed.
-            // With blocking write, each write stalls DSP for ~14ms when buffer
-            // is full → DSP misses 12% of USB packets → buffer drains to 0.
-            // Non-blocking + pre-buffer: DSP runs at full USB rate, buffer
-            // stays stable at ~14400 frames.
             val written = audioTrack?.write(samples, 0, count, AudioTrack.WRITE_NON_BLOCKING) ?: 0
 
-            // Log every 70th write (~1/sec) + any partial writes
+            // Only count ACTUALLY written frames (not requested).
+            // Bug: was counting all requested → framesWritten overstated →
+            // pre-buffer thought it was full when it wasn't → thin buffer.
+            val actualFrames = written / 2
+
             if (DebugLog.fileLoggingEnabled && (written < count || framesWritten % 70 == 0L)) {
                 val track = audioTrack
                 val headPos = track?.playbackHeadPosition ?: 0
-                val bufDiff = framesWritten - headPos  // samples ahead of playback = buffer fill
-                DebugLog.log(TAG, "aud: w=$written/$count buf=$bufDiff head=$headPos total=$framesWritten")
+                val bufDiff = framesWritten + actualFrames - headPos
+                DebugLog.log(TAG, "aud: w=$written/$count buf=$bufDiff head=$headPos total=${framesWritten + actualFrames}")
             }
+
+            framesWritten += actualFrames
         } catch (e: Exception) {
             Log.e(TAG, "Error writing audio", e)
         }
-
-        framesWritten += framesToWrite
 
         // Start playback only after buffer is sufficiently filled
         if (!preBufferDone && framesWritten >= PRE_BUFFER_FRAMES) {
