@@ -335,11 +335,8 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         if (clockPhase >= samplesPerBit) {
             clockPhase -= samplesPerBit
 
-            // Complex differential: Re{ curr * conj(prev) } = mI*prevI + mQ*prevQ
-            // Try INVERTED polarity: previous convention (dot>0 → 0) never held
-            // sync past block A — every subsequent block failed CRC consistently.
             val dot = mI * prevSymI + mQ * prevSymQ
-            val decodedBit = if (dot > 0f) 1 else 0  // INVERTED: same phase = 1, flipped = 0
+            val decodedBit = if (dot > 0f) 0 else 1
             prevSymI = mI
             prevSymQ = mQ
 

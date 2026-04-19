@@ -122,6 +122,14 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         audioTrack?.setVolume(vol)
     }
 
+    /** Flush buffer immediately (call on frequency change to stop old audio) */
+    fun flush() {
+        audioTrack?.pause()
+        audioTrack?.flush()
+        audioTrack?.play()
+        framesWritten = audioTrack?.playbackHeadPosition?.toLong() ?: 0L
+    }
+
     fun stop() {
         isPlaying = false
         try {

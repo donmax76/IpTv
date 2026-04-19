@@ -307,9 +307,11 @@ class FmRadioService : Service() {
         if (isPlaying) {
             serviceScope.launch {
                 device?.setFrequency(frequencyHz)
-                delay(60) // FC0013 VCO calibration takes 30ms + margin for PLL lock
+                delay(60)
                 device?.resetBuffer()
             }
+            // Flush old audio immediately so user hears new frequency right away
+            audioPlayer?.flush()
         }
 
         rdsGeneration++  // invalidate any pending RDS data in queue
