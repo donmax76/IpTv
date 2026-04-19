@@ -87,12 +87,12 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             // naturally and AudioTrack's 800ms buffer absorbs scheduling jitter.
             val written = audioTrack?.write(samples, 0, count) ?: 0
 
-            // Log write details only when file logging is active (avoid overhead otherwise)
-            if (DebugLog.fileLoggingEnabled) {
+            // Log every 70th write (~1/sec) + any partial writes
+            if (DebugLog.fileLoggingEnabled && (written < count || framesWritten % 70 == 0L)) {
                 val track = audioTrack
                 val headPos = track?.playbackHeadPosition ?: 0
-                val state = track?.playState ?: 0
-                DebugLog.log(TAG, "write: count=$count written=$written head=$headPos state=$state totalFrames=$framesWritten")
+                val bufDiff = framesWritten - headPos  // samples ahead of playback = buffer fill
+                DebugLog.log(TAG, "aud: w=$written/$count buf=$bufDiff head=$headPos total=$framesWritten")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error writing audio", e)
