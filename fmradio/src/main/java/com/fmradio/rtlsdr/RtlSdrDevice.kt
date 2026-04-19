@@ -1000,8 +1000,8 @@ class RtlSdrDevice(private val context: Context) {
                         fc0013WriteReg(0x0D, reg0d or 0x08)   // bit 3=1 → AGC off
                         val reg14 = (fc0013ReadReg(0x14) ?: fc0013Regs[0x14]) and 0x60
                         fc0013WriteReg(0x14, reg14 or 0x08)   // LNA middle
-                        fc0013WriteReg(0x12, 0x0A)            // mixer max (restored)
-                        fc0013WriteReg(0x13, 0x1C)            // IF ~56 dB (was 0x1A=52, before=0x12=36, max=0x1F=62)
+                        fc0013WriteReg(0x12, 0x08)            // mixer high (0x0A=max caused whistle)
+                        fc0013WriteReg(0x13, 0x18)            // IF ~48 dB (balanced: no whistle, good SNR)
                     } else {
                         // Auto AGC (slow, not recommended for FM — only used by scanner
                         // in combination with an explicit setGain() call afterwards)
