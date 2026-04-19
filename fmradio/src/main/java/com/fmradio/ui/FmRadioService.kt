@@ -489,12 +489,14 @@ class FmRadioService : Service() {
                         }
                     }
 
-                    // Log demod stats periodically
+                    // Log demod stats every 1 second (was 5 — too rare for short logs)
                     val now = System.currentTimeMillis()
-                    if (demodCallCount <= 3 || now - lastDemodLog > 5000) {
+                    if (demodCallCount <= 3 || now - lastDemodLog > 1000) {
                         val sigDb = ndsp?.getSignalDb() ?: demodulator?.currentSignalStrengthDb ?: -100f
                         val stereo = ndsp?.getIsStereo() ?: (demodulator?.isStereo == true)
-                        DebugLog.log("DSP", "demod #$demodCallCount: iq=${iqData.size}B → audio=$audioCount samples, total=$totalAudioSamples, sig=${String.format("%.1f", sigDb)}dB, stereo=$stereo${if (ndsp != null) " [NATIVE]" else ""}")
+                        val wbCount = ndsp?.getWbCount() ?: 0
+                        val pilotPhase = ndsp?.getPilotPhase() ?: 0.0
+                        DebugLog.log("DSP", "demod #$demodCallCount: audio=$audioCount sig=${String.format("%.1f", sigDb)}dB stereo=$stereo wb=$wbCount pilot=${String.format("%.3f", pilotPhase)}${if (ndsp != null) " [NATIVE]" else ""}")
                         lastDemodLog = now
                     }
 

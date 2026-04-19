@@ -199,25 +199,28 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         return coeffs
     }
 
+    // Persistent 57 kHz carrier NCO — continuous across calls.
+    // Previous approach reset carrier from pilotPhase*3 each call, causing
+    // phase discontinuities if pilot PLL had any tracking error. This NCO
+    // runs continuously at exactly 57 kHz, independent of pilot lock.
+    private var carrierPhase = 0.0
+    private val carrierInc = 2.0 * PI * 57000.0 / sampleRate
+
     /**
-     * Process wideband baseband samples with pilot-locked carrier.
-     * @param baseband Raw FM baseband at 192 kHz (pre-allocated buffer)
-     * @param count Number of valid samples in baseband
-     * @param pilotPhase Current pilot PLL phase from FmDemodulator (19 kHz, radians)
+     * Process wideband baseband samples.
+     * Uses persistent 57 kHz NCO carrier (not pilot-locked) for robustness.
+     * @param baseband Raw FM baseband at 192 kHz
+     * @param count Number of valid samples
+     * @param pilotPhase Pilot phase (currently unused — carrier is free-running)
      */
     fun process(baseband: FloatArray, count: Int, pilotPhase: Double) {
-        // RDS carrier = 3 × pilot frequency (57 kHz = 3 × 19 kHz)
-        val pilotInc = 2.0 * PI * 19000.0 / sampleRate
-        var rdsCarrierPhase = pilotPhase * 3.0
-
         for (idx in 0 until count) {
             val sample = baseband[idx]
 
-            // Generate 57 kHz carrier from 3× pilot phase
-            val cosC = cos(rdsCarrierPhase).toFloat()
-            val sinC = sin(rdsCarrierPhase).toFloat()
-            rdsCarrierPhase += pilotInc * 3.0
-            if (rdsCarrierPhase > 2 * PI) rdsCarrierPhase -= 2 * PI
+            val cosC = cos(carrierPhase).toFloat()
+            val sinC = sin(carrierPhase).toFloat()
+            carrierPhase += carrierInc
+            if (carrierPhase > 2 * PI) carrierPhase -= 2 * PI
 
             // Mix down to baseband (double-buffer write)
             rdsLpfBufI[rdsLpfIdx] = sample * cosC
@@ -739,6 +742,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         msFlag = false
         afFrequencies.clear()
         dataChanged = false
+        carrierPhase = 0.0
         fallbackCarrierPhase = 0.0
         totalBitsProcessed = 0L
         totalGoodBlocks = 0L
