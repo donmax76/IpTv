@@ -377,15 +377,17 @@ class FmRadioService : Service() {
         // Wideband listener sends RDS data to separate thread — never blocks DSP
         // Use pre-allocated holders to avoid GC pressure (zero allocation in DSP thread)
         class RdsPacket(val samples: FloatArray, var count: Int = 0, var phase: Double = 0.0, var gen: Int = 0)
-        val rdsPacket0 = RdsPacket(FloatArray(6000))
-        val rdsPacket1 = RdsPacket(FloatArray(6000))
-        var rdsFlip = false
+        // 4 packet objects — one per channel slot. Previous bug: 2 objects
+        // with capacity 4 → when RDS thread was slow, same packet was in
+        // the channel AND being overwritten → corrupted wideband data → 95% BER!
+        val rdsPackets = Array(4) { RdsPacket(FloatArray(6000)) }
+        var rdsPacketIdx = 0
         val rdsChannel = Channel<RdsPacket>(4)
 
         demodulator?.widebandListener = { widebandSamples, count, pilotPhase ->
             if (count > 0 && count <= 6000) {
-                val pkt = if (rdsFlip) rdsPacket0 else rdsPacket1
-                rdsFlip = !rdsFlip
+                val pkt = rdsPackets[rdsPacketIdx]
+                rdsPacketIdx = (rdsPacketIdx + 1) % 4
                 System.arraycopy(widebandSamples, 0, pkt.samples, 0, count)
                 pkt.count = count
                 pkt.phase = pilotPhase
