@@ -405,10 +405,9 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 bitCount = 0
 
                 if (blockIndex >= 4) {
-                    // Require block B (group type) to be valid — without it we
-                    // can't know what type of group this is. Also need at least
-                    // one data block (C or D) valid for useful data.
-                    if (goodBlocks >= 2 && groupValid[1]) {
+                    // Only require block B valid (group type). Data blocks C/D
+                    // may have errors but PS_CONFIRM=2 filters garbage over time.
+                    if (goodBlocks >= 1 && groupValid[1]) {
                         decodeGroup()
                     }
                     blockIndex = 0
@@ -550,9 +549,6 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         val segmentAddr = blockB and 0x03
         val pos = segmentAddr * 2
 
-        // PS characters from block D — only if block D passed CRC
-        if (!groupValid[3]) return  // block D is invalid, don't use stale data
-
         val c1 = rdsCharToUnicode((blockD shr 8) and 0xFF)
         val c2 = rdsCharToUnicode(blockD and 0xFF)
 
@@ -612,8 +608,6 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         val segmentAddr = blockB and 0x0F
 
         if (!versionB) {
-            // Version A: 4 chars from blocks C and D — both must be CRC-valid
-            if (!groupValid[2] || !groupValid[3]) return
             val pos = segmentAddr * 4
             if (pos + 3 < rtChars.size) {
                 val chars = intArrayOf(
