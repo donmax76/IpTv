@@ -356,11 +356,12 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         if (!synced) {
             // Try to find sync by checking syndrome on every bit
             if (bitCount >= 26) {
-                val correctedA = tryCorrectBlock(bitBuffer, OFFSET_A)
-                if (correctedA != null) {
+                // Sync: require EXACT match (no correction) to avoid false sync
+                val syndrome = calcSyndrome(bitBuffer, 26)
+                if (syndrome == OFFSET_A) {
                     synced = true
                     blockIndex = 0
-                    groupData[0] = correctedA
+                    groupData[0] = ((bitBuffer shr 10) and 0xFFFF).toInt()
                     groupValid[0] = true
                     blockIndex = 1
                     bitCount = 0
