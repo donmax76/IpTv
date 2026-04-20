@@ -111,15 +111,16 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private var goodBlocks = 0
     private var badBlocks = 0
 
-    // Group data (4 blocks × 16 bits)
+    // Group data (4 blocks × 16 bits) + validity flags
     private val groupData = IntArray(4)
+    private val groupValid = BooleanArray(4)  // true = this block passed CRC in current group
 
     // PS consistency checking — require 2 identical receptions before accepting
     private val psChars = CharArray(8) { ' ' }
     private val psPending = CharArray(8) { ' ' }
     private val psConfirmed = CharArray(8) { ' ' }
     private val psHitCount = IntArray(4)
-    private val PS_CONFIRM_THRESHOLD = 1  // Accept on first valid reception (BER too high for 2)
+    private val PS_CONFIRM_THRESHOLD = 2  // require 2 identical — slower but cleaner text
 
     // RT data
     private val rtChars = CharArray(64) { ' ' }
@@ -382,11 +383,12 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 val syndrome = calcSyndrome(bitBuffer, 26)
                 if (syndrome == expectedOffset) {
                     groupData[blockIndex] = ((bitBuffer shr 10) and 0xFFFF).toInt()
+                    groupValid[blockIndex] = true
                     goodBlocks++
                     totalGoodBlocks++
-                    // Heal bad block counter on good reception
                     badBlocks = (badBlocks - 1).coerceAtLeast(0)
                 } else {
+                    groupValid[blockIndex] = false
                     badBlocks++
                     totalBadBlocks++
                     // More tolerant: stay synced through noise bursts
@@ -403,16 +405,15 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 bitCount = 0
 
                 if (blockIndex >= 4) {
-                    // Accept groups with 2+ valid blocks. Block B (group type,
-                    // flags) is always validated by syndrome; if it's wrong,
-                    // decodeGroup reads stale groupData[1] which is harmless
-                    // (wrong group type → no match in when() → nothing decoded).
-                    // Lowered from 3 for better coverage on FC0013's lower SNR.
-                    if (goodBlocks >= 2) {
+                    // Require block B (group type) to be valid — without it we
+                    // can't know what type of group this is. Also need at least
+                    // one data block (C or D) valid for useful data.
+                    if (goodBlocks >= 2 && groupValid[1]) {
                         decodeGroup()
                     }
                     blockIndex = 0
                     goodBlocks = 0
+                    for (i in groupValid.indices) groupValid[i] = false
                 }
             }
         }
@@ -549,7 +550,9 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         val segmentAddr = blockB and 0x03
         val pos = segmentAddr * 2
 
-        // PS characters from block D — map through EBU Latin → Unicode
+        // PS characters from block D — only if block D passed CRC
+        if (!groupValid[3]) return  // block D is invalid, don't use stale data
+
         val c1 = rdsCharToUnicode((blockD shr 8) and 0xFF)
         val c2 = rdsCharToUnicode(blockD and 0xFF)
 
@@ -609,7 +612,8 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         val segmentAddr = blockB and 0x0F
 
         if (!versionB) {
-            // Version A: 4 chars per segment from blocks C and D
+            // Version A: 4 chars from blocks C and D — both must be CRC-valid
+            if (!groupValid[2] || !groupValid[3]) return
             val pos = segmentAddr * 4
             if (pos + 3 < rtChars.size) {
                 val chars = intArrayOf(
@@ -708,6 +712,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         goodBlocks = 0
         badBlocks = 0
         for (i in groupData.indices) groupData[i] = 0
+        for (i in groupValid.indices) groupValid[i] = false
         for (i in psChars.indices) psChars[i] = ' '
         for (i in psPending.indices) psPending[i] = ' '
         for (i in psConfirmed.indices) psConfirmed[i] = ' '
