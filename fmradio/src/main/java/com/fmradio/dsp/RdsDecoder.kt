@@ -522,6 +522,14 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private fun decodeGroup() {
         val blockA = groupData[0]
         val blockB = groupData[1]
+
+        // Validate PI code consistency: if PI changes from a known-good value,
+        // this group is likely from false sync or corrupted block A → skip it.
+        // Allows first PI to set, then rejects different PI codes.
+        if (blockA != 0 && piCode != 0 && blockA != piCode && groupValid[0]) {
+            // PI mismatch with previously established station → skip garbage
+            return
+        }
         val blockC = groupData[2]
         val blockD = groupData[3]
 

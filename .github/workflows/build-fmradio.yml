@@ -42,7 +42,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: FmRadio-release.apk
-          path: fmradio/build/outputs/apk/release/fmradio-release-unsigned.apk
+          path: fmradio/build/outputs/apk/release/fmradio-release.apk
+          if-no-files-found: ignore
 
       - name: Upload TVViewer Debug APK
         uses: actions/upload-artifact@v4

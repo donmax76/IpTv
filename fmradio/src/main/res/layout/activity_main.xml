@@ -462,19 +462,6 @@
                     android:layout_marginEnd="3dp" />
 
                 <Button
-                    android:id="@+id/btnPty"
-                    android:layout_width="0dp"
-                    android:layout_height="34dp"
-                    android:layout_weight="1"
-                    android:text="PTY"
-                    android:textColor="@color/lcd_amber"
-                    android:textSize="12sp"
-                    android:textStyle="bold"
-                    android:fontFamily="monospace"
-                    android:background="@drawable/bg_button_metal"
-                    android:layout_marginEnd="3dp" />
-
-                <Button
                     android:id="@+id/btnBand"
                     android:layout_width="0dp"
                     android:layout_height="34dp"

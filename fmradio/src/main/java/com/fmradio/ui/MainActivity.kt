@@ -107,7 +107,6 @@ class MainActivity : Activity() {
     private lateinit var btnAddStation: TextView
     private lateinit var btnAf: Button
     private lateinit var btnTa: Button
-    private lateinit var btnPty: Button
     private lateinit var btnBand: Button
 
     private lateinit var layoutScanning: View
@@ -299,7 +298,6 @@ class MainActivity : Activity() {
         btnScan = findViewById(R.id.btnScan)
         btnAf = findViewById(R.id.btnAf)
         btnTa = findViewById(R.id.btnTa)
-        btnPty = findViewById(R.id.btnPty)
         btnBand = findViewById(R.id.btnBand)
         layoutScanning = findViewById(R.id.layoutScanning)
         progressScan = findViewById(R.id.progressScan)
@@ -447,7 +445,6 @@ class MainActivity : Activity() {
 
         btnAf.setOnClickListener { toggleAf() }
         btnTa.setOnClickListener { toggleTa() }
-        btnPty.setOnClickListener { showPtyInfo() }
         btnBand.setOnClickListener { showBandSelector() }
 
         // Debug panel
