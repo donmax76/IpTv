@@ -70,7 +70,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     // RDS bandpass filter (after carrier mix-down)
     // Reduced to 48 taps (was 96): RDS is narrowband (±2kHz), 48 taps is sufficient
     // with Blackman-Harris window. Saves ~50% CPU in RDS processing.
-    private val rdsLpfOrder = 48
+    private val rdsLpfOrder = 64  // longer filter = better noise rejection for FC0013's weak RDS
     private val rdsLpfCoeffs: FloatArray
     // Double-buffer trick: size 2×N, eliminates modulo in filter inner loop
     private var rdsLpfBufI = FloatArray(rdsLpfOrder * 2)

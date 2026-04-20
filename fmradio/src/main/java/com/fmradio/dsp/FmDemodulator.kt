@@ -32,7 +32,7 @@ class FmDemodulator(
     // Use faster alpha for quicker convergence on frequency change
     private var dcI = 0f
     private var dcQ = 0f
-    private val dcAlpha = 0.9995f  // fast DC tracking — matches C++ DSP, important for FC0013 zero-IF
+    private val dcAlpha = 0.99997f  // ~5.5 Hz cutoff — preserves full bass, matches C++ DSP
 
     // FM discriminator state
     private var prevI = 0f

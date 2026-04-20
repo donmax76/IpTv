@@ -87,7 +87,7 @@ struct DspState {
 
     // DC removal
     float dcI = 0, dcQ = 0;
-    static constexpr float dcAlpha = 0.9995f;  // original — faster DC tracking for FC0013 zero-IF
+    static constexpr float dcAlpha = 0.99997f;  // ~5.5 Hz cutoff — preserves full bass
 
     // FM discriminator
     float prevI = 0, prevQ = 0;
