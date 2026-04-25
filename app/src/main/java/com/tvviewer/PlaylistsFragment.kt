@@ -111,6 +111,32 @@ class PlaylistsFragment : Fragment() {
                 lv.setSelection(0)
             }
         }
+
+        adapter = PlaylistAdapter(
+            playlists = emptyList(),
+            onPlaylistClick = { playlist ->
+                (activity as? MainActivity)?.switchToChannels(playlist.first, playlist.second)
+            },
+            onDeleteClick = { index ->
+                prefs.removeCustomPlaylist(index)
+                refreshPlaylists()
+            }
+        )
+
+        recyclerView.layoutManager = LinearLayoutManager(requireContext())
+        recyclerView.adapter = adapter
+
+        refreshPlaylists()
+
+        // Auto-load last playlist if channels are empty
+        if (!autoLoaded && ChannelDataHolder.allChannels.isEmpty()) {
+            autoLoaded = true
+            val lastUrl = prefs.lastPlaylistUrl
+            val lastName = prefs.lastPlaylistName
+            if (!lastUrl.isNullOrBlank()) {
+                (activity as? MainActivity)?.switchToChannels(lastName ?: "", lastUrl)
+            }
+        }
     }
 
     private fun pasteUrlFromClipboard() {
@@ -140,32 +166,6 @@ class PlaylistsFragment : Fragment() {
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
-
-        adapter = PlaylistAdapter(
-            playlists = emptyList(),
-            onPlaylistClick = { playlist ->
-                (activity as? MainActivity)?.switchToChannels(playlist.first, playlist.second)
-            },
-            onDeleteClick = { index ->
-                prefs.removeCustomPlaylist(index)
-                refreshPlaylists()
-            }
-        )
-
-        recyclerView.layoutManager = LinearLayoutManager(requireContext())
-        recyclerView.adapter = adapter
-
-        refreshPlaylists()
-
-        // Auto-load last playlist if channels are empty
-        if (!autoLoaded && ChannelDataHolder.allChannels.isEmpty()) {
-            autoLoaded = true
-            val lastUrl = prefs.lastPlaylistUrl
-            val lastName = prefs.lastPlaylistName
-            if (!lastUrl.isNullOrBlank()) {
-                (activity as? MainActivity)?.switchToChannels(lastName ?: "", lastUrl)
-            }
-        }
     }
 
     override fun onResume() {
