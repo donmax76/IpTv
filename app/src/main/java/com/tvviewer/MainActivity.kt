@@ -34,7 +34,6 @@ class MainActivity : BaseActivity() {
                 R.id.nav_tv_guide -> showFragment(TvGuideFragment.TAG, ::TvGuideFragment)
                 R.id.nav_favorites -> showFragment(FavoritesFragment.TAG, ::FavoritesFragment)
                 R.id.nav_recent -> showFragment(RecentFragment.TAG, ::RecentFragment)
-                R.id.nav_settings -> showFragment(SettingsFragment.TAG, ::SettingsFragment)
                 else -> false
             }
         }
@@ -197,8 +196,7 @@ class MainActivity : BaseActivity() {
         R.id.nav_channels,
         R.id.nav_tv_guide,
         R.id.nav_favorites,
-        R.id.nav_recent,
-        R.id.nav_settings
+        R.id.nav_recent
     )
 
     private fun selectPreviousTab() {
