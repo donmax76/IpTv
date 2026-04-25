@@ -60,6 +60,8 @@ class PlayerActivity : BaseActivity() {
 
     private lateinit var playerView: PlayerView
     private lateinit var controlsOverlay: RelativeLayout
+    private lateinit var topBar: LinearLayout
+    private lateinit var btnBack: ImageButton
     private lateinit var channelName: TextView
     private lateinit var epgNow: TextView
     private lateinit var channelNumber: TextView
@@ -203,6 +205,8 @@ class PlayerActivity : BaseActivity() {
     private fun initViews() {
         playerView = findViewById(R.id.playerView)
         controlsOverlay = findViewById(R.id.controlsOverlay)
+        topBar = findViewById(R.id.topBar)
+        btnBack = findViewById(R.id.btnBack)
         channelName = findViewById(R.id.channelName)
         epgNow = findViewById(R.id.epgNow)
         channelNumber = findViewById(R.id.channelNumber)
@@ -246,7 +250,7 @@ class PlayerActivity : BaseActivity() {
             clockDisplay.visibility = View.VISIBLE
         }
 
-        findViewById<ImageButton>(R.id.btnBack).setOnClickListener { finish() }
+        btnBack.setOnClickListener { finish() }
 
         btnPlayPause.setOnClickListener {
             player?.let { p ->
@@ -1022,6 +1026,32 @@ class PlayerActivity : BaseActivity() {
         if (channelListVisible) scheduleHideChannelList()
     }
 
+    private fun isFocusInTopBar(): Boolean {
+        var v: View? = currentFocus ?: return false
+        while (v != null) {
+            if (v == topBar) return true
+            v = (v.parent as? View)
+        }
+        return false
+    }
+
+    private fun focusTopBar() {
+        showControls()
+        // Give the layout a tick to lay out before requesting focus
+        topBar.post {
+            // Pick first focusable child of the top bar
+            for (i in 0 until topBar.childCount) {
+                val c = topBar.getChildAt(i)
+                if (c.isFocusable && c.visibility == View.VISIBLE) {
+                    c.requestFocus()
+                    break
+                }
+            }
+            // Also reset the auto-hide timer so user has time to interact
+            scheduleHideControls()
+        }
+    }
+
     // === Controls visibility ===
 
     private fun toggleControls() {
@@ -1077,6 +1107,31 @@ class PlayerActivity : BaseActivity() {
             return true
         }
 
+        // When focus is already inside the top bar, defer all D-pad keys to
+        // Android's default focus traversal so the user can freely move
+        // between buttons (otherwise UP/DOWN below would re-grab the keys
+        // and switch channels instead).
+        val inTopBar = isFocusInTopBar()
+        if (inTopBar) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_LEFT,
+                KeyEvent.KEYCODE_DPAD_RIGHT,
+                KeyEvent.KEYCODE_DPAD_UP,
+                KeyEvent.KEYCODE_DPAD_CENTER,
+                KeyEvent.KEYCODE_ENTER -> return super.onKeyDown(keyCode, event)
+                KeyEvent.KEYCODE_DPAD_DOWN -> {
+                    // Leave the top bar — return focus to the player area
+                    playerView.requestFocus()
+                    showControls()
+                    return true
+                }
+                KeyEvent.KEYCODE_BACK -> {
+                    playerView.requestFocus()
+                    return true
+                }
+            }
+        }
+
         when (keyCode) {
             // D-pad center / Enter - toggle controls or select
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
@@ -1084,9 +1139,13 @@ class PlayerActivity : BaseActivity() {
                 toggleControls()
                 return true
             }
-            // D-pad Up - previous channel
+            // D-pad Up - previous channel, OR enter top bar if controls already shown
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> {
                 if (channelListVisible) return super.onKeyDown(keyCode, event)
+                if (controlsVisible && keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                    focusTopBar()
+                    return true
+                }
                 switchChannel(-1)
                 showControls()
                 return true
