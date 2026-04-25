@@ -79,12 +79,12 @@ class SettingsFragment : Fragment() {
     }
 
     private fun showEpgUrlsDialog(label: TextView?) {
-        val urls = prefs.allEpgUrls().toMutableList()
-        val items = urls.toTypedArray()
+        val items = prefs.allEpgUrls().toTypedArray()
         val builder = AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
             .setTitle(R.string.epg_urls)
-        val dialog = if (items.isEmpty()) {
-            builder.setMessage(R.string.epg_urls_empty).create()
+
+        if (items.isEmpty()) {
+            builder.setMessage(R.string.epg_urls_empty)
         } else {
             builder.setItems(items) { _, which ->
                 AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
@@ -100,8 +100,9 @@ class SettingsFragment : Fragment() {
                     }
                     .setNegativeButton(R.string.cancel, null)
                     .show()
-            }.create()
+            }
         }
+
         builder.setPositiveButton(R.string.add_playlist) { _, _ ->
             val edit = EditText(requireContext()).apply {
                 hint = "https://example.com/epg.xml.gz"

@@ -199,8 +199,8 @@ class TvGuideFragment : Fragment() {
     }
 
     private fun refreshEpg() {
-        val epgUrl = prefs.lastEpgUrl
-        if (epgUrl.isNullOrBlank()) {
+        val urls = prefs.allEpgUrls()
+        if (urls.isEmpty()) {
             Toast.makeText(requireContext(), R.string.epg_no_data, Toast.LENGTH_SHORT).show()
             return
         }
@@ -208,7 +208,7 @@ class TvGuideFragment : Fragment() {
         progressBar.visibility = View.VISIBLE
         lifecycleScope.launch {
             try {
-                val data = EpgRepository.fetchEpg(epgUrl, requireContext())
+                val data = EpgRepository.fetchAll(urls, requireContext())
                 ChannelDataHolder.epgData = data
                 prefs.epgLastUpdate = System.currentTimeMillis()
                 progressBar.visibility = View.GONE
