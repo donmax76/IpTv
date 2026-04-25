@@ -56,42 +56,71 @@ object GitHubReporter {
         onSuccess: (() -> Unit)? = null,
         onError: ((Throwable) -> Unit)? = null,
     ) {
-        val token = BuildConfig.ISSUE_TOKEN
-        if (token.isBlank()) {
-            openInBrowser(context, title, body)
-            return
-        }
         Thread {
-            try {
-                val payload = JSONObject().apply {
-                    put("title", title)
-                    put("body", body)
-                }.toString()
-                val req = Request.Builder()
-                    .url("https://api.github.com/repos/${BuildConfig.ISSUE_REPO}/issues")
-                    .header("Accept", "application/vnd.github.v3+json")
-                    .header("Authorization", "Bearer $token")
-                    .header("User-Agent", "TVViewer-App/${BuildConfig.VERSION_NAME}")
-                    .post(payload.toRequestBody("application/json".toMediaType()))
-                    .build()
-                client.newCall(req).execute().use { res ->
-                    if (res.isSuccessful) {
-                        main.post {
-                            Toast.makeText(context, R.string.error_log_sent, Toast.LENGTH_LONG).show()
-                            onSuccess?.invoke()
-                        }
-                    } else {
-                        // Token invalid / rate-limited / repo wrong — fall back to browser
-                        main.post { openInBrowser(context, title, body) }
-                    }
-                }
-            } catch (e: Exception) {
-                main.post {
-                    onError?.invoke(e)
+            // 1) Always publish to ntfy.sh (token-less, the developer reads
+            //    this stream directly). This is the primary path so reports
+            //    work even with no user-side configuration.
+            val ntfyOk = postToNtfy(title, body)
+
+            // 2) If a GitHub token is baked into the build, also file an
+            //    issue so the report is permanently archived in the repo.
+            val ghOk = postToGitHubIssue(title, body)
+
+            main.post {
+                if (ntfyOk || ghOk) {
+                    Toast.makeText(context, R.string.error_log_sent, Toast.LENGTH_LONG).show()
+                    onSuccess?.invoke()
+                } else {
+                    // Both channels failed — last resort: open the browser
+                    // pre-filled with the issue form so the user can hit Submit.
                     openInBrowser(context, title, body)
+                    onError?.invoke(RuntimeException("ntfy and GitHub both failed"))
                 }
             }
         }.start()
+    }
+
+    private fun postToNtfy(title: String, body: String): Boolean {
+        val topic = BuildConfig.NTFY_TOPIC
+        if (topic.isBlank()) return false
+        return try {
+            val req = Request.Builder()
+                .url("https://ntfy.sh/$topic")
+                .header("Title", encodeHeader(title.take(120)))
+                .header("Tags", "warning,android,tvviewer")
+                .header("User-Agent", "TVViewer-App/${BuildConfig.VERSION_NAME}")
+                .post(body.toRequestBody("text/plain; charset=utf-8".toMediaType()))
+                .build()
+            client.newCall(req).execute().use { res -> res.isSuccessful }
+        } catch (_: Exception) { false }
+    }
+
+    /** ntfy.sh requires headers be ASCII; encode non-ASCII as RFC 2047. */
+    private fun encodeHeader(s: String): String {
+        return if (s.all { it.code < 0x80 }) s
+        else "=?UTF-8?B?" + android.util.Base64.encodeToString(
+            s.toByteArray(Charsets.UTF_8),
+            android.util.Base64.NO_WRAP
+        ) + "?="
+    }
+
+    private fun postToGitHubIssue(title: String, body: String): Boolean {
+        val token = BuildConfig.ISSUE_TOKEN
+        if (token.isBlank()) return false
+        return try {
+            val payload = JSONObject().apply {
+                put("title", title)
+                put("body", body)
+            }.toString()
+            val req = Request.Builder()
+                .url("https://api.github.com/repos/${BuildConfig.ISSUE_REPO}/issues")
+                .header("Accept", "application/vnd.github.v3+json")
+                .header("Authorization", "Bearer $token")
+                .header("User-Agent", "TVViewer-App/${BuildConfig.VERSION_NAME}")
+                .post(payload.toRequestBody("application/json".toMediaType()))
+                .build()
+            client.newCall(req).execute().use { res -> res.isSuccessful }
+        } catch (_: Exception) { false }
     }
 
     private fun openInBrowser(context: Context, title: String, body: String) {

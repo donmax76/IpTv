@@ -27,6 +27,20 @@ class TVViewerApp : Application() {
                 val errorText = getFullStackTrace(throwable)
                 ErrorLogger.logException(applicationContext, throwable)
                 try { CrashReporter.send(applicationContext, errorText) } catch (_: Exception) {}
+                // Token-less auto-publish to ntfy.sh + GitHub (if token set)
+                // so the developer can see the crash without any user step.
+                try {
+                    val title = "[Android crash] " + errorText.lineSequence()
+                        .firstOrNull { it.isNotBlank() }?.take(80).orEmpty()
+                    val body = buildString {
+                        append("Auto-submitted crash report.\n\n")
+                        append(GitHubReporter.systemInfo())
+                        append("\n**Stacktrace**:\n```\n")
+                        append(errorText.takeLast(4000))
+                        append("\n```\n")
+                    }
+                    GitHubReporter.report(applicationContext, title, body)
+                } catch (_: Exception) {}
                 val intent = Intent(applicationContext, CrashReportActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)

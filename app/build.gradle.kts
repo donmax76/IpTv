@@ -21,10 +21,16 @@ android {
 
         // GitHub token for auto-submitting crash/error reports as issues.
         // Provided via repository secret IPTV_ISSUE_TOKEN; empty by default
-        // so the app falls back to opening the browser.
+        // so the app falls back to ntfy.sh.
         val issueToken = System.getenv("IPTV_ISSUE_TOKEN") ?: ""
         buildConfigField("String", "ISSUE_TOKEN", "\"$issueToken\"")
         buildConfigField("String", "ISSUE_REPO", "\"donmax76/iptv\"")
+        // Token-less crash channel via ntfy.sh — anyone with the topic can
+        // read it (security through obscurity), but no GitHub token or
+        // user-side configuration is required. The topic is fixed to this
+        // long random string and the developer reads messages with:
+        //   curl https://ntfy.sh/$NTFY_TOPIC/json?poll=1
+        buildConfigField("String", "NTFY_TOPIC", "\"tvviewer-donmax76-50090885b4d9a5e0\"")
     }
 
     // Stable debug keystore committed to the repo so every CI build is
