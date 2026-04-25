@@ -1325,11 +1325,24 @@ class PlayerActivity : BaseActivity() {
             //              the side drawer in MainActivity
             KeyEvent.KEYCODE_DPAD_LEFT -> {
                 if (channelListVisible) {
-                    val cur = currentFocus
-                    val atLeftEdge = cur == null
-                        || cur.id == R.id.overlayChannelsList
-                        || cur is androidx.recyclerview.widget.RecyclerView
-                    if (atLeftEdge) {
+                    // 2nd LEFT inside the channel list overlay means
+                    // "give me the side menu". The focused view is a row
+                    // INSIDE the RecyclerView, not the RecyclerView
+                    // itself, so walk up the parents to detect that we're
+                    // already inside the channel list (= already at the
+                    // left edge of the player UI).
+                    val focused = currentFocus
+                    val insideOverlay = focused == null ||
+                        run {
+                            var v: View? = focused
+                            var found = false
+                            while (v != null) {
+                                if (v == channelListOverlay) { found = true; break }
+                                v = v.parent as? View
+                            }
+                            found
+                        }
+                    if (insideOverlay) {
                         ChannelDataHolder.openDrawerOnReturn = true
                         finish()
                         return true
