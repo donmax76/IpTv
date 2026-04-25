@@ -48,6 +48,19 @@ class AddPlaylistActivity : BaseActivity() {
         }
     }
 
+    private fun deriveNameFromUrl(url: String): String {
+        // 1. file name from the URL path (zedomS.m3u → zedomS)
+        val pathName = Regex("""/([^/?#]+\.m3u8?)""", RegexOption.IGNORE_CASE)
+            .find(url)?.groupValues?.get(1)
+            ?.removeSuffix(".m3u8")?.removeSuffix(".m3u")?.removeSuffix(".M3U8")?.removeSuffix(".M3U")
+            ?.takeIf { it.isNotEmpty() }
+        if (pathName != null) return pathName
+        // 2. host name as a fallback (flyvideo.ucoz.ru → flyvideo.ucoz.ru)
+        val host = try { java.net.URI(url).host } catch (_: Exception) { null }
+        return host?.takeIf { it.isNotEmpty() }
+            ?: "Playlist ${prefs.customPlaylists.size + 1}"
+    }
+
     private fun queryFileName(uri: Uri): String? {
         var name: String? = null
         try {
@@ -107,18 +120,22 @@ class AddPlaylistActivity : BaseActivity() {
         }
 
         btnAdd.setOnClickListener {
-            val name = nameEdit.text.toString().trim()
+            val typedName = nameEdit.text.toString().trim()
             val url = urlEdit.text.toString().trim()
 
-            if (name.isEmpty() || url.isEmpty()) {
-                Toast.makeText(this, R.string.fill_all_fields, Toast.LENGTH_SHORT).show()
+            // URL is the only required field — typing on a TV remote is
+            // painful, so we auto-derive a sensible name from the URL when
+            // the user leaves the name blank.
+            if (url.isEmpty()) {
+                Toast.makeText(this, R.string.invalid_url, Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-
             if (!url.startsWith("http://") && !url.startsWith("https://")) {
                 Toast.makeText(this, R.string.invalid_url, Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
+
+            val name = typedName.ifEmpty { deriveNameFromUrl(url) }
 
             prefs.addCustomPlaylist(name, url)
             Toast.makeText(this, R.string.playlist_added, Toast.LENGTH_SHORT).show()
