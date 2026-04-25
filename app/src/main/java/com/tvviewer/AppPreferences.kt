@@ -302,6 +302,9 @@ class AppPreferences(context: Context) {
         val out = mutableListOf<String>()
         lastEpgUrl?.takeIf { it.isNotBlank() }?.let { out.add(it) }
         additionalEpgUrls.forEach { if (it !in out) out.add(it) }
+        // Always include the built-in defaults so EPG works even when the
+        // playlist has no x-tvg-url and the user hasn't configured anything.
+        DEFAULT_EPG_URLS.forEach { if (it !in out) out.add(it) }
         return out
     }
 
@@ -313,6 +316,13 @@ class AppPreferences(context: Context) {
         }
 
     companion object {
+        /** Built-in EPG sources used as a fallback when the user has none configured.
+         *  Covers common Russian / CIS / general iptv-org channels by name. */
+        val DEFAULT_EPG_URLS: List<String> = listOf(
+            "http://epg.it999.ru/edem.xml.gz",
+            "https://iptvx.one/epg/epg.xml.gz",
+        )
+
         private const val PREFS_NAME = "tvviewer_prefs"
         private const val KEY_PLAYER = "player_type"
         private const val KEY_LANGUAGE = "language"

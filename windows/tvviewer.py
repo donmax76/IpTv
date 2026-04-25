@@ -88,6 +88,12 @@ QUALITY_COLORS = {
     "SD":  "#9e9e9e",
 }
 
+# Built-in EPG sources used as a fallback so programme info works out-of-the-box.
+DEFAULT_EPG_URLS = [
+    "http://epg.it999.ru/edem.xml.gz",
+    "https://iptvx.one/epg/epg.xml.gz",
+]
+
 # --- Colors matching Android dark theme ---
 COLORS = {
     'background': '#0F0F1A',
@@ -2527,7 +2533,9 @@ class MainWindow(QMainWindow):
         self.channels_page.set_channels(self.channels, name, self.epg_data)
         self.channels_page.status_label.setText(f"{len(self.channels)} channels loaded")
 
-        # Build the EPG source list: playlist's url-tvg + last_epg_url + extra epg_urls.
+        # Build the EPG source list: playlist's url-tvg + last_epg_url + extra
+        # epg_urls + built-in defaults so EPG works out-of-the-box even when
+        # the playlist has no x-tvg-url and the user hasn't added a source.
         epg_sources = []
         if result.epg_url:
             self.config.last_epg_url = result.epg_url
@@ -2537,6 +2545,9 @@ class MainWindow(QMainWindow):
             epg_sources.append(self.config.last_epg_url)
         for u in getattr(self.config, 'epg_urls', []) or []:
             if u and u not in epg_sources:
+                epg_sources.append(u)
+        for u in DEFAULT_EPG_URLS:
+            if u not in epg_sources:
                 epg_sources.append(u)
         if epg_sources:
             self.load_epg(epg_sources)
