@@ -4,10 +4,23 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Adaptive-icon safe zone is the central 66dp circle. Keep all
+         meaningful content inside roughly x=21..87, y=21..87. -->
+
+    <!-- TV body outline -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:fillColor="#00000000"
+        android:pathData="M30,32 L78,32 A6,6 0 0 1 84,38 L84,68 A6,6 0 0 1 78,74 L30,74 A6,6 0 0 1 24,68 L24,38 A6,6 0 0 1 30,32 Z"/>
+
+    <!-- Play triangle in centre -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M54,30 L70,50 L70,78 L38,78 L38,50 Z" />
+        android:pathData="M48,42 L48,64 L66,53 Z"/>
+
+    <!-- TV stand -->
     <path
-        android:fillColor="#1976D2"
-        android:pathData="M44,44 L64,44 L64,64 L44,64 Z" />
+        android:fillColor="#FFFFFF"
+        android:pathData="M44,76 L64,76 A2,2 0 0 1 64,80 L44,80 A2,2 0 0 1 44,76 Z"/>
 </vector>
