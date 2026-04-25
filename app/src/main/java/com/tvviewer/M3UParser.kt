@@ -7,70 +7,84 @@ import java.io.InputStreamReader
 import java.net.URL
 import java.nio.charset.Charset
 
+/**
+ * Tolerant M3U / M3U8 parser. Handles every variant the project has
+ * encountered in the wild:
+ *
+ *   • #EXTM3U with x-tvg-url / url-tvg / tvg-shift on the header
+ *   • #EXTINF with attrs in any case (TVG-ID / tvg-id), with " or '
+ *     quotes, with no quotes, in any order
+ *   • Per-channel category as either group-title="…" inside EXTINF
+ *     or as a separate #EXTGRP:… line between EXTINF and the URL
+ *   • #KODIPROP / #EXTVLCOPT / #EXTBITRATE / etc. directives between
+ *     EXTINF and the URL — silently skipped, not lost
+ *   • Stream URLs of any scheme (http(s), rtmp(s), rtsp, udp, mms,
+ *     acestream, magnet, file)
+ *   • Simple format: one URL per non-comment line, no #EXTINF
+ *   • UTF-8 / UTF-16 BOM stripping
+ *   • #EXTM3U missing entirely
+ */
 object M3UParser {
 
     private const val TAG = "TVViewer"
 
     data class ParseResult(val channels: List<Channel>, val epgUrl: String?)
 
-    /**
-     * Parse M3U playlist from string content, including EPG URL from header.
-     */
     fun parseWithEpg(content: String, baseUrl: String? = null): ParseResult {
-        val epgUrl = Regex("""x-tvg-url="([^"]+)"""").find(content)?.groupValues?.get(1)
-        return ParseResult(parse(content, baseUrl), epgUrl)
+        val cleaned = stripBom(content)
+        // Extract EPG URL from the header — try every known attribute name.
+        val epgUrl = listOf(
+            """(?i)\bx-tvg-url\s*=\s*"([^"]+)"""".toRegex(),
+            """(?i)\bx-tvg-url\s*=\s*'([^']+)'""".toRegex(),
+            """(?i)\burl-tvg\s*=\s*"([^"]+)"""".toRegex(),
+            """(?i)\burl-tvg\s*=\s*'([^']+)'""".toRegex(),
+            """(?i)\btvg-url\s*=\s*"([^"]+)"""".toRegex(),
+        ).firstNotNullOfOrNull { it.find(cleaned)?.groupValues?.get(1) }
+        return ParseResult(parse(cleaned, baseUrl), epgUrl)
     }
 
-    /**
-     * Parse M3U playlist from string content.
-     * Format:
-     * #EXTM3U
-     * #EXTINF:-1 tvg-id="..." tvg-name="..." tvg-logo="..." group-title="...",Channel Name
-     * http://stream.url
-     */
     fun parse(content: String, baseUrl: String? = null): List<Channel> {
         val channels = mutableListOf<Channel>()
-        // Strip a UTF-8 BOM if present.
-        val cleaned = content.removePrefix("﻿")
-        val lines = cleaned.lines()
+        val lines = stripBom(content).lines()
         var i = 0
 
         Log.d(TAG, "Parsing M3U, ${lines.size} lines")
-        // Detect "extended" M3U (has #EXTINF). If we see any, treat the file
-        // as extended; otherwise fall back to "simple" (one URL per line)
-        // mode at the bottom of this function.
-        val hasExtInf = lines.any { it.trim().startsWith("#EXTINF:") }
+        val hasExtInf = lines.any { it.trim().startsWith("#EXTINF:", ignoreCase = true) }
         if (hasExtInf) {
             while (i < lines.size) {
                 val line = lines[i].trim()
-                if (line.startsWith("#EXTINF:")) {
+                if (line.startsWith("#EXTINF:", ignoreCase = true)) {
                     val extInf = parseExtInf(line)
                     i++
-                    // Some playlists carry the category on a separate
-                    // line (e.g. zedomS-style: '#EXTGRP:новости' between
-                    // #EXTINF and the URL). Capture that and use it when
-                    // EXTINF itself didn't have group-title=…
+                    // Capture #EXTGRP / #KODIPROP / #EXTVLCOPT… and skip
+                    // through any other directive lines until we hit the
+                    // actual stream URL.
                     var extGroup: String? = null
-                    while (i < lines.size && lines[i].trim().startsWith("#")) {
+                    var extLogo: String? = null
+                    while (i < lines.size && lines[i].trim().let { it.isEmpty() || it.startsWith("#") }) {
                         val d = lines[i].trim()
-                        if (d.startsWith("#EXTGRP:", ignoreCase = true)) {
-                            extGroup = d.substringAfter(':').trim().ifEmpty { null }
+                        when {
+                            d.startsWith("#EXTGRP:", true) ->
+                                extGroup = d.substringAfter(':').trim().ifEmpty { null }
+                            d.startsWith("#EXTLOGO:", true) ->
+                                extLogo = d.substringAfter(':').trim().ifEmpty { null }
                         }
                         i++
                     }
                     if (i < lines.size) {
                         var url = lines[i].trim()
-                        if (url.isNotEmpty()) {
-                            if (baseUrl != null && !url.startsWith("http") && !url.startsWith("rtmp") && !url.startsWith("rtsp")) {
+                        if (url.isNotEmpty() && isLikelyStreamUrl(url)) {
+                            if (baseUrl != null && !url.matches(SCHEME_PREFIX_REGEX)) {
                                 url = resolveUrl(baseUrl, url)
                             }
-                            var logoUrl = extInf.logo
+                            var logoUrl = extInf.logo ?: extLogo
                             if (logoUrl != null && baseUrl != null && !logoUrl.startsWith("http")) {
                                 logoUrl = resolveUrl(baseUrl, logoUrl)
                             }
+                            val name = extInf.name.ifBlank { deriveNameFromUrl(url) ?: "Channel ${channels.size + 1}" }
                             channels.add(
                                 Channel(
-                                    name = extInf.name,
+                                    name = name,
                                     url = url,
                                     logoUrl = logoUrl ?: faviconFor(url),
                                     group = extInf.group ?: extGroup,
@@ -84,21 +98,15 @@ object M3UParser {
             }
         } else {
             // Simple M3U: every non-comment / non-empty line is a stream URL.
-            // The playlist host (e.g. flyvideo.ucoz.ru/zedomS.m3u) often uses
-            // this minimal format. Derive a name from the URL itself.
             for (raw in lines) {
                 val line = raw.trim()
                 if (line.isEmpty() || line.startsWith("#")) continue
                 var url = line
-                if (baseUrl != null && !url.startsWith("http") && !url.startsWith("rtmp") && !url.startsWith("rtsp")) {
+                if (baseUrl != null && !url.matches(SCHEME_PREFIX_REGEX)) {
                     url = resolveUrl(baseUrl, url)
                 }
-                if (!(url.startsWith("http") || url.startsWith("rtmp") || url.startsWith("rtsp") || url.startsWith("file"))) {
-                    continue
-                }
-                val derived = Regex("""/([^/?#]+?)(?:\.[^./]+)?(?:[?#].*)?$""").find(url)
-                    ?.groupValues?.get(1)?.takeIf { it.isNotEmpty() }
-                    ?: "Channel ${channels.size + 1}"
+                if (!isLikelyStreamUrl(url)) continue
+                val derived = deriveNameFromUrl(url) ?: "Channel ${channels.size + 1}"
                 channels.add(Channel(
                     name = derived,
                     url = url,
@@ -119,44 +127,68 @@ object M3UParser {
         val tvgId: String?
     )
 
+    /** Match attr names case-insensitively, accept double / single / un-quoted values. */
+    private fun attr(line: String, name: String): String? {
+        val patterns = listOf(
+            """(?i)\b$name\s*=\s*"([^"]*)"""".toRegex(),
+            """(?i)\b$name\s*=\s*'([^']*)'""".toRegex(),
+            """(?i)\b$name\s*=\s*(\S+)""".toRegex(),
+        )
+        for (p in patterns) {
+            val v = p.find(line)?.groupValues?.get(1)
+            if (!v.isNullOrEmpty()) return v
+        }
+        return null
+    }
+
     private fun parseExtInf(line: String): ExtInf {
-        var name = "Unknown"
-        var logo: String? = null
-        var group: String? = null
-        var tvgId: String? = null
-
-        val commaIndex = line.indexOf(',')
-        val attrs = if (commaIndex >= 0) {
-            name = line.substring(commaIndex + 1).trim()
-            line.substring(0, commaIndex)
+        // Channel name is whatever follows the LAST comma (so commas
+        // inside attribute values don't split it).
+        val commaIndex = line.lastIndexOf(',')
+        val (attrsPart, namePart) = if (commaIndex >= 0) {
+            line.substring(0, commaIndex) to line.substring(commaIndex + 1).trim()
         } else {
-            line
+            line to ""
         }
 
-        val tvgLogoRegex = """tvg-logo="([^"]*)"""".toRegex()
-        tvgLogoRegex.find(attrs)?.groupValues?.get(1)?.let { logo = it.ifEmpty { null } }
-
-        val groupRegex = """group-title="([^"]*)"""".toRegex()
-        groupRegex.find(attrs)?.groupValues?.get(1)?.let { group = it.ifEmpty { null } }
-
-        val tvgIdRegex = """tvg-id="([^"]*)"""".toRegex()
-        tvgIdRegex.find(attrs)?.groupValues?.get(1)?.let { tvgId = it.ifEmpty { null } }
-
-        val tvgNameRegex = """tvg-name="([^"]*)"""".toRegex()
-        tvgNameRegex.find(attrs)?.groupValues?.get(1)?.let {
-            if (name == "Unknown") name = it
-        }
+        val name = namePart
+            .ifEmpty { attr(attrsPart, "tvg-name") }
+            ?: ""
+        val logo = attr(attrsPart, "tvg-logo")
+        val group = attr(attrsPart, "group-title") ?: attr(attrsPart, "group")
+        val tvgId = attr(attrsPart, "tvg-id") ?: attr(attrsPart, "channel-id")
 
         return ExtInf(name = name, logo = logo, group = group, tvgId = tvgId)
     }
 
-    /**
-     * Channels that didn't ship a tvg-logo in their #EXTINF still need
-     * SOMETHING in the row, otherwise the user just sees the generic
-     * placeholder for every entry. Use the streaming host's favicon as a
-     * cheap fallback — Google's free S2 service returns a 128px PNG for
-     * any domain, no auth.
-     */
+    /** Stream-URL schemes the player can attempt. Anything else (e.g. a
+     *  comment, malformed URL, raw XML) is skipped instead of being
+     *  treated as a channel. */
+    private val SCHEME_PREFIX_REGEX =
+        Regex("""^(?i)(https?|rtmp|rtmps|rtsp|rtsps|udp|mms|file|acestream|magnet)://.*""")
+
+    private fun isLikelyStreamUrl(url: String): Boolean =
+        SCHEME_PREFIX_REGEX.matches(url) || url.startsWith("acestream:", true) ||
+            url.startsWith("magnet:", true)
+
+    private fun deriveNameFromUrl(url: String): String? {
+        val pathName = Regex("""/([^/?#]+?)(?:\.[^./]+)?(?:[?#].*)?$""").find(url)
+            ?.groupValues?.get(1)?.takeIf { it.isNotEmpty() }
+        return pathName ?: try {
+            java.net.URI(url).host?.takeIf { it.isNotEmpty() }
+        } catch (_: Exception) { null }
+    }
+
+    /** Strip UTF-8 / UTF-16 byte-order marks. */
+    private fun stripBom(s: String): String {
+        if (s.isEmpty()) return s
+        return when {
+            s.startsWith("﻿") -> s.substring(1)        // UTF-8/16 BOM
+            s.startsWith("￾") -> s.substring(1)        // UTF-16 reversed
+            else -> s
+        }
+    }
+
     private fun faviconFor(streamUrl: String): String? {
         return try {
             val host = java.net.URI(streamUrl).host?.takeIf { it.isNotEmpty() } ?: return null

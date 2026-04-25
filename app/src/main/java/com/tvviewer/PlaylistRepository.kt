@@ -107,15 +107,26 @@ object PlaylistRepository {
     }
 
     private fun decodePlaylistBytes(bytes: ByteArray): String {
-        val utf8 = String(bytes, Charsets.UTF_8)
-        // Heuristic: too many U+FFFD replacement chars → likely wrong encoding.
-        val replacements = utf8.count { it == '�' }
-        if (replacements > 10) {
-            try {
-                return String(bytes, java.nio.charset.Charset.forName("windows-1251"))
-            } catch (_: Exception) {}
+        // Try UTF-8 first, then Windows-1251 (Russian / Bulgarian /
+        // Ukrainian / Belarusian / etc. — the dominant Cyrillic 8-bit
+        // codepage on legacy hosts), then KOI8-R as a last-resort. The
+        // "best" decoding wins by replacement-char count.
+        val candidates = listOf(
+            "UTF-8",
+            "windows-1251",
+            "KOI8-R",
+            "windows-1252",
+        )
+        var best: Pair<String, Int>? = null
+        for (cs in candidates) {
+            val decoded = try {
+                String(bytes, java.nio.charset.Charset.forName(cs))
+            } catch (_: Exception) { continue }
+            val score = decoded.count { it == '�' }
+            if (best == null || score < best.second) best = decoded to score
+            if (score == 0) break
         }
-        return utf8
+        return best?.first ?: String(bytes, Charsets.UTF_8)
     }
 
     fun parseLocal(content: String): PlaylistResult {
