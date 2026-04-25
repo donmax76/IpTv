@@ -20,6 +20,9 @@ class TVViewerApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // Pre-warm the iptv-org channel database so logos / tvg-ids for
+        // user-added channels become available a few seconds after launch.
+        try { ChannelMetaLookup.ensureLoaded(applicationContext) } catch (_: Exception) {}
         Thread.setDefaultUncaughtExceptionHandler { _, throwable ->
             if (isCancellation(throwable)) return@setDefaultUncaughtExceptionHandler
             try {

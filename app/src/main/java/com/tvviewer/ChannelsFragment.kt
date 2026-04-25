@@ -95,6 +95,12 @@ class ChannelsFragment : Fragment() {
         categoriesRecyclerView.layoutManager = LinearLayoutManager(requireContext(), LinearLayoutManager.HORIZONTAL, false)
         categoriesRecyclerView.adapter = categoryAdapter
 
+        // Refresh once the iptv-org database arrives so logos / EPG hooks
+        // appear without the user needing to restart the app.
+        ChannelMetaLookup.onLoaded {
+            if (isAdded) adapter.notifyDataSetChanged()
+        }
+
         searchEditText.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}

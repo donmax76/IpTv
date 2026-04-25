@@ -50,7 +50,11 @@ class ChannelAdapter(
             holder.itemView.context, channel.name
         )
 
-        holder.channelLogo.load(channel.logoUrl) {
+        // Logo: original tvg-logo > iptv-org name lookup > host favicon.
+        val resolvedLogo = channel.logoUrl
+            ?: ChannelMetaLookup.lookup(channel.name)?.logoUrl
+            ?: channel.logoUrl  // already nullable; favicon fallback set in parser
+        holder.channelLogo.load(resolvedLogo) {
             crossfade(true)
             error(R.drawable.ic_channel_placeholder)
             placeholder(R.drawable.ic_channel_placeholder)

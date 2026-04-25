@@ -365,6 +365,12 @@ object EpgRepository {
         val keys = mutableListOf<String>()
         if (!tvgId.isNullOrBlank()) keys += normalizeId(tvgId)
         if (!channelName.isNullOrBlank()) keys += normalizeId(channelName)
+        // Try iptv-org's tvg-id for the same channel name as a last resort
+        if (!channelName.isNullOrBlank()) {
+            ChannelMetaLookup.lookup(channelName)?.tvgId?.let {
+                keys += normalizeId(it)
+            }
+        }
         val programmes = keys.firstNotNullOfOrNull { epg[it] } ?: return null to null
         val now = System.currentTimeMillis()
         var nowProg: Programme? = null
