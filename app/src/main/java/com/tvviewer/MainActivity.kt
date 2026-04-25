@@ -26,6 +26,14 @@ class MainActivity : BaseActivity() {
         applyOrientation()
 
         bottomNav = findViewById(R.id.bottomNavigation)
+        // BottomNavigationView caps at 5 items by default; we have 6.
+        try {
+            val menuView = bottomNav.getChildAt(0)
+            menuView::class.java.superclass?.getDeclaredField("maxItemCount")?.let { f ->
+                f.isAccessible = true
+                f.setInt(menuView, 6)
+            }
+        } catch (_: Throwable) { /* best-effort */ }
 
         bottomNav.setOnItemSelectedListener { item ->
             when (item.itemId) {
@@ -34,6 +42,7 @@ class MainActivity : BaseActivity() {
                 R.id.nav_tv_guide -> showFragment(TvGuideFragment.TAG, ::TvGuideFragment)
                 R.id.nav_favorites -> showFragment(FavoritesFragment.TAG, ::FavoritesFragment)
                 R.id.nav_recent -> showFragment(RecentFragment.TAG, ::RecentFragment)
+                R.id.nav_settings -> { openSettings(); false /* don't actually select */ }
                 else -> false
             }
         }
@@ -213,7 +222,8 @@ class MainActivity : BaseActivity() {
         R.id.nav_channels,
         R.id.nav_tv_guide,
         R.id.nav_favorites,
-        R.id.nav_recent
+        R.id.nav_recent,
+        R.id.nav_settings
     )
 
     private fun selectPreviousTab() {
