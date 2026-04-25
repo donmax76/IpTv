@@ -71,6 +71,36 @@ class SettingsFragment : Fragment() {
                 .installFocusListBackground()
         }
 
+        // HTTP Referer (default: auto = stream's own scheme://host)
+        val referValue = view.findViewById<TextView>(R.id.refererValue)
+        fun refererSummary(): String {
+            return if (prefs.httpReferer.isBlank()) getString(R.string.referer_auto)
+            else prefs.httpReferer
+        }
+        referValue?.text = refererSummary()
+        view.findViewById<LinearLayout>(R.id.refererLayout)?.setOnClickListener {
+            val edit = EditText(requireContext()).apply {
+                setText(prefs.httpReferer)
+                hint = getString(R.string.referer_auto)
+                setSingleLine(true)
+                setSelection(text.length)
+            }
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
+                .setTitle(R.string.http_referer)
+                .setView(edit)
+                .setPositiveButton(R.string.ok) { _, _ ->
+                    prefs.httpReferer = edit.text.toString()
+                    referValue?.text = refererSummary()
+                }
+                .setNeutralButton(R.string.reset) { _, _ ->
+                    prefs.httpReferer = ""
+                    referValue?.text = refererSummary()
+                }
+                .setNegativeButton(R.string.cancel, null)
+                .show()
+                .installFocusListBackground()
+        }
+
         // Multi-EPG list
         val epgUrlsValue = view.findViewById<TextView>(R.id.epgUrlsValue)
         epgUrlsValue?.text = epgUrlsSummary()

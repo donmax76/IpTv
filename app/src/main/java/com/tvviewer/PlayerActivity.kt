@@ -712,12 +712,36 @@ class PlayerActivity : BaseActivity() {
             else -> DefaultLoadControl()
         }
 
-        // Apply the user-configured (or default) User-Agent to every HTTP request.
+        // Apply the user-configured User-Agent + Referer to every HTTP
+        // request. Many regional streams (especially Azerbaijani / CIS)
+        // reject the default ExoPlayer UA or require a same-origin
+        // Referer; default Referer is derived from the stream URL's
+        // origin so that case "just works" out of the box.
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setUserAgent(prefs.userAgent)
             .setAllowCrossProtocolRedirects(true)
+            .setKeepPostFor302Redirects(true)
+        val headers = HashMap<String, String>()
+        prefs.httpReferer.takeIf { it.isNotBlank() }?.let { headers["Referer"] = it }
+        if (headers.isNotEmpty()) httpDataSourceFactory.setDefaultRequestProperties(headers)
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
-            .setDataSourceFactory(httpDataSourceFactory)
+            .setDataSourceFactory(androidx.media3.datasource.DataSource.Factory {
+                val ds = httpDataSourceFactory.createDataSource()
+                // Auto-Referer: when the user has nothing configured,
+                // use the stream URL's scheme://host so picky servers
+                // (tv.izone.az etc.) accept the request.
+                val streamUrl = currentUrl
+                if (prefs.httpReferer.isBlank() && !streamUrl.isNullOrBlank()) {
+                    try {
+                        val u = java.net.URI(streamUrl)
+                        val origin = "${u.scheme}://${u.host}" +
+                            (if (u.port > 0) ":${u.port}" else "") + "/"
+                        ds.setRequestProperty("Referer", origin)
+                        ds.setRequestProperty("Origin", origin.trimEnd('/'))
+                    } catch (_: Exception) {}
+                }
+                ds
+            })
 
         player = ExoPlayer.Builder(this)
             .setLoadControl(loadControl)

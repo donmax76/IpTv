@@ -16,6 +16,8 @@
     <string name="add">Add</string>
     <string name="show_builtin_playlists">Show built-in playlists</string>
     <string name="time_on">On</string>
+    <string name="http_referer">HTTP Referer</string>
+    <string name="referer_auto">Auto (stream origin)</string>
     <string name="no_recent">No recent channels</string>
     <string name="no_recent_hint">Open a channel and it will appear here</string>
     <string name="epg_urls">EPG sources (XMLTV)</string>

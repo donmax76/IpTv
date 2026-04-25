@@ -179,6 +179,13 @@ class AppPreferences(context: Context) {
         get() = prefs.getBoolean("show_builtin_playlists", true)
         set(value) = prefs.edit().putBoolean("show_builtin_playlists", value).apply()
 
+    /** Referer header sent with every stream request. Blank → auto
+     *  (stream's own scheme://host). Used to satisfy servers that
+     *  enforce site origin (common on Azerbaijani / Russian IPTV). */
+    var httpReferer: String
+        get() = prefs.getString("http_referer", "") ?: ""
+        set(value) = prefs.edit().putString("http_referer", value).apply()
+
     var epgLastUpdate: Long
         get() = prefs.getLong(KEY_EPG_LAST_UPDATE, 0L)
         set(value) = prefs.edit().putLong(KEY_EPG_LAST_UPDATE, value).apply()
