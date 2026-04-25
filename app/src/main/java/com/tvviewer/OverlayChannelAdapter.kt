@@ -66,14 +66,16 @@ class OverlayChannelAdapter(
             holder.epgProgress.visibility = View.GONE
         }
 
-        // Highlight current channel
-        if (position == currentIndex) {
-            holder.itemView.setBackgroundColor(0x407C6CF7.toInt())
-            holder.name.setTextColor(0xFFFFFFFF.toInt())
-        } else {
-            holder.itemView.setBackgroundColor(0)
-            holder.name.setTextColor(0xFFFFFFFF.toInt())
-        }
+        // Highlight the currently-playing channel WITHOUT overriding the
+        // background (the bg_epg_item selector handles focus state and we
+        // must keep it intact so the D-pad focus highlight works).
+        holder.itemView.isSelected = (position == currentIndex)
+        holder.name.setTextColor(
+            if (position == currentIndex) 0xFF7C6CF7.toInt() else 0xFFFFFFFF.toInt()
+        )
+        holder.number.setTextColor(
+            if (position == currentIndex) 0xFF7C6CF7.toInt() else 0xFFFFFFFF.toInt()
+        )
 
         // Favorites
         val isFav = channel.url in favorites

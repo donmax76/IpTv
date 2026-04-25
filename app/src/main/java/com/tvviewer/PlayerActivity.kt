@@ -983,12 +983,21 @@ class PlayerActivity : BaseActivity() {
         channelListVisible = true
         hideHandler.removeCallbacks(hideRunnable)
 
-        // Scroll to current channel
+        // Scroll to current channel and focus it so the D-pad immediately
+        // navigates inside the list (otherwise the user is stuck on the
+        // PlayerView with no visible focus target).
         val scrollIndex = overlayFilteredIndices.indexOf(currentIndex)
-        if (scrollIndex >= 0) {
-            overlayChannelsList.scrollToPosition(scrollIndex)
-        } else {
-            overlayChannelsList.scrollToPosition(currentIndex.coerceAtLeast(0))
+        val target = if (scrollIndex >= 0) scrollIndex else currentIndex.coerceAtLeast(0)
+        overlayChannelsList.scrollToPosition(target)
+        overlayChannelsList.post {
+            val vh = overlayChannelsList.findViewHolderForAdapterPosition(target)
+            if (vh != null) {
+                vh.itemView.requestFocus()
+            } else {
+                // The view holder isn't bound yet — request focus on the list
+                // and let descendant focus pick the first child once laid out.
+                overlayChannelsList.requestFocus()
+            }
         }
         scheduleHideChannelList()
     }
