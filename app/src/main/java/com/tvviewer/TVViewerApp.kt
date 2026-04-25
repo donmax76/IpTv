@@ -39,7 +39,9 @@ class TVViewerApp : Application() {
                         append(errorText.takeLast(4000))
                         append("\n```\n")
                     }
-                    GitHubReporter.report(applicationContext, title, body)
+                    // silent=true: rate-limited and toast-less to avoid
+                    // flooding the screen with "Log sent" on a crash loop.
+                    GitHubReporter.report(applicationContext, title, body, silent = true)
                 } catch (_: Exception) {}
                 val intent = Intent(applicationContext, CrashReportActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

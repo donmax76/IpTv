@@ -49,13 +49,35 @@ object GitHubReporter {
      *
      * Always runs the network call on a background thread.
      */
+    /** Per-process throttle: only allow N "silent" auto-reports per cooldown window. */
+    private val cooldownMs = 60_000L
+    @Volatile private var lastSilentReport = 0L
+    @Volatile private var lastTitleHash = 0
+    @Volatile private var dedupeWindowEnd = 0L
+
     fun report(
         context: Context,
         title: String,
         body: String,
         onSuccess: (() -> Unit)? = null,
         onError: ((Throwable) -> Unit)? = null,
+        silent: Boolean = false,
     ) {
+        // Drop bursts: identical-title reports within 5 s collapse to one,
+        // and silent (auto-from-uncaught-handler) reports are rate-limited
+        // to one per minute regardless of payload, so a crash loop doesn't
+        // spam the user with "Log sent" toasts.
+        val now = System.currentTimeMillis()
+        val titleHash = title.hashCode()
+        synchronized(this) {
+            if (titleHash == lastTitleHash && now < dedupeWindowEnd) return
+            lastTitleHash = titleHash
+            dedupeWindowEnd = now + 5_000L
+            if (silent) {
+                if (now - lastSilentReport < cooldownMs) return
+                lastSilentReport = now
+            }
+        }
         Thread {
             // 1) Always publish to ntfy.sh (token-less, the developer reads
             //    this stream directly). This is the primary path so reports
@@ -68,7 +90,12 @@ object GitHubReporter {
 
             main.post {
                 if (ntfyOk || ghOk) {
-                    Toast.makeText(context, R.string.error_log_sent, Toast.LENGTH_LONG).show()
+                    // Silent reports (e.g. from the global crash handler)
+                    // intentionally skip the toast — otherwise a buggy
+                    // background coroutine spams the user with "Log sent".
+                    if (!silent) {
+                        Toast.makeText(context, R.string.error_log_sent, Toast.LENGTH_LONG).show()
+                    }
                     onSuccess?.invoke()
                 } else {
                     // Both channels failed — last resort: open the browser
