@@ -840,6 +840,42 @@ class PlayerActivity : BaseActivity() {
         }
     }
 
+    /**
+     * Build a MediaItem with a sensible mime-type hint so ExoPlayer picks
+     * the right source factory. Many IPTV portals serve HLS at URLs that
+     * don't end in .m3u8 (e.g. http://host:8080/play/abc?token=xxx). With
+     * no hint, ExoPlayer treats them as progressive and fails with
+     * UnrecognizedInputFormatException. We default to HLS for any URL
+     * that has no clearly-progressive extension.
+     */
+    private fun buildMediaItem(url: String): MediaItem {
+        val path = url.substringBefore('?').substringBefore('#').lowercase()
+        val mime = when {
+            path.contains(".m3u8") || path.contains(".m3u") ->
+                androidx.media3.common.MimeTypes.APPLICATION_M3U8
+            path.contains(".mpd") ->
+                androidx.media3.common.MimeTypes.APPLICATION_MPD
+            path.contains(".ts") ->
+                androidx.media3.common.MimeTypes.VIDEO_MP2T
+            path.contains(".mp4") || path.contains(".m4v") ->
+                androidx.media3.common.MimeTypes.VIDEO_MP4
+            path.contains(".webm") ->
+                androidx.media3.common.MimeTypes.VIDEO_WEBM
+            path.contains(".flv") ->
+                androidx.media3.common.MimeTypes.VIDEO_FLV
+            path.contains(".mkv") ->
+                androidx.media3.common.MimeTypes.VIDEO_MATROSKA
+            // RTMP / RTSP — leave to default detection
+            url.startsWith("rtmp", true) || url.startsWith("rtsp", true) -> null
+            // No extension at all — IPTV portals nearly always serve HLS,
+            // so default to HLS instead of bombing as progressive.
+            else -> androidx.media3.common.MimeTypes.APPLICATION_M3U8
+        }
+        val builder = MediaItem.Builder().setUri(url)
+        if (mime != null) builder.setMimeType(mime)
+        return builder.build()
+    }
+
     private fun playStream(url: String) {
         loadingIndicator.visibility = View.VISIBLE
         errorLayout.visibility = View.GONE
@@ -850,7 +886,7 @@ class PlayerActivity : BaseActivity() {
         val savedPos = savedState.optLong("pos", -1L)
 
         player?.apply {
-            setMediaItem(MediaItem.fromUri(url))
+            setMediaItem(buildMediaItem(url))
             prepare()
             playWhenReady = true
             // Speed
