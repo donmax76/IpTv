@@ -626,11 +626,28 @@ class SettingsFragment : Fragment() {
                         .setNegativeButton(R.string.cancel, null)
                         .show()
                 } else {
-                    Toast.makeText(requireContext(), R.string.update_latest, Toast.LENGTH_SHORT).show()
+                    val msg = if (updateInfo != null) {
+                        // Found a release but it's not newer — show both versions
+                        "${getString(R.string.update_latest)}\n\n" +
+                        "${getString(R.string.current_version)}: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\n" +
+                        "GitHub: ${updateInfo.versionName} (${updateInfo.versionCode})"
+                    } else {
+                        "${getString(R.string.update_latest)}\n\n" +
+                        "${getString(R.string.current_version)}: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
+                    }
+                    AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
+                        .setTitle(R.string.check_for_updates)
+                        .setMessage(msg)
+                        .setPositiveButton(R.string.ok, null)
+                        .show()
                 }
             } catch (e: Exception) {
                 versionText.text = getString(R.string.version_format, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)
-                Toast.makeText(requireContext(), R.string.update_check_failed, Toast.LENGTH_SHORT).show()
+                AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
+                    .setTitle(R.string.update_check_failed)
+                    .setMessage(e.message ?: e.javaClass.simpleName)
+                    .setPositiveButton(R.string.ok, null)
+                    .show()
             }
         }
     }

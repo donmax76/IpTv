@@ -11,7 +11,12 @@ android {
         applicationId = "com.tvviewer"
         minSdk = 21
         targetSdk = 34
-        versionCode = 34
+        // versionCode mirrors the CI build number in the release tag
+        // (`v5.4-build<run_number>`) so UpdateChecker, which extracts the
+        // build number from the tag, can compare it directly against
+        // BuildConfig.VERSION_CODE. Local dev builds keep a stable code.
+        val ciRun = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+        versionCode = ciRun ?: 34
         versionName = "5.4"
     }
 
