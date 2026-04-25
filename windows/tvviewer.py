@@ -7,6 +7,7 @@ Install VLC media player for playback.
 
 import sys
 import os
+import re
 import json
 import time
 import threading
@@ -23,10 +24,13 @@ from PyQt5.QtWidgets import (
     QLabel, QPushButton, QLineEdit, QListWidget, QListWidgetItem,
     QStackedWidget, QFrame, QProgressBar, QSplitter, QFileDialog,
     QDialog, QDialogButtonBox, QFormLayout, QMessageBox, QScrollArea,
-    QComboBox, QSlider, QToolBar, QAction, QSizePolicy, QAbstractItemView
+    QComboBox, QSlider, QToolBar, QAction, QSizePolicy, QAbstractItemView,
+    QGraphicsOpacityEffect
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize, QUrl
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize, QUrl, QObject
 from PyQt5.QtGui import QFont, QColor, QPalette, QIcon, QPixmap, QKeySequence
+from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
+import hashlib
 
 try:
     import vlc
@@ -37,11 +41,36 @@ except ImportError:
 from m3u_parser import fetch_playlist, load_playlist_file, Channel, PlaylistResult
 from epg_parser import fetch_epg, get_now_next, get_current_progress, EpgData
 
+# --- Quality detection from channel name ---
+_QUALITY_PATTERNS = [
+    ("4K",   re.compile(r'(?i)(?:^|[\s\[\(\.\-_])(4k|uhd|2160p?)(?:$|[\s\]\)\.\-_])')),
+    ("FHD",  re.compile(r'(?i)(?:^|[\s\[\(\.\-_])(fhd|fullhd|full[\s\-]?hd|1080p?|1080i)(?:$|[\s\]\)\.\-_])')),
+    ("HD",   re.compile(r'(?i)(?:^|[\s\[\(\.\-_])(hd|720p?|h264|ahd)(?:$|[\s\]\)\.\-_])')),
+    ("SD",   re.compile(r'(?i)(?:^|[\s\[\(\.\-_])(sd|480p?|360p?|240p?|low)(?:$|[\s\]\)\.\-_])')),
+]
+
+def detect_quality(name: str) -> str:
+    """Return '4K' / 'FHD' / 'HD' / 'SD' / '' for a channel name."""
+    if not name:
+        return ""
+    for label, pat in _QUALITY_PATTERNS:
+        if pat.search(name):
+            return label
+    return ""
+
+QUALITY_COLORS = {
+    "4K":  "#ff5252",
+    "FHD": "#2979ff",
+    "HD":  "#00c853",
+    "SD":  "#9e9e9e",
+}
+
 # --- Colors matching Android dark theme ---
 COLORS = {
     'background': '#0F0F1A',
     'surface': '#1A1A2E',
     'card': '#222240',
+    'card_hover': '#2C2C50',
     'primary': '#7C6CF7',
     'primary_dark': '#5A4DC5',
     'secondary': '#4ECDC4',
@@ -216,7 +245,21 @@ class Config:
         self.autoplay_last = False         # open last channel on startup
         self.remember_fullscreen = False   # restore fullscreen on player open
         self.sleep_timer_minutes = 0       # 0 = off
+        self.recent_urls = []              # most recent first, capped to RECENT_LIMIT
         self.load()
+
+    RECENT_LIMIT = 30
+
+    def push_recent(self, url: str):
+        if not url:
+            return
+        try:
+            self.recent_urls = [u for u in self.recent_urls if u != url]
+        except Exception:
+            self.recent_urls = []
+        self.recent_urls.insert(0, url)
+        if len(self.recent_urls) > self.RECENT_LIMIT:
+            self.recent_urls = self.recent_urls[:self.RECENT_LIMIT]
 
     def load(self):
         if os.path.exists(CONFIG_FILE):
@@ -235,6 +278,7 @@ class Config:
                 self.autoplay_last = bool(data.get('autoplay_last', False))
                 self.remember_fullscreen = bool(data.get('remember_fullscreen', False))
                 self.sleep_timer_minutes = int(data.get('sleep_timer_minutes', 0))
+                self.recent_urls = list(data.get('recent_urls', []))[:self.RECENT_LIMIT]
             except Exception:
                 pass
 
@@ -252,6 +296,7 @@ class Config:
             'autoplay_last': self.autoplay_last,
             'remember_fullscreen': self.remember_fullscreen,
             'sleep_timer_minutes': self.sleep_timer_minutes,
+            'recent_urls': self.recent_urls,
         }
         try:
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
@@ -294,6 +339,106 @@ class LoadEpgThread(QThread):
             self.finished.emit(data)
         except Exception:
             self.finished.emit({})
+
+
+class LogoCache(QObject):
+    """Async logo loader with disk cache, shared across pages.
+
+    Limits concurrent network requests to avoid hammering the network thread
+    and starving the UI when a 5000-channel playlist asks for icons all at once.
+    """
+    logo_ready = pyqtSignal()  # coalesced: fires at most every ~400ms after a batch of loads
+
+    MAX_CONCURRENT = 6
+    MAX_ICONS_IN_MEM = 2000  # very rough cap to prevent unbounded growth
+
+    def __init__(self, cache_dir: str, parent=None):
+        super().__init__(parent)
+        self.cache_dir = cache_dir
+        try:
+            os.makedirs(cache_dir, exist_ok=True)
+        except Exception:
+            pass
+        self.icons: dict = {}      # url -> QIcon
+        self.missing: set = set()  # urls that failed to load
+        self._inflight: set = set()
+        self._queue: list = []     # URLs waiting for a slot
+        self.nam = QNetworkAccessManager(self)
+        self.nam.finished.connect(self._on_finished)
+        self._emit_timer = QTimer(self)
+        self._emit_timer.setSingleShot(True)
+        self._emit_timer.setInterval(400)
+        self._emit_timer.timeout.connect(self.logo_ready.emit)
+
+    def _path(self, url: str) -> str:
+        return os.path.join(
+            self.cache_dir,
+            hashlib.sha1(url.encode('utf-8', 'ignore')).hexdigest()[:16] + '.png')
+
+    def get(self, url: str):
+        """Return QIcon immediately (possibly None). Enqueues async download on miss."""
+        if not url or url in self.missing:
+            return None
+        cached = self.icons.get(url)
+        if cached is not None:
+            return cached
+        disk = self._path(url)
+        if os.path.exists(disk):
+            pm = QPixmap(disk)
+            if not pm.isNull():
+                icon = QIcon(pm)
+                if len(self.icons) < self.MAX_ICONS_IN_MEM:
+                    self.icons[url] = icon
+                return icon
+        if url not in self._inflight and url not in self._queue:
+            self._queue.append(url)
+            self._pump()
+        return None
+
+    def _pump(self):
+        while self._queue and len(self._inflight) < self.MAX_CONCURRENT:
+            url = self._queue.pop(0)
+            if url in self._inflight or url in self.icons or url in self.missing:
+                continue
+            self._inflight.add(url)
+            try:
+                req = QNetworkRequest(QUrl(url))
+                req.setRawHeader(b"User-Agent", b"TVViewer/5.3")
+                reply = self.nam.get(req)
+                reply.setProperty('url', url)
+            except Exception:
+                self._inflight.discard(url)
+                self.missing.add(url)
+
+    def _on_finished(self, reply: QNetworkReply):
+        url = reply.property('url')
+        self._inflight.discard(url)
+        try:
+            if reply.error() != QNetworkReply.NoError:
+                self.missing.add(url)
+                return
+            data = bytes(reply.readAll())
+            if not data:
+                self.missing.add(url)
+                return
+            pm = QPixmap()
+            if not pm.loadFromData(data):
+                self.missing.add(url)
+                return
+            if pm.width() > 128 or pm.height() > 128:
+                pm = pm.scaled(128, 128, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            try:
+                with open(self._path(url), 'wb') as f:
+                    f.write(data)
+            except Exception:
+                pass
+            if len(self.icons) < self.MAX_ICONS_IN_MEM:
+                self.icons[url] = QIcon(pm)
+            if not self._emit_timer.isActive():
+                self._emit_timer.start()
+        finally:
+            reply.deleteLater()
+            self._pump()
 
 
 # ============================================================
@@ -405,15 +550,18 @@ class PlaylistsPage(QWidget):
 class ChannelsPage(QWidget):
     channel_play = pyqtSignal(int)  # channel index
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, logo_cache: LogoCache = None):
         super().__init__()
         self.config = config
+        self.logo_cache = logo_cache
         self.channels = []
         self.filtered = []
         self.categories = []
         self.selected_category = "All"
         self.epg_data = {}
         self.ch_to_index = {}  # id(ch) -> index in self.channels (O(1) lookup)
+        self.quality_filter = "All"  # All / 4K / FHD / HD / SD
+        self.quality_buttons = {}
         self.init_ui()
 
         # Debounce search input so typing doesn't rebuild the whole list per keystroke
@@ -421,6 +569,9 @@ class ChannelsPage(QWidget):
         self._search_timer.setSingleShot(True)
         self._search_timer.setInterval(200)
         self._search_timer.timeout.connect(self.filter_channels)
+
+        if self.logo_cache is not None:
+            self.logo_cache.logo_ready.connect(self._refresh_logos)
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -454,11 +605,33 @@ class ChannelsPage(QWidget):
         self.cat_layout.setSpacing(8)
         self.cat_scroll.setWidget(self.cat_widget)
         layout.addWidget(self.cat_scroll)
-        layout.addSpacing(8)
+        layout.addSpacing(4)
 
-        # Channel list
+        # Quality filter chips (All / 4K / FHD / HD / SD)
+        qrow = QHBoxLayout()
+        qrow.setContentsMargins(0, 0, 0, 0)
+        qrow.setSpacing(6)
+        for label in ("All", "4K", "FHD", "HD", "SD"):
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setMinimumHeight(28)
+            btn.clicked.connect(lambda _checked=False, q=label: self.select_quality(q))
+            self.quality_buttons[label] = btn
+            qrow.addWidget(btn)
+        qrow.addStretch()
+        layout.addLayout(qrow)
+        self._update_quality_chip_styles()
+        layout.addSpacing(6)
+
+        # Channel list (larger row height for remote/touch friendliness)
         self.channel_list = QListWidget()
         self.channel_list.setSpacing(2)
+        self.channel_list.setIconSize(QSize(48, 48))
+        self.channel_list.setUniformItemSizes(True)
+        self.channel_list.setStyleSheet(
+            "QListWidget::item { padding: 8px 6px; }"
+            "QListWidget::item:selected { background-color: " + COLORS['primary'] + "; color: white; }"
+            "QListWidget::item:focus { outline: 2px solid " + COLORS['primary'] + "; }")
         self.channel_list.itemDoubleClicked.connect(self.on_channel_click)
         self.channel_list.setSelectionMode(QAbstractItemView.SingleSelection)
         layout.addWidget(self.channel_list)
@@ -474,8 +647,7 @@ class ChannelsPage(QWidget):
             self.epg_data = epg_data
         self.title_label.setText(name or "Channels")
         cats = sorted(set(ch.group for ch in channels if ch.group))
-        self.categories = ["All"] + cats
-        # Restore last category if still present
+        self.categories = ["All", "★ Recent"] + cats
         last_cat = getattr(self.config, 'last_category', '') or "All"
         self.selected_category = last_cat if last_cat in self.categories else "All"
         self.rebuild_categories()
@@ -511,24 +683,57 @@ class ChannelsPage(QWidget):
         self.rebuild_categories()
         self.filter_channels()
 
+    def select_quality(self, label: str):
+        self.quality_filter = label
+        self._update_quality_chip_styles()
+        self.filter_channels()
+
+    def _update_quality_chip_styles(self):
+        for label, btn in self.quality_buttons.items():
+            active = (label == self.quality_filter)
+            btn.setChecked(active)
+            color = QUALITY_COLORS.get(label, COLORS['primary'])
+            if active:
+                btn.setStyleSheet(
+                    "QPushButton { background-color: " + color +
+                    "; color: white; border-radius: 14px; padding: 4px 14px; font-weight: bold; }")
+            else:
+                btn.setStyleSheet(
+                    "QPushButton { background-color: " + COLORS['card'] +
+                    "; color: " + COLORS['text_secondary'] +
+                    "; border-radius: 14px; padding: 4px 14px; }"
+                    "QPushButton:hover { background-color: " + COLORS['card_hover'] + "; }")
+
     def filter_channels(self):
         query = self.search_edit.text().strip().lower()
         cat = self.selected_category
         favs = self.config.favorites
         epg = self.epg_data
+        qf = self.quality_filter
+        recent_set = set(getattr(self.config, 'recent_urls', []) or [])
+        recent_order = {u: i for i, u in enumerate(getattr(self.config, 'recent_urls', []) or [])}
+        is_recent = (cat == "★ Recent")
         # Build filtered list once
         filtered = []
         for ch in self.channels:
-            if cat != "All" and ch.group != cat:
+            if is_recent:
+                if ch.url not in recent_set:
+                    continue
+            elif cat != "All" and ch.group != cat:
                 continue
             if query and query not in ch.name.lower():
                 continue
+            if qf != "All" and detect_quality(ch.name) != qf:
+                continue
             filtered.append(ch)
+        if is_recent:
+            filtered.sort(key=lambda c: recent_order.get(c.url, 9999))
         self.filtered = filtered
 
         # Show EPG titles only for small lists to keep the UI responsive
         show_epg = len(filtered) <= 500
         ch_to_index = self.ch_to_index
+        logo_cache = self.logo_cache
         lst = self.channel_list
         lst.setUpdatesEnabled(False)
         try:
@@ -545,13 +750,40 @@ class ChannelsPage(QWidget):
                             pass
                 fav = " ♥" if ch.url in favs else ""
                 group = f" [{ch.group}]" if ch.group else ""
-                item = QListWidgetItem(f"{i+1}. {ch.name}{fav}{group}{epg_text}")
+                q = detect_quality(ch.name)
+                qbadge = f"  ◆{q}" if q else ""
+                item = QListWidgetItem(f"{i+1}. {ch.name}{qbadge}{fav}{group}{epg_text}")
                 item.setData(Qt.UserRole, ch_to_index.get(id(ch), -1))
+                if q:
+                    item.setForeground(QColor(QUALITY_COLORS[q]))
+                if logo_cache is not None and ch.logo_url:
+                    icon = logo_cache.get(ch.logo_url)
+                    if icon is not None:
+                        item.setIcon(icon)
                 lst.addItem(item)
         finally:
             lst.setUpdatesEnabled(True)
 
         self.count_label.setText(f"{len(filtered)} channels")
+
+    def _refresh_logos(self):
+        """Called when new logos have been downloaded; update icons in place."""
+        if self.logo_cache is None:
+            return
+        lst = self.channel_list
+        for row in range(lst.count()):
+            item = lst.item(row)
+            idx = item.data(Qt.UserRole)
+            if idx is None or idx < 0 or idx >= len(self.channels):
+                continue
+            ch = self.channels[idx]
+            if not ch.logo_url:
+                continue
+            if not item.icon().isNull():
+                continue  # already set
+            icon = self.logo_cache.get(ch.logo_url)
+            if icon is not None:
+                item.setIcon(icon)
 
     def on_channel_click(self, item):
         idx = item.data(Qt.UserRole)
@@ -573,13 +805,16 @@ class ChannelsPage(QWidget):
 class FavoritesPage(QWidget):
     channel_play = pyqtSignal(int)
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, logo_cache: LogoCache = None):
         super().__init__()
         self.config = config
+        self.logo_cache = logo_cache
         self.channels = []
         self.fav_channels = []
         self.epg_data = {}
         self.init_ui()
+        if self.logo_cache is not None:
+            self.logo_cache.logo_ready.connect(self._refresh_logos)
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -593,6 +828,11 @@ class FavoritesPage(QWidget):
         layout.addSpacing(8)
         self.fav_list = QListWidget()
         self.fav_list.setSpacing(2)
+        self.fav_list.setIconSize(QSize(48, 48))
+        self.fav_list.setUniformItemSizes(True)
+        self.fav_list.setStyleSheet(
+            "QListWidget::item { padding: 8px 6px; }"
+            "QListWidget::item:selected { background-color: " + COLORS['primary'] + "; color: white; }")
         self.fav_list.itemDoubleClicked.connect(self.on_click)
         layout.addWidget(self.fav_list)
 
@@ -612,10 +852,30 @@ class FavoritesPage(QWidget):
                 epg = f"  {now_prog.title}" if now_prog else ""
                 item = QListWidgetItem(f"♥ {ch.name}{epg}")
                 item.setData(Qt.UserRole, idx)
+                if self.logo_cache is not None and ch.logo_url:
+                    icon = self.logo_cache.get(ch.logo_url)
+                    if icon is not None:
+                        item.setIcon(icon)
                 self.fav_list.addItem(item)
         finally:
             self.fav_list.setUpdatesEnabled(True)
         self.count_label.setText(f"{len(self.fav_channels)} favorites")
+
+    def _refresh_logos(self):
+        if self.logo_cache is None:
+            return
+        lst = self.fav_list
+        for row in range(lst.count()):
+            item = lst.item(row)
+            idx = item.data(Qt.UserRole)
+            if idx is None or idx < 0 or idx >= len(self.channels):
+                continue
+            ch = self.channels[idx]
+            if not ch.logo_url or not item.icon().isNull():
+                continue
+            icon = self.logo_cache.get(ch.logo_url)
+            if icon is not None:
+                item.setIcon(icon)
 
     def on_click(self, item):
         idx = item.data(Qt.UserRole)
@@ -632,9 +892,10 @@ class PlayerPage(QWidget):
     ASPECT_RATIOS = ["", "16:9", "4:3", "1:1", "16:10", "2.35:1"]
     SPEED_VALUES = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, logo_cache: LogoCache = None):
         super().__init__()
         self.config = config
+        self.logo_cache = logo_cache
         self.channels = []
         self.current_index = 0
         self.epg_data = {}
@@ -696,12 +957,19 @@ class PlayerPage(QWidget):
         self.epg_progress.setMaximumHeight(4)
         layout.addWidget(self.epg_progress)
 
-        # Video frame
+        # Video frame with OSD banner overlay (parented to video_frame)
         self.video_frame = QFrame()
         self.video_frame.setStyleSheet("background-color: black;")
         self.video_frame.setMinimumHeight(400)
         self.video_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout.addWidget(self.video_frame)
+        self._build_osd_banner()
+
+        # Auto-hide banner timer
+        self._banner_timer = QTimer(self)
+        self._banner_timer.setSingleShot(True)
+        self._banner_timer.setInterval(4500)
+        self._banner_timer.timeout.connect(self._hide_banner)
 
         # Bottom controls
         ctrl = QHBoxLayout()
@@ -777,6 +1045,118 @@ class PlayerPage(QWidget):
         self.clock_timer.start(30000)
         self.update_clock()
 
+    def _build_osd_banner(self):
+        """Floating channel info banner (parented to video_frame, shown briefly on switch)."""
+        self.osd_banner = QWidget(self.video_frame)
+        self.osd_banner.setStyleSheet(
+            "background-color: rgba(18, 18, 32, 220);"
+            " border-radius: 10px;")
+        self.osd_banner.hide()
+        row = QHBoxLayout(self.osd_banner)
+        row.setContentsMargins(12, 10, 16, 10)
+        row.setSpacing(12)
+
+        self.osd_logo = QLabel()
+        self.osd_logo.setFixedSize(56, 56)
+        self.osd_logo.setAlignment(Qt.AlignCenter)
+        self.osd_logo.setStyleSheet(
+            f"background-color: {COLORS['card']}; border-radius: 6px;")
+        row.addWidget(self.osd_logo)
+
+        col = QVBoxLayout()
+        col.setSpacing(2)
+        self.osd_number_name = QLabel("")
+        self.osd_number_name.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
+        col.addWidget(self.osd_number_name)
+
+        self.osd_now = QLabel("")
+        self.osd_now.setStyleSheet(f"color: {COLORS['secondary']}; font-size: 13px;")
+        self.osd_now.setWordWrap(False)
+        col.addWidget(self.osd_now)
+
+        self.osd_next = QLabel("")
+        self.osd_next.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 12px;")
+        self.osd_next.setWordWrap(False)
+        col.addWidget(self.osd_next)
+
+        self.osd_progress = QProgressBar()
+        self.osd_progress.setMaximum(100)
+        self.osd_progress.setTextVisible(False)
+        self.osd_progress.setMaximumHeight(4)
+        col.addWidget(self.osd_progress)
+
+        row.addLayout(col, 1)
+        # Position is set in resizeEvent / _position_osd
+
+    def _position_osd(self):
+        if not hasattr(self, 'osd_banner'):
+            return
+        parent = self.video_frame
+        pw = parent.width()
+        ph = parent.height()
+        if pw <= 0 or ph <= 0:
+            return
+        bw = min(540, max(340, pw - 40))
+        bh = 92
+        self.osd_banner.setGeometry(20, 20, bw, bh)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._position_osd()
+
+    def _show_channel_banner(self):
+        if not self.channels or self.current_index >= len(self.channels):
+            return
+        ch = self.channels[self.current_index]
+        self.osd_number_name.setText(f"{self.current_index + 1}  {ch.name}")
+        # Logo
+        pix = None
+        if self.logo_cache is not None and ch.logo_url:
+            icon = self.logo_cache.get(ch.logo_url)
+            if icon is not None:
+                pix = icon.pixmap(56, 56)
+        if pix is not None and not pix.isNull():
+            self.osd_logo.setPixmap(pix)
+        else:
+            self.osd_logo.clear()
+            self.osd_logo.setText(ch.name[:2].upper() if ch.name else "")
+            self.osd_logo.setStyleSheet(
+                f"background-color: {COLORS['card']};"
+                f" border-radius: 6px; color: {COLORS['text_secondary']};"
+                f" font-weight: bold; font-size: 18px;")
+        # EPG
+        now_prog, next_prog = get_now_next(self.epg_data, ch.tvg_id)
+        if now_prog:
+            try:
+                t1 = datetime.fromtimestamp(now_prog.start).strftime('%H:%M')
+                t2 = datetime.fromtimestamp(now_prog.end).strftime('%H:%M')
+                self.osd_now.setText(f"{t1}–{t2}  {now_prog.title}")
+            except (OSError, ValueError):
+                self.osd_now.setText(now_prog.title or "")
+            self.osd_progress.setValue(int(get_current_progress(now_prog) * 100))
+            self.osd_progress.show()
+        else:
+            self.osd_now.setText("")
+            self.osd_progress.setValue(0)
+            self.osd_progress.hide()
+        if next_prog:
+            try:
+                nt = datetime.fromtimestamp(next_prog.start).strftime('%H:%M')
+                self.osd_next.setText(f"Next: {nt}  {next_prog.title}")
+            except (OSError, ValueError):
+                self.osd_next.setText(f"Next: {next_prog.title or ''}")
+        else:
+            self.osd_next.setText("")
+
+        self._position_osd()
+        self.osd_banner.raise_()
+        self.osd_banner.show()
+        self._banner_timer.start()
+
+    def _hide_banner(self):
+        if hasattr(self, 'osd_banner'):
+            self.osd_banner.hide()
+
     def init_vlc(self):
         if not HAS_VLC:
             return
@@ -797,6 +1177,9 @@ class PlayerPage(QWidget):
         self.update_fav_btn()
         self.update_epg_display()
         self.play_url(ch.url)
+        self.config.push_recent(ch.url)
+        self.config.save()
+        self._show_channel_banner()
 
     def play_url(self, url):
         if not self.player:
@@ -845,8 +1228,30 @@ class PlayerPage(QWidget):
     def switch_channel(self, direction):
         if not self.channels:
             return
-        self.current_index = (self.current_index + direction) % len(self.channels)
-        self.play_channel(self.current_index, self.channels, self.epg_data)
+        # Debounce zapping: rapid +1/-1 just updates the pending index and
+        # fires play_channel once after the user stops, instead of starting
+        # and stopping VLC for every keypress.
+        if not hasattr(self, '_pending_index'):
+            self._pending_index = self.current_index
+            self._zap_timer = QTimer(self)
+            self._zap_timer.setSingleShot(True)
+            self._zap_timer.setInterval(350)
+            self._zap_timer.timeout.connect(self._commit_zap)
+        self._pending_index = (self._pending_index + direction) % len(self.channels)
+        self.current_index = self._pending_index
+        # Visual feedback while zapping
+        if self.channels:
+            ch = self.channels[self._pending_index]
+            self.channel_name_label.setText(ch.name)
+            self.channel_number_label.setText(f"{self._pending_index + 1} / {len(self.channels)}")
+        self._zap_timer.start()
+
+    def _commit_zap(self):
+        idx = getattr(self, '_pending_index', self.current_index)
+        if idx is None or idx < 0 or idx >= len(self.channels):
+            return
+        self.current_index = idx
+        self.play_channel(idx, self.channels, self.epg_data)
 
     def set_volume(self, val):
         self.config.volume = val
@@ -1032,8 +1437,21 @@ class PlayerPage(QWidget):
             self.play_channel(self.current_index, self.channels, self.epg_data)
 
     def stop(self):
-        if self.player:
-            self.player.stop()
+        # VLC's stop() is synchronous and can block for up to a few seconds on
+        # dead/slow streams. Run it on a background thread so the UI never freezes.
+        p = self.player
+        if not p:
+            return
+        try:
+            threading.Thread(
+                target=lambda: (
+                    p.stop() if p else None
+                ),
+                daemon=True,
+            ).start()
+        except Exception:
+            try: p.stop()
+            except Exception: pass
 
     def release_vlc(self):
         if self.current_media is not None:
@@ -1057,10 +1475,37 @@ class PlayerPage(QWidget):
             return
         if key == Qt.Key_Space:
             self.toggle_play()
-        elif key == Qt.Key_Up:
+        elif key in (Qt.Key_Up, Qt.Key_PageUp, Qt.Key_MediaPrevious):
             self.switch_channel(-1)
-        elif key == Qt.Key_Down:
+        elif key in (Qt.Key_Down, Qt.Key_PageDown, Qt.Key_MediaNext):
             self.switch_channel(1)
+        elif key == Qt.Key_Left:
+            # Step back 10s for VOD; on live, treated as prev channel
+            if self.player:
+                try:
+                    pos = self.player.get_time()
+                    if pos > 0:
+                        self.player.set_time(max(0, pos - 10000))
+                        return
+                except Exception:
+                    pass
+            self.switch_channel(-1)
+        elif key == Qt.Key_Right:
+            if self.player:
+                try:
+                    pos = self.player.get_time()
+                    if pos > 0:
+                        self.player.set_time(pos + 10000)
+                        return
+                except Exception:
+                    pass
+            self.switch_channel(1)
+        elif key == Qt.Key_Return or key == Qt.Key_Enter:
+            # OK/Enter on remote: show channel banner
+            self._show_channel_banner()
+        elif key == Qt.Key_I:
+            # Info button on remotes
+            self._show_channel_banner()
         elif key == Qt.Key_Escape:
             if self.window() is not None and self.window().isFullScreen():
                 self.window().showNormal()
@@ -1090,6 +1535,133 @@ class PlayerPage(QWidget):
             self.btn_speed.setText(f"{speed:g}x")
         else:
             super().keyPressEvent(event)
+
+
+# ============================================================
+# TV Guide Page (EPG for all channels at current time)
+# ============================================================
+class TvGuidePage(QWidget):
+    channel_play = pyqtSignal(int)
+
+    def __init__(self, config: Config, logo_cache: LogoCache = None):
+        super().__init__()
+        self.config = config
+        self.logo_cache = logo_cache
+        self.channels = []
+        self.epg_data = {}
+        self.init_ui()
+
+        # Refresh timer: programmes roll over with time
+        self._tick = QTimer(self)
+        self._tick.setInterval(60 * 1000)
+        self._tick.timeout.connect(self.refresh_list)
+
+        if self.logo_cache is not None:
+            self.logo_cache.logo_ready.connect(self._refresh_logos)
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+
+        header = QHBoxLayout()
+        title = QLabel("TV Guide")
+        title.setFont(QFont('Segoe UI', 22, QFont.Bold))
+        header.addWidget(title)
+        header.addStretch()
+        self.status = QLabel("")
+        self.status.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 13px;")
+        header.addWidget(self.status)
+        layout.addLayout(header)
+
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Search channels...")
+        self.search_edit.textChanged.connect(self._debounced_refresh)
+        layout.addWidget(self.search_edit)
+        layout.addSpacing(6)
+
+        self.guide_list = QListWidget()
+        self.guide_list.setSpacing(2)
+        self.guide_list.setIconSize(QSize(48, 48))
+        self.guide_list.setStyleSheet(
+            "QListWidget::item { padding: 8px 6px; }"
+            "QListWidget::item:selected { background-color: " + COLORS['primary'] + "; color: white; }")
+        self.guide_list.itemDoubleClicked.connect(self._on_click)
+        layout.addWidget(self.guide_list)
+
+        self._debounce = QTimer(self)
+        self._debounce.setSingleShot(True)
+        self._debounce.setInterval(200)
+        self._debounce.timeout.connect(self.refresh_list)
+
+    def _debounced_refresh(self, _text):
+        self._debounce.start()
+
+    def set_data(self, channels, epg_data):
+        self.channels = channels
+        self.epg_data = epg_data
+        self.refresh_list()
+        if not self._tick.isActive():
+            self._tick.start()
+
+    def refresh_list(self):
+        query = self.search_edit.text().strip().lower()
+        lst = self.guide_list
+        lst.setUpdatesEnabled(False)
+        try:
+            lst.clear()
+            count = 0
+            for idx, ch in enumerate(self.channels):
+                if query and query not in ch.name.lower():
+                    continue
+                now_prog, next_prog = get_now_next(self.epg_data, ch.tvg_id)
+                if now_prog:
+                    try:
+                        t1 = datetime.fromtimestamp(now_prog.start).strftime('%H:%M')
+                        t2 = datetime.fromtimestamp(now_prog.end).strftime('%H:%M')
+                        now_text = f"  ▶ {t1}–{t2}  {now_prog.title}"
+                    except (OSError, ValueError):
+                        now_text = f"  ▶ {now_prog.title}"
+                else:
+                    now_text = "  ▶ —"
+                next_text = ""
+                if next_prog:
+                    try:
+                        nt = datetime.fromtimestamp(next_prog.start).strftime('%H:%M')
+                        next_text = f"\n  ⏭ {nt}  {next_prog.title}"
+                    except (OSError, ValueError):
+                        next_text = f"\n  ⏭ {next_prog.title}"
+                item = QListWidgetItem(f"{ch.name}{now_text}{next_text}")
+                item.setData(Qt.UserRole, idx)
+                if self.logo_cache is not None and ch.logo_url:
+                    icon = self.logo_cache.get(ch.logo_url)
+                    if icon is not None:
+                        item.setIcon(icon)
+                lst.addItem(item)
+                count += 1
+        finally:
+            lst.setUpdatesEnabled(True)
+        self.status.setText(f"{count} channels · updated {datetime.now().strftime('%H:%M')}")
+
+    def _on_click(self, item):
+        idx = item.data(Qt.UserRole)
+        if idx is not None and idx >= 0:
+            self.channel_play.emit(idx)
+
+    def _refresh_logos(self):
+        if self.logo_cache is None:
+            return
+        lst = self.guide_list
+        for row in range(lst.count()):
+            item = lst.item(row)
+            idx = item.data(Qt.UserRole)
+            if idx is None or idx < 0 or idx >= len(self.channels):
+                continue
+            ch = self.channels[idx]
+            if not ch.logo_url or not item.icon().isNull():
+                continue
+            icon = self.logo_cache.get(ch.logo_url)
+            if icon is not None:
+                item.setIcon(icon)
 
 
 # ============================================================
@@ -1298,6 +1870,10 @@ class MainWindow(QMainWindow):
         self.epg_data = {}
         self.loader_thread = None
         self.epg_thread = None
+        # Shared logo cache (async network + on-disk cache)
+        cache_root = os.path.join(
+            os.path.dirname(os.path.abspath(CONFIG_FILE)), "tvviewer_logos")
+        self.logo_cache = LogoCache(cache_root, self)
         self.setWindowTitle("M3U IPTV - TVViewer")
         self.setMinimumSize(900, 600)
         self.resize(1100, 700)
@@ -1318,21 +1894,25 @@ class MainWindow(QMainWindow):
         self.playlists_page.playlist_selected.connect(self.load_playlist)
         self.stack.addWidget(self.playlists_page)
 
-        self.channels_page = ChannelsPage(self.config)
+        self.channels_page = ChannelsPage(self.config, self.logo_cache)
         self.channels_page.channel_play.connect(self.play_channel)
         self.stack.addWidget(self.channels_page)
 
-        self.favorites_page = FavoritesPage(self.config)
+        self.favorites_page = FavoritesPage(self.config, self.logo_cache)
         self.favorites_page.channel_play.connect(self.play_channel)
         self.stack.addWidget(self.favorites_page)
 
-        self.player_page = PlayerPage(self.config)
+        self.player_page = PlayerPage(self.config, self.logo_cache)
         self.player_page.back_requested.connect(self.show_channels)
         self.stack.addWidget(self.player_page)
 
         self.settings_page = SettingsPage(self.config)
         self.settings_page.settings_changed.connect(self._on_settings_changed)
         self.stack.addWidget(self.settings_page)
+
+        self.tv_guide_page = TvGuidePage(self.config, self.logo_cache)
+        self.tv_guide_page.channel_play.connect(self.play_channel)
+        self.stack.addWidget(self.tv_guide_page)
 
         main_layout.addWidget(self.stack, 1)
 
@@ -1348,6 +1928,7 @@ class MainWindow(QMainWindow):
         nav_items = [
             ("Playlists", 0),
             ("Channels", 1),
+            ("TV Guide", 5),
             ("Favorites", 2),
             ("Settings", 4),
         ]
@@ -1364,9 +1945,48 @@ class MainWindow(QMainWindow):
     def switch_page(self, idx):
         if idx == 2:
             self.favorites_page.refresh(self.channels, self.epg_data)
+        elif idx == 5:
+            self.tv_guide_page.set_data(self.channels, self.epg_data)
         self.player_page.stop()
         self.stack.setCurrentIndex(idx)
         self.update_nav_highlight(idx)
+        # Auto-focus the main interactive widget on the page so remote/keyboard
+        # arrows work immediately without first clicking with the mouse.
+        focus_target = None
+        if idx == 1 and self.channels_page.channel_list.count():
+            focus_target = self.channels_page.channel_list
+            if focus_target.currentRow() < 0:
+                focus_target.setCurrentRow(0)
+        elif idx == 2 and self.favorites_page.fav_list.count():
+            focus_target = self.favorites_page.fav_list
+            if focus_target.currentRow() < 0:
+                focus_target.setCurrentRow(0)
+        elif idx == 5 and self.tv_guide_page.guide_list.count():
+            focus_target = self.tv_guide_page.guide_list
+            if focus_target.currentRow() < 0:
+                focus_target.setCurrentRow(0)
+        if focus_target is not None:
+            focus_target.setFocus()
+
+    def keyPressEvent(self, event):
+        key = event.key()
+        # Global section shortcuts (work from anywhere)
+        if key == Qt.Key_F1:
+            self.switch_page(0); return
+        if key == Qt.Key_F2:
+            self.switch_page(1); return
+        if key == Qt.Key_F3:
+            self.switch_page(5); return
+        if key == Qt.Key_F4:
+            self.switch_page(2); return
+        if key == Qt.Key_F5:
+            # Refresh: reload current playlist
+            if self.config.last_playlist_url:
+                self.load_playlist(
+                    self.config.last_playlist_name or "Playlist",
+                    self.config.last_playlist_url)
+            return
+        super().keyPressEvent(event)
 
     def update_nav_highlight(self, active_idx):
         for btn, idx in self.nav_buttons:
@@ -1419,6 +2039,8 @@ class MainWindow(QMainWindow):
         if data:
             self.epg_data = data
             self.channels_page.set_epg(data)
+            if self.stack.currentIndex() == 5:
+                self.tv_guide_page.set_data(self.channels, self.epg_data)
 
     def play_channel(self, index):
         if index < 0 or index >= len(self.channels):
@@ -1452,6 +2074,8 @@ class MainWindow(QMainWindow):
         self.channels_page.filter_channels()
         if self.stack.currentIndex() == 2:
             self.favorites_page.refresh(self.channels, self.epg_data)
+        if self.stack.currentIndex() == 5:
+            self.tv_guide_page.set_data(self.channels, self.epg_data)
 
     def closeEvent(self, event):
         self.player_page.stop()
