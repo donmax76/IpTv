@@ -73,6 +73,7 @@ class PlayerActivity : BaseActivity() {
     private lateinit var persistentClock: TextView
     private lateinit var channelListOverlay: FrameLayout
     private lateinit var playerDrawerOverlay: FrameLayout
+    private var streamDataFactory: androidx.media3.datasource.DataSource.Factory? = null
     private lateinit var overlayChannelsList: RecyclerView
     private lateinit var numberInputDisplay: TextView
     private lateinit var sleepTimerIndicator: TextView
@@ -740,24 +741,27 @@ class PlayerActivity : BaseActivity() {
         val headers = HashMap<String, String>()
         prefs.httpReferer.takeIf { it.isNotBlank() }?.let { headers["Referer"] = it }
         if (headers.isNotEmpty()) httpDataSourceFactory.setDefaultRequestProperties(headers)
+        val wrappedFactory = androidx.media3.datasource.DataSource.Factory {
+            val ds = httpDataSourceFactory.createDataSource()
+            // Auto-Referer: when the user has nothing configured,
+            // use the stream URL's scheme://host so picky servers
+            // (tv.izone.az etc.) accept the request.
+            val streamUrl = currentUrl
+            if (prefs.httpReferer.isBlank() && !streamUrl.isNullOrBlank()) {
+                try {
+                    val u = java.net.URI(streamUrl)
+                    val origin = "${u.scheme}://${u.host}" +
+                        (if (u.port > 0) ":${u.port}" else "") + "/"
+                    ds.setRequestProperty("Referer", origin)
+                    ds.setRequestProperty("Origin", origin.trimEnd('/'))
+                } catch (_: Exception) {}
+            }
+            ds
+        }
+        // Stash so playStream's createMediaSourceFor() can build sources.
+        this.streamDataFactory = wrappedFactory
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
-            .setDataSourceFactory(androidx.media3.datasource.DataSource.Factory {
-                val ds = httpDataSourceFactory.createDataSource()
-                // Auto-Referer: when the user has nothing configured,
-                // use the stream URL's scheme://host so picky servers
-                // (tv.izone.az etc.) accept the request.
-                val streamUrl = currentUrl
-                if (prefs.httpReferer.isBlank() && !streamUrl.isNullOrBlank()) {
-                    try {
-                        val u = java.net.URI(streamUrl)
-                        val origin = "${u.scheme}://${u.host}" +
-                            (if (u.port > 0) ":${u.port}" else "") + "/"
-                        ds.setRequestProperty("Referer", origin)
-                        ds.setRequestProperty("Origin", origin.trimEnd('/'))
-                    } catch (_: Exception) {}
-                }
-                ds
-            })
+            .setDataSourceFactory(wrappedFactory)
 
         player = ExoPlayer.Builder(this)
             .setLoadControl(loadControl)
@@ -896,6 +900,33 @@ class PlayerActivity : BaseActivity() {
         return builder.build()
     }
 
+    private fun createMediaSourceFor(url: String): androidx.media3.exoplayer.source.MediaSource {
+        val factory = streamDataFactory
+            ?: androidx.media3.datasource.DefaultHttpDataSource.Factory()
+                .setUserAgent(prefs.userAgent)
+                .setAllowCrossProtocolRedirects(true)
+        val item = buildMediaItem(url)
+        val path = url.substringBefore('?').substringBefore('#').lowercase()
+        return when {
+            path.endsWith(".mp4") || path.endsWith(".m4v") || path.endsWith(".webm")
+                || path.endsWith(".mkv") || path.endsWith(".flv") ->
+                androidx.media3.exoplayer.source.ProgressiveMediaSource.Factory(factory)
+                    .createMediaSource(item)
+            path.contains(".mpd") ->
+                // DASH — only supported if media3-exoplayer-dash is added,
+                // otherwise this throws. Default factory handles it
+                // gracefully when present.
+                androidx.media3.exoplayer.source.DefaultMediaSourceFactory(applicationContext)
+                    .setDataSourceFactory(factory)
+                    .createMediaSource(item)
+            else ->
+                // HLS by default — covers .m3u8, .ts, no-extension, query-
+                // string-only IPTV portal URLs (izone.az, ucoz, …).
+                androidx.media3.exoplayer.hls.HlsMediaSource.Factory(factory)
+                    .createMediaSource(item)
+        }
+    }
+
     private fun playStream(url: String) {
         loadingIndicator.visibility = View.VISIBLE
         errorLayout.visibility = View.GONE
@@ -906,7 +937,14 @@ class PlayerActivity : BaseActivity() {
         val savedPos = savedState.optLong("pos", -1L)
 
         player?.apply {
-            setMediaItem(buildMediaItem(url))
+            // Build the source explicitly so HLS / DASH / Progressive is
+            // chosen by URL pattern. DefaultMediaSourceFactory's auto
+            // detection in Media3 1.2 occasionally falls into the
+            // progressive pipeline even when MediaItem.mimeType is set,
+            // which is why streams from izone-style portals were getting
+            // UnrecognizedInputFormatException.
+            val source = createMediaSourceFor(url)
+            setMediaSource(source)
             prepare()
             playWhenReady = true
             // Speed
@@ -1214,12 +1252,23 @@ class PlayerActivity : BaseActivity() {
     private fun showPlayerDrawer() {
         playerDrawerOverlay.visibility = View.VISIBLE
         playerDrawerOverlay.bringToFront()
+        // Push the channel list panel to the right by drawer width so the
+        // user sees both panels side-by-side instead of one covering the
+        // other. Width is 180dp (see fragment_player.xml).
+        val drawerWidth = (180 * resources.displayMetrics.density).toInt()
+        findViewById<View>(R.id.channelListPanel)
+            ?.animate()?.translationX(drawerWidth.toFloat())?.setDuration(150)?.start()
         playerDrawerOverlay.findViewById<View>(R.id.playerDrawerPlaylists)?.requestFocus()
     }
 
     private fun hidePlayerDrawer() {
         if (::playerDrawerOverlay.isInitialized) {
             playerDrawerOverlay.visibility = View.GONE
+            findViewById<View>(R.id.channelListPanel)
+                ?.animate()?.translationX(0f)?.setDuration(150)?.start()
+            // Return focus to the channel list so the user can keep navigating
+            findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.overlayChannelsList)
+                ?.requestFocus()
         }
     }
 
