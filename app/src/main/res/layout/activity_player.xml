@@ -354,6 +354,116 @@
 
     </FrameLayout>
 
+    <!-- Side drawer that slides in from the left edge when the user
+         presses LEFT a second time inside the channel list overlay.
+         Lives in PlayerActivity itself so it appears ON TOP of the
+         channel list without finishing the player. -->
+    <FrameLayout
+        android:id="@+id/playerDrawerOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <View
+            android:id="@+id/playerDrawerDimBg"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#80000000"/>
+
+        <LinearLayout
+            android:id="@+id/playerDrawerPanel"
+            android:layout_width="240dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="start"
+            android:orientation="vertical"
+            android:background="@color/surface"
+            android:padding="8dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="16dp"
+                android:text="@string/app_name"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp"
+                android:textStyle="bold"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/playerDrawerPlaylists"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:gravity="start|center_vertical"
+                android:padding="16dp"
+                android:text="@string/playlists"
+                android:textColor="@color/text_primary"
+                android:focusable="true"
+                app:icon="@drawable/ic_playlist"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/playerDrawerChannels"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:gravity="start|center_vertical"
+                android:padding="16dp"
+                android:text="@string/channels"
+                android:textColor="@color/text_primary"
+                android:focusable="true"
+                app:icon="@drawable/ic_channels"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/playerDrawerTvGuide"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:gravity="start|center_vertical"
+                android:padding="16dp"
+                android:text="@string/tv_guide"
+                android:textColor="@color/text_primary"
+                android:focusable="true"
+                app:icon="@drawable/ic_tv_guide"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/playerDrawerFavorites"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:gravity="start|center_vertical"
+                android:padding="16dp"
+                android:text="@string/favorites"
+                android:textColor="@color/text_primary"
+                android:focusable="true"
+                app:icon="@drawable/ic_favorite"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/playerDrawerRecent"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:gravity="start|center_vertical"
+                android:padding="16dp"
+                android:text="@string/recent"
+                android:textColor="@color/text_primary"
+                android:focusable="true"
+                app:icon="@drawable/ic_recent"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/playerDrawerSettings"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:gravity="start|center_vertical"
+                android:padding="16dp"
+                android:text="@string/settings"
+                android:textColor="@color/text_primary"
+                android:focusable="true"
+                app:icon="@drawable/ic_settings"/>
+
+        </LinearLayout>
+
+    </FrameLayout>
+
     <!-- Loading indicator -->
     <ProgressBar
         android:id="@+id/loadingIndicator"

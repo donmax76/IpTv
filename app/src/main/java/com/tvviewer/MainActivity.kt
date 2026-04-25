@@ -114,8 +114,23 @@ class MainActivity : BaseActivity() {
         // the channel list overlay — meaning they want the side menu.
         if (ChannelDataHolder.openDrawerOnReturn) {
             ChannelDataHolder.openDrawerOnReturn = false
-            // Defer one frame so the activity is fully attached.
             window.decorView.post { openSideDrawer() }
+        }
+        // PlayerActivity's in-player drawer can ask MainActivity to switch
+        // to a specific section instead of opening the drawer.
+        val tab = ChannelDataHolder.returnToTabIndex
+        if (tab >= 0) {
+            ChannelDataHolder.returnToTabIndex = -1
+            window.decorView.post {
+                when (tab) {
+                    0 -> showFragment(PlaylistsFragment.TAG, ::PlaylistsFragment)
+                    1 -> showFragment(ChannelsFragment.TAG, ::ChannelsFragment)
+                    2 -> showFragment(TvGuideFragment.TAG, ::TvGuideFragment)
+                    3 -> showFragment(FavoritesFragment.TAG, ::FavoritesFragment)
+                    4 -> showFragment(RecentFragment.TAG, ::RecentFragment)
+                    5 -> openSettings()
+                }
+            }
         }
     }
 

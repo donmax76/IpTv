@@ -72,6 +72,7 @@ class PlayerActivity : BaseActivity() {
     private lateinit var clockDisplay: TextView
     private lateinit var persistentClock: TextView
     private lateinit var channelListOverlay: FrameLayout
+    private lateinit var playerDrawerOverlay: FrameLayout
     private lateinit var overlayChannelsList: RecyclerView
     private lateinit var numberInputDisplay: TextView
     private lateinit var sleepTimerIndicator: TextView
@@ -230,6 +231,21 @@ class PlayerActivity : BaseActivity() {
         clockDisplay = findViewById(R.id.clockDisplay)
         persistentClock = findViewById(R.id.persistentClock)
         channelListOverlay = findViewById(R.id.channelListOverlay)
+
+        // In-player drawer (shown over the channel list on 2nd LEFT)
+        playerDrawerOverlay = findViewById(R.id.playerDrawerOverlay)
+        findViewById<View>(R.id.playerDrawerDimBg).setOnClickListener { hidePlayerDrawer() }
+        val gotoMain: (Int) -> Unit = { tabIdx ->
+            ChannelDataHolder.openDrawerOnReturn = false
+            ChannelDataHolder.returnToTabIndex = tabIdx
+            finish()
+        }
+        findViewById<View>(R.id.playerDrawerPlaylists).setOnClickListener { gotoMain(0) }
+        findViewById<View>(R.id.playerDrawerChannels).setOnClickListener { gotoMain(1) }
+        findViewById<View>(R.id.playerDrawerTvGuide).setOnClickListener { gotoMain(2) }
+        findViewById<View>(R.id.playerDrawerFavorites).setOnClickListener { gotoMain(3) }
+        findViewById<View>(R.id.playerDrawerRecent).setOnClickListener { gotoMain(4) }
+        findViewById<View>(R.id.playerDrawerSettings).setOnClickListener { gotoMain(5) }
         overlayChannelsList = findViewById(R.id.overlayChannelsList)
         numberInputDisplay = findViewById(R.id.numberInputDisplay)
         sleepTimerIndicator = findViewById(R.id.sleepTimerIndicator)
@@ -1191,6 +1207,22 @@ class PlayerActivity : BaseActivity() {
         return false
     }
 
+    private fun playerDrawerVisible(): Boolean =
+        ::playerDrawerOverlay.isInitialized &&
+            playerDrawerOverlay.visibility == View.VISIBLE
+
+    private fun showPlayerDrawer() {
+        playerDrawerOverlay.visibility = View.VISIBLE
+        playerDrawerOverlay.bringToFront()
+        playerDrawerOverlay.findViewById<View>(R.id.playerDrawerPlaylists)?.requestFocus()
+    }
+
+    private fun hidePlayerDrawer() {
+        if (::playerDrawerOverlay.isInitialized) {
+            playerDrawerOverlay.visibility = View.GONE
+        }
+    }
+
     private fun isInsideControlsOverlay(v: View): Boolean {
         var p: View? = v
         while (p != null) {
@@ -1264,6 +1296,16 @@ class PlayerActivity : BaseActivity() {
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         // Any keypress while the channel list is visible counts as activity
         if (channelListVisible) bumpChannelListIdleTimer()
+
+        // Player drawer: Back closes it; everything else falls through to
+        // the default focus traversal so the user can move between menu
+        // items and click them.
+        if (playerDrawerVisible()) {
+            if (keyCode == KeyEvent.KEYCODE_BACK) { hidePlayerDrawer(); return true }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) { hidePlayerDrawer(); return true }
+            return super.onKeyDown(keyCode, event)
+        }
+
         if (isScreenLocked) {
             if (keyCode == KeyEvent.KEYCODE_BACK) {
                 toggleScreenLock()
@@ -1328,30 +1370,15 @@ class PlayerActivity : BaseActivity() {
             //              the leftmost item) → leave the player and surface
             //              the side drawer in MainActivity
             KeyEvent.KEYCODE_DPAD_LEFT -> {
-                if (channelListVisible) {
-                    // 2nd LEFT inside the channel list overlay means
-                    // "give me the side menu". The focused view is a row
-                    // INSIDE the RecyclerView, not the RecyclerView
-                    // itself, so walk up the parents to detect that we're
-                    // already inside the channel list (= already at the
-                    // left edge of the player UI).
-                    val focused = currentFocus
-                    val insideOverlay = focused == null ||
-                        run {
-                            var v: View? = focused
-                            var found = false
-                            while (v != null) {
-                                if (v == channelListOverlay) { found = true; break }
-                                v = v.parent as? View
-                            }
-                            found
-                        }
-                    if (insideOverlay) {
-                        ChannelDataHolder.openDrawerOnReturn = true
-                        finish()
-                        return true
-                    }
+                if (playerDrawerVisible()) {
                     return super.onKeyDown(keyCode, event)
+                }
+                if (channelListVisible) {
+                    // 2nd LEFT inside the channel list overlay → show
+                    // the in-player drawer ON TOP of the channel list,
+                    // without closing the player.
+                    showPlayerDrawer()
+                    return true
                 }
                 toggleChannelList()
                 return true

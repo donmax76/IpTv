@@ -12,4 +12,9 @@ object ChannelDataHolder {
     /** Set by PlayerActivity when the user wants the side menu shown
      *  upon returning to MainActivity. Consumed once by MainActivity.onResume. */
     var openDrawerOnReturn: Boolean = false
+    /** When PlayerActivity finishes via its own drawer item, this stores
+     *  which tab MainActivity should switch to on resume:
+     *  0=Playlists 1=Channels 2=TV Guide 3=Favorites 4=Recent 5=Settings.
+     *  Negative or unset means "stay where you are". */
+    var returnToTabIndex: Int = -1
 }
