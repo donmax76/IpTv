@@ -5,7 +5,6 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ImageButton
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
@@ -13,7 +12,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.floatingactionbutton.FloatingActionButton
 
 class PlaylistsFragment : Fragment() {
 
@@ -87,8 +85,8 @@ class PlaylistsFragment : Fragment() {
         emptyText = view.findViewById(R.id.emptyText)
         progressBar = view.findViewById(R.id.progressBar)
 
-        val fab = view.findViewById<FloatingActionButton>(R.id.fabAddPlaylist)
-        fab.setOnClickListener {
+        val btnAdd = view.findViewById<View>(R.id.btnAddPlaylist)
+        btnAdd?.setOnClickListener {
             val opts = arrayOf(
                 getString(R.string.add_url),
                 getString(R.string.import_file)
@@ -102,10 +100,6 @@ class PlaylistsFragment : Fragment() {
                     }
                 }
                 .show()
-        }
-
-        view.findViewById<ImageButton>(R.id.btnOpenSettings)?.setOnClickListener {
-            (activity as? MainActivity)?.openSettings()
         }
 
         adapter = PlaylistAdapter(

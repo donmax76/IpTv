@@ -154,9 +154,38 @@ class ChannelsFragment : Fragment() {
                 allChannels = result.channels + customChannels
                 ChannelDataHolder.allChannels = allChannels
 
-                // Extract categories
-                categories = listOf(getString(R.string.all)) +
-                    allChannels.mapNotNull { it.group }.distinct().sorted()
+                // Extract categories. Multi-tag composites in iptv-org
+                // playlists ("Culture;Education;Lifestyle") are pure noise on
+                // a remote, so we take only the first segment of each group
+                // and dedupe. For narrow genre playlists (Movies/Sports/News
+                // /Music) we hide the bar entirely — there are no useful
+                // sub-categories there.
+                val genreNames = setOf(
+                    "movies", "кино", "фильмы",
+                    "sport", "sports", "спорт",
+                    "news", "новости",
+                    "music", "музыка",
+                    "documentary", "документальные",
+                    "kids", "детям",
+                )
+                val plName = (name ?: "").lowercase()
+                val isGenrePlaylist = genreNames.any { it in plName }
+                val rawCats = allChannels.asSequence()
+                    .mapNotNull { it.group }
+                    .map { g ->
+                        // Take only the leading clean segment.
+                        g.split(';', ',', '|').first().trim()
+                    }
+                    .filter { it.isNotEmpty() && it.length <= 30 }
+                    .toSet()
+                    .sorted()
+                categories = if (isGenrePlaylist) {
+                    listOf(getString(R.string.all))
+                } else {
+                    listOf(getString(R.string.all)) + rawCats
+                }
+                categoriesRecyclerView.visibility =
+                    if (isGenrePlaylist) View.GONE else View.VISIBLE
                 // Restore last selected group
                 val lastGroup = prefs.lastSelectedGroup
                 selectedCategory = if (lastGroup != null && categories.contains(lastGroup)) lastGroup
@@ -275,8 +304,11 @@ class ChannelsFragment : Fragment() {
         val qualityFilter = prefs.qualityFilter
         val sorted = applySort(allChannels)
         filteredChannels = sorted.filter { channel ->
+            // Compare against the canonical leading segment of the group so
+            // a chip "Culture" matches channels tagged "Culture;Education;Lifestyle"
+            val canonicalGroup = channel.group?.split(';', ',', '|')?.firstOrNull()?.trim()
             val matchesCategory = selectedCategory == getString(R.string.all) ||
-                channel.group == selectedCategory
+                canonicalGroup == selectedCategory
             val matchesSearch = query.isEmpty() ||
                 channel.name.lowercase().contains(query)
             val matchesQuality = qualityFilter == "all" ||

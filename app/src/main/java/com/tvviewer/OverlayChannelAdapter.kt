@@ -41,7 +41,9 @@ class OverlayChannelAdapter(
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val channel = channels[position]
         holder.number.text = "${position + 1}"
-        holder.name.text = channel.name
+        holder.name.text = QualityUtil.formatNameWithQualityBadge(
+            holder.itemView.context, channel.name
+        )
 
         holder.logo.load(channel.logoUrl) {
             crossfade(true)

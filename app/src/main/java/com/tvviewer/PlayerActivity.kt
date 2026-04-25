@@ -147,6 +147,18 @@ class PlayerActivity : BaseActivity() {
     private val bannerHandler = Handler(Looper.getMainLooper())
     private val bannerHideRunnable = Runnable { channelInfoBanner.visibility = View.GONE }
 
+    // Auto-reconnect on playback failure / unexpected stream end
+    private var reconnectAttempts = 0
+    private val reconnectHandler = Handler(Looper.getMainLooper())
+    private val reconnectRunnable = Runnable {
+        val url = currentUrl
+        if (url != null) {
+            errorText.text = getString(R.string.reconnecting)
+            playStream(url)
+        }
+    }
+    private val MAX_RECONNECT = 8
+
     private var overlayAdapter: OverlayChannelAdapter? = null
     private var overlaySearchEdit: EditText? = null
     private var overlayChannelCount: TextView? = null
@@ -706,8 +718,18 @@ class PlayerActivity : BaseActivity() {
                                 errorLayout.visibility = View.GONE
                                 btnPlayPause.setImageResource(R.drawable.ic_pause)
                                 updateAudioTrackInfo()
+                                // Successful playback resets the back-off
+                                reconnectAttempts = 0
+                                reconnectHandler.removeCallbacks(reconnectRunnable)
                             }
-                            Player.STATE_ENDED, Player.STATE_IDLE -> {
+                            Player.STATE_ENDED -> {
+                                loadingIndicator.visibility = View.GONE
+                                // Live streams shouldn't normally end —
+                                // treat unexpected end as a transient
+                                // failure and reconnect.
+                                scheduleReconnect()
+                            }
+                            Player.STATE_IDLE -> {
                                 loadingIndicator.visibility = View.GONE
                             }
                         }
@@ -719,12 +741,29 @@ class PlayerActivity : BaseActivity() {
 
                     override fun onPlayerError(error: PlaybackException) {
                         loadingIndicator.visibility = View.GONE
-                        errorLayout.visibility = View.VISIBLE
-                        errorText.text = getString(R.string.error_playback)
                         ErrorLogger.logException(this@PlayerActivity, error)
+                        scheduleReconnect()
                     }
                 })
             }
+    }
+
+    private fun scheduleReconnect() {
+        reconnectHandler.removeCallbacks(reconnectRunnable)
+        if (currentUrl == null) return
+        reconnectAttempts++
+        if (reconnectAttempts > MAX_RECONNECT) {
+            // Give up: show the manual retry button
+            errorLayout.visibility = View.VISIBLE
+            errorText.text = getString(R.string.error_playback)
+            return
+        }
+        // Exponential back-off, capped at 30s: 1s, 2s, 4s, 8s, 16s, 30s, 30s …
+        val delayMs = (1000L shl (reconnectAttempts - 1).coerceAtMost(5)).coerceAtMost(30_000)
+        errorLayout.visibility = View.VISIBLE
+        errorText.text = getString(R.string.reconnecting) +
+            " (${reconnectAttempts}/$MAX_RECONNECT)"
+        reconnectHandler.postDelayed(reconnectRunnable, delayMs)
     }
 
     private fun updateAudioTrackInfo() {
@@ -827,6 +866,10 @@ class PlayerActivity : BaseActivity() {
     private fun switchToChannel(index: Int) {
         val channels = ChannelDataHolder.allChannels
         if (index !in channels.indices) return
+
+        // New channel — reset reconnect counter
+        reconnectAttempts = 0
+        reconnectHandler.removeCallbacks(reconnectRunnable)
 
         // Persist the state of the channel we're leaving before switching.
         saveCurrentChannelState()
@@ -1173,9 +1216,24 @@ class PlayerActivity : BaseActivity() {
                 showControls()
                 return true
             }
-            // D-pad Left - show channel list
+            // D-pad Left
+            //   1st press → show channel list
+            //   2nd press (channel list already visible AND focus already at
+            //              the leftmost item) → leave the player and surface
+            //              the side drawer in MainActivity
             KeyEvent.KEYCODE_DPAD_LEFT -> {
-                if (channelListVisible) return super.onKeyDown(keyCode, event)
+                if (channelListVisible) {
+                    val cur = currentFocus
+                    val atLeftEdge = cur == null
+                        || cur.id == R.id.overlayChannelsList
+                        || cur is androidx.recyclerview.widget.RecyclerView
+                    if (atLeftEdge) {
+                        ChannelDataHolder.openDrawerOnReturn = true
+                        finish()
+                        return true
+                    }
+                    return super.onKeyDown(keyCode, event)
+                }
                 toggleChannelList()
                 return true
             }
@@ -1349,6 +1407,8 @@ class PlayerActivity : BaseActivity() {
         numberHandler.removeCallbacks(numberRunnable)
         sleepHandler.removeCallbacks(sleepTimerRunnable)
         bannerHandler.removeCallbacks(bannerHideRunnable)
+        reconnectHandler.removeCallbacks(reconnectRunnable)
+        channelListHideHandler.removeCallbacks(channelListHideRunnable)
         player?.release()
         player = null
     }

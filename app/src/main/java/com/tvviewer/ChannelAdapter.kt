@@ -42,7 +42,13 @@ class ChannelAdapter(
         val context = holder.itemView.context
 
         holder.channelNumber?.text = "${position + 1}"
-        holder.channelName.text = channel.name
+
+        // Render the channel name with the quality token (HD / FHD / 4K /
+        // SD / 1080p …) coloured so it pops out without being mistaken for
+        // part of the channel name.
+        holder.channelName.text = QualityUtil.formatNameWithQualityBadge(
+            holder.itemView.context, channel.name
+        )
 
         holder.channelLogo.load(channel.logoUrl) {
             crossfade(true)

@@ -37,15 +37,17 @@
 
         </LinearLayout>
 
-        <ImageButton
-            android:id="@+id/btnOpenSettings"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:src="@drawable/ic_settings"
-            android:contentDescription="@string/settings"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:tint="@color/text_primary"
-            android:focusable="true"/>
+        <!-- Big remote-friendly Add button (replaces the FAB which D-pad
+             couldn't reach behind the bottom nav). -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnAddPlaylist"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:text="@string/add_playlist"
+            android:focusable="true"
+            android:focusableInTouchMode="false"
+            app:icon="@drawable/ic_add"
+            app:iconGravity="textStart"/>
 
     </LinearLayout>
 
@@ -78,19 +80,9 @@
         android:textSize="@dimen/settings_title_text"
         android:visibility="gone"/>
 
-    <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/fabAddPlaylist"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_alignParentBottom="true"
-        android:layout_alignParentEnd="true"
-        android:layout_margin="16dp"
-        android:src="@drawable/ic_add"
-        android:contentDescription="@string/add_playlist"
-        android:backgroundTint="@color/primary"
-        android:tint="@android:color/white"
-        android:focusable="true"
-        android:nextFocusUp="@+id/fabAddPlaylist"
-        android:nextFocusLeft="@+id/fabAddPlaylist"/>
+    <!-- Old FAB removed: it was unreachable from a D-pad because the
+         bottom navigation overlapped its focus path. The new button in
+         the header is fully accessible. -->
+
 
 </RelativeLayout>

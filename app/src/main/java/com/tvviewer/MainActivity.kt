@@ -158,16 +158,13 @@ class MainActivity : BaseActivity() {
             return super.onKeyDown(keyCode, event)
         }
         when (keyCode) {
-            // Left/Right on D-pad - navigate between bottom nav tabs.
-            // If pressed when on the leftmost tab, open the side drawer.
+            // Left/Right on D-pad — navigate between bottom-nav tabs only
+            // when focus is on the bottom nav. The side drawer is reserved
+            // for the explicit Menu / Info / Guide keys (per user feedback:
+            // when bottom nav is on screen, the left drawer is redundant).
             KeyEvent.KEYCODE_DPAD_LEFT -> {
                 val focusedView = currentFocus
                 if (focusedView == null || isBottomNavFocused(focusedView)) {
-                    val firstId = tabIds.firstOrNull()
-                    if (bottomNav.selectedItemId == firstId) {
-                        openSideDrawer()
-                        return true
-                    }
                     selectPreviousTab()
                     return true
                 }

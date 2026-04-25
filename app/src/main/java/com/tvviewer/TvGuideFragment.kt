@@ -129,17 +129,22 @@ class TvGuideFragment : Fragment() {
                 ChannelDataHolder.epgData = cached
             }
 
-            val epgUrl = prefs.lastEpgUrl
-            if (!epgUrl.isNullOrBlank() && ChannelDataHolder.epgData.isEmpty()) {
+            // allEpgUrls() includes built-in defaults when nothing else
+            // is configured, so TV Guide always has at least one source.
+            if (prefs.allEpgUrls().isNotEmpty() && ChannelDataHolder.epgData.isEmpty()) {
                 refreshEpg()
                 return
             }
         }
 
+        fun norm(s: String?): String =
+            s?.lowercase()?.replace(Regex("[^a-z0-9]"), "") ?: ""
         allChannelsWithEpg = channels.map { ch ->
-            val normId = ch.tvgId?.lowercase()?.replace(Regex("[^a-z0-9]"), "") ?: ""
-            val programmes = epgData[normId] ?: emptyList()
-            EpgChannelItem(ch, programmes)
+            // Try by tvg-id first, then by normalized channel name
+            // (xmltv parser also indexes channels by display-name now).
+            val byId = epgData[norm(ch.tvgId)]
+            val byName = if (byId.isNullOrEmpty()) epgData[norm(ch.name)] else byId
+            EpgChannelItem(ch, byName ?: emptyList())
         }
 
         val channelsWithData = allChannelsWithEpg.count { it.programmes.isNotEmpty() }
