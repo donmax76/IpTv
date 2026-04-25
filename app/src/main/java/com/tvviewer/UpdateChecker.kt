@@ -87,11 +87,16 @@ object UpdateChecker {
             }
 
             if (downloadUrl.isBlank()) {
-                // No APK in assets, use the HTML URL
-                downloadUrl = json.optString("html_url", "")
+                // No APK asset uploaded yet — treat as "no update".
+                // Falling back to html_url here used to show the user the
+                // GitHub release page (and on a slow TV connection,
+                // GitHub's "unicorn" 502 timeout page) instead of
+                // installing anything.
+                Log.d(TAG, "Release ${tagName} has no APK asset yet")
+                return Result.success(null)
             }
 
-            if (versionCode <= 0 || downloadUrl.isBlank()) {
+            if (versionCode <= 0) {
                 return Result.failure(Exception("Invalid release data"))
             }
 

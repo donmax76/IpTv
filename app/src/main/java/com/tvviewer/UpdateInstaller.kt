@@ -26,6 +26,23 @@ object UpdateInstaller {
             Toast.makeText(context, context.getString(R.string.update_downloading), Toast.LENGTH_SHORT).show()
             return
         }
+        // Refuse to "download" an HTML page — DownloadManager would just save
+        // markup, the install would fail, and we'd fall back to opening the
+        // page in a browser, which on the user's TV box is what shows the
+        // GitHub unicorn page when the network hiccups. Instead, point the
+        // user straight at the release page once.
+        if (!downloadUrl.lowercase().endsWith(".apk")) {
+            // No APK asset in the release yet (build still uploading) or
+            // GitHub returned a non-asset URL. Don't open a browser — that
+            // is what shows the GitHub "unicorn" 502 page on slow
+            // networks. Just tell the user to retry.
+            Toast.makeText(
+                context,
+                "Сборка ещё загружается на GitHub. Попробуйте через минуту.",
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
         val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         val request = DownloadManager.Request(Uri.parse(downloadUrl)).apply {
             setTitle("TVViewer Update")
