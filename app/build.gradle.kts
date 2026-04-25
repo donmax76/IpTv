@@ -11,8 +11,8 @@ android {
         applicationId = "com.tvviewer"
         minSdk = 21
         targetSdk = 34
-        versionCode = 33
-        versionName = "5.3"
+        versionCode = 34
+        versionName = "5.4"
     }
 
     buildTypes {

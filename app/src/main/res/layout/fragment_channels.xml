@@ -52,6 +52,23 @@
         android:singleLine="true"
         android:focusable="true"/>
 
+    <!-- HD/4K filter chips -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scrollbars="none"
+        android:layout_marginBottom="6dp"
+        android:paddingStart="@dimen/section_padding"
+        android:paddingEnd="@dimen/section_padding">
+
+        <LinearLayout
+            android:id="@+id/qualityChipsContainer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"/>
+
+    </HorizontalScrollView>
+
     <!-- Category chips -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/categoriesRecyclerView"

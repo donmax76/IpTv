@@ -562,6 +562,83 @@
 
         </LinearLayout>
 
+        <!-- Network Section -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/network"
+            android:textColor="@color/primary"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_playlist_card"
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:id="@+id/userAgentLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginBottom="4dp"
+                android:padding="8dp"
+                android:minHeight="48dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="@drawable/settings_item_focused">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/user_agent"
+                    android:textColor="@color/text_primary"
+                    android:textSize="16sp"/>
+
+                <TextView
+                    android:id="@+id/userAgentValue"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp"
+                    android:maxLines="2"
+                    android:ellipsize="end"/>
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/epgUrlsLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="8dp"
+                android:minHeight="48dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="@drawable/settings_item_focused">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/epg_urls"
+                    android:textColor="@color/text_primary"
+                    android:textSize="16sp"/>
+
+                <TextView
+                    android:id="@+id/epgUrlsValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp"/>
+
+            </LinearLayout>
+
+        </LinearLayout>
+
         <!-- About Section -->
         <TextView
             android:layout_width="wrap_content"

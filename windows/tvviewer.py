@@ -41,6 +41,29 @@ except ImportError:
 from m3u_parser import fetch_playlist, load_playlist_file, Channel, PlaylistResult
 from epg_parser import fetch_epg, get_now_next, get_current_progress, EpgData
 
+# --- Crash log path ---
+def _log_file_path() -> str:
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+        d = os.path.join(base, "TVViewer", "logs")
+    else:
+        d = os.path.join(os.path.expanduser("~"), ".tvviewer", "logs")
+    try:
+        os.makedirs(d, exist_ok=True)
+    except Exception:
+        pass
+    return os.path.join(d, "tvviewer.log")
+
+def _read_log_tail(path: str, max_chars: int = 4000) -> str:
+    try:
+        with open(path, 'r', encoding='utf-8', errors='replace') as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - max_chars))
+            return f.read()[-max_chars:]
+    except Exception:
+        return ""
+
 # --- Quality detection from channel name ---
 _QUALITY_PATTERNS = [
     ("4K",   re.compile(r'(?i)(?:^|[\s\[\(\.\-_])(4k|uhd|2160p?)(?:$|[\s\]\)\.\-_])')),
@@ -246,9 +269,17 @@ class Config:
         self.remember_fullscreen = False   # restore fullscreen on player open
         self.sleep_timer_minutes = 0       # 0 = off
         self.recent_urls = []              # most recent first, capped to RECENT_LIMIT
+        self.channel_sort = "default"      # default | name | number | quality
+        self.epg_urls = []                 # additional EPG URLs (merged with playlist's url-tvg)
+        self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        self.always_on_top = False
+        self.hardware_decode = True
+        self.audio_output = ""             # VLC --aout: "" auto / directsound / mmdevice / waveout
+        self.per_channel_state = {}        # url -> {volume, aspect_idx, speed_idx, position_ms, audio_track}
         self.load()
 
     RECENT_LIMIT = 30
+    PER_CHANNEL_LIMIT = 200  # cap stored per-channel state entries
 
     def push_recent(self, url: str):
         if not url:
@@ -260,6 +291,29 @@ class Config:
         self.recent_urls.insert(0, url)
         if len(self.recent_urls) > self.RECENT_LIMIT:
             self.recent_urls = self.recent_urls[:self.RECENT_LIMIT]
+
+    def get_channel_state(self, url: str) -> dict:
+        if not url:
+            return {}
+        return dict(self.per_channel_state.get(url, {}))
+
+    def save_channel_state(self, url: str, state: dict):
+        if not url or not isinstance(state, dict):
+            return
+        # Filter to known keys to keep storage tight
+        cleaned = {k: state[k] for k in
+                   ('volume', 'aspect_idx', 'speed_idx', 'position_ms', 'audio_track')
+                   if k in state}
+        if not cleaned:
+            return
+        # LRU-ish trim: if cap reached and url is new, drop oldest insertion
+        if url not in self.per_channel_state and len(self.per_channel_state) >= self.PER_CHANNEL_LIMIT:
+            try:
+                first_key = next(iter(self.per_channel_state))
+                self.per_channel_state.pop(first_key, None)
+            except StopIteration:
+                pass
+        self.per_channel_state[url] = cleaned
 
     def load(self):
         if os.path.exists(CONFIG_FILE):
@@ -279,6 +333,15 @@ class Config:
                 self.remember_fullscreen = bool(data.get('remember_fullscreen', False))
                 self.sleep_timer_minutes = int(data.get('sleep_timer_minutes', 0))
                 self.recent_urls = list(data.get('recent_urls', []))[:self.RECENT_LIMIT]
+                self.channel_sort = data.get('channel_sort', 'default')
+                self.epg_urls = list(data.get('epg_urls', []))
+                self.user_agent = data.get('user_agent', self.user_agent)
+                self.always_on_top = bool(data.get('always_on_top', False))
+                self.hardware_decode = bool(data.get('hardware_decode', True))
+                self.audio_output = data.get('audio_output', '')
+                pcs = data.get('per_channel_state', {})
+                if isinstance(pcs, dict):
+                    self.per_channel_state = pcs
             except Exception:
                 pass
 
@@ -297,6 +360,13 @@ class Config:
             'remember_fullscreen': self.remember_fullscreen,
             'sleep_timer_minutes': self.sleep_timer_minutes,
             'recent_urls': self.recent_urls,
+            'channel_sort': self.channel_sort,
+            'epg_urls': self.epg_urls,
+            'user_agent': self.user_agent,
+            'always_on_top': self.always_on_top,
+            'hardware_decode': self.hardware_decode,
+            'audio_output': self.audio_output,
+            'per_channel_state': self.per_channel_state,
         }
         try:
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
@@ -326,19 +396,29 @@ class LoadPlaylistThread(QThread):
 
 
 class LoadEpgThread(QThread):
-    """Background thread for loading EPG data."""
+    """Background thread for loading EPG data from one or more URLs.
+
+    When multiple URLs are provided, programmes are merged by tvg-id
+    (later URLs override earlier ones for the same id).
+    """
     finished = pyqtSignal(object)
 
-    def __init__(self, url):
+    def __init__(self, urls):
         super().__init__()
-        self.url = url
+        if isinstance(urls, str):
+            urls = [urls]
+        self.urls = [u for u in (urls or []) if u]
 
     def run(self):
-        try:
-            data = fetch_epg(self.url)
-            self.finished.emit(data)
-        except Exception:
-            self.finished.emit({})
+        merged = {}
+        for url in self.urls:
+            try:
+                data = fetch_epg(url)
+                if isinstance(data, dict):
+                    merged.update(data)
+            except Exception:
+                continue
+        self.finished.emit(merged)
 
 
 class LogoCache(QObject):
@@ -450,7 +530,32 @@ class PlaylistsPage(QWidget):
     def __init__(self, config: Config):
         super().__init__()
         self.config = config
+        self.setAcceptDrops(True)
         self.init_ui()
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.isLocalFile() and url.toLocalFile().lower().endswith(('.m3u', '.m3u8')):
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dropEvent(self, event):
+        added = 0
+        for url in event.mimeData().urls():
+            if not url.isLocalFile():
+                continue
+            path = url.toLocalFile()
+            if not path.lower().endswith(('.m3u', '.m3u8')):
+                continue
+            name = os.path.splitext(os.path.basename(path))[0]
+            self.config.playlists.append({'name': name, 'url': path})
+            added += 1
+        if added:
+            self.config.save()
+            self.refresh_list()
+            event.acceptProposedAction()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -460,7 +565,7 @@ class PlaylistsPage(QWidget):
         title.setFont(QFont('Segoe UI', 24, QFont.Bold))
         layout.addWidget(title)
 
-        subtitle = QLabel("Select a playlist")
+        subtitle = QLabel("Select a playlist  ·  drop .m3u/.m3u8 files here to import")
         subtitle.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 14px;")
         layout.addWidget(subtitle)
         layout.addSpacing(12)
@@ -587,10 +692,26 @@ class ChannelsPage(QWidget):
         header.addWidget(self.count_label)
         layout.addLayout(header)
 
+        srow = QHBoxLayout()
+        srow.setSpacing(6)
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Search channels...")
         self.search_edit.textChanged.connect(self._on_search_text)
-        layout.addWidget(self.search_edit)
+        srow.addWidget(self.search_edit, 1)
+
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItem("Sort: Default", "default")
+        self.sort_combo.addItem("Sort: Name", "name")
+        self.sort_combo.addItem("Sort: Number", "number")
+        self.sort_combo.addItem("Sort: Quality (4K → SD)", "quality")
+        cur_sort = getattr(self.config, 'channel_sort', 'default')
+        for i in range(self.sort_combo.count()):
+            if self.sort_combo.itemData(i) == cur_sort:
+                self.sort_combo.setCurrentIndex(i)
+                break
+        self.sort_combo.currentIndexChanged.connect(self._on_sort_changed)
+        srow.addWidget(self.sort_combo)
+        layout.addLayout(srow)
         layout.addSpacing(8)
 
         # Category bar
@@ -655,6 +776,11 @@ class ChannelsPage(QWidget):
 
     def _on_search_text(self, _text: str):
         self._search_timer.start()
+
+    def _on_sort_changed(self, _idx: int):
+        self.config.channel_sort = self.sort_combo.currentData()
+        self.config.save()
+        self.filter_channels()
 
     def set_epg(self, epg_data):
         self.epg_data = epg_data
@@ -728,6 +854,17 @@ class ChannelsPage(QWidget):
             filtered.append(ch)
         if is_recent:
             filtered.sort(key=lambda c: recent_order.get(c.url, 9999))
+        else:
+            sort_mode = getattr(self.config, 'channel_sort', 'default')
+            if sort_mode == "name":
+                filtered.sort(key=lambda c: (c.name or "").lower())
+            elif sort_mode == "number":
+                # Stable: keep original M3U order (already in self.channels order)
+                pass
+            elif sort_mode == "quality":
+                rank = {"4K": 0, "FHD": 1, "HD": 2, "SD": 3, "": 4}
+                filtered.sort(key=lambda c: (rank.get(detect_quality(c.name), 4),
+                                             (c.name or "").lower()))
         self.filtered = filtered
 
         # Show EPG titles only for small lists to keep the UI responsive
@@ -1161,13 +1298,28 @@ class PlayerPage(QWidget):
         if not HAS_VLC:
             return
         try:
-            self.vlc_instance = vlc.Instance('--no-xlib')
+            args = ['--no-xlib']
+            # Hardware decode toggle
+            if not getattr(self.config, 'hardware_decode', True):
+                args += ['--avcodec-hw=none']
+            # Audio output backend on Windows ("" = auto)
+            ao = getattr(self.config, 'audio_output', '')
+            if ao:
+                args += [f'--aout={ao}']
+            # Custom HTTP user-agent for streams
+            ua = getattr(self.config, 'user_agent', '')
+            if ua:
+                args += [f'--http-user-agent={ua}']
+            self.vlc_instance = vlc.Instance(*args)
             self.player = self.vlc_instance.media_player_new()
         except Exception:
             self.vlc_instance = None
             self.player = None
 
     def play_channel(self, index, channels, epg_data):
+        # Save state for previously-playing channel before switching
+        self._save_current_channel_state()
+
         self.channels = channels
         self.current_index = index
         self.epg_data = epg_data
@@ -1176,10 +1328,88 @@ class PlayerPage(QWidget):
         self.channel_number_label.setText(f"{index + 1} / {len(channels)}")
         self.update_fav_btn()
         self.update_epg_display()
+
+        # Restore per-channel preferences before play_url applies them
+        st = self.config.get_channel_state(ch.url)
+        if st:
+            try:
+                if 'aspect_idx' in st:
+                    self._aspect_idx = int(st['aspect_idx']) % len(self.ASPECT_RATIOS)
+                if 'speed_idx' in st:
+                    self._speed_idx = int(st['speed_idx']) % len(self.SPEED_VALUES)
+                if 'volume' in st and 0 <= int(st['volume']) <= 100:
+                    self.vol_slider.setValue(int(st['volume']))
+            except Exception:
+                pass
+
         self.play_url(ch.url)
+
+        # If we have a saved position (VOD only — live streams report -1 duration),
+        # try to seek there once VLC reports a positive length.
+        if st and 'position_ms' in st:
+            try:
+                pos = int(st['position_ms'])
+                if pos > 0:
+                    QTimer.singleShot(1500, lambda p=pos: self._maybe_seek(p))
+            except Exception:
+                pass
+
+        if st and 'audio_track' in st:
+            try:
+                trk = int(st['audio_track'])
+                QTimer.singleShot(1500, lambda t=trk: self._maybe_set_audio_track(t))
+            except Exception:
+                pass
+
         self.config.push_recent(ch.url)
         self.config.save()
         self._show_channel_banner()
+
+    def _maybe_seek(self, pos_ms: int):
+        if not self.player:
+            return
+        try:
+            length = self.player.get_length()
+        except Exception:
+            length = -1
+        if length > 0 and pos_ms < length - 30000:  # don't restore if near the end
+            try: self.player.set_time(pos_ms)
+            except Exception: pass
+
+    def _maybe_set_audio_track(self, track_id: int):
+        if not self.player:
+            return
+        try: self.player.audio_set_track(track_id)
+        except Exception: pass
+
+    def _save_current_channel_state(self):
+        if not self.channels or self.current_index >= len(self.channels):
+            return
+        ch = self.channels[self.current_index]
+        if not ch or not ch.url:
+            return
+        state = {
+            'aspect_idx': self._aspect_idx,
+            'speed_idx': self._speed_idx,
+            'volume': self.vol_slider.value() if hasattr(self, 'vol_slider') else self.config.volume,
+        }
+        if self.player:
+            try:
+                t = self.player.get_time()
+                length = self.player.get_length()
+                # Only persist position for VOD (length > 0); skip live streams.
+                if t and t > 30000 and length > 0 and t < length - 30000:
+                    state['position_ms'] = int(t)
+            except Exception:
+                pass
+            try:
+                track = self.player.audio_get_track()
+                if track is not None and track >= 0:
+                    state['audio_track'] = int(track)
+            except Exception:
+                pass
+        self.config.save_channel_state(ch.url, state)
+        self.config.save()
 
     def play_url(self, url):
         if not self.player:
@@ -1437,6 +1667,7 @@ class PlayerPage(QWidget):
             self.play_channel(self.current_index, self.channels, self.epg_data)
 
     def stop(self):
+        self._save_current_channel_state()
         # VLC's stop() is synchronous and can block for up to a few seconds on
         # dead/slow streams. Run it on a background thread so the UI never freezes.
         p = self.player
@@ -1535,6 +1766,107 @@ class PlayerPage(QWidget):
             self.btn_speed.setText(f"{speed:g}x")
         else:
             super().keyPressEvent(event)
+
+
+# ============================================================
+# Recent Page (recently watched channels)
+# ============================================================
+class RecentPage(QWidget):
+    channel_play = pyqtSignal(int)
+
+    def __init__(self, config: Config, logo_cache: LogoCache = None):
+        super().__init__()
+        self.config = config
+        self.logo_cache = logo_cache
+        self.channels = []
+        self.epg_data = {}
+        self.init_ui()
+        if self.logo_cache is not None:
+            self.logo_cache.logo_ready.connect(self._refresh_logos)
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+
+        header = QHBoxLayout()
+        title = QLabel("Recent")
+        title.setFont(QFont('Segoe UI', 22, QFont.Bold))
+        header.addWidget(title)
+        header.addStretch()
+        self.count_label = QLabel("")
+        self.count_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 13px;")
+        header.addWidget(self.count_label)
+        btn_clear = QPushButton("Clear")
+        btn_clear.clicked.connect(self._clear)
+        header.addWidget(btn_clear)
+        layout.addLayout(header)
+        layout.addSpacing(8)
+
+        self.recent_list = QListWidget()
+        self.recent_list.setSpacing(2)
+        self.recent_list.setIconSize(QSize(48, 48))
+        self.recent_list.setStyleSheet(
+            "QListWidget::item { padding: 8px 6px; }"
+            "QListWidget::item:selected { background-color: " + COLORS['primary'] + "; color: white; }")
+        self.recent_list.itemDoubleClicked.connect(self._on_click)
+        layout.addWidget(self.recent_list)
+
+    def refresh(self, channels, epg_data):
+        self.channels = channels
+        self.epg_data = epg_data
+        url_to_idx = {ch.url: i for i, ch in enumerate(channels)}
+        self.recent_list.setUpdatesEnabled(False)
+        try:
+            self.recent_list.clear()
+            count = 0
+            for url in self.config.recent_urls:
+                idx = url_to_idx.get(url)
+                if idx is None:
+                    continue
+                ch = channels[idx]
+                now_prog, _ = get_now_next(epg_data, ch.tvg_id)
+                epg_text = f"  {now_prog.title}" if now_prog else ""
+                q = detect_quality(ch.name)
+                qbadge = f"  ◆{q}" if q else ""
+                item = QListWidgetItem(f"{ch.name}{qbadge}{epg_text}")
+                item.setData(Qt.UserRole, idx)
+                if q:
+                    item.setForeground(QColor(QUALITY_COLORS[q]))
+                if self.logo_cache is not None and ch.logo_url:
+                    icon = self.logo_cache.get(ch.logo_url)
+                    if icon is not None:
+                        item.setIcon(icon)
+                self.recent_list.addItem(item)
+                count += 1
+        finally:
+            self.recent_list.setUpdatesEnabled(True)
+        self.count_label.setText(f"{count} channels")
+
+    def _on_click(self, item):
+        idx = item.data(Qt.UserRole)
+        if idx is not None and idx >= 0:
+            self.channel_play.emit(idx)
+
+    def _clear(self):
+        self.config.recent_urls = []
+        self.config.save()
+        self.refresh(self.channels, self.epg_data)
+
+    def _refresh_logos(self):
+        if self.logo_cache is None:
+            return
+        lst = self.recent_list
+        for row in range(lst.count()):
+            item = lst.item(row)
+            idx = item.data(Qt.UserRole)
+            if idx is None or idx < 0 or idx >= len(self.channels):
+                continue
+            ch = self.channels[idx]
+            if not ch.logo_url or not item.icon().isNull():
+                continue
+            icon = self.logo_cache.get(ch.logo_url)
+            if icon is not None:
+                item.setIcon(icon)
 
 
 # ============================================================
@@ -1751,6 +2083,66 @@ class SettingsPage(QWidget):
         self.cb_fullscreen.toggled.connect(self._save_fullscreen)
         layout.addWidget(self.cb_fullscreen)
 
+        self.cb_top = QCheckBox("Always on top (mini-player mode)")
+        self.cb_top.setChecked(self.config.always_on_top)
+        self.cb_top.toggled.connect(self._save_always_on_top)
+        layout.addWidget(self.cb_top)
+
+        # --- Advanced playback section ---
+        layout.addSpacing(8)
+        layout.addWidget(self._section("Advanced (VLC)"))
+
+        self.cb_hwdec = QCheckBox("Hardware decoding (recommended)")
+        self.cb_hwdec.setChecked(self.config.hardware_decode)
+        self.cb_hwdec.toggled.connect(self._save_hwdec)
+        layout.addWidget(self.cb_hwdec)
+
+        ao_row = QHBoxLayout()
+        ao_row.addWidget(QLabel("Audio output:"))
+        self.aout_combo = QComboBox()
+        self.aout_combo.addItem("Auto", "")
+        self.aout_combo.addItem("DirectSound", "directsound")
+        self.aout_combo.addItem("MMDevice (WASAPI)", "mmdevice")
+        self.aout_combo.addItem("WaveOut", "waveout")
+        self._set_combo_by_value(self.aout_combo, self.config.audio_output, 0)
+        self.aout_combo.currentIndexChanged.connect(self._save_aout)
+        ao_row.addWidget(self.aout_combo, 1)
+        layout.addLayout(ao_row)
+
+        ua_row = QHBoxLayout()
+        ua_row.addWidget(QLabel("HTTP User-Agent:"))
+        self.ua_edit = QLineEdit(self.config.user_agent)
+        self.ua_edit.editingFinished.connect(self._save_ua)
+        ua_row.addWidget(self.ua_edit, 1)
+        layout.addLayout(ua_row)
+        ua_hint = QLabel("Note: changes take effect after restart.")
+        ua_hint.setStyleSheet(f"color: {COLORS['text_hint']}; font-size: 11px;")
+        layout.addWidget(ua_hint)
+
+        # --- EPG sources ---
+        layout.addSpacing(8)
+        layout.addWidget(self._section("EPG sources (multi-EPG)"))
+
+        self.epg_list = QListWidget()
+        self.epg_list.setMaximumHeight(120)
+        self._refresh_epg_list()
+        layout.addWidget(self.epg_list)
+
+        epg_row = QHBoxLayout()
+        self.epg_input = QLineEdit()
+        self.epg_input.setPlaceholderText("https://example.com/epg.xml.gz")
+        epg_row.addWidget(self.epg_input, 1)
+        btn_epg_add = QPushButton("Add")
+        btn_epg_add.clicked.connect(self._add_epg_url)
+        epg_row.addWidget(btn_epg_add)
+        btn_epg_del = QPushButton("Remove")
+        btn_epg_del.clicked.connect(self._remove_epg_url)
+        epg_row.addWidget(btn_epg_del)
+        layout.addLayout(epg_row)
+        epg_hint = QLabel("Programmes from all sources are merged. The playlist's url-tvg is always used.")
+        epg_hint.setStyleSheet(f"color: {COLORS['text_hint']}; font-size: 11px;")
+        layout.addWidget(epg_hint)
+
         # --- Data section ---
         layout.addSpacing(8)
         layout.addWidget(self._section("Data"))
@@ -1759,15 +2151,34 @@ class SettingsPage(QWidget):
         btn_clear_fav = QPushButton("Clear favorites")
         btn_clear_fav.clicked.connect(self._clear_favorites)
         data_row.addWidget(btn_clear_fav)
+        btn_clear_recent = QPushButton("Clear recent")
+        btn_clear_recent.clicked.connect(self._clear_recent)
+        data_row.addWidget(btn_clear_recent)
+        btn_clear_pcs = QPushButton("Clear per-channel state")
+        btn_clear_pcs.clicked.connect(self._clear_per_channel_state)
+        data_row.addWidget(btn_clear_pcs)
         btn_reset = QPushButton("Reset settings")
         btn_reset.clicked.connect(self._reset_settings)
         data_row.addWidget(btn_reset)
         data_row.addStretch()
         layout.addLayout(data_row)
 
+        # --- Help / report issue ---
+        layout.addSpacing(8)
+        layout.addWidget(self._section("Help"))
+        help_row = QHBoxLayout()
+        btn_report = QPushButton("Report a problem on GitHub")
+        btn_report.clicked.connect(self._report_issue)
+        help_row.addWidget(btn_report)
+        btn_log = QPushButton("Open log folder")
+        btn_log.clicked.connect(self._open_log_dir)
+        help_row.addWidget(btn_log)
+        help_row.addStretch()
+        layout.addLayout(help_row)
+
         # --- Info section ---
         layout.addSpacing(12)
-        ver_label = QLabel("TVViewer v5.3 (Windows Desktop)")
+        ver_label = QLabel("TVViewer v5.4 (Windows Desktop)")
         ver_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 13px;")
         layout.addWidget(ver_label)
 
@@ -1827,6 +2238,98 @@ class SettingsPage(QWidget):
         self.config.remember_fullscreen = bool(checked)
         self.config.save()
 
+    def _save_always_on_top(self, checked):
+        self.config.always_on_top = bool(checked)
+        self.config.save()
+        self.settings_changed.emit()
+
+    def _save_hwdec(self, checked):
+        self.config.hardware_decode = bool(checked)
+        self.config.save()
+
+    def _save_aout(self, _idx):
+        self.config.audio_output = self.aout_combo.currentData() or ""
+        self.config.save()
+
+    def _save_ua(self):
+        self.config.user_agent = self.ua_edit.text().strip()
+        self.config.save()
+
+    def _refresh_epg_list(self):
+        self.epg_list.clear()
+        for u in getattr(self.config, 'epg_urls', []) or []:
+            self.epg_list.addItem(u)
+
+    def _add_epg_url(self):
+        u = self.epg_input.text().strip()
+        if not u:
+            return
+        if u in self.config.epg_urls:
+            return
+        self.config.epg_urls.append(u)
+        self.config.save()
+        self.epg_input.clear()
+        self._refresh_epg_list()
+        self.settings_changed.emit()
+
+    def _remove_epg_url(self):
+        row = self.epg_list.currentRow()
+        if row < 0:
+            return
+        try:
+            self.config.epg_urls.pop(row)
+            self.config.save()
+            self._refresh_epg_list()
+            self.settings_changed.emit()
+        except IndexError:
+            pass
+
+    def _clear_recent(self):
+        self.config.recent_urls = []
+        self.config.save()
+        self.settings_changed.emit()
+
+    def _clear_per_channel_state(self):
+        self.config.per_channel_state = {}
+        self.config.save()
+
+    def _report_issue(self):
+        try:
+            from urllib.parse import quote
+            import platform
+            log_path = _log_file_path()
+            tail = _read_log_tail(log_path, 4000)
+            body = (
+                "**App version**: TVViewer Windows v5.4\n"
+                f"**OS**: {platform.platform()}\n"
+                f"**Python**: {platform.python_version()}\n"
+                f"**VLC**: {'installed' if HAS_VLC else 'not installed'}\n\n"
+                "**Steps to reproduce**:\n"
+                "1. \n2. \n3. \n\n"
+                "**Expected**:\n\n"
+                "**Actual**:\n\n"
+                "**Recent log**:\n```\n" + (tail or "(empty)") + "\n```\n"
+            )
+            url = ("https://github.com/donmax76/iptv/issues/new"
+                   f"?title={quote('[Windows] ')}&body={quote(body)}")
+            QApplication.clipboard().setText(url)
+            import webbrowser
+            webbrowser.open(url)
+        except Exception as e:
+            QMessageBox.warning(self, "Report issue", f"Could not open GitHub: {e}")
+
+    def _open_log_dir(self):
+        try:
+            path = os.path.dirname(os.path.abspath(_log_file_path()))
+            if sys.platform == "win32":
+                os.startfile(path)
+            elif sys.platform == "darwin":
+                os.system(f'open "{path}"')
+            else:
+                os.system(f'xdg-open "{path}"')
+        except Exception as e:
+            QMessageBox.warning(self, "Open log folder", str(e))
+
     def _clear_favorites(self):
         reply = QMessageBox.question(
             self, "Clear favorites",
@@ -1849,6 +2352,10 @@ class SettingsPage(QWidget):
         self.config.autoplay_last = False
         self.config.remember_fullscreen = False
         self.config.sleep_timer_minutes = 0
+        self.config.always_on_top = False
+        self.config.hardware_decode = True
+        self.config.audio_output = ""
+        self.config.channel_sort = "default"
         self.config.save()
         # Refresh UI
         self.vol_spin.setValue(self.config.volume)
@@ -1856,6 +2363,9 @@ class SettingsPage(QWidget):
         self.sleep_spin.setValue(0)
         self.cb_autoplay.setChecked(False)
         self.cb_fullscreen.setChecked(False)
+        self.cb_top.setChecked(False)
+        self.cb_hwdec.setChecked(True)
+        self._set_combo_by_value(self.aout_combo, "", 0)
         self.settings_changed.emit()
 
 
@@ -1914,6 +2424,10 @@ class MainWindow(QMainWindow):
         self.tv_guide_page.channel_play.connect(self.play_channel)
         self.stack.addWidget(self.tv_guide_page)
 
+        self.recent_page = RecentPage(self.config, self.logo_cache)
+        self.recent_page.channel_play.connect(self.play_channel)
+        self.stack.addWidget(self.recent_page)
+
         main_layout.addWidget(self.stack, 1)
 
         # Bottom navigation bar
@@ -1930,6 +2444,7 @@ class MainWindow(QMainWindow):
             ("Channels", 1),
             ("TV Guide", 5),
             ("Favorites", 2),
+            ("Recent", 6),
             ("Settings", 4),
         ]
         for label, page_idx in nav_items:
@@ -1947,25 +2462,23 @@ class MainWindow(QMainWindow):
             self.favorites_page.refresh(self.channels, self.epg_data)
         elif idx == 5:
             self.tv_guide_page.set_data(self.channels, self.epg_data)
+        elif idx == 6:
+            self.recent_page.refresh(self.channels, self.epg_data)
         self.player_page.stop()
         self.stack.setCurrentIndex(idx)
         self.update_nav_highlight(idx)
-        # Auto-focus the main interactive widget on the page so remote/keyboard
-        # arrows work immediately without first clicking with the mouse.
         focus_target = None
         if idx == 1 and self.channels_page.channel_list.count():
             focus_target = self.channels_page.channel_list
-            if focus_target.currentRow() < 0:
-                focus_target.setCurrentRow(0)
         elif idx == 2 and self.favorites_page.fav_list.count():
             focus_target = self.favorites_page.fav_list
-            if focus_target.currentRow() < 0:
-                focus_target.setCurrentRow(0)
         elif idx == 5 and self.tv_guide_page.guide_list.count():
             focus_target = self.tv_guide_page.guide_list
+        elif idx == 6 and self.recent_page.recent_list.count():
+            focus_target = self.recent_page.recent_list
+        if focus_target is not None:
             if focus_target.currentRow() < 0:
                 focus_target.setCurrentRow(0)
-        if focus_target is not None:
             focus_target.setFocus()
 
     def keyPressEvent(self, event):
@@ -1979,8 +2492,9 @@ class MainWindow(QMainWindow):
             self.switch_page(5); return
         if key == Qt.Key_F4:
             self.switch_page(2); return
+        if key == Qt.Key_F6:
+            self.switch_page(6); return
         if key == Qt.Key_F5:
-            # Refresh: reload current playlist
             if self.config.last_playlist_url:
                 self.load_playlist(
                     self.config.last_playlist_name or "Playlist",
@@ -2013,12 +2527,19 @@ class MainWindow(QMainWindow):
         self.channels_page.set_channels(self.channels, name, self.epg_data)
         self.channels_page.status_label.setText(f"{len(self.channels)} channels loaded")
 
+        # Build the EPG source list: playlist's url-tvg + last_epg_url + extra epg_urls.
+        epg_sources = []
         if result.epg_url:
             self.config.last_epg_url = result.epg_url
             self.config.save()
-            self.load_epg(result.epg_url)
+            epg_sources.append(result.epg_url)
         elif self.config.last_epg_url:
-            self.load_epg(self.config.last_epg_url)
+            epg_sources.append(self.config.last_epg_url)
+        for u in getattr(self.config, 'epg_urls', []) or []:
+            if u and u not in epg_sources:
+                epg_sources.append(u)
+        if epg_sources:
+            self.load_epg(epg_sources)
 
         # Autoplay last channel (best-effort: match by URL)
         if self.config.autoplay_last and self.config.last_channel_url:
@@ -2030,8 +2551,9 @@ class MainWindow(QMainWindow):
     def on_playlist_error(self, error: str):
         self.channels_page.status_label.setText(f"Error: {error}")
 
-    def load_epg(self, url):
-        self.epg_thread = LoadEpgThread(url)
+    def load_epg(self, urls):
+        # Accept single URL (str) or list of URLs (multi-EPG).
+        self.epg_thread = LoadEpgThread(urls)
         self.epg_thread.finished.connect(self.on_epg_loaded)
         self.epg_thread.start()
 
@@ -2076,6 +2598,16 @@ class MainWindow(QMainWindow):
             self.favorites_page.refresh(self.channels, self.epg_data)
         if self.stack.currentIndex() == 5:
             self.tv_guide_page.set_data(self.channels, self.epg_data)
+        if self.stack.currentIndex() == 6:
+            self.recent_page.refresh(self.channels, self.epg_data)
+        # Apply mini-player (always-on-top) toggle live
+        try:
+            cur = bool(self.windowFlags() & Qt.WindowStaysOnTopHint)
+            if cur != bool(self.config.always_on_top):
+                self.setWindowFlag(Qt.WindowStaysOnTopHint, bool(self.config.always_on_top))
+                self.show()
+        except Exception:
+            pass
 
     def closeEvent(self, event):
         self.player_page.stop()
@@ -2084,11 +2616,69 @@ class MainWindow(QMainWindow):
         event.accept()
 
 
+def _install_crash_handler(app):
+    """Log unhandled exceptions to disk and offer a 'Report on GitHub' dialog."""
+    import traceback
+    import logging
+    import platform as _platform
+    log_path = _log_file_path()
+    try:
+        logging.basicConfig(
+            filename=log_path,
+            level=logging.INFO,
+            format="%(asctime)s %(levelname)s %(message)s",
+        )
+    except Exception:
+        pass
+
+    def _excepthook(exc_type, exc_value, exc_tb):
+        try:
+            tb_text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+            try:
+                logging.error("Unhandled exception:\n%s", tb_text)
+            except Exception:
+                pass
+            # Offer to file an issue
+            try:
+                from urllib.parse import quote
+                short = (exc_value.args[0] if getattr(exc_value, 'args', None) else str(exc_value))[:80]
+                body = (
+                    "Automatic crash report.\n\n"
+                    f"**OS**: {_platform.platform()}\n"
+                    f"**Python**: {_platform.python_version()}\n\n"
+                    "**Traceback**:\n```\n" + tb_text[-4000:] + "\n```\n"
+                )
+                url = ("https://github.com/donmax76/iptv/issues/new"
+                       f"?title={quote('[Windows crash] ' + short)}&body={quote(body)}")
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Critical)
+                msg.setWindowTitle("TVViewer crashed")
+                msg.setText("An unexpected error occurred.")
+                msg.setInformativeText(str(exc_value)[:300])
+                msg.setDetailedText(tb_text[-3000:])
+                btn_report = msg.addButton("Report on GitHub", QMessageBox.AcceptRole)
+                msg.addButton(QMessageBox.Close)
+                msg.exec_()
+                if msg.clickedButton() is btn_report:
+                    import webbrowser
+                    webbrowser.open(url)
+            except Exception:
+                pass
+        finally:
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+    sys.excepthook = _excepthook
+
+
 def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLESHEET)
     app.setFont(QFont('Segoe UI', 12))
+    _install_crash_handler(app)
     window = MainWindow()
+    # Apply persisted always-on-top preference
+    if window.config.always_on_top:
+        window.setWindowFlag(Qt.WindowStaysOnTopHint, True)
     window.show()
     sys.exit(app.exec_())
 

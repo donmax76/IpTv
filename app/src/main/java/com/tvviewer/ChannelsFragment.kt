@@ -29,6 +29,7 @@ class ChannelsFragment : Fragment() {
     private lateinit var prefs: AppPreferences
     private lateinit var recyclerView: RecyclerView
     private lateinit var categoriesRecyclerView: RecyclerView
+    private lateinit var qualityChipsContainer: LinearLayout
     private lateinit var progressBar: ProgressBar
     private lateinit var emptyLayout: LinearLayout
     private lateinit var emptyText: TextView
@@ -38,6 +39,8 @@ class ChannelsFragment : Fragment() {
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var adapter: ChannelAdapter
     private lateinit var categoryAdapter: CategoryAdapter
+
+    private val qualityFilters = listOf("all", "4K", "FHD", "HD", "SD")
 
     private var allChannels: List<Channel> = emptyList()
     private var filteredChannels: List<Channel> = emptyList()
@@ -57,6 +60,8 @@ class ChannelsFragment : Fragment() {
 
         recyclerView = view.findViewById(R.id.channelsRecyclerView)
         categoriesRecyclerView = view.findViewById(R.id.categoriesRecyclerView)
+        qualityChipsContainer = view.findViewById(R.id.qualityChipsContainer)
+        setupQualityChips()
         progressBar = view.findViewById(R.id.progressBar)
         emptyLayout = view.findViewById(R.id.emptyLayout)
         emptyText = view.findViewById(R.id.emptyText)
@@ -143,7 +148,7 @@ class ChannelsFragment : Fragment() {
 
         lifecycleScope.launch {
             try {
-                val result = PlaylistRepository.fetchPlaylist(url)
+                val result = PlaylistRepository.fetchPlaylist(url, requireContext().applicationContext)
                 // Add custom channels
                 val customChannels = prefs.customChannels.map { (n, u) -> Channel(name = n, url = u) }
                 allChannels = result.channels + customChannels
@@ -180,17 +185,24 @@ class ChannelsFragment : Fragment() {
                             Log.d("ChannelsFragment", "EPG loaded from cache: ${cached.size} channels")
                         }
 
-                        // Then fetch fresh data from network
-                        val epgUrl = result.epgUrl ?: prefs.lastEpgUrl
-                        if (!epgUrl.isNullOrBlank()) {
-                            prefs.lastEpgUrl = epgUrl
-                            val freshData = EpgRepository.fetchEpg(epgUrl, ctx)
+                        // Then fetch fresh data from network — combine playlist's own
+                        // x-tvg-url with user-configured URLs and fetch them in parallel.
+                        val playlistEpg = result.epgUrl
+                        if (!playlistEpg.isNullOrBlank() && prefs.lastEpgUrl.isNullOrBlank()) {
+                            prefs.lastEpgUrl = playlistEpg
+                        }
+                        val urls = buildList {
+                            playlistEpg?.takeIf { it.isNotBlank() }?.let { add(it) }
+                            addAll(prefs.allEpgUrls())
+                        }.distinct()
+                        if (urls.isNotEmpty()) {
+                            val freshData = EpgRepository.fetchAll(urls, ctx)
                             if (freshData.isNotEmpty() && isAdded) {
                                 epgData = freshData
                                 ChannelDataHolder.epgData = epgData
                                 prefs.epgLastUpdate = System.currentTimeMillis()
                                 adapter.updateEpg(epgData)
-                                Log.d("ChannelsFragment", "EPG updated from network: ${freshData.size} channels")
+                                Log.d("ChannelsFragment", "EPG updated from network: ${freshData.size} channels (${urls.size} sources)")
                             }
                         }
                     } catch (e: Exception) {
@@ -212,14 +224,64 @@ class ChannelsFragment : Fragment() {
         }
     }
 
+    private fun setupQualityChips() {
+        qualityChipsContainer.removeAllViews()
+        val ctx = requireContext()
+        val current = prefs.qualityFilter
+        qualityFilters.forEach { q ->
+            val chip = TextView(ctx).apply {
+                text = if (q == "all") getString(R.string.all) else q
+                setTextColor(android.graphics.Color.WHITE)
+                textSize = 13f
+                setPadding(28, 12, 28, 12)
+                background = androidx.core.content.ContextCompat.getDrawable(
+                    ctx, R.drawable.bg_category_chip
+                )
+                isFocusable = true
+                isClickable = true
+                isSelected = (q == current)
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                lp.marginEnd = 16
+                layoutParams = lp
+                setOnClickListener {
+                    prefs.qualityFilter = q
+                    // Refresh selected state on all children
+                    for (i in 0 until qualityChipsContainer.childCount) {
+                        val child = qualityChipsContainer.getChildAt(i)
+                        child.isSelected = (i < qualityFilters.size && qualityFilters[i] == q)
+                    }
+                    filterChannels()
+                }
+            }
+            qualityChipsContainer.addView(chip)
+        }
+    }
+
+    private fun applySort(channels: List<Channel>): List<Channel> {
+        return when (prefs.channelSort) {
+            "name" -> channels.sortedBy { it.name.lowercase() }
+            "group" -> channels.sortedWith(compareBy({ it.group ?: "zzz" }, { it.name.lowercase() }))
+            "number" -> channels // M3U order — unchanged.
+            "quality" -> channels.sortedByDescending { QualityUtil.rank(it.name) }
+            else -> channels
+        }
+    }
+
     private fun filterChannels() {
         val query = searchEditText.text.toString().trim().lowercase()
-        filteredChannels = allChannels.filter { channel ->
+        val qualityFilter = prefs.qualityFilter
+        val sorted = applySort(allChannels)
+        filteredChannels = sorted.filter { channel ->
             val matchesCategory = selectedCategory == getString(R.string.all) ||
                 channel.group == selectedCategory
             val matchesSearch = query.isEmpty() ||
                 channel.name.lowercase().contains(query)
-            matchesCategory && matchesSearch
+            val matchesQuality = qualityFilter == "all" ||
+                QualityUtil.detectQuality(channel.name) == qualityFilter
+            matchesCategory && matchesSearch && matchesQuality
         }
         adapter.updateChannels(filteredChannels)
 
@@ -236,6 +298,7 @@ class ChannelsFragment : Fragment() {
     private fun playChannel(channel: Channel) {
         val index = allChannels.indexOf(channel)
         ChannelDataHolder.currentChannelIndex = if (index >= 0) index else 0
+        prefs.pushRecent(channel.url)
 
         val intent = Intent(requireContext(), PlayerActivity::class.java).apply {
             putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, channel.name)

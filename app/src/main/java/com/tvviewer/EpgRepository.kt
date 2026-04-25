@@ -3,6 +3,8 @@ package com.tvviewer
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -43,17 +45,37 @@ object EpgRepository {
      * Fetch EPG from URL with disk caching.
      * First tries to download fresh data. If fails, returns cached data.
      */
+    /**
+     * Fetch and merge EPG data from multiple URLs in parallel.
+     * Last-write-wins on overlapping channel ids — additional sources fill in gaps.
+     */
+    suspend fun fetchAll(urls: List<String>, context: Context? = null): Map<String, List<Programme>> = coroutineScope {
+        val cleaned = urls.filter { it.isNotBlank() }.distinct()
+        if (cleaned.isEmpty()) return@coroutineScope loadFromCache(context) ?: emptyMap()
+        val results = cleaned.map { u -> async(Dispatchers.IO) { runCatching { fetchSingle(u, context) }.getOrDefault(emptyMap()) } }
+            .map { it.await() }
+        val merged = mutableMapOf<String, List<Programme>>()
+        for (r in results) merged.putAll(r)
+        if (merged.isNotEmpty()) saveToCache(context, merged)
+        merged.ifEmpty { loadFromCache(context) ?: emptyMap() }
+    }
+
     suspend fun fetchEpg(epgUrl: String?, context: Context? = null): Map<String, List<Programme>> = withContext(Dispatchers.IO) {
         if (epgUrl.isNullOrBlank()) {
             // Try to load from cache
             return@withContext loadFromCache(context) ?: emptyMap()
         }
+        fetchSingle(epgUrl, context)
+    }
+
+    private suspend fun fetchSingle(epgUrl: String, context: Context?): Map<String, List<Programme>> = withContext(Dispatchers.IO) {
+        val userAgent = context?.let { AppPreferences(it).userAgent } ?: AppPreferences.DEFAULT_USER_AGENT
         try {
             Log.d(TAG, "Fetching EPG from: $epgUrl")
             val request = Request.Builder()
                 .url(epgUrl)
                 .header("Accept-Encoding", "gzip")
-                .header("User-Agent", "Mozilla/5.0")
+                .header("User-Agent", userAgent)
                 .build()
             val bodyString = client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {

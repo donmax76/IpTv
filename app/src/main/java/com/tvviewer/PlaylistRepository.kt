@@ -1,10 +1,12 @@
 package com.tvviewer
 
+import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 object PlaylistRepository {
@@ -19,12 +21,30 @@ object PlaylistRepository {
         .followRedirects(true)
         .build()
 
-    suspend fun fetchPlaylist(url: String): PlaylistResult = withContext(Dispatchers.IO) {
+    /**
+     * Fetch a playlist — either from a remote http(s) URL or a local file:// URI
+     * (used when the user imports an .m3u/.m3u8 file via OpenDocument).
+     */
+    suspend fun fetchPlaylist(url: String, context: Context? = null): PlaylistResult = withContext(Dispatchers.IO) {
+        val userAgent = context?.let { AppPreferences(it).userAgent } ?: AppPreferences.DEFAULT_USER_AGENT
         try {
+            if (url.startsWith("file://")) {
+                val path = url.removePrefix("file://")
+                val file = File(path)
+                if (!file.exists()) {
+                    Log.e(TAG, "Local playlist file missing: $path")
+                    return@withContext PlaylistResult(emptyList(), null)
+                }
+                val body = file.readText()
+                val baseUrl = "file://${file.parentFile?.absolutePath ?: ""}/"
+                val result = M3UParser.parseWithEpg(body, baseUrl)
+                return@withContext PlaylistResult(result.channels, result.epgUrl)
+            }
+
             Log.d(TAG, "Fetching playlist: $url")
             val request = Request.Builder()
                 .url(url)
-                .header("User-Agent", "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36")
+                .header("User-Agent", userAgent)
                 .build()
             val response = client.newCall(request).execute()
             Log.d(TAG, "Response: ${response.code} ${response.message}")

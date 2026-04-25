@@ -33,6 +33,7 @@ class MainActivity : BaseActivity() {
                 R.id.nav_channels -> showFragment(ChannelsFragment.TAG, ::ChannelsFragment)
                 R.id.nav_tv_guide -> showFragment(TvGuideFragment.TAG, ::TvGuideFragment)
                 R.id.nav_favorites -> showFragment(FavoritesFragment.TAG, ::FavoritesFragment)
+                R.id.nav_recent -> showFragment(RecentFragment.TAG, ::RecentFragment)
                 R.id.nav_settings -> showFragment(SettingsFragment.TAG, ::SettingsFragment)
                 else -> false
             }
@@ -52,6 +53,7 @@ class MainActivity : BaseActivity() {
                     if (channel != null) {
                         val index = ChannelDataHolder.allChannels.indexOf(channel)
                         ChannelDataHolder.currentChannelIndex = index
+                        prefs.pushRecent(channel.url)
                         val intent = Intent(this, PlayerActivity::class.java).apply {
                             putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, channel.name)
                             putExtra(PlayerActivity.EXTRA_CHANNEL_URL, channel.url)
@@ -102,6 +104,10 @@ class MainActivity : BaseActivity() {
         ChannelDataHolder.pendingPlaylistName = playlistName
         ChannelDataHolder.pendingPlaylistUrl = playlistUrl
         bottomNav.selectedItemId = R.id.nav_channels
+    }
+
+    fun openSettings() {
+        startActivity(Intent(this, SettingsActivity::class.java))
     }
 
     // D-pad / remote control navigation
@@ -191,6 +197,7 @@ class MainActivity : BaseActivity() {
         R.id.nav_channels,
         R.id.nav_tv_guide,
         R.id.nav_favorites,
+        R.id.nav_recent,
         R.id.nav_settings
     )
 

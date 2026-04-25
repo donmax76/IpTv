@@ -57,5 +57,11 @@
             android:theme="@style/Theme.TVViewer"
             android:parentActivityName=".MainActivity" />
 
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.TVViewer"
+            android:parentActivityName=".MainActivity" />
+
     </application>
 </manifest>

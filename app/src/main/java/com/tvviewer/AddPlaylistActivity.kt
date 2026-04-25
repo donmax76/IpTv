@@ -1,11 +1,13 @@
 package com.tvviewer
 
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.widget.ImageButton
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -17,6 +19,45 @@ import kotlinx.coroutines.launch
 class AddPlaylistActivity : BaseActivity() {
 
     private lateinit var prefs: AppPreferences
+
+    private val importFileLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri == null) return@registerForActivityResult
+        importPlaylistFromUri(uri)
+    }
+
+    private fun importPlaylistFromUri(uri: Uri) {
+        try {
+            val name = queryFileName(uri) ?: "Imported.m3u"
+            val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                ?: throw java.io.IOException("empty stream")
+            val safeName = name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(80)
+            val playlistDir = java.io.File(filesDir, "imported_playlists").apply { mkdirs() }
+            val savedFile = java.io.File(playlistDir, "${System.currentTimeMillis()}_$safeName")
+            savedFile.writeBytes(bytes)
+            val url = "file://${savedFile.absolutePath}"
+            val displayName = name.removeSuffix(".m3u8").removeSuffix(".m3u")
+            prefs.addCustomPlaylist(displayName, url)
+            Toast.makeText(this, R.string.playlist_added, Toast.LENGTH_SHORT).show()
+            setResult(RESULT_OK)
+            finish()
+        } catch (e: Exception) {
+            ErrorLogger.logException(this, e)
+            Toast.makeText(this, R.string.load_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun queryFileName(uri: Uri): String? {
+        var name: String? = null
+        try {
+            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0 && cursor.moveToFirst()) name = cursor.getString(idx)
+            }
+        } catch (_: Exception) {}
+        return name ?: uri.lastPathSegment
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,6 +102,9 @@ class AddPlaylistActivity : BaseActivity() {
         val nameEdit = findViewById<TextInputEditText>(R.id.editPlaylistName)
         val urlEdit = findViewById<TextInputEditText>(R.id.editPlaylistUrl)
         val btnAdd = findViewById<MaterialButton>(R.id.btnAdd)
+        findViewById<MaterialButton>(R.id.btnImportFile)?.setOnClickListener {
+            importFileLauncher.launch(arrayOf("audio/*", "application/octet-stream", "text/*", "*/*"))
+        }
 
         btnAdd.setOnClickListener {
             val name = nameEdit.text.toString().trim()

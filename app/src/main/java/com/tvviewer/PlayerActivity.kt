@@ -40,6 +40,8 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.ui.PlayerView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -185,8 +187,9 @@ class PlayerActivity : BaseActivity() {
         scheduleHideControls()
         startClock()
 
-        // Save last channel
+        // Save last channel + push to recent history
         prefs.lastChannelUrl = currentUrl
+        currentUrl?.let { prefs.pushRecent(it) }
 
         // Setup sleep timer if configured
         val timerMins = prefs.sleepTimerMinutes
@@ -648,8 +651,16 @@ class PlayerActivity : BaseActivity() {
             else -> DefaultLoadControl()
         }
 
+        // Apply the user-configured (or default) User-Agent to every HTTP request.
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent(prefs.userAgent)
+            .setAllowCrossProtocolRedirects(true)
+        val mediaSourceFactory = DefaultMediaSourceFactory(this)
+            .setDataSourceFactory(httpDataSourceFactory)
+
         player = ExoPlayer.Builder(this)
             .setLoadControl(loadControl)
+            .setMediaSourceFactory(mediaSourceFactory)
             .build().also { p ->
                 playerView.player = p
                 p.addListener(object : Player.Listener {
@@ -705,11 +716,73 @@ class PlayerActivity : BaseActivity() {
     private fun playStream(url: String) {
         loadingIndicator.visibility = View.VISIBLE
         errorLayout.visibility = View.GONE
+        // Restore per-channel saved state (speed, aspect, position).
+        val savedState = prefs.getChannelState(url)
+        val savedSpeed = savedState.optDouble("speed", 1.0).toFloat()
+        val savedAspect = savedState.optInt("aspect", -1)
+        val savedPos = savedState.optLong("pos", -1L)
+
         player?.apply {
             setMediaItem(MediaItem.fromUri(url))
             prepare()
             playWhenReady = true
+            // Speed
+            val speedIdx = speedValues.indexOfFirst { kotlin.math.abs(it - savedSpeed) < 0.01f }
+            if (speedIdx >= 0) {
+                currentSpeedIndex = speedIdx
+                playbackParameters = PlaybackParameters(speedValues[speedIdx])
+            }
+            // Position — only seek for VOD-like content (duration known and remaining > 5%).
+            if (savedPos > 30_000L) {
+                addListener(object : Player.Listener {
+                    override fun onPlaybackStateChanged(state: Int) {
+                        if (state == Player.STATE_READY) {
+                            val dur = duration
+                            if (dur != C.TIME_UNSET && dur > 0 && savedPos < dur * 0.95) {
+                                seekTo(savedPos)
+                            }
+                            removeListener(this)
+                        }
+                    }
+                })
+            }
         }
+        if (savedAspect in 0..3) {
+            aspectRatioMode = savedAspect
+            applyAspectRatioMode()
+        }
+    }
+
+    private fun applyAspectRatioMode() {
+        when (aspectRatioMode) {
+            0 -> playerView.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+            1 -> playerView.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH
+            2 -> playerView.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIXED_HEIGHT
+            3 -> playerView.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
+        }
+    }
+
+    private fun saveCurrentChannelState() {
+        val url = currentUrl ?: return
+        if (url.isBlank()) return
+        val p = player
+        try {
+            val obj = org.json.JSONObject()
+            obj.put("speed", speedValues[currentSpeedIndex].toDouble())
+            obj.put("aspect", aspectRatioMode)
+            if (p != null) {
+                val dur = p.duration
+                val pos = p.currentPosition
+                // Only persist position for VOD (known duration). Skip live streams.
+                if (dur != C.TIME_UNSET && dur > 0 && pos > 30_000L && pos < dur * 0.95) {
+                    obj.put("pos", pos)
+                } else {
+                    obj.put("pos", -1L)
+                }
+                obj.put("volume", p.volume.toDouble())
+            }
+            prefs.saveChannelState(url, obj)
+        } catch (_: Exception) {}
     }
 
     private fun switchChannel(direction: Int) {
@@ -724,6 +797,9 @@ class PlayerActivity : BaseActivity() {
         val channels = ChannelDataHolder.allChannels
         if (index !in channels.indices) return
 
+        // Persist the state of the channel we're leaving before switching.
+        saveCurrentChannelState()
+
         currentIndex = index
         val channel = channels[currentIndex]
 
@@ -733,19 +809,18 @@ class PlayerActivity : BaseActivity() {
         ChannelDataHolder.currentChannelIndex = currentIndex
 
         prefs.lastChannelUrl = currentUrl
+        prefs.pushRecent(channel.url)
 
         overlayAdapter?.updateCurrentIndex(currentIndex)
+
+        // Reset speed to 1x by default — playStream will restore saved speed if any.
+        currentSpeedIndex = 2
+        player?.playbackParameters = PlaybackParameters(1f)
 
         updateEpg()
         playStream(channel.url)
         showChannelBanner()
         scheduleHideControls()
-
-        // Reset speed to 1x on channel switch
-        if (currentSpeedIndex != 2) {
-            currentSpeedIndex = 2
-            player?.playbackParameters = PlaybackParameters(1f)
-        }
     }
 
     private fun updateEpg() {
@@ -777,12 +852,7 @@ class PlayerActivity : BaseActivity() {
 
     private fun cycleAspectRatio() {
         aspectRatioMode = (aspectRatioMode + 1) % 4
-        when (aspectRatioMode) {
-            0 -> playerView.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
-            1 -> playerView.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH
-            2 -> playerView.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIXED_HEIGHT
-            3 -> playerView.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
-        }
+        applyAspectRatioMode()
         val names = arrayOf(
             getString(R.string.aspect_fit),
             getString(R.string.aspect_16_9),
@@ -1135,6 +1205,7 @@ class PlayerActivity : BaseActivity() {
         if (!inPip) {
             player?.pause()
         }
+        saveCurrentChannelState()
     }
 
     override fun onResume() {
@@ -1144,6 +1215,7 @@ class PlayerActivity : BaseActivity() {
     }
 
     override fun onDestroy() {
+        saveCurrentChannelState()
         super.onDestroy()
         hideHandler.removeCallbacks(hideRunnable)
         clockHandler.removeCallbacks(clockRunnable)

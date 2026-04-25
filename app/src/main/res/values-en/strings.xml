@@ -3,6 +3,27 @@
     <string name="app_name">TV Online</string>
     <string name="channels">Channels</string>
     <string name="playlists">Playlists</string>
+    <string name="recent">Recent</string>
+    <string name="no_recent">No recent channels</string>
+    <string name="no_recent_hint">Open a channel and it will appear here</string>
+    <string name="epg_urls">EPG sources (XMLTV)</string>
+    <string name="user_agent">HTTP User-Agent</string>
+    <string name="report_problem">Report a problem</string>
+    <string name="report_problem_hint">Open a GitHub issue with the log</string>
+    <string name="quality_filter">Quality filter</string>
+    <string name="filter_all">All</string>
+    <string name="filter_4k">4K</string>
+    <string name="filter_fhd">FHD</string>
+    <string name="filter_hd">HD</string>
+    <string name="filter_sd">SD</string>
+    <string name="sort_default">Default</string>
+    <string name="sort_name">Name</string>
+    <string name="sort_number">Number</string>
+    <string name="sort_quality">Quality</string>
+    <string name="add_url">Add URL</string>
+    <string name="open_file">Open file</string>
+    <string name="add_epg">Add</string>
+    <string name="remove">Remove</string>
     <string name="loading">Loading…</string>
     <string name="error">Error</string>
     <string name="retry">Retry</string>
@@ -101,4 +122,12 @@
     <string name="update_url_hint">URL of version.json. Default: github.com/donmax76/IpTv</string>
     <string name="update_404_hint">Create a Gist at gist.github.com with version.json, paste raw URL above</string>
     <string name="update_url_hint_placeholder">Leave empty for default URL</string>
+
+    <string name="clear">Clear</string>
+    <string name="import_file">Import from file</string>
+    <string name="network">Network</string>
+    <string name="reset">Reset</string>
+    <string name="epg_urls_add">Add EPG URL</string>
+    <string name="epg_urls_empty">No sources configured</string>
+    <string name="epg_urls_count">Active sources: %d</string>
 </resources>

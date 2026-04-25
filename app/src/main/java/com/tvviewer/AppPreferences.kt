@@ -3,6 +3,7 @@ package com.tvviewer
 import android.content.Context
 import android.content.SharedPreferences
 import org.json.JSONArray
+import org.json.JSONObject
 
 class AppPreferences(context: Context) {
 
@@ -206,6 +207,111 @@ class AppPreferences(context: Context) {
         get() = prefs.getString(KEY_LAST_PLAYLIST_NAME, null)
         set(value) = prefs.edit().putString(KEY_LAST_PLAYLIST_NAME, value).apply()
 
+    // Recent channels: most-recent first, capped at 30.
+    var recentUrls: List<String>
+        get() {
+            return try {
+                val json = prefs.getString(KEY_RECENT_URLS, "[]") ?: "[]"
+                val arr = JSONArray(json)
+                (0 until arr.length()).map { arr.getString(it) }
+            } catch (_: Exception) { emptyList() }
+        }
+        set(value) {
+            val arr = JSONArray()
+            value.take(MAX_RECENT).forEach { arr.put(it) }
+            prefs.edit().putString(KEY_RECENT_URLS, arr.toString()).apply()
+        }
+
+    fun pushRecent(url: String) {
+        if (url.isBlank()) return
+        val list = recentUrls.toMutableList()
+        list.removeAll { it == url }
+        list.add(0, url)
+        recentUrls = list.take(MAX_RECENT)
+    }
+
+    fun clearRecent() {
+        prefs.edit().remove(KEY_RECENT_URLS).apply()
+    }
+
+    // HD/4K filter chip selection: "all", "4K", "FHD", "HD", "SD"
+    var qualityFilter: String
+        get() = prefs.getString(KEY_QUALITY_FILTER, "all") ?: "all"
+        set(value) = prefs.edit().putString(KEY_QUALITY_FILTER, value).apply()
+
+    // Per-channel state: url -> JSONObject {speed, aspect, audio, pos, volume}
+    fun getChannelState(url: String): JSONObject {
+        if (url.isBlank()) return JSONObject()
+        val raw = prefs.getString(KEY_PER_CHANNEL_STATE, "{}") ?: "{}"
+        return try {
+            val all = JSONObject(raw)
+            all.optJSONObject(url) ?: JSONObject()
+        } catch (_: Exception) { JSONObject() }
+    }
+
+    fun saveChannelState(url: String, state: JSONObject) {
+        if (url.isBlank()) return
+        try {
+            val raw = prefs.getString(KEY_PER_CHANNEL_STATE, "{}") ?: "{}"
+            val all = try { JSONObject(raw) } catch (_: Exception) { JSONObject() }
+            all.put(url, state)
+            // Keep map size bounded - drop oldest if over 200 entries.
+            if (all.length() > 200) {
+                val keys = all.keys()
+                val toDelete = mutableListOf<String>()
+                var i = 0
+                while (keys.hasNext() && i < all.length() - 200) {
+                    toDelete.add(keys.next())
+                    i++
+                }
+                toDelete.forEach { all.remove(it) }
+            }
+            prefs.edit().putString(KEY_PER_CHANNEL_STATE, all.toString()).apply()
+        } catch (_: Exception) {}
+    }
+
+    // Multi-EPG: additional URLs (in addition to lastEpgUrl primary).
+    var additionalEpgUrls: List<String>
+        get() {
+            return try {
+                val json = prefs.getString(KEY_ADDITIONAL_EPG_URLS, "[]") ?: "[]"
+                val arr = JSONArray(json)
+                (0 until arr.length()).map { arr.getString(it) }
+            } catch (_: Exception) { emptyList() }
+        }
+        set(value) {
+            val arr = JSONArray()
+            value.forEach { if (it.isNotBlank()) arr.put(it) }
+            prefs.edit().putString(KEY_ADDITIONAL_EPG_URLS, arr.toString()).apply()
+        }
+
+    fun addEpgUrl(url: String) {
+        if (url.isBlank()) return
+        val list = additionalEpgUrls.toMutableList()
+        if (url !in list && url != lastEpgUrl) {
+            list.add(url)
+            additionalEpgUrls = list
+        }
+    }
+
+    fun removeEpgUrl(url: String) {
+        additionalEpgUrls = additionalEpgUrls.filterNot { it == url }
+    }
+
+    fun allEpgUrls(): List<String> {
+        val out = mutableListOf<String>()
+        lastEpgUrl?.takeIf { it.isNotBlank() }?.let { out.add(it) }
+        additionalEpgUrls.forEach { if (it !in out) out.add(it) }
+        return out
+    }
+
+    var userAgent: String
+        get() = prefs.getString(KEY_USER_AGENT, DEFAULT_USER_AGENT) ?: DEFAULT_USER_AGENT
+        set(value) {
+            val v = value.trim().ifEmpty { DEFAULT_USER_AGENT }
+            prefs.edit().putString(KEY_USER_AGENT, v).apply()
+        }
+
     companion object {
         private const val PREFS_NAME = "tvviewer_prefs"
         private const val KEY_PLAYER = "player_type"
@@ -236,7 +342,14 @@ class AppPreferences(context: Context) {
         private const val KEY_COLOR_THEME = "color_theme"
         private const val KEY_LAST_GROUP = "last_selected_group"
         private const val KEY_LAST_PLAYLIST_NAME = "last_playlist_name"
+        private const val KEY_RECENT_URLS = "recent_urls"
+        private const val KEY_QUALITY_FILTER = "quality_filter"
+        private const val KEY_PER_CHANNEL_STATE = "per_channel_state"
+        private const val KEY_ADDITIONAL_EPG_URLS = "additional_epg_urls"
+        private const val KEY_USER_AGENT = "user_agent"
+        private const val MAX_RECENT = 30
         private const val DEFAULT_UPDATE_CHECK_URL = "https://raw.githubusercontent.com/donmax76/TestApp/master/TVViewer/version.json"
+        const val DEFAULT_USER_AGENT = "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
 
         const val PLAYER_INTERNAL = "internal"
         const val PLAYER_EXTERNAL = "external"

@@ -41,7 +41,91 @@ class SettingsFragment : Fragment() {
         setupDisplay(view)
         setupPlayerSettings(view)
         setupCustomChannels(view)
+        setupNetwork(view)
         setupAbout(view)
+    }
+
+    private fun setupNetwork(view: View) {
+        // User-Agent
+        val uaValue = view.findViewById<TextView>(R.id.userAgentValue)
+        uaValue?.text = prefs.userAgent
+        view.findViewById<LinearLayout>(R.id.userAgentLayout)?.setOnClickListener {
+            val edit = EditText(requireContext()).apply {
+                setText(prefs.userAgent)
+                setSingleLine(false)
+                setSelection(text.length)
+            }
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
+                .setTitle(R.string.user_agent)
+                .setView(edit)
+                .setPositiveButton(R.string.ok) { _, _ ->
+                    prefs.userAgent = edit.text.toString()
+                    uaValue?.text = prefs.userAgent
+                }
+                .setNeutralButton(R.string.reset) { _, _ ->
+                    prefs.userAgent = AppPreferences.DEFAULT_USER_AGENT
+                    uaValue?.text = prefs.userAgent
+                }
+                .setNegativeButton(R.string.cancel, null)
+                .show()
+        }
+
+        // Multi-EPG list
+        val epgUrlsValue = view.findViewById<TextView>(R.id.epgUrlsValue)
+        epgUrlsValue?.text = epgUrlsSummary()
+        view.findViewById<LinearLayout>(R.id.epgUrlsLayout)?.setOnClickListener {
+            showEpgUrlsDialog(epgUrlsValue)
+        }
+    }
+
+    private fun showEpgUrlsDialog(label: TextView?) {
+        val urls = prefs.allEpgUrls().toMutableList()
+        val items = urls.toTypedArray()
+        val builder = AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
+            .setTitle(R.string.epg_urls)
+        val dialog = if (items.isEmpty()) {
+            builder.setMessage(R.string.epg_urls_empty).create()
+        } else {
+            builder.setItems(items) { _, which ->
+                AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
+                    .setTitle(R.string.delete)
+                    .setMessage(items[which])
+                    .setPositiveButton(R.string.delete) { _, _ ->
+                        val toRemove = items[which]
+                        if (prefs.lastEpgUrl == toRemove) {
+                            prefs.lastEpgUrl = null
+                        }
+                        prefs.removeEpgUrl(toRemove)
+                        label?.text = epgUrlsSummary()
+                    }
+                    .setNegativeButton(R.string.cancel, null)
+                    .show()
+            }.create()
+        }
+        builder.setPositiveButton(R.string.add_playlist) { _, _ ->
+            val edit = EditText(requireContext()).apply {
+                hint = "https://example.com/epg.xml.gz"
+                setSingleLine(true)
+            }
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
+                .setTitle(R.string.epg_urls_add)
+                .setView(edit)
+                .setPositiveButton(R.string.ok) { _, _ ->
+                    val url = edit.text.toString().trim()
+                    if (url.isNotBlank()) {
+                        if (prefs.lastEpgUrl.isNullOrBlank()) {
+                            prefs.lastEpgUrl = url
+                        } else {
+                            prefs.addEpgUrl(url)
+                        }
+                        label?.text = epgUrlsSummary()
+                    }
+                }
+                .setNegativeButton(R.string.cancel, null)
+                .show()
+        }
+        builder.setNegativeButton(R.string.cancel, null)
+        builder.show()
     }
 
     override fun onHiddenChanged(hidden: Boolean) {
@@ -81,11 +165,9 @@ class SettingsFragment : Fragment() {
             else -> getString(R.string.orientation_auto)
         }
 
-        view.findViewById<TextView>(R.id.sortValue)?.text = when (prefs.channelSort) {
-            "name" -> getString(R.string.sort_name)
-            "group" -> getString(R.string.sort_group)
-            else -> getString(R.string.sort_default)
-        }
+        view.findViewById<TextView>(R.id.sortValue)?.text = sortLabel(prefs.channelSort)
+        view.findViewById<TextView>(R.id.userAgentValue)?.text = prefs.userAgent
+        view.findViewById<TextView>(R.id.epgUrlsValue)?.text = epgUrlsSummary()
 
         view.findViewById<TextView>(R.id.autoHideValue)?.text =
             getString(R.string.controls_hide_seconds, prefs.channelListAutoHideSeconds)
@@ -276,15 +358,11 @@ class SettingsFragment : Fragment() {
 
         // Channel sort
         val sortValue = view.findViewById<TextView>(R.id.sortValue)
-        sortValue.text = when (prefs.channelSort) {
-            "name" -> getString(R.string.sort_name)
-            "group" -> getString(R.string.sort_group)
-            else -> getString(R.string.sort_default)
-        }
+        sortValue.text = sortLabel(prefs.channelSort)
 
         view.findViewById<LinearLayout>(R.id.sortLayout).setOnClickListener {
-            val options = arrayOf(getString(R.string.sort_default), getString(R.string.sort_name), getString(R.string.sort_group))
-            val values = arrayOf("default", "name", "group")
+            val values = arrayOf("default", "number", "name", "group", "quality")
+            val options = values.map { sortLabel(it) }.toTypedArray()
             val current = values.indexOf(prefs.channelSort).coerceAtLeast(0)
             AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
                 .setTitle(R.string.channel_sort)
@@ -295,6 +373,20 @@ class SettingsFragment : Fragment() {
                 }
                 .show()
         }
+    }
+
+    private fun sortLabel(value: String): String = when (value) {
+        "name" -> getString(R.string.sort_name)
+        "group" -> getString(R.string.sort_group)
+        "number" -> getString(R.string.sort_number)
+        "quality" -> getString(R.string.sort_quality)
+        else -> getString(R.string.sort_default)
+    }
+
+    private fun epgUrlsSummary(): String {
+        val urls = prefs.allEpgUrls()
+        if (urls.isEmpty()) return getString(R.string.epg_urls_empty)
+        return getString(R.string.epg_urls_count, urls.size)
     }
 
     private fun setupPlayerSettings(view: View) {

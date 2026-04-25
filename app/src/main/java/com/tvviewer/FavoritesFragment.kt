@@ -77,6 +77,7 @@ class FavoritesFragment : Fragment() {
     private fun playChannel(channel: Channel) {
         val index = ChannelDataHolder.allChannels.indexOf(channel)
         ChannelDataHolder.currentChannelIndex = if (index >= 0) index else 0
+        prefs.pushRecent(channel.url)
 
         val intent = Intent(requireContext(), PlayerActivity::class.java).apply {
             putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, channel.name)

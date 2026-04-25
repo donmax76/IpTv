@@ -3,6 +3,27 @@
     <string name="app_name">M3U IPTV</string>
     <string name="channels">Каналы</string>
     <string name="playlists">Плейлисты</string>
+    <string name="recent">Недавние</string>
+    <string name="no_recent">Нет недавних каналов</string>
+    <string name="no_recent_hint">Включите канал — он появится здесь</string>
+    <string name="epg_urls">Источники EPG (XMLTV)</string>
+    <string name="user_agent">User-Agent для HTTP</string>
+    <string name="report_problem">Сообщить о проблеме</string>
+    <string name="report_problem_hint">Открыть форму на GitHub с логом</string>
+    <string name="quality_filter">Фильтр качества</string>
+    <string name="filter_all">Все</string>
+    <string name="filter_4k">4K</string>
+    <string name="filter_fhd">FHD</string>
+    <string name="filter_hd">HD</string>
+    <string name="filter_sd">SD</string>
+    <string name="sort_default">По умолчанию</string>
+    <string name="sort_name">По названию</string>
+    <string name="sort_number">По номеру</string>
+    <string name="sort_quality">По качеству</string>
+    <string name="add_url">Добавить URL</string>
+    <string name="open_file">Открыть файл</string>
+    <string name="add_epg">Добавить</string>
+    <string name="remove">Удалить</string>
     <string name="loading">Загрузка…</string>
     <string name="error">Ошибка</string>
     <string name="retry">Повторить</string>
@@ -205,4 +226,12 @@
     <string name="checking_updates">Проверка обновлений…</string>
     <string name="current_version">Текущая версия</string>
     <string name="new_version">Новая версия</string>
+
+    <string name="clear">Очистить</string>
+    <string name="import_file">Импорт из файла</string>
+    <string name="network">Сеть</string>
+    <string name="reset">Сбросить</string>
+    <string name="epg_urls_add">Добавить URL EPG</string>
+    <string name="epg_urls_empty">Источники не заданы</string>
+    <string name="epg_urls_count">Активных источников: %d</string>
 </resources>
