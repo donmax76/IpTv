@@ -63,7 +63,7 @@ object M3UParser {
                                 Channel(
                                     name = extInf.name,
                                     url = url,
-                                    logoUrl = logoUrl,
+                                    logoUrl = logoUrl ?: faviconFor(url),
                                     group = extInf.group,
                                     tvgId = extInf.tvgId
                                 )
@@ -93,7 +93,7 @@ object M3UParser {
                 channels.add(Channel(
                     name = derived,
                     url = url,
-                    logoUrl = null,
+                    logoUrl = faviconFor(url),
                     group = null,
                     tvgId = null,
                 ))
@@ -139,6 +139,20 @@ object M3UParser {
         }
 
         return ExtInf(name = name, logo = logo, group = group, tvgId = tvgId)
+    }
+
+    /**
+     * Channels that didn't ship a tvg-logo in their #EXTINF still need
+     * SOMETHING in the row, otherwise the user just sees the generic
+     * placeholder for every entry. Use the streaming host's favicon as a
+     * cheap fallback — Google's free S2 service returns a 128px PNG for
+     * any domain, no auth.
+     */
+    private fun faviconFor(streamUrl: String): String? {
+        return try {
+            val host = java.net.URI(streamUrl).host?.takeIf { it.isNotEmpty() } ?: return null
+            "https://www.google.com/s2/favicons?domain=$host&sz=128"
+        } catch (_: Exception) { null }
     }
 
     private fun resolveUrl(baseUrl: String, relativePath: String): String {
