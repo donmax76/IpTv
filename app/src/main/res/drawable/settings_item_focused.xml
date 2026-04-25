@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Used both as background and as foreground on Settings rows. When
+     foreground draws ON TOP of children, a solid fill would hide the
+     row's text — so we use only a stroke for the focus state. The
+     interior is filled with a translucent overlay that's still visible
+     but lets the text show through. -->
 <ripple xmlns:android="http://schemas.android.com/apk/res/android"
     android:color="#807C6CF7">
     <item android:id="@android:id/mask">
@@ -12,11 +17,11 @@
             <item android:state_focused="true">
                 <layer-list>
                     <item><shape android:shape="rectangle">
-                        <solid android:color="#7C6CF7" />
+                        <solid android:color="#557C6CF7" />
                         <corners android:radius="12dp" />
                     </shape></item>
                     <item><shape android:shape="rectangle">
-                        <stroke android:width="2dp" android:color="#FFFFFF" />
+                        <stroke android:width="3dp" android:color="#FFFFFFFF" />
                         <corners android:radius="12dp" />
                     </shape></item>
                 </layer-list>
@@ -24,11 +29,11 @@
             <item android:state_selected="true">
                 <layer-list>
                     <item><shape android:shape="rectangle">
-                        <solid android:color="#7C6CF7" />
+                        <solid android:color="#557C6CF7" />
                         <corners android:radius="12dp" />
                     </shape></item>
                     <item><shape android:shape="rectangle">
-                        <stroke android:width="2dp" android:color="#FFFFFF" />
+                        <stroke android:width="3dp" android:color="#FFFFFFFF" />
                         <corners android:radius="12dp" />
                     </shape></item>
                 </layer-list>

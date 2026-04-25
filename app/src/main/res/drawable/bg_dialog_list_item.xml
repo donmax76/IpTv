@@ -1,23 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Hardware focus from a D-pad / remote -->
+    <!-- D-pad / remote navigation. We only highlight the focused or
+         selected (= being-navigated) row. We do NOT highlight
+         state_activated, because setSingleChoiceItems marks the
+         previously-chosen row with that flag and the radio button on
+         the right is enough indication — adding a second filled
+         highlight made the dialog look like two items were selected. -->
     <item android:state_focused="true">
         <layer-list>
             <item><shape><solid android:color="#7C6CF7"/></shape></item>
             <item><shape><stroke android:width="2dp" android:color="#FFFFFF"/></shape></item>
         </layer-list>
     </item>
-    <!-- ListView in an AlertDialog uses state_selected during D-pad
-         navigation. Make it just as bright as state_focused — without
-         this the user can't tell which item will be picked when they
-         press OK. -->
     <item android:state_selected="true">
-        <layer-list>
-            <item><shape><solid android:color="#7C6CF7"/></shape></item>
-            <item><shape><stroke android:width="2dp" android:color="#FFFFFF"/></shape></item>
-        </layer-list>
-    </item>
-    <item android:state_activated="true">
         <layer-list>
             <item><shape><solid android:color="#7C6CF7"/></shape></item>
             <item><shape><stroke android:width="2dp" android:color="#FFFFFF"/></shape></item>
