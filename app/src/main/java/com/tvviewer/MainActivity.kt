@@ -5,16 +5,21 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.util.Log
+import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
+import androidx.drawerlayout.widget.DrawerLayout
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.navigation.NavigationView
 import kotlinx.coroutines.launch
 
 class MainActivity : BaseActivity() {
 
     private lateinit var bottomNav: BottomNavigationView
+    private lateinit var drawerLayout: DrawerLayout
+    private lateinit var sideNav: NavigationView
     private lateinit var prefs: AppPreferences
     private var currentFragmentTag: String? = null
 
@@ -26,14 +31,8 @@ class MainActivity : BaseActivity() {
         applyOrientation()
 
         bottomNav = findViewById(R.id.bottomNavigation)
-        // BottomNavigationView caps at 5 items by default; we have 6.
-        try {
-            val menuView = bottomNav.getChildAt(0)
-            menuView::class.java.superclass?.getDeclaredField("maxItemCount")?.let { f ->
-                f.isAccessible = true
-                f.setInt(menuView, 6)
-            }
-        } catch (_: Throwable) { /* best-effort */ }
+        drawerLayout = findViewById(R.id.drawerLayout)
+        sideNav = findViewById(R.id.sideNav)
 
         bottomNav.setOnItemSelectedListener { item ->
             when (item.itemId) {
@@ -41,10 +40,39 @@ class MainActivity : BaseActivity() {
                 R.id.nav_channels -> showFragment(ChannelsFragment.TAG, ::ChannelsFragment)
                 R.id.nav_tv_guide -> showFragment(TvGuideFragment.TAG, ::TvGuideFragment)
                 R.id.nav_favorites -> showFragment(FavoritesFragment.TAG, ::FavoritesFragment)
-                R.id.nav_recent -> showFragment(RecentFragment.TAG, ::RecentFragment)
                 R.id.nav_settings -> { openSettings(); false /* don't actually select */ }
                 else -> false
             }
+        }
+
+        // Side drawer (left): full 6-item nav including Recent and Settings
+        sideNav.setNavigationItemSelectedListener { item ->
+            when (item.itemId) {
+                R.id.side_nav_playlists -> {
+                    showFragment(PlaylistsFragment.TAG, ::PlaylistsFragment)
+                    bottomNav.selectedItemId = R.id.nav_playlists
+                }
+                R.id.side_nav_channels -> {
+                    showFragment(ChannelsFragment.TAG, ::ChannelsFragment)
+                    bottomNav.selectedItemId = R.id.nav_channels
+                }
+                R.id.side_nav_tv_guide -> {
+                    showFragment(TvGuideFragment.TAG, ::TvGuideFragment)
+                    bottomNav.selectedItemId = R.id.nav_tv_guide
+                }
+                R.id.side_nav_favorites -> {
+                    showFragment(FavoritesFragment.TAG, ::FavoritesFragment)
+                    bottomNav.selectedItemId = R.id.nav_favorites
+                }
+                R.id.side_nav_recent -> {
+                    showFragment(RecentFragment.TAG, ::RecentFragment)
+                }
+                R.id.side_nav_settings -> {
+                    openSettings()
+                }
+            }
+            drawerLayout.closeDrawer(Gravity.START)
+            true
         }
 
         if (savedInstanceState == null) {
@@ -118,27 +146,28 @@ class MainActivity : BaseActivity() {
         startActivity(Intent(this, SettingsActivity::class.java))
     }
 
-    private var exitConfirmShownAt: Long = 0
-
-    @Deprecated("Required override for older APIs")
-    override fun onBackPressed() {
-        // Confirm before quitting so a stray Back press on the remote
-        // doesn't drop the user out of the app mid-watching.
-        AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
-            .setMessage(R.string.exit_app_confirm)
-            .setPositiveButton(R.string.yes) { _, _ -> super.onBackPressed() }
-            .setNegativeButton(R.string.no, null)
-            .show()
-    }
-
     // D-pad / remote control navigation
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        // If the drawer is already open, route all D-pad keys to it so the
+        // user can navigate items and Back closes it.
+        if (drawerLayout.isDrawerOpen(Gravity.START)) {
+            if (keyCode == KeyEvent.KEYCODE_BACK) {
+                drawerLayout.closeDrawer(Gravity.START)
+                return true
+            }
+            return super.onKeyDown(keyCode, event)
+        }
         when (keyCode) {
-            // Left/Right on D-pad - navigate between bottom nav tabs
+            // Left/Right on D-pad - navigate between bottom nav tabs.
+            // If pressed when on the leftmost tab, open the side drawer.
             KeyEvent.KEYCODE_DPAD_LEFT -> {
-                // If focus is on bottom nav or nothing in the fragment has focus, navigate tabs
                 val focusedView = currentFocus
                 if (focusedView == null || isBottomNavFocused(focusedView)) {
+                    val firstId = tabIds.firstOrNull()
+                    if (bottomNav.selectedItemId == firstId) {
+                        openSideDrawer()
+                        return true
+                    }
                     selectPreviousTab()
                     return true
                 }
@@ -176,17 +205,39 @@ class MainActivity : BaseActivity() {
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
                 return super.onKeyDown(keyCode, event)
             }
-            // Menu / Info / Guide / Settings - quick jump to bottom navigation
+            // Menu / Info / Guide / Settings — open the side drawer
             KeyEvent.KEYCODE_MENU,
             KeyEvent.KEYCODE_INFO,
             KeyEvent.KEYCODE_GUIDE,
             KeyEvent.KEYCODE_SETTINGS,
             KeyEvent.KEYCODE_TV_INPUT -> {
-                bottomNav.requestFocus()
+                openSideDrawer()
                 return true
             }
         }
         return super.onKeyDown(keyCode, event)
+    }
+
+    private fun openSideDrawer() {
+        drawerLayout.openDrawer(Gravity.START)
+        sideNav.requestFocus()
+        // Focus the first item explicitly for D-pad users
+        sideNav.menu.getItem(0)?.let { sideNav.setCheckedItem(it) }
+    }
+
+    @Deprecated("Required override for older APIs")
+    override fun onBackPressed() {
+        if (::drawerLayout.isInitialized && drawerLayout.isDrawerOpen(Gravity.START)) {
+            drawerLayout.closeDrawer(Gravity.START)
+            return
+        }
+        // Confirm before quitting so a stray Back press on the remote
+        // doesn't drop the user out of the app mid-watching.
+        AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
+            .setMessage(R.string.exit_app_confirm)
+            .setPositiveButton(R.string.yes) { _, _ -> super.onBackPressed() }
+            .setNegativeButton(R.string.no, null)
+            .show()
     }
 
     private fun isBottomNavFocused(view: View): Boolean {
@@ -222,7 +273,6 @@ class MainActivity : BaseActivity() {
         R.id.nav_channels,
         R.id.nav_tv_guide,
         R.id.nav_favorites,
-        R.id.nav_recent,
         R.id.nav_settings
     )
 
