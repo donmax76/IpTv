@@ -93,22 +93,13 @@ class PlaylistsFragment : Fragment() {
                 getString(R.string.import_file),
                 getString(R.string.paste_url_from_clipboard),
             )
-            val dlg = android.app.AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
-                .setTitle(R.string.add_playlist)
-                .setItems(opts) { _, which ->
-                    when (which) {
-                        0 -> addPlaylistLauncher.launch(Intent(requireContext(), AddPlaylistActivity::class.java))
-                        1 -> importFileLauncher.launch(arrayOf("audio/*", "application/octet-stream", "text/*", "*/*"))
-                        2 -> pasteUrlFromClipboard()
-                    }
+            FocusableDialog.show(requireContext(),
+                getString(R.string.add_playlist), opts, -1) { which ->
+                when (which) {
+                    0 -> addPlaylistLauncher.launch(Intent(requireContext(), AddPlaylistActivity::class.java))
+                    1 -> importFileLauncher.launch(arrayOf("audio/*", "application/octet-stream", "text/*", "*/*"))
+                    2 -> pasteUrlFromClipboard()
                 }
-                .show()
-            // Make the focused option visible at a glance for D-pad users.
-            dlg.listView?.let { lv ->
-                lv.selector = androidx.core.content.ContextCompat
-                    .getDrawable(requireContext(), R.drawable.bg_dialog_list_item)
-                lv.requestFocus()
-                lv.setSelection(0)
             }
         }
 

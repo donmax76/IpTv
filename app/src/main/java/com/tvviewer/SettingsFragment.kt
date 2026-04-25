@@ -211,15 +211,10 @@ class SettingsFragment : Fragment() {
         view.findViewById<LinearLayout>(R.id.playerTypeLayout).setOnClickListener {
             val options = arrayOf(getString(R.string.player_internal), getString(R.string.player_external))
             val current = if (prefs.playerType == AppPreferences.PLAYER_INTERNAL) 0 else 1
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
-                .setTitle(R.string.player)
-                .setSingleChoiceItems(options, current) { dialog, which ->
+            FocusableDialog.show(requireContext(), getString(R.string.player), options, current) { which ->
                     prefs.playerType = if (which == 0) AppPreferences.PLAYER_INTERNAL else AppPreferences.PLAYER_EXTERNAL
                     playerTypeValue.text = options[which]
-                    dialog.dismiss()
                 }
-                .show()
-                .installFocusListBackground()
         }
     }
 
@@ -232,16 +227,11 @@ class SettingsFragment : Fragment() {
             val codes = LocaleHelper.supportedLanguages.map { it.first }
             val current = codes.indexOf(prefs.language).coerceAtLeast(0)
 
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
-                .setTitle(R.string.language)
-                .setSingleChoiceItems(names, current) { dialog, which ->
+            FocusableDialog.show(requireContext(), getString(R.string.language), names, current) { which ->
                     prefs.language = codes[which]
                     langValue.text = names[which]
-                    dialog.dismiss()
                     activity?.recreate()
                 }
-                .show()
-                .installFocusListBackground()
         }
     }
 
@@ -259,16 +249,11 @@ class SettingsFragment : Fragment() {
             )
             val values = arrayOf("purple", "blue", "green", "orange", "red")
             val current = values.indexOf(prefs.colorTheme).coerceAtLeast(0)
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
-                .setTitle(R.string.color_theme)
-                .setSingleChoiceItems(names, current) { dialog, which ->
+            FocusableDialog.show(requireContext(), getString(R.string.color_theme), names, current) { which ->
                     prefs.colorTheme = values[which]
                     themeValue.text = names[which]
-                    dialog.dismiss()
                     activity?.recreate()
                 }
-                .show()
-                .installFocusListBackground()
         }
     }
 
@@ -288,15 +273,10 @@ class SettingsFragment : Fragment() {
         view.findViewById<LinearLayout>(R.id.displayModeLayout).setOnClickListener {
             val options = arrayOf(getString(R.string.list_display_list), getString(R.string.list_display_grid))
             val current = if (prefs.listDisplayMode == "list") 0 else 1
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
-                .setTitle(R.string.list_display)
-                .setSingleChoiceItems(options, current) { dialog, which ->
+            FocusableDialog.show(requireContext(), getString(R.string.list_display), options, current) { which ->
                     prefs.listDisplayMode = if (which == 0) "list" else "grid"
                     displayValue.text = options[which]
-                    dialog.dismiss()
                 }
-                .show()
-                .installFocusListBackground()
         }
 
         val qualityValue = view.findViewById<TextView>(R.id.qualityValue)
@@ -310,15 +290,10 @@ class SettingsFragment : Fragment() {
             val options = arrayOf(getString(R.string.quality_auto), getString(R.string.quality_1080), getString(R.string.quality_4k))
             val values = arrayOf("auto", "1080", "4k")
             val current = values.indexOf(prefs.preferredQuality).coerceAtLeast(0)
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
-                .setTitle(R.string.quality)
-                .setSingleChoiceItems(options, current) { dialog, which ->
+            FocusableDialog.show(requireContext(), getString(R.string.quality), options, current) { which ->
                     prefs.preferredQuality = values[which]
                     qualityValue.text = options[which]
-                    dialog.dismiss()
                 }
-                .show()
-                .installFocusListBackground()
         }
 
         val bufferValue = view.findViewById<TextView>(R.id.bufferValue)
@@ -332,15 +307,10 @@ class SettingsFragment : Fragment() {
             val options = arrayOf(getString(R.string.buffer_low), getString(R.string.buffer_normal), getString(R.string.buffer_high))
             val values = arrayOf("low", "normal", "high")
             val current = values.indexOf(prefs.bufferMode).coerceAtLeast(0)
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
-                .setTitle(R.string.buffer_mode)
-                .setSingleChoiceItems(options, current) { dialog, which ->
+            FocusableDialog.show(requireContext(), getString(R.string.buffer_mode), options, current) { which ->
                     prefs.bufferMode = values[which]
                     bufferValue.text = options[which]
-                    dialog.dismiss()
                 }
-                .show()
-                .installFocusListBackground()
         }
 
         // Orientation
@@ -355,16 +325,11 @@ class SettingsFragment : Fragment() {
             val options = arrayOf(getString(R.string.orientation_auto), getString(R.string.orientation_portrait), getString(R.string.orientation_landscape))
             val values = arrayOf("auto", "portrait", "landscape")
             val current = values.indexOf(prefs.screenOrientation).coerceAtLeast(0)
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
-                .setTitle(R.string.screen_orientation)
-                .setSingleChoiceItems(options, current) { dialog, which ->
+            FocusableDialog.show(requireContext(), getString(R.string.screen_orientation), options, current) { which ->
                     prefs.screenOrientation = values[which]
                     orientationValue.text = options[which]
-                    dialog.dismiss()
                     activity?.recreate()
                 }
-                .show()
-                .installFocusListBackground()
         }
 
         // Channel sort
@@ -375,15 +340,10 @@ class SettingsFragment : Fragment() {
             val values = arrayOf("default", "number", "name", "group", "quality")
             val options = values.map { sortLabel(it) }.toTypedArray()
             val current = values.indexOf(prefs.channelSort).coerceAtLeast(0)
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
-                .setTitle(R.string.channel_sort)
-                .setSingleChoiceItems(options, current) { dialog, which ->
+            FocusableDialog.show(requireContext(), getString(R.string.channel_sort), options, current) { which ->
                     prefs.channelSort = values[which]
                     sortValue.text = options[which]
-                    dialog.dismiss()
                 }
-                .show()
-                .installFocusListBackground()
         }
     }
 
@@ -410,15 +370,10 @@ class SettingsFragment : Fragment() {
             val options = arrayOf("3", "5", "7", "10", "15", "20")
             val values = intArrayOf(3, 5, 7, 10, 15, 20)
             val current = values.indexOfFirst { it == prefs.channelListAutoHideSeconds }.coerceAtLeast(0)
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
-                .setTitle(R.string.list_autohide)
-                .setSingleChoiceItems(options.map { "$it сек" }.toTypedArray(), current) { dialog, which ->
+            FocusableDialog.show(requireContext(), getString(R.string.list_autohide), options.map { "$it сек" }.toTypedArray(), current) { which ->
                     prefs.channelListAutoHideSeconds = values[which]
                     autoHideValue.text = getString(R.string.controls_hide_seconds, values[which])
-                    dialog.dismiss()
                 }
-                .show()
-                .installFocusListBackground()
         }
 
         // Time display
@@ -433,15 +388,10 @@ class SettingsFragment : Fragment() {
             val options = arrayOf(getString(R.string.time_off), getString(R.string.time_left), getString(R.string.time_right))
             val values = arrayOf("off", "left", "right")
             val current = values.indexOf(prefs.timeDisplayPosition).coerceAtLeast(0)
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
-                .setTitle(R.string.time_display)
-                .setSingleChoiceItems(options, current) { dialog, which ->
+            FocusableDialog.show(requireContext(), getString(R.string.time_display), options, current) { which ->
                     prefs.timeDisplayPosition = values[which]
                     timeDisplayValue.text = options[which]
-                    dialog.dismiss()
                 }
-                .show()
-                .installFocusListBackground()
         }
 
         // Sleep timer
@@ -464,18 +414,13 @@ class SettingsFragment : Fragment() {
             )
             val values = intArrayOf(0, 30, 60, 90, 120)
             val current = values.indexOfFirst { it == prefs.sleepTimerMinutes }.coerceAtLeast(0)
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
-                .setTitle(R.string.sleep_timer)
-                .setSingleChoiceItems(options, current) { dialog, which ->
+            FocusableDialog.show(requireContext(), getString(R.string.sleep_timer), options, current) { which ->
                     prefs.sleepTimerMinutes = values[which]
                     sleepTimerValue.text = options[which]
-                    dialog.dismiss()
                     if (values[which] > 0) {
                         Toast.makeText(requireContext(), getString(R.string.sleep_timer_set, options[which]), Toast.LENGTH_SHORT).show()
                     }
                 }
-                .show()
-                .installFocusListBackground()
         }
 
         // Autoplay

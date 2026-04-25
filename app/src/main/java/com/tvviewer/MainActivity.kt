@@ -45,6 +45,19 @@ class MainActivity : BaseActivity() {
             }
         }
 
+        // Hide the bottom navigation while the side drawer is open — the
+        // user explicitly asked for this; keeping both visible was
+        // distracting and made it harder to tell which D-pad press goes
+        // where.
+        drawerLayout.addDrawerListener(object : DrawerLayout.SimpleDrawerListener() {
+            override fun onDrawerOpened(drawerView: View) {
+                bottomNav.visibility = View.GONE
+            }
+            override fun onDrawerClosed(drawerView: View) {
+                bottomNav.visibility = View.VISIBLE
+            }
+        })
+
         // Side drawer (left): full 6-item nav including Recent and Settings
         sideNav.setNavigationItemSelectedListener { item ->
             when (item.itemId) {
