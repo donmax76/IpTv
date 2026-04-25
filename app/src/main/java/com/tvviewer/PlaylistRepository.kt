@@ -67,11 +67,43 @@ object PlaylistRepository {
             Log.d(TAG, "Response size: ${body.length} chars (raw ${bytes.size} bytes)")
             val baseUrl = url.substringBeforeLast("/") + "/"
             val result = M3UParser.parseWithEpg(body, baseUrl)
+            // Diagnostic: if a remote playlist parsed to zero channels,
+            // ship the first 1.5 KB of raw bytes (UTF-8 + CP1251 + hex
+            // preview) up to the developer so we can see what format the
+            // server actually returned. Saves the user having to dig out
+            // and paste the raw .m3u.
+            if (result.channels.isEmpty() && context != null) {
+                runCatching { sendEmptyParseDiagnostic(context, url, bytes) }
+            }
             PlaylistResult(result.channels, result.epgUrl)
         } catch (e: Exception) {
             Log.e(TAG, "fetchPlaylist error", e)
             throw e
         }
+    }
+
+    /** Posts the first ~1500 bytes of an unparsable playlist response to
+     *  the dev's report channel so we can see exactly what the server
+     *  returned (raw hex + utf-8 + cp1251 decode previews). Once is
+     *  enough — rate-limited via GitHubReporter's silent dedup. */
+    private fun sendEmptyParseDiagnostic(context: Context, url: String, bytes: ByteArray) {
+        val n = bytes.size.coerceAtMost(1500)
+        val sample = bytes.copyOf(n)
+        val hex = sample.joinToString("") { "%02x".format(it) }
+        val utf8 = String(sample, Charsets.UTF_8)
+        val cp1251 = try {
+            String(sample, java.nio.charset.Charset.forName("windows-1251"))
+        } catch (_: Exception) { "(cp1251 decode failed)" }
+        val title = "[Empty parse] $url"
+        val body = buildString {
+            append(GitHubReporter.systemInfo()).append("\n")
+            append("URL: $url\n")
+            append("Bytes received: ${bytes.size}\n\n")
+            append("**UTF-8 sample**:\n```\n").append(utf8).append("\n```\n\n")
+            append("**CP1251 sample**:\n```\n").append(cp1251).append("\n```\n\n")
+            append("**Hex (first $n bytes)**:\n```\n").append(hex).append("\n```\n")
+        }
+        GitHubReporter.report(context, title, body, silent = true)
     }
 
     private fun decodePlaylistBytes(bytes: ByteArray): String {

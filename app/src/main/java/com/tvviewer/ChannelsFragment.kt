@@ -121,6 +121,15 @@ class ChannelsFragment : Fragment() {
         super.onResume()
         checkPendingPlaylist()
         adapter.updateFavorites(prefs.favorites)
+        // List/grid mode could have been changed in Settings while we
+        // were paused — refresh the layout manager AND tell the adapter
+        // to re-bind so item type (list vs grid card) matches the new mode.
+        val needsGrid = prefs.listDisplayMode == "grid"
+        val isGrid = recyclerView.layoutManager is GridLayoutManager
+        if (needsGrid != isGrid) {
+            setupRecyclerView()
+            adapter.notifyDataSetChanged()
+        }
     }
 
     private fun checkPendingPlaylist() {
