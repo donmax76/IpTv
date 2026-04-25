@@ -16,6 +16,7 @@
     <string name="filter_fhd">FHD</string>
     <string name="filter_hd">HD</string>
     <string name="filter_sd">SD</string>
+    <string name="channel_sort">Сортировка каналов</string>
     <string name="sort_default">По умолчанию</string>
     <string name="sort_name">По названию</string>
     <string name="sort_number">По номеру</string>
@@ -167,9 +168,6 @@
     <string name="epg_auto_update">Авто-обновление ТВ-гида</string>
     <string name="epg_auto_update_hint">Обновлять при загрузке плейлиста</string>
     <string name="controls_hide_seconds">Автоскрытие (сек): %d</string>
-    <string name="channel_sort">Сортировка каналов</string>
-    <string name="sort_default">По умолчанию</string>
-    <string name="sort_name">По имени</string>
     <string name="sort_group">По группе</string>
     <string name="sleep_timer">Таймер сна</string>
     <string name="sleep_timer_off">Выкл</string>
