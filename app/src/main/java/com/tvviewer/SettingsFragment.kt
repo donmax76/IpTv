@@ -667,6 +667,10 @@ class SettingsFragment : Fragment() {
             return
         }
 
+        // Build the dialog with 3 actions ourselves so we can fit Send /
+        // Copy / Clear / Cancel — AlertDialog only has 3 button slots
+        // (positive / neutral / negative), so 'Clear' is offered as a
+        // separate confirmation after Cancel for convenience.
         AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
             .setTitle(R.string.error_log)
             .setMessage(content.takeLast(3000))
@@ -682,10 +686,17 @@ class SettingsFragment : Fragment() {
                 }
                 GitHubReporter.report(requireContext(), title, body)
             }
-            .setNeutralButton(R.string.copy_errors) { _, _ ->
-                val clip = ClipData.newPlainText("errors", content)
-                (requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(clip)
-                Toast.makeText(requireContext(), R.string.copied_send_to_dev, Toast.LENGTH_SHORT).show()
+            .setNeutralButton(R.string.clear_errors) { _, _ ->
+                AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
+                    .setTitle(R.string.clear_errors)
+                    .setMessage(R.string.clear_errors_confirm)
+                    .setPositiveButton(R.string.yes) { _, _ ->
+                        ErrorLogger.clear(requireContext())
+                        Toast.makeText(requireContext(), R.string.errors_cleared, Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton(R.string.no, null)
+                    .show()
+                    .installFocusListBackground()
             }
             .setNegativeButton(R.string.cancel, null)
             .show()

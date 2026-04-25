@@ -18,6 +18,9 @@
     <string name="time_on">On</string>
     <string name="http_referer">HTTP Referer</string>
     <string name="referer_auto">Auto (stream origin)</string>
+    <string name="clear_errors">Clear log</string>
+    <string name="clear_errors_confirm">Delete the whole error log?</string>
+    <string name="errors_cleared">Log cleared</string>
     <string name="no_recent">No recent channels</string>
     <string name="no_recent_hint">Open a channel and it will appear here</string>
     <string name="epg_urls">EPG sources (XMLTV)</string>

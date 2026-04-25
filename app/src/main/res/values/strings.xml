@@ -18,6 +18,9 @@
     <string name="time_on">Включено</string>
     <string name="http_referer">HTTP Referer</string>
     <string name="referer_auto">Авто (origin потока)</string>
+    <string name="clear_errors">Очистить лог</string>
+    <string name="clear_errors_confirm">Удалить весь лог ошибок?</string>
+    <string name="errors_cleared">Лог очищен</string>
     <string name="no_recent">Нет недавних каналов</string>
     <string name="no_recent_hint">Включите канал — он появится здесь</string>
     <string name="epg_urls">Источники EPG (XMLTV)</string>
