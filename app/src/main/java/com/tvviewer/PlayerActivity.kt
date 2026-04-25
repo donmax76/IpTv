@@ -855,20 +855,24 @@ class PlayerActivity : BaseActivity() {
                 androidx.media3.common.MimeTypes.APPLICATION_M3U8
             path.contains(".mpd") ->
                 androidx.media3.common.MimeTypes.APPLICATION_MPD
-            path.contains(".ts") ->
-                androidx.media3.common.MimeTypes.VIDEO_MP2T
-            path.contains(".mp4") || path.contains(".m4v") ->
+            // Clearly progressive containers — keep them progressive.
+            path.endsWith(".mp4") || path.endsWith(".m4v") ->
                 androidx.media3.common.MimeTypes.VIDEO_MP4
-            path.contains(".webm") ->
+            path.endsWith(".webm") ->
                 androidx.media3.common.MimeTypes.VIDEO_WEBM
-            path.contains(".flv") ->
+            path.endsWith(".flv") ->
                 androidx.media3.common.MimeTypes.VIDEO_FLV
-            path.contains(".mkv") ->
+            path.endsWith(".mkv") ->
                 androidx.media3.common.MimeTypes.VIDEO_MATROSKA
             // RTMP / RTSP — leave to default detection
             url.startsWith("rtmp", true) || url.startsWith("rtsp", true) -> null
-            // No extension at all — IPTV portals nearly always serve HLS,
-            // so default to HLS instead of bombing as progressive.
+            // Everything else (including bare URLs and URLs that end in
+            // .ts) — assume HLS. Many IPTV portals (izone.az and similar)
+            // serve HLS via URLs that look progressive but actually
+            // return an m3u8 manifest. Treating them as HLS lets
+            // HlsMediaSource handle the manifest; if the server really
+            // returns raw MPEG-TS, HlsMediaSource still falls back
+            // gracefully via single-segment HLS handling.
             else -> androidx.media3.common.MimeTypes.APPLICATION_M3U8
         }
         val builder = MediaItem.Builder().setUri(url)
