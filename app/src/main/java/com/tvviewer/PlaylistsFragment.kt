@@ -174,6 +174,10 @@ class PlaylistsFragment : Fragment() {
     }
 
     private fun refreshPlaylists() {
+        // Result-launcher callbacks can fire before onViewCreated (e.g.
+        // after process recreation). Bail out if the view tree isn't
+        // ready yet — onViewCreated will refresh again itself.
+        if (!isAdded || !::adapter.isInitialized) return
         val playlists = prefs.customPlaylists
         val builtIn = BuiltInPlaylists.getAllPlaylists().map { it.name to (it.url ?: "") }
         val allPlaylists = playlists + builtIn
