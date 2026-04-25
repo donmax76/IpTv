@@ -46,9 +46,18 @@ object M3UParser {
                 if (line.startsWith("#EXTINF:")) {
                     val extInf = parseExtInf(line)
                     i++
-                    // Skip any other directive lines (e.g. #EXTVLCOPT) until
-                    // we hit the actual stream URL.
-                    while (i < lines.size && lines[i].trim().startsWith("#")) i++
+                    // Some playlists carry the category on a separate
+                    // line (e.g. zedomS-style: '#EXTGRP:новости' between
+                    // #EXTINF and the URL). Capture that and use it when
+                    // EXTINF itself didn't have group-title=…
+                    var extGroup: String? = null
+                    while (i < lines.size && lines[i].trim().startsWith("#")) {
+                        val d = lines[i].trim()
+                        if (d.startsWith("#EXTGRP:", ignoreCase = true)) {
+                            extGroup = d.substringAfter(':').trim().ifEmpty { null }
+                        }
+                        i++
+                    }
                     if (i < lines.size) {
                         var url = lines[i].trim()
                         if (url.isNotEmpty()) {
@@ -64,7 +73,7 @@ object M3UParser {
                                     name = extInf.name,
                                     url = url,
                                     logoUrl = logoUrl ?: faviconFor(url),
-                                    group = extInf.group,
+                                    group = extInf.group ?: extGroup,
                                     tvgId = extInf.tvgId
                                 )
                             )
