@@ -15,9 +15,10 @@
         <FrameLayout
             android:id="@+id/fragmentContainer"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:layout_above="@+id/bottomNavigation"/>
+            android:layout_height="match_parent"/>
 
+        <!-- Bottom navigation kept inflated for code references but hidden:
+             the user explicitly asked to navigate via the side drawer only. -->
         <com.google.android.material.bottomnavigation.BottomNavigationView
             android:id="@+id/bottomNavigation"
             android:layout_width="match_parent"
@@ -29,8 +30,8 @@
             app:labelVisibilityMode="labeled"
             app:menu="@menu/bottom_navigation"
             app:itemRippleColor="@color/primary"
-            android:focusable="true"
-            android:descendantFocusability="afterDescendants"/>
+            android:focusable="false"
+            android:visibility="gone"/>
     </RelativeLayout>
 
     <!-- Slide-out side rail (full 6-item nav with Recent and Settings) -->
