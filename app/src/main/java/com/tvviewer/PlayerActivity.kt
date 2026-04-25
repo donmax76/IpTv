@@ -742,6 +742,16 @@ class PlayerActivity : BaseActivity() {
                     override fun onPlayerError(error: PlaybackException) {
                         loadingIndicator.visibility = View.GONE
                         ErrorLogger.logException(this@PlayerActivity, error)
+                        // BehindLiveWindowException: HLS playback fell off
+                        // the back of the rolling live window. Don't tear
+                        // the source down — just jump to the live edge.
+                        if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
+                            try {
+                                player?.seekToDefaultPosition()
+                                player?.prepare()
+                                return
+                            } catch (_: Exception) {}
+                        }
                         scheduleReconnect()
                     }
                 })
