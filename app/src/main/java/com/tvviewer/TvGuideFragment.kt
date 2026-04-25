@@ -211,18 +211,24 @@ class TvGuideFragment : Fragment() {
         }
 
         progressBar.visibility = View.VISIBLE
+        // Use application context for the network call so the work survives
+        // a fragment detach. UI updates after that bail out if the fragment
+        // is no longer attached (was crashing as IllegalStateException).
+        val appCtx = requireContext().applicationContext
         lifecycleScope.launch {
             try {
-                val data = EpgRepository.fetchAll(urls, requireContext())
+                val data = EpgRepository.fetchAll(urls, appCtx)
                 ChannelDataHolder.epgData = data
                 prefs.epgLastUpdate = System.currentTimeMillis()
+                if (!isAdded) return@launch
                 progressBar.visibility = View.GONE
                 loadEpgData()
-                Toast.makeText(requireContext(), R.string.epg_updated, Toast.LENGTH_SHORT).show()
+                Toast.makeText(appCtx, R.string.epg_updated, Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
                 Log.e(TAG, "EPG refresh error", e)
+                if (!isAdded) return@launch
                 progressBar.visibility = View.GONE
-                Toast.makeText(requireContext(), R.string.epg_update_failed, Toast.LENGTH_SHORT).show()
+                Toast.makeText(appCtx, R.string.epg_update_failed, Toast.LENGTH_SHORT).show()
             }
         }
     }
