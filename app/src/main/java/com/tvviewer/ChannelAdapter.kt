@@ -81,8 +81,15 @@ class ChannelAdapter(
         holder.btnFavorite.isFocusableInTouchMode = false
         holder.btnFavorite.setOnClickListener { onFavoriteClick(channel) }
         holder.itemView.setOnClickListener { onChannelClick(channel) }
+        // Long-press on the row also toggles favourite (works with mouse and
+        // remote OK-hold, in addition to the dedicated button)
+        holder.itemView.setOnLongClickListener {
+            onFavoriteClick(channel)
+            true
+        }
 
-        // D-pad: center/enter selects channel, right focuses favorite button
+        // D-pad: center/enter selects channel, right focuses favorite button,
+        // F (or yellow / channel-info button) toggles favourite directly.
         holder.itemView.setOnKeyListener { _, keyCode, event ->
             if (event.action == KeyEvent.ACTION_DOWN) {
                 when (keyCode) {
@@ -92,6 +99,13 @@ class ChannelAdapter(
                     }
                     KeyEvent.KEYCODE_DPAD_RIGHT -> {
                         holder.btnFavorite.requestFocus()
+                        true
+                    }
+                    KeyEvent.KEYCODE_F,
+                    KeyEvent.KEYCODE_BUTTON_Y,
+                    KeyEvent.KEYCODE_PROG_YELLOW,
+                    KeyEvent.KEYCODE_BOOKMARK -> {
+                        onFavoriteClick(channel)
                         true
                     }
                     else -> false

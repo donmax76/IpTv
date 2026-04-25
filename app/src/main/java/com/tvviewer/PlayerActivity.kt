@@ -1213,6 +1213,20 @@ class PlayerActivity : BaseActivity() {
                 showChannelBanner()
                 return true
             }
+            // Favourite hotkey: F / yellow remote button / bookmark
+            KeyEvent.KEYCODE_F,
+            KeyEvent.KEYCODE_BUTTON_Y,
+            KeyEvent.KEYCODE_PROG_YELLOW,
+            KeyEvent.KEYCODE_BOOKMARK -> {
+                val channels = ChannelDataHolder.allChannels
+                if (currentIndex in channels.indices) {
+                    toggleFavorite(channels[currentIndex])
+                    val msg = if (prefs.isFavorite(channels[currentIndex].url))
+                        "★ ${channels[currentIndex].name}" else channels[currentIndex].name
+                    android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_SHORT).show()
+                }
+                return true
+            }
         }
 
         // Number keys for direct channel input (0-9)

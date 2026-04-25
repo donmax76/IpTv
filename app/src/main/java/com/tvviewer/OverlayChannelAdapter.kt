@@ -90,6 +90,31 @@ class OverlayChannelAdapter(
         }
 
         holder.itemView.setOnClickListener { onChannelClick(position) }
+        holder.itemView.setOnLongClickListener {
+            onFavoriteClick?.invoke(channel); true
+        }
+        holder.itemView.setOnKeyListener { _, keyCode, event ->
+            if (event.action == android.view.KeyEvent.ACTION_DOWN) {
+                when (keyCode) {
+                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                        holder.favoriteBtn.requestFocus(); true
+                    }
+                    android.view.KeyEvent.KEYCODE_F,
+                    android.view.KeyEvent.KEYCODE_BUTTON_Y,
+                    android.view.KeyEvent.KEYCODE_PROG_YELLOW,
+                    android.view.KeyEvent.KEYCODE_BOOKMARK -> {
+                        onFavoriteClick?.invoke(channel); true
+                    }
+                    else -> false
+                }
+            } else false
+        }
+        holder.favoriteBtn.setOnKeyListener { _, keyCode, event ->
+            if (event.action == android.view.KeyEvent.ACTION_DOWN
+                && keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT) {
+                holder.itemView.requestFocus(); true
+            } else false
+        }
     }
 
     override fun getItemCount() = channels.size
