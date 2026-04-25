@@ -11,7 +11,19 @@ import re
 import json
 import time
 import threading
+import tempfile
+import subprocess
+import urllib.request
 from datetime import datetime
+
+# Build-time version code (mirrors GITHUB_RUN_NUMBER, written into version.py
+# by CI). Used by the GitHub-based updater so each new build has a
+# strictly-greater code than the previous one.
+try:
+    from version import WIN_VERSION_CODE  # type: ignore
+except Exception:
+    WIN_VERSION_CODE = 0
+WIN_VERSION_NAME = "5.4"
 
 # PyInstaller support: add bundled data path
 if getattr(sys, 'frozen', False):
@@ -40,6 +52,31 @@ except ImportError:
 
 from m3u_parser import fetch_playlist, load_playlist_file, Channel, PlaylistResult
 from epg_parser import fetch_epg, get_now_next, get_current_progress, EpgData
+
+# --- Crash auto-publish to ntfy.sh (token-less) ---
+# Same topic as the Android client so the developer reads one stream:
+NTFY_TOPIC = "tvviewer-donmax76-50090885b4d9a5e0"
+
+def _publish_to_ntfy(title: str, body: str):
+    """Best-effort POST to ntfy.sh. Runs in a daemon thread; never throws."""
+    def _send():
+        try:
+            req = urllib.request.Request(
+                f"https://ntfy.sh/{NTFY_TOPIC}",
+                data=body.encode('utf-8', 'replace'),
+                method='POST',
+                headers={
+                    'Content-Type': 'text/plain; charset=utf-8',
+                    'User-Agent': 'TVViewer-Windows',
+                    'Title': title.encode('ascii', 'replace').decode('ascii'),
+                    'Tags': 'warning,windows,tvviewer',
+                },
+            )
+            urllib.request.urlopen(req, timeout=8).close()
+        except Exception:
+            pass
+    threading.Thread(target=_send, daemon=True).start()
+
 
 # --- Crash log path ---
 def _log_file_path() -> str:
@@ -399,6 +436,121 @@ class LoadPlaylistThread(QThread):
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
+
+
+class UpdateCheckThread(QThread):
+    """Queries GitHub Releases for the latest Windows build.
+
+    Mirrors UpdateChecker.kt on Android: parses `win-v5.4-build<run>` tags
+    and treats the build number as a versionCode.
+    """
+    finished = pyqtSignal(object)  # dict with keys: code, name, tag, url, notes — or None
+
+    REPO = "donmax76/iptv"
+
+    def run(self):
+        try:
+            req = urllib.request.Request(
+                f"https://api.github.com/repos/{self.REPO}/releases?per_page=20",
+                headers={
+                    'Accept': 'application/vnd.github.v3+json',
+                    'User-Agent': 'TVViewer-Windows',
+                },
+            )
+            with urllib.request.urlopen(req, timeout=15) as r:
+                data = json.loads(r.read())
+            wins = [rel for rel in data
+                    if isinstance(rel, dict) and rel.get('tag_name', '').startswith('win-')]
+            best = None
+            for rel in wins:
+                m = re.search(r'build(\d+)', rel.get('tag_name', ''))
+                if not m:
+                    continue
+                code = int(m.group(1))
+                if best is None or code > best[0]:
+                    best = (code, rel)
+            if best is None:
+                self.finished.emit(None)
+                return
+            code, rel = best
+            asset = next((a for a in rel.get('assets', [])
+                          if a.get('name', '').lower().endswith('.exe')), None)
+            self.finished.emit({
+                'code': code,
+                'name': rel.get('name', ''),
+                'tag': rel.get('tag_name', ''),
+                'url': asset['browser_download_url'] if asset else rel.get('html_url', ''),
+                'notes': rel.get('body', ''),
+            })
+        except Exception:
+            self.finished.emit(None)
+
+
+class DownloadUpdateThread(QThread):
+    """Downloads a new EXE to a temp file and reports progress."""
+    progress = pyqtSignal(int)  # 0..100
+    finished = pyqtSignal(object)  # path or None
+    error = pyqtSignal(str)
+
+    def __init__(self, url: str, parent=None):
+        super().__init__(parent)
+        self.url = url
+
+    def run(self):
+        tmp_dir = tempfile.gettempdir()
+        out_path = os.path.join(tmp_dir, 'TVViewer.update.exe')
+        try:
+            req = urllib.request.Request(self.url, headers={'User-Agent': 'TVViewer-Windows'})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                total = int(resp.headers.get('Content-Length') or 0)
+                read = 0
+                with open(out_path, 'wb') as f:
+                    while True:
+                        chunk = resp.read(64 * 1024)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        read += len(chunk)
+                        if total > 0:
+                            self.progress.emit(int(read * 100 / total))
+            self.finished.emit(out_path)
+        except Exception as e:
+            self.error.emit(str(e))
+            try: os.remove(out_path)
+            except Exception: pass
+
+
+def _swap_self_and_restart(new_exe_path: str):
+    """Swap the running .exe with `new_exe_path` and restart.
+
+    Only works for a frozen PyInstaller build. Returns True if a swap
+    script was launched (caller should quit immediately afterwards).
+    """
+    if not getattr(sys, 'frozen', False):
+        return False
+    current = sys.executable
+    if not current.lower().endswith('.exe'):
+        return False
+    try:
+        bat = (
+            "@echo off\r\n"
+            "ping -n 3 127.0.0.1 >nul\r\n"
+            f'move /Y "{new_exe_path}" "{current}" >nul 2>&1\r\n'
+            f'start "" "{current}"\r\n'
+            'del "%~f0"\r\n'
+        )
+        bat_path = os.path.join(tempfile.gettempdir(), 'tvviewer_update.bat')
+        with open(bat_path, 'w', encoding='ascii') as f:
+            f.write(bat)
+        flags = 0
+        if hasattr(subprocess, 'DETACHED_PROCESS'):
+            flags |= subprocess.DETACHED_PROCESS
+        if hasattr(subprocess, 'CREATE_NO_WINDOW'):
+            flags |= subprocess.CREATE_NO_WINDOW
+        subprocess.Popen(['cmd', '/c', bat_path], creationflags=flags)
+        return True
+    except Exception:
+        return False
 
 
 class LoadEpgThread(QThread):
@@ -1157,6 +1309,11 @@ class PlayerPage(QWidget):
         self.btn_sleep.clicked.connect(self.configure_sleep_timer)
         ctrl.addWidget(self.btn_sleep)
 
+        self.btn_pip = QPushButton("PiP")
+        self.btn_pip.setToolTip("Mini player mode (P)")
+        self.btn_pip.clicked.connect(self._on_pip_clicked)
+        ctrl.addWidget(self.btn_pip)
+
         self.btn_fullscreen = QPushButton("⛶")
         self.btn_fullscreen.setToolTip("Fullscreen (F11)")
         self.btn_fullscreen.clicked.connect(self.toggle_fullscreen)
@@ -1299,6 +1456,11 @@ class PlayerPage(QWidget):
     def _hide_banner(self):
         if hasattr(self, 'osd_banner'):
             self.osd_banner.hide()
+
+    def _on_pip_clicked(self):
+        mw = self.window()
+        if hasattr(mw, 'toggle_pip_mode'):
+            mw.toggle_pip_mode()
 
     def init_vlc(self):
         if not HAS_VLC:
@@ -1756,6 +1918,11 @@ class PlayerPage(QWidget):
             self.vol_slider.setValue(max(0, self.vol_slider.value() - 5))
         elif key == Qt.Key_F11:
             self.toggle_fullscreen()
+        elif key == Qt.Key_P:
+            # Toggle Picture-in-Picture (frameless mini player)
+            mw = self.window()
+            if hasattr(mw, 'toggle_pip_mode'):
+                mw.toggle_pip_mode()
         elif key == Qt.Key_A:
             self.cycle_aspect_ratio()
         elif key == Qt.Key_T:
@@ -2169,6 +2336,18 @@ class SettingsPage(QWidget):
         data_row.addStretch()
         layout.addLayout(data_row)
 
+        # --- Updates ---
+        layout.addSpacing(8)
+        layout.addWidget(self._section("Updates"))
+        upd_row = QHBoxLayout()
+        self.btn_check_updates = QPushButton("Check for updates")
+        self.btn_check_updates.clicked.connect(self._check_updates)
+        upd_row.addWidget(self.btn_check_updates)
+        self.update_status = QLabel("")
+        self.update_status.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 12px;")
+        upd_row.addWidget(self.update_status, 1)
+        layout.addLayout(upd_row)
+
         # --- Help / report issue ---
         layout.addSpacing(8)
         layout.addWidget(self._section("Help"))
@@ -2184,7 +2363,7 @@ class SettingsPage(QWidget):
 
         # --- Info section ---
         layout.addSpacing(12)
-        ver_label = QLabel("TVViewer v5.4 (Windows Desktop)")
+        ver_label = QLabel(f"TVViewer v{WIN_VERSION_NAME} build {WIN_VERSION_CODE} (Windows Desktop)")
         ver_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 13px;")
         layout.addWidget(ver_label)
 
@@ -2316,11 +2495,15 @@ class SettingsPage(QWidget):
                 "**Actual**:\n\n"
                 "**Recent log**:\n```\n" + (tail or "(empty)") + "\n```\n"
             )
+            # Auto-publish to ntfy first (zero user effort)
+            _publish_to_ntfy("[Windows] manual report", body)
             url = ("https://github.com/donmax76/iptv/issues/new"
                    f"?title={quote('[Windows] ')}&body={quote(body)}")
             QApplication.clipboard().setText(url)
             import webbrowser
             webbrowser.open(url)
+            QMessageBox.information(self, "Report sent",
+                "Лог отправлен на ntfy и URL для GitHub Issue скопирован в буфер обмена.")
         except Exception as e:
             QMessageBox.warning(self, "Report issue", f"Could not open GitHub: {e}")
 
@@ -2335,6 +2518,89 @@ class SettingsPage(QWidget):
                 os.system(f'xdg-open "{path}"')
         except Exception as e:
             QMessageBox.warning(self, "Open log folder", str(e))
+
+    # ----- Updates -----
+    def _check_updates(self):
+        self.btn_check_updates.setEnabled(False)
+        self.update_status.setText("Checking…")
+        self._upd_thread = UpdateCheckThread(self)
+        self._upd_thread.finished.connect(self._on_update_check)
+        self._upd_thread.start()
+
+    def _on_update_check(self, info):
+        self.btn_check_updates.setEnabled(True)
+        if not isinstance(info, dict):
+            self.update_status.setText("Could not reach GitHub.")
+            QMessageBox.information(
+                self, "Updates",
+                "Could not check for updates (no internet?).")
+            return
+        cur = WIN_VERSION_CODE
+        latest = int(info.get('code', 0))
+        if latest <= cur:
+            self.update_status.setText(
+                f"You have the latest build ({cur}). GitHub: {latest}.")
+            QMessageBox.information(
+                self, "Updates",
+                f"You're on the latest version.\n\n"
+                f"Installed: build {cur}\n"
+                f"GitHub:    build {latest}")
+            return
+        # Newer build available — offer to download & install
+        msg = (f"New build {latest} available (you have {cur}).\n\n"
+               f"{(info.get('notes') or '')[:500]}\n\n"
+               f"Download and install now?")
+        reply = QMessageBox.question(
+            self, "Update available", msg,
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if reply != QMessageBox.Yes:
+            self.update_status.setText(f"Build {latest} available.")
+            return
+        url = info.get('url') or ''
+        if not url.lower().endswith('.exe'):
+            QMessageBox.warning(self, "Updates",
+                "Release does not have an EXE asset; opening browser.")
+            try:
+                import webbrowser; webbrowser.open(url)
+            except Exception: pass
+            return
+        self._do_download(url, latest)
+
+    def _do_download(self, url: str, build: int):
+        self._dl_progress = QProgressBar()
+        self._dl_progress.setMaximum(100)
+        self._dl_dialog = QDialog(self)
+        self._dl_dialog.setWindowTitle("Downloading update…")
+        self._dl_dialog.setModal(True)
+        self._dl_dialog.setMinimumWidth(400)
+        v = QVBoxLayout(self._dl_dialog)
+        v.addWidget(QLabel(f"Downloading build {build}…"))
+        v.addWidget(self._dl_progress)
+        self._dl_thread = DownloadUpdateThread(url, self)
+        self._dl_thread.progress.connect(self._dl_progress.setValue)
+        self._dl_thread.finished.connect(self._on_download_done)
+        self._dl_thread.error.connect(self._on_download_error)
+        self._dl_thread.start()
+        self._dl_dialog.show()
+
+    def _on_download_done(self, path):
+        if hasattr(self, '_dl_dialog'):
+            self._dl_dialog.accept()
+        if not path:
+            return
+        if _swap_self_and_restart(path):
+            QApplication.quit()
+        else:
+            QMessageBox.information(
+                self, "Update downloaded",
+                f"New EXE saved to:\n{path}\n\n"
+                "Close TVViewer, replace the existing EXE with this file, "
+                "then start it again.")
+
+    def _on_download_error(self, err: str):
+        if hasattr(self, '_dl_dialog'):
+            self._dl_dialog.reject()
+        QMessageBox.warning(self, "Download failed", err)
 
     def _clear_favorites(self):
         reply = QMessageBox.question(
@@ -2395,6 +2661,37 @@ class MainWindow(QMainWindow):
         self.resize(1100, 700)
         self.init_ui()
         self.auto_load_last()
+        # Silent auto-check for new build at startup (only for frozen EXE)
+        QTimer.singleShot(3000, self._auto_check_updates)
+
+    def _auto_check_updates(self):
+        if not getattr(sys, 'frozen', False):
+            return
+        try:
+            self._startup_upd = UpdateCheckThread(self)
+            self._startup_upd.finished.connect(self._on_startup_update_check)
+            self._startup_upd.start()
+        except Exception:
+            pass
+
+    def _on_startup_update_check(self, info):
+        if not isinstance(info, dict):
+            return
+        latest = int(info.get('code', 0))
+        if latest <= WIN_VERSION_CODE:
+            return
+        msg = (f"New build {latest} available (you have {WIN_VERSION_CODE}).\n\n"
+               f"{(info.get('notes') or '')[:400]}\n\n"
+               f"Download and install now?")
+        reply = QMessageBox.question(
+            self, "Update available", msg,
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if reply != QMessageBox.Yes:
+            return
+        url = info.get('url') or ''
+        if not url.lower().endswith('.exe'):
+            return
+        self.settings_page._do_download(url, latest)
 
     def init_ui(self):
         central = QWidget()
@@ -2594,6 +2891,39 @@ class MainWindow(QMainWindow):
             self.showNormal()
         self.switch_page(1)
 
+    def toggle_pip_mode(self):
+        """Frameless 480×270 always-on-top mini player in the screen corner."""
+        if not getattr(self, '_pip_active', False):
+            self._pip_prev_geom = self.geometry()
+            self._pip_prev_flags = self.windowFlags()
+            self._pip_prev_fullscreen = self.isFullScreen()
+            if self._pip_prev_fullscreen:
+                self.showNormal()
+            self.setWindowFlag(Qt.FramelessWindowHint, True)
+            self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+            screen = QApplication.primaryScreen().availableGeometry()
+            self.resize(480, 270)
+            self.move(screen.right() - 480 - 20, screen.top() + 20)
+            # Hide bottom nav while in mini-mode
+            for btn, _idx in getattr(self, 'nav_buttons', []):
+                btn.parent().setVisible(False)
+                break
+            self._pip_active = True
+            self.show()
+        else:
+            self.setWindowFlag(Qt.FramelessWindowHint, False)
+            self.setWindowFlag(Qt.WindowStaysOnTopHint, bool(self.config.always_on_top))
+            if hasattr(self, '_pip_prev_geom'):
+                self.setGeometry(self._pip_prev_geom)
+            for btn, _idx in getattr(self, 'nav_buttons', []):
+                btn.parent().setVisible(True)
+                break
+            self._pip_active = False
+            if getattr(self, '_pip_prev_fullscreen', False):
+                self.showFullScreen()
+            else:
+                self.show()
+
     def auto_load_last(self):
         url = self.config.last_playlist_url
         name = self.config.last_playlist_name
@@ -2655,10 +2985,15 @@ def _install_crash_handler(app):
                 short = (exc_value.args[0] if getattr(exc_value, 'args', None) else str(exc_value))[:80]
                 body = (
                     "Automatic crash report.\n\n"
+                    f"**App**: TVViewer Windows v{WIN_VERSION_NAME} build {WIN_VERSION_CODE}\n"
                     f"**OS**: {_platform.platform()}\n"
                     f"**Python**: {_platform.python_version()}\n\n"
                     "**Traceback**:\n```\n" + tb_text[-4000:] + "\n```\n"
                 )
+                # Auto-publish to ntfy.sh — same topic as Android, so the
+                # developer can read crashes from any client without
+                # additional setup.
+                _publish_to_ntfy(f"[Windows crash] {short}", body)
                 url = ("https://github.com/donmax76/iptv/issues/new"
                        f"?title={quote('[Windows crash] ' + short)}&body={quote(body)}")
                 msg = QMessageBox()

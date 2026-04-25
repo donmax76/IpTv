@@ -620,12 +620,22 @@ class PlayerActivity : BaseActivity() {
         }
 
         val names = audioTracks.map { it.first }.toTypedArray()
-        android.app.AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
+        val dialog = android.app.AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
             .setTitle(getString(R.string.audio_track))
             .setItems(names) { _, which ->
                 selectAudioTrack(which)
             }
-            .show()
+            .create()
+        // Anchor to the right side as a narrow side sheet so it doesn't
+        // span the whole screen ("слишком растянуто в лево").
+        dialog.window?.let { w ->
+            val params = w.attributes
+            params.gravity = android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
+            params.width = (resources.displayMetrics.widthPixels * 0.32f).toInt().coerceIn(320, 520)
+            params.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            w.attributes = params
+        }
+        dialog.show()
     }
 
     private fun selectAudioTrack(trackIndex: Int) {
