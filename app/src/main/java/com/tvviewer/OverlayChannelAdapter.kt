@@ -50,7 +50,7 @@ class OverlayChannelAdapter(
         }
 
         // EPG now/next with time
-        val (nowProg, nextProg) = EpgRepository.getNowNextDetailed(epgData, channel.tvgId)
+        val (nowProg, nextProg) = EpgRepository.getNowNextDetailed(epgData, channel.tvgId, channel.name)
         if (nowProg != null) {
             val nowTime = timeFormat.format(Date(nowProg.start))
             val nowEndTime = timeFormat.format(Date(nowProg.end))

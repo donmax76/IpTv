@@ -219,6 +219,9 @@ object EpgRepository {
         val parser = factory.newPullParser()
         parser.setInput(StringReader(xml))
 
+        // Map of channel-id → normalized display names (for fallback matching)
+        val displayNamesById = mutableMapOf<String, MutableList<String>>()
+
         var channelId: String? = null
         var start: Long = 0
         var end: Long = 0
@@ -227,12 +230,24 @@ object EpgRepository {
         var inProgramme = false
         var inTitle = false
         var inDesc = false
+        var inChannel = false
+        var inDisplayName = false
+        var currentChannelId: String? = null
+        var displayNameBuf = ""
 
         var eventType = parser.eventType
         while (eventType != XmlPullParser.END_DOCUMENT) {
             when (eventType) {
                 XmlPullParser.START_TAG -> {
                     when (parser.name) {
+                        "channel" -> {
+                            inChannel = true
+                            currentChannelId = parser.getAttributeValue(null, "id")?.let { normalizeId(it) }
+                        }
+                        "display-name" -> if (inChannel) {
+                            inDisplayName = true
+                            displayNameBuf = ""
+                        }
                         "programme" -> {
                             inProgramme = true
                             channelId = parser.getAttributeValue(null, "channel")?.let { normalizeId(it) }
@@ -246,14 +261,30 @@ object EpgRepository {
                     }
                 }
                 XmlPullParser.TEXT -> {
-                    if (inTitle) title = parser.text.trim()
-                    if (inDesc) description = parser.text.trim()
+                    when {
+                        inDisplayName -> displayNameBuf += parser.text
+                        inTitle -> title = parser.text.trim()
+                        inDesc -> description = parser.text.trim()
+                    }
                 }
                 XmlPullParser.END_TAG -> {
                     when (parser.name) {
+                        "channel" -> {
+                            inChannel = false
+                            currentChannelId = null
+                        }
+                        "display-name" -> {
+                            if (inChannel && currentChannelId != null) {
+                                val norm = normalizeId(displayNameBuf)
+                                if (norm.isNotBlank()) {
+                                    displayNamesById.getOrPut(currentChannelId!!) { mutableListOf() }.add(norm)
+                                }
+                            }
+                            inDisplayName = false
+                        }
                         "programme" -> {
                             if (channelId != null && title.isNotEmpty()) {
-                                result.getOrPut(channelId) { mutableListOf() }
+                                result.getOrPut(channelId!!) { mutableListOf() }
                                     .add(Programme(start, end, title, description))
                             }
                             inProgramme = false
@@ -264,6 +295,15 @@ object EpgRepository {
                 }
             }
             eventType = parser.next()
+        }
+
+        // Mirror each channel's programmes under every normalized display-name as well.
+        // This lets us match by channel name when the M3U lacks (or mistypes) tvg-id.
+        for ((id, names) in displayNamesById) {
+            val progs = result[id] ?: continue
+            for (n in names) {
+                if (n != id && !result.containsKey(n)) result[n] = progs
+            }
         }
 
         result.values.forEach { it.sortBy { p -> p.start } }
@@ -296,28 +336,36 @@ object EpgRepository {
     }
 
     fun getNowNext(epg: Map<String, List<Programme>>, tvgId: String?): Pair<String?, String?> {
-        if (tvgId.isNullOrBlank()) return null to null
-        val norm = normalizeId(tvgId)
-        val programmes = epg[norm] ?: return null to null
-        val now = System.currentTimeMillis()
-        var nowTitle: String? = null
-        var nextTitle: String? = null
-        for (p in programmes) {
-            when {
-                now in p.start..p.end -> nowTitle = p.title
-                now < p.start && nextTitle == null -> { nextTitle = p.title; break }
-            }
-        }
-        return nowTitle to nextTitle
+        val (now, next) = getNowNextDetailed(epg, tvgId)
+        return now?.title to next?.title
+    }
+
+    /** Like getNowNext, but accepts the channel's display name as a fallback. */
+    fun getNowNext(
+        epg: Map<String, List<Programme>>,
+        tvgId: String?,
+        channelName: String?,
+    ): Pair<String?, String?> {
+        val (now, next) = getNowNextDetailed(epg, tvgId, channelName)
+        return now?.title to next?.title
     }
 
     /**
      * Get detailed now/next info with times.
      */
-    fun getNowNextDetailed(epg: Map<String, List<Programme>>, tvgId: String?): Pair<Programme?, Programme?> {
-        if (tvgId.isNullOrBlank()) return null to null
-        val norm = normalizeId(tvgId)
-        val programmes = epg[norm] ?: return null to null
+    fun getNowNextDetailed(epg: Map<String, List<Programme>>, tvgId: String?): Pair<Programme?, Programme?> =
+        getNowNextDetailed(epg, tvgId, null)
+
+    fun getNowNextDetailed(
+        epg: Map<String, List<Programme>>,
+        tvgId: String?,
+        channelName: String?,
+    ): Pair<Programme?, Programme?> {
+        if (epg.isEmpty()) return null to null
+        val keys = mutableListOf<String>()
+        if (!tvgId.isNullOrBlank()) keys += normalizeId(tvgId)
+        if (!channelName.isNullOrBlank()) keys += normalizeId(channelName)
+        val programmes = keys.firstNotNullOfOrNull { epg[it] } ?: return null to null
         val now = System.currentTimeMillis()
         var nowProg: Programme? = null
         var nextProg: Programme? = null

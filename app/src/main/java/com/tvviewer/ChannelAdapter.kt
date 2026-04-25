@@ -61,7 +61,7 @@ class ChannelAdapter(
         }
 
         // EPG
-        val (now, next) = EpgRepository.getNowNext(epgData, channel.tvgId)
+        val (now, next) = EpgRepository.getNowNext(epgData, channel.tvgId, channel.name)
         holder.channelEpg?.let { epg ->
             epg.text = when {
                 now != null -> now

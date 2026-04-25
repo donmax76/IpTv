@@ -97,6 +97,8 @@ class PlayerActivity : BaseActivity() {
     private var channelListVisible = false
     private val hideHandler = Handler(Looper.getMainLooper())
     private val hideRunnable = Runnable { hideControls() }
+    private val channelListHideHandler = Handler(Looper.getMainLooper())
+    private val channelListHideRunnable = Runnable { hideChannelList() }
     private val clockHandler = Handler(Looper.getMainLooper())
     private val clockRunnable = object : Runnable {
         override fun run() {
@@ -322,7 +324,17 @@ class PlayerActivity : BaseActivity() {
         overlaySearchEdit?.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: Editable?) { filterOverlayChannels() }
+            override fun afterTextChanged(s: Editable?) {
+                filterOverlayChannels()
+                bumpChannelListIdleTimer()
+            }
+        })
+
+        // Reset auto-hide timer on any scroll/touch in the channel list
+        overlayChannelsList.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                if (dx != 0 || dy != 0) bumpChannelListIdleTimer()
+            }
         })
 
         // Category chips in overlay
@@ -827,7 +839,7 @@ class PlayerActivity : BaseActivity() {
         val channels = ChannelDataHolder.allChannels
         if (currentIndex in channels.indices) {
             val channel = channels[currentIndex]
-            val (nowProg, nextProg) = EpgRepository.getNowNextDetailed(ChannelDataHolder.epgData, channel.tvgId)
+            val (nowProg, nextProg) = EpgRepository.getNowNextDetailed(ChannelDataHolder.epgData, channel.tvgId, channel.name)
             if (nowProg != null) {
                 val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
                 val nowTime = timeFormat.format(Date(nowProg.start))
@@ -880,7 +892,7 @@ class PlayerActivity : BaseActivity() {
             }
         }
 
-        val (nowProg, nextProg) = EpgRepository.getNowNextDetailed(ChannelDataHolder.epgData, channel.tvgId)
+        val (nowProg, nextProg) = EpgRepository.getNowNextDetailed(ChannelDataHolder.epgData, channel.tvgId, channel.name)
         val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
         if (nowProg != null) {
@@ -978,12 +990,27 @@ class PlayerActivity : BaseActivity() {
         } else {
             overlayChannelsList.scrollToPosition(currentIndex.coerceAtLeast(0))
         }
+        scheduleHideChannelList()
     }
 
     private fun hideChannelList() {
         channelListOverlay.visibility = View.GONE
         channelListVisible = false
+        channelListHideHandler.removeCallbacks(channelListHideRunnable)
         scheduleHideControls()
+    }
+
+    private fun scheduleHideChannelList() {
+        channelListHideHandler.removeCallbacks(channelListHideRunnable)
+        val seconds = prefs.channelListAutoHideSeconds
+        if (seconds > 0) {
+            channelListHideHandler.postDelayed(channelListHideRunnable, seconds * 1000L)
+        }
+    }
+
+    /** Reset the channel-list inactivity timer when the user interacts with it. */
+    private fun bumpChannelListIdleTimer() {
+        if (channelListVisible) scheduleHideChannelList()
     }
 
     // === Controls visibility ===
@@ -1031,6 +1058,8 @@ class PlayerActivity : BaseActivity() {
     // === D-pad / Remote control ===
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        // Any keypress while the channel list is visible counts as activity
+        if (channelListVisible) bumpChannelListIdleTimer()
         if (isScreenLocked) {
             if (keyCode == KeyEvent.KEYCODE_BACK) {
                 toggleScreenLock()
