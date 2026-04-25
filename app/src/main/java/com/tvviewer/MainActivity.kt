@@ -109,6 +109,19 @@ class MainActivity : BaseActivity() {
         startActivity(Intent(this, SettingsActivity::class.java))
     }
 
+    private var exitConfirmShownAt: Long = 0
+
+    @Deprecated("Required override for older APIs")
+    override fun onBackPressed() {
+        // Confirm before quitting so a stray Back press on the remote
+        // doesn't drop the user out of the app mid-watching.
+        AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
+            .setMessage(R.string.exit_app_confirm)
+            .setPositiveButton(R.string.yes) { _, _ -> super.onBackPressed() }
+            .setNegativeButton(R.string.no, null)
+            .show()
+    }
+
     // D-pad / remote control navigation
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         when (keyCode) {
@@ -154,8 +167,12 @@ class MainActivity : BaseActivity() {
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
                 return super.onKeyDown(keyCode, event)
             }
-            // Menu key - focus the bottom navigation
-            KeyEvent.KEYCODE_MENU -> {
+            // Menu / Info / Guide / Settings - quick jump to bottom navigation
+            KeyEvent.KEYCODE_MENU,
+            KeyEvent.KEYCODE_INFO,
+            KeyEvent.KEYCODE_GUIDE,
+            KeyEvent.KEYCODE_SETTINGS,
+            KeyEvent.KEYCODE_TV_INPUT -> {
                 bottomNav.requestFocus()
                 return true
             }

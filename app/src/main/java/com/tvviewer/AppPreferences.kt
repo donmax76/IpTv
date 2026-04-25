@@ -302,9 +302,12 @@ class AppPreferences(context: Context) {
         val out = mutableListOf<String>()
         lastEpgUrl?.takeIf { it.isNotBlank() }?.let { out.add(it) }
         additionalEpgUrls.forEach { if (it !in out) out.add(it) }
-        // Always include the built-in defaults so EPG works even when the
-        // playlist has no x-tvg-url and the user hasn't configured anything.
-        DEFAULT_EPG_URLS.forEach { if (it !in out) out.add(it) }
+        // Built-in defaults are used only when the user hasn't provided
+        // any source AND the playlist itself has no x-tvg-url. This keeps
+        // playback startup fast for users with a working primary source.
+        if (out.isEmpty()) {
+            DEFAULT_EPG_URLS.forEach { if (it !in out) out.add(it) }
+        }
         return out
     }
 

@@ -34,6 +34,12 @@ jobs:
 
     - name: Build Debug APK
       id: build
+      env:
+        # Optional: when this secret is set in repo settings, the APK ships
+        # with a baked-in token so crash/error reports POST directly to the
+        # issue tracker. If not set, the app falls back to opening the
+        # browser at github.com/.../issues/new.
+        IPTV_ISSUE_TOKEN: ${{ secrets.IPTV_ISSUE_TOKEN }}
       run: |
         ./gradlew assembleDebug --stacktrace 2>&1 | tee build_output.log || true
         BUILD_EXIT=${PIPESTATUS[0]}

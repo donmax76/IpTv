@@ -4,6 +4,13 @@
     <string name="channels">Channels</string>
     <string name="playlists">Playlists</string>
     <string name="recent">Recent</string>
+    <string name="exit_app_confirm">Exit the app?</string>
+    <string name="yes">Yes</string>
+    <string name="no">No</string>
+    <string name="send_to_github">Send to GitHub</string>
+    <string name="error_log_sent">Log sent</string>
+    <string name="error_log_send_failed">Failed to send</string>
+    <string name="bottom_nav_shortcut">Menu key — open bottom navigation</string>
     <string name="no_recent">No recent channels</string>
     <string name="no_recent_hint">Open a channel and it will appear here</string>
     <string name="epg_urls">EPG sources (XMLTV)</string>

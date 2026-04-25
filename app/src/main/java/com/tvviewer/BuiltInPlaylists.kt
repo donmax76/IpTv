@@ -21,7 +21,6 @@ object BuiltInPlaylists {
             Playlist("🇧🇾 Беларусь", "$B/countries/by.m3u"),
             Playlist("🇰🇿 Казахстан", "$B/countries/kz.m3u"),
             Playlist("🇦🇿 Азербайджан", "$B/countries/az.m3u"),
-            Playlist("🇦🇿 Mədəniyyət TV", "https://raw.githubusercontent.com/donmax76/TestApp/master/TVViewer/playlists/medeniyyet.m3u"),
             Playlist("🇬🇪 Грузия", "$B/countries/ge.m3u"),
             Playlist("🇲🇩 Молдова", "$B/countries/md.m3u"),
             Playlist("🇵🇱 Польша", "$B/countries/pl.m3u"),

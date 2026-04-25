@@ -4,6 +4,13 @@
     <string name="channels">Каналы</string>
     <string name="playlists">Плейлисты</string>
     <string name="recent">Недавние</string>
+    <string name="exit_app_confirm">Выйти из приложения?</string>
+    <string name="yes">Да</string>
+    <string name="no">Нет</string>
+    <string name="send_to_github">Отправить на GitHub</string>
+    <string name="error_log_sent">Лог отправлен</string>
+    <string name="error_log_send_failed">Не удалось отправить</string>
+    <string name="bottom_nav_shortcut">Кнопка Меню — открыть нижнее меню</string>
     <string name="no_recent">Нет недавних каналов</string>
     <string name="no_recent_hint">Включите канал — он появится здесь</string>
     <string name="epg_urls">Источники EPG (XMLTV)</string>

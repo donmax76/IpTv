@@ -70,6 +70,7 @@ class PlayerActivity : BaseActivity() {
     private lateinit var errorText: TextView
     private lateinit var btnPlayPause: ImageButton
     private lateinit var clockDisplay: TextView
+    private lateinit var persistentClock: TextView
     private lateinit var channelListOverlay: FrameLayout
     private lateinit var overlayChannelsList: RecyclerView
     private lateinit var numberInputDisplay: TextView
@@ -215,6 +216,7 @@ class PlayerActivity : BaseActivity() {
         errorText = findViewById(R.id.errorText)
         btnPlayPause = findViewById(R.id.btnPlayPause)
         clockDisplay = findViewById(R.id.clockDisplay)
+        persistentClock = findViewById(R.id.persistentClock)
         channelListOverlay = findViewById(R.id.channelListOverlay)
         overlayChannelsList = findViewById(R.id.overlayChannelsList)
         numberInputDisplay = findViewById(R.id.numberInputDisplay)
@@ -245,9 +247,12 @@ class PlayerActivity : BaseActivity() {
         btnSpeed = findViewById(R.id.btnSpeed)
         audioTrackInfo = findViewById(R.id.audioTrackInfo)
 
-        // Show clock based on settings
+        // Show clock based on settings — both the in-bar clock (which is
+        // hidden when controls auto-hide) and the persistent clock that
+        // stays on top of the video.
         if (prefs.timeDisplayPosition != "off") {
             clockDisplay.visibility = View.VISIBLE
+            persistentClock.visibility = View.VISIBLE
         }
 
         btnBack.setOnClickListener { finish() }
@@ -859,6 +864,7 @@ class PlayerActivity : BaseActivity() {
     private fun updateClock() {
         val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
         clockDisplay.text = time
+        persistentClock.text = time
     }
 
     private fun startClock() {

@@ -34,6 +34,10 @@
         <item name="colorControlActivated">#7C6CF7</item>
         <item name="colorControlHighlight">#407C6CF7</item>
         <item name="materialAlertDialogTitleTextStyle">@style/DialogTitleStyle</item>
+        <!-- Make focus on dialog list items (radio/checkbox/single-choice)
+             clearly visible for D-pad / TV remote users. -->
+        <item name="android:listChoiceBackgroundIndicator">@drawable/bg_dialog_list_item</item>
+        <item name="listChoiceBackgroundIndicator">@drawable/bg_dialog_list_item</item>
     </style>
 
     <style name="DialogTitleStyle" parent="MaterialAlertDialog.MaterialComponents.Title.Text">

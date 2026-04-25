@@ -662,7 +662,19 @@ class SettingsFragment : Fragment() {
         AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
             .setTitle(R.string.error_log)
             .setMessage(content.takeLast(3000))
-            .setPositiveButton(R.string.copy_errors) { _, _ ->
+            .setPositiveButton(R.string.send_to_github) { _, _ ->
+                val title = "[Android error log] " +
+                    content.lineSequence().firstOrNull { it.isNotBlank() }?.take(80).orEmpty()
+                val body = buildString {
+                    append("Лог ошибок отправлен из настроек.\n\n")
+                    append(GitHubReporter.systemInfo())
+                    append("\n**Log tail**:\n```\n")
+                    append(content.takeLast(4000))
+                    append("\n```\n")
+                }
+                GitHubReporter.report(requireContext(), title, body)
+            }
+            .setNeutralButton(R.string.copy_errors) { _, _ ->
                 val clip = ClipData.newPlainText("errors", content)
                 (requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(clip)
                 Toast.makeText(requireContext(), R.string.copied_send_to_dev, Toast.LENGTH_SHORT).show()

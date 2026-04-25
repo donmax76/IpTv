@@ -3,16 +3,12 @@ package com.tvviewer
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.widget.Button
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import java.net.URLEncoder
 
 class CrashReportActivity : AppCompatActivity() {
 
@@ -46,34 +42,18 @@ class CrashReportActivity : AppCompatActivity() {
             1f
         ))
         val reportBtn = Button(this).apply {
-            text = "Сообщить на GitHub"
+            text = getString(R.string.send_to_github)
             setOnClickListener {
                 val title = "[Android crash] " + errorText.lineSequence()
                     .firstOrNull { it.isNotBlank() }?.take(80).orEmpty()
                 val body = buildString {
                     append("Автоматический отчёт об ошибке.\n\n")
-                    append("**App**: ").append(BuildConfig.VERSION_NAME)
-                        .append(" (build ").append(BuildConfig.VERSION_CODE).append(")\n")
-                    append("**Android**: ").append(Build.VERSION.RELEASE)
-                        .append(" (sdk ").append(Build.VERSION.SDK_INT).append(")\n")
-                    append("**Device**: ").append(Build.MANUFACTURER).append(" ")
-                        .append(Build.MODEL).append("\n\n")
-                    append("**Stacktrace**:\n```\n")
+                    append(GitHubReporter.systemInfo())
+                    append("\n**Stacktrace**:\n```\n")
                     append(errorText.takeLast(4000))
                     append("\n```\n")
                 }
-                val url = "https://github.com/donmax76/iptv/issues/new" +
-                    "?title=" + URLEncoder.encode(title, "UTF-8") +
-                    "&body=" + URLEncoder.encode(body, "UTF-8")
-                try {
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                } catch (_: Exception) {
-                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("GitHub issue URL", url))
-                    Toast.makeText(this@CrashReportActivity,
-                        "Не удалось открыть браузер. URL скопирован в буфер.",
-                        Toast.LENGTH_LONG).show()
-                }
+                GitHubReporter.report(this@CrashReportActivity, title, body, onSuccess = { finish() })
             }
         }
         layout.addView(reportBtn)

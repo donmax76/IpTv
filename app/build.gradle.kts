@@ -18,6 +18,13 @@ android {
         val ciRun = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
         versionCode = ciRun ?: 34
         versionName = "5.4"
+
+        // GitHub token for auto-submitting crash/error reports as issues.
+        // Provided via repository secret IPTV_ISSUE_TOKEN; empty by default
+        // so the app falls back to opening the browser.
+        val issueToken = System.getenv("IPTV_ISSUE_TOKEN") ?: ""
+        buildConfigField("String", "ISSUE_TOKEN", "\"$issueToken\"")
+        buildConfigField("String", "ISSUE_REPO", "\"donmax76/iptv\"")
     }
 
     // Stable debug keystore committed to the repo so every CI build is

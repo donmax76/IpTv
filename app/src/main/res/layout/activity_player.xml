@@ -12,6 +12,24 @@
         app:show_buffering="when_playing"
         app:use_controller="false"/>
 
+    <!-- Persistent clock (always visible, even when controls are hidden) -->
+    <TextView
+        android:id="@+id/persistentClock"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="12dp"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:paddingTop="3dp"
+        android:paddingBottom="3dp"
+        android:textColor="#FFFFFFFF"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:background="#80000000"
+        android:visibility="gone"/>
+
     <!-- Custom overlay controls -->
     <RelativeLayout
         android:id="@+id/controlsOverlay"
