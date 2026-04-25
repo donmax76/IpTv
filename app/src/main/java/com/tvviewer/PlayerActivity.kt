@@ -269,6 +269,24 @@ class PlayerActivity : BaseActivity() {
 
         btnBack.setOnClickListener { finish() }
 
+        // Reset the auto-hide timer whenever the user moves focus between
+        // any top-bar / control buttons or interacts with the layout.
+        // Without this, after 5 s of "navigating" the bar disappears even
+        // though the user is actively trying to use it.
+        val keepAliveListener = View.OnFocusChangeListener { _, hasFocus ->
+            if (hasFocus) scheduleHideControls()
+        }
+        for (i in 0 until topBar.childCount) {
+            topBar.getChildAt(i).onFocusChangeListener = keepAliveListener
+        }
+        // Same for the centre play / nav row, which has buttons too.
+        controlsOverlay.viewTreeObserver.addOnGlobalFocusChangeListener { _, newFocus ->
+            if (newFocus != null && controlsVisible &&
+                (isFocusInTopBar() || isInsideControlsOverlay(newFocus))) {
+                scheduleHideControls()
+            }
+        }
+
         btnPlayPause.setOnClickListener {
             player?.let { p ->
                 if (p.isPlaying) {
@@ -1100,6 +1118,15 @@ class PlayerActivity : BaseActivity() {
         while (v != null) {
             if (v == topBar) return true
             v = (v.parent as? View)
+        }
+        return false
+    }
+
+    private fun isInsideControlsOverlay(v: View): Boolean {
+        var p: View? = v
+        while (p != null) {
+            if (p == controlsOverlay) return true
+            p = p.parent as? View
         }
         return false
     }
