@@ -20,13 +20,30 @@ android {
         versionName = "5.4"
     }
 
+    // Stable debug keystore committed to the repo so every CI build is
+    // signed with the same key. Without this, each CI run generates a
+    // random debug keystore and Android refuses to install the new APK
+    // over the old one ("App not installed" / signature mismatch).
+    signingConfigs {
+        create("releaseLikeDebug") {
+            storeFile = rootProject.file("debug-stable.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("releaseLikeDebug")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("releaseLikeDebug")
         }
     }
     compileOptions {
