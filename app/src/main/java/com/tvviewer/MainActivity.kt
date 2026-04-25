@@ -118,6 +118,13 @@ class MainActivity : BaseActivity() {
     override fun onResume() {
         super.onResume()
         applyOrientation()
+        // PlayerActivity sets this when the user presses LEFT twice from
+        // the channel list overlay — meaning they want the side menu.
+        if (ChannelDataHolder.openDrawerOnReturn) {
+            ChannelDataHolder.openDrawerOnReturn = false
+            // Defer one frame so the activity is fully attached.
+            window.decorView.post { openSideDrawer() }
+        }
     }
 
     private fun applyOrientation() {
