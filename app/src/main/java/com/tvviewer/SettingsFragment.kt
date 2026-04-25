@@ -68,6 +68,7 @@ class SettingsFragment : Fragment() {
                 }
                 .setNegativeButton(R.string.cancel, null)
                 .show()
+                .installFocusListBackground()
         }
 
         // Multi-EPG list
@@ -100,6 +101,7 @@ class SettingsFragment : Fragment() {
                     }
                     .setNegativeButton(R.string.cancel, null)
                     .show()
+                    .installFocusListBackground()
             }
         }
 
@@ -124,6 +126,7 @@ class SettingsFragment : Fragment() {
                 }
                 .setNegativeButton(R.string.cancel, null)
                 .show()
+                .installFocusListBackground()
         }
         builder.setNegativeButton(R.string.cancel, null)
         builder.show()
@@ -216,6 +219,7 @@ class SettingsFragment : Fragment() {
                     dialog.dismiss()
                 }
                 .show()
+                .installFocusListBackground()
         }
     }
 
@@ -237,6 +241,7 @@ class SettingsFragment : Fragment() {
                     activity?.recreate()
                 }
                 .show()
+                .installFocusListBackground()
         }
     }
 
@@ -263,6 +268,7 @@ class SettingsFragment : Fragment() {
                     activity?.recreate()
                 }
                 .show()
+                .installFocusListBackground()
         }
     }
 
@@ -290,6 +296,7 @@ class SettingsFragment : Fragment() {
                     dialog.dismiss()
                 }
                 .show()
+                .installFocusListBackground()
         }
 
         val qualityValue = view.findViewById<TextView>(R.id.qualityValue)
@@ -311,6 +318,7 @@ class SettingsFragment : Fragment() {
                     dialog.dismiss()
                 }
                 .show()
+                .installFocusListBackground()
         }
 
         val bufferValue = view.findViewById<TextView>(R.id.bufferValue)
@@ -332,6 +340,7 @@ class SettingsFragment : Fragment() {
                     dialog.dismiss()
                 }
                 .show()
+                .installFocusListBackground()
         }
 
         // Orientation
@@ -355,6 +364,7 @@ class SettingsFragment : Fragment() {
                     activity?.recreate()
                 }
                 .show()
+                .installFocusListBackground()
         }
 
         // Channel sort
@@ -373,6 +383,7 @@ class SettingsFragment : Fragment() {
                     dialog.dismiss()
                 }
                 .show()
+                .installFocusListBackground()
         }
     }
 
@@ -407,6 +418,7 @@ class SettingsFragment : Fragment() {
                     dialog.dismiss()
                 }
                 .show()
+                .installFocusListBackground()
         }
 
         // Time display
@@ -429,6 +441,7 @@ class SettingsFragment : Fragment() {
                     dialog.dismiss()
                 }
                 .show()
+                .installFocusListBackground()
         }
 
         // Sleep timer
@@ -462,6 +475,7 @@ class SettingsFragment : Fragment() {
                     }
                 }
                 .show()
+                .installFocusListBackground()
         }
 
         // Autoplay
@@ -505,6 +519,7 @@ class SettingsFragment : Fragment() {
                     }
                     .setNegativeButton(R.string.cancel, null)
                     .show()
+                    .installFocusListBackground()
             } else {
                 // Set PIN
                 val editText = EditText(requireContext()).apply {
@@ -525,6 +540,7 @@ class SettingsFragment : Fragment() {
                     }
                     .setNegativeButton(R.string.cancel, null)
                     .show()
+                    .installFocusListBackground()
             }
         }
 
@@ -545,6 +561,7 @@ class SettingsFragment : Fragment() {
                 }
                 .setNegativeButton(R.string.cancel, null)
                 .show()
+                .installFocusListBackground()
         }
     }
 
@@ -586,6 +603,7 @@ class SettingsFragment : Fragment() {
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
+            .installFocusListBackground()
     }
 
     private fun setupAbout(view: View) {
@@ -625,6 +643,7 @@ class SettingsFragment : Fragment() {
                         }
                         .setNegativeButton(R.string.cancel, null)
                         .show()
+                        .installFocusListBackground()
                 } else {
                     val msg = if (updateInfo != null) {
                         // Found a release but it's not newer — show both versions
@@ -640,6 +659,7 @@ class SettingsFragment : Fragment() {
                         .setMessage(msg)
                         .setPositiveButton(R.string.ok, null)
                         .show()
+                        .installFocusListBackground()
                 }
             } catch (e: Exception) {
                 versionText.text = getString(R.string.version_format, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)
@@ -648,6 +668,7 @@ class SettingsFragment : Fragment() {
                     .setMessage(e.message ?: e.javaClass.simpleName)
                     .setPositiveButton(R.string.ok, null)
                     .show()
+                    .installFocusListBackground()
             }
         }
     }
@@ -681,5 +702,6 @@ class SettingsFragment : Fragment() {
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
+            .installFocusListBackground()
     }
 }
