@@ -56,7 +56,9 @@
         android:layout_below="@id/headerLayout"
         android:clipToPadding="false"
         android:padding="8dp"
-        android:focusable="false"/>
+        android:focusable="true"
+        android:descendantFocusability="afterDescendants"
+        android:nextFocusDown="@+id/playlistsRecyclerView"/>
 
     <ProgressBar
         android:id="@+id/progressBar"
@@ -87,6 +89,8 @@
         android:contentDescription="@string/add_playlist"
         android:backgroundTint="@color/primary"
         android:tint="@android:color/white"
-        android:focusable="true"/>
+        android:focusable="true"
+        android:nextFocusUp="@+id/fabAddPlaylist"
+        android:nextFocusLeft="@+id/fabAddPlaylist"/>
 
 </RelativeLayout>

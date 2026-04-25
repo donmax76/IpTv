@@ -96,7 +96,9 @@
                 android:layout_height="match_parent"
                 android:clipToPadding="false"
                 android:paddingBottom="8dp"
-                android:focusable="false"/>
+                android:focusable="true"
+                android:descendantFocusability="afterDescendants"
+                android:nextFocusDown="@+id/channelsRecyclerView"/>
 
         </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 

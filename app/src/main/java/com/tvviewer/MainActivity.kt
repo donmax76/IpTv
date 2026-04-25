@@ -231,8 +231,15 @@ class MainActivity : BaseActivity() {
             drawerLayout.closeDrawer(Gravity.START)
             return
         }
-        // Confirm before quitting so a stray Back press on the remote
-        // doesn't drop the user out of the app mid-watching.
+        // Stage 1: if focus is anywhere except the bottom navigation, just
+        // jump to it. This gives the user a guaranteed one-key escape from
+        // a long channel list without scrolling through thousands of items.
+        val focus = currentFocus
+        if (focus != null && !isBottomNavFocused(focus)) {
+            bottomNav.requestFocus()
+            return
+        }
+        // Stage 2: focus is already on bottom nav — confirm exit.
         AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
             .setMessage(R.string.exit_app_confirm)
             .setPositiveButton(R.string.yes) { _, _ -> super.onBackPressed() }

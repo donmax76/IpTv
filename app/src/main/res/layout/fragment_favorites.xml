@@ -39,7 +39,8 @@
             android:layout_height="match_parent"
             android:clipToPadding="false"
             android:paddingBottom="8dp"
-            android:focusable="false"/>
+            android:focusable="true"
+            android:descendantFocusability="afterDescendants"/>
 
         <LinearLayout
             android:id="@+id/emptyLayout"
