@@ -175,6 +175,10 @@ class AppPreferences(context: Context) {
         get() = prefs.getBoolean(KEY_EPG_AUTO_UPDATE, true)
         set(value) = prefs.edit().putBoolean(KEY_EPG_AUTO_UPDATE, value).apply()
 
+    var showBuiltInPlaylists: Boolean
+        get() = prefs.getBoolean("show_builtin_playlists", true)
+        set(value) = prefs.edit().putBoolean("show_builtin_playlists", value).apply()
+
     var epgLastUpdate: Long
         get() = prefs.getLong(KEY_EPG_LAST_UPDATE, 0L)
         set(value) = prefs.edit().putLong(KEY_EPG_LAST_UPDATE, value).apply()

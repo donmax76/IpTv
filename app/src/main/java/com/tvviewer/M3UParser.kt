@@ -30,40 +30,76 @@ object M3UParser {
      */
     fun parse(content: String, baseUrl: String? = null): List<Channel> {
         val channels = mutableListOf<Channel>()
-        val lines = content.lines()
+        // Strip a UTF-8 BOM if present.
+        val cleaned = content.removePrefix("﻿")
+        val lines = cleaned.lines()
         var i = 0
 
         Log.d(TAG, "Parsing M3U, ${lines.size} lines")
-        while (i < lines.size) {
-            val line = lines[i].trim()
-            if (line.startsWith("#EXTINF:")) {
-                val extInf = parseExtInf(line)
-                i++
-                if (i < lines.size) {
-                    var url = lines[i].trim()
-                    if (url.isNotEmpty() && !url.startsWith("#")) {
-                        if (baseUrl != null && !url.startsWith("http")) {
-                            url = resolveUrl(baseUrl, url)
-                        }
-                        var logoUrl = extInf.logo
-                        if (logoUrl != null && baseUrl != null && !logoUrl.startsWith("http")) {
-                            logoUrl = resolveUrl(baseUrl, logoUrl)
-                        }
-                        channels.add(
-                            Channel(
-                                name = extInf.name,
-                                url = url,
-                                logoUrl = logoUrl,
-                                group = extInf.group,
-                                tvgId = extInf.tvgId
+        // Detect "extended" M3U (has #EXTINF). If we see any, treat the file
+        // as extended; otherwise fall back to "simple" (one URL per line)
+        // mode at the bottom of this function.
+        val hasExtInf = lines.any { it.trim().startsWith("#EXTINF:") }
+        if (hasExtInf) {
+            while (i < lines.size) {
+                val line = lines[i].trim()
+                if (line.startsWith("#EXTINF:")) {
+                    val extInf = parseExtInf(line)
+                    i++
+                    // Skip any other directive lines (e.g. #EXTVLCOPT) until
+                    // we hit the actual stream URL.
+                    while (i < lines.size && lines[i].trim().startsWith("#")) i++
+                    if (i < lines.size) {
+                        var url = lines[i].trim()
+                        if (url.isNotEmpty()) {
+                            if (baseUrl != null && !url.startsWith("http") && !url.startsWith("rtmp") && !url.startsWith("rtsp")) {
+                                url = resolveUrl(baseUrl, url)
+                            }
+                            var logoUrl = extInf.logo
+                            if (logoUrl != null && baseUrl != null && !logoUrl.startsWith("http")) {
+                                logoUrl = resolveUrl(baseUrl, logoUrl)
+                            }
+                            channels.add(
+                                Channel(
+                                    name = extInf.name,
+                                    url = url,
+                                    logoUrl = logoUrl,
+                                    group = extInf.group,
+                                    tvgId = extInf.tvgId
+                                )
                             )
-                        )
+                        }
                     }
                 }
+                i++
             }
-            i++
+        } else {
+            // Simple M3U: every non-comment / non-empty line is a stream URL.
+            // The playlist host (e.g. flyvideo.ucoz.ru/zedomS.m3u) often uses
+            // this minimal format. Derive a name from the URL itself.
+            for (raw in lines) {
+                val line = raw.trim()
+                if (line.isEmpty() || line.startsWith("#")) continue
+                var url = line
+                if (baseUrl != null && !url.startsWith("http") && !url.startsWith("rtmp") && !url.startsWith("rtsp")) {
+                    url = resolveUrl(baseUrl, url)
+                }
+                if (!(url.startsWith("http") || url.startsWith("rtmp") || url.startsWith("rtsp") || url.startsWith("file"))) {
+                    continue
+                }
+                val derived = Regex("""/([^/?#]+?)(?:\.[^./]+)?(?:[?#].*)?$""").find(url)
+                    ?.groupValues?.get(1)?.takeIf { it.isNotEmpty() }
+                    ?: "Channel ${channels.size + 1}"
+                channels.add(Channel(
+                    name = derived,
+                    url = url,
+                    logoUrl = null,
+                    group = null,
+                    tvgId = null,
+                ))
+            }
         }
-        Log.d(TAG, "Parsed ${channels.size} channels")
+        Log.d(TAG, "Parsed ${channels.size} channels (extended=$hasExtInf)")
         return channels
     }
 

@@ -45,6 +45,7 @@ object PlaylistRepository {
             val request = Request.Builder()
                 .url(url)
                 .header("User-Agent", userAgent)
+                .header("Accept", "*/*")
                 .build()
             val response = client.newCall(request).execute()
             Log.d(TAG, "Response: ${response.code} ${response.message}")
@@ -52,11 +53,18 @@ object PlaylistRepository {
                 Log.e(TAG, "HTTP error: ${response.code}")
                 return@withContext PlaylistResult(emptyList(), null)
             }
-            val body = response.body?.string() ?: run {
+            // Read raw bytes and try to recover the right encoding. Many
+            // Russian-hosted .m3u files (ucoz.ru, etc.) are still served
+            // as Windows-1251 without a charset header — UTF-8 decoding
+            // turns Cyrillic names into mojibake but the structure parses.
+            // Try UTF-8 first; if the content has lots of '?' or invalid
+            // chars relative to the byte length, fall back to CP1251.
+            val bytes = response.body?.bytes() ?: run {
                 Log.e(TAG, "Empty response body")
                 return@withContext PlaylistResult(emptyList(), null)
             }
-            Log.d(TAG, "Response size: ${body.length} bytes")
+            val body = decodePlaylistBytes(bytes)
+            Log.d(TAG, "Response size: ${body.length} chars (raw ${bytes.size} bytes)")
             val baseUrl = url.substringBeforeLast("/") + "/"
             val result = M3UParser.parseWithEpg(body, baseUrl)
             PlaylistResult(result.channels, result.epgUrl)
@@ -64,6 +72,18 @@ object PlaylistRepository {
             Log.e(TAG, "fetchPlaylist error", e)
             throw e
         }
+    }
+
+    private fun decodePlaylistBytes(bytes: ByteArray): String {
+        val utf8 = String(bytes, Charsets.UTF_8)
+        // Heuristic: too many U+FFFD replacement chars → likely wrong encoding.
+        val replacements = utf8.count { it == '�' }
+        if (replacements > 10) {
+            try {
+                return String(bytes, java.nio.charset.Charset.forName("windows-1251"))
+            } catch (_: Exception) {}
+        }
+        return utf8
     }
 
     fun parseLocal(content: String): PlaylistResult {

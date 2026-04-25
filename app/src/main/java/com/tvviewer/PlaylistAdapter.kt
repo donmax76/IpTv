@@ -35,18 +35,13 @@ class PlaylistAdapter(
         holder.name.text = playlist.first
         holder.url.text = playlist.second
 
-        // Show delete button only for custom playlists
+        // Hide the inline trash icon entirely. On a TV remote it sits
+        // right next to the row's main click target and the user kept
+        // accidentally deleting playlists when trying to open them.
+        // Custom playlists are removed via long-press instead (see below).
         val isCustom = position < customCount
-        holder.btnDelete.visibility = if (isCustom) View.VISIBLE else View.GONE
-        holder.btnDelete.setOnClickListener {
-            val pos = holder.adapterPosition
-            if (pos in 0 until customCount) {
-                onDeleteClick(pos)
-            }
-        }
-
-        // Make delete button focusable for D-pad
-        holder.btnDelete.isFocusable = isCustom
+        holder.btnDelete.visibility = View.GONE
+        holder.btnDelete.isFocusable = false
         holder.btnDelete.isFocusableInTouchMode = false
 
         // Different icon tint for built-in vs custom
@@ -56,16 +51,20 @@ class PlaylistAdapter(
         )
 
         holder.itemView.setOnClickListener { onPlaylistClick(playlist) }
+        holder.itemView.setOnLongClickListener {
+            if (isCustom) {
+                val pos = holder.adapterPosition
+                if (pos in 0 until customCount) onDeleteClick(pos)
+                true
+            } else {
+                false
+            }
+        }
 
-        // Handle D-pad center/enter on focused card
         holder.itemView.setOnKeyListener { _, keyCode, event ->
             if (event.action == KeyEvent.ACTION_DOWN &&
                 (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER)) {
                 holder.itemView.performClick()
-                true
-            } else if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && isCustom) {
-                // D-pad right to focus delete button
-                holder.btnDelete.requestFocus()
                 true
             } else {
                 false

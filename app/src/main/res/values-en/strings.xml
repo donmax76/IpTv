@@ -14,6 +14,8 @@
     <string name="paste_url_from_clipboard">Paste URL from clipboard</string>
     <string name="no_url_in_clipboard">No playlist URL in clipboard</string>
     <string name="add">Add</string>
+    <string name="show_builtin_playlists">Show built-in playlists</string>
+    <string name="time_on">On</string>
     <string name="no_recent">No recent channels</string>
     <string name="no_recent_hint">Open a channel and it will appear here</string>
     <string name="epg_urls">EPG sources (XMLTV)</string>

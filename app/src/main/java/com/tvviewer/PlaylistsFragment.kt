@@ -170,7 +170,9 @@ class PlaylistsFragment : Fragment() {
         // ready yet — onViewCreated will refresh again itself.
         if (!isAdded || !::adapter.isInitialized) return
         val playlists = prefs.customPlaylists
-        val builtIn = BuiltInPlaylists.getAllPlaylists().map { it.name to (it.url ?: "") }
+        val builtIn = if (prefs.showBuiltInPlaylists) {
+            BuiltInPlaylists.getAllPlaylists().map { it.name to (it.url ?: "") }
+        } else emptyList()
         val allPlaylists = playlists + builtIn
 
         adapter.updatePlaylists(allPlaylists, playlists.size)

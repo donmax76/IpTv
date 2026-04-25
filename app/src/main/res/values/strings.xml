@@ -14,6 +14,8 @@
     <string name="paste_url_from_clipboard">Вставить URL из буфера обмена</string>
     <string name="no_url_in_clipboard">В буфере обмена нет ссылки на плейлист</string>
     <string name="add">Добавить</string>
+    <string name="show_builtin_playlists">Показывать встроенные плейлисты</string>
+    <string name="time_on">Включено</string>
     <string name="no_recent">Нет недавних каналов</string>
     <string name="no_recent_hint">Включите канал — он появится здесь</string>
     <string name="epg_urls">Источники EPG (XMLTV)</string>
