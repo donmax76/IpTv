@@ -11,6 +11,9 @@
     <string name="error_log_sent">Лог отправлен</string>
     <string name="error_log_send_failed">Не удалось отправить</string>
     <string name="bottom_nav_shortcut">Кнопка Меню — открыть нижнее меню</string>
+    <string name="paste_url_from_clipboard">Вставить URL из буфера обмена</string>
+    <string name="no_url_in_clipboard">В буфере обмена нет ссылки на плейлист</string>
+    <string name="add">Добавить</string>
     <string name="no_recent">Нет недавних каналов</string>
     <string name="no_recent_hint">Включите канал — он появится здесь</string>
     <string name="epg_urls">Источники EPG (XMLTV)</string>

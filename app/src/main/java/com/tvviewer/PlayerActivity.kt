@@ -767,6 +767,11 @@ class PlayerActivity : BaseActivity() {
                             try {
                                 player?.seekToDefaultPosition()
                                 player?.prepare()
+                                // If the seek alone doesn't bring us back
+                                // (rare but happens on some HLS streams),
+                                // schedule a reconnect 5s later as a safety
+                                // net. STATE_READY will cancel it.
+                                reconnectHandler.postDelayed(reconnectRunnable, 5_000)
                                 return
                             } catch (_: Exception) {}
                         }

@@ -1,5 +1,6 @@
 package com.tvviewer
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -89,18 +90,56 @@ class PlaylistsFragment : Fragment() {
         btnAdd?.setOnClickListener {
             val opts = arrayOf(
                 getString(R.string.add_url),
-                getString(R.string.import_file)
+                getString(R.string.import_file),
+                getString(R.string.paste_url_from_clipboard),
             )
-            android.app.AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
+            val dlg = android.app.AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
                 .setTitle(R.string.add_playlist)
                 .setItems(opts) { _, which ->
                     when (which) {
                         0 -> addPlaylistLauncher.launch(Intent(requireContext(), AddPlaylistActivity::class.java))
                         1 -> importFileLauncher.launch(arrayOf("audio/*", "application/octet-stream", "text/*", "*/*"))
+                        2 -> pasteUrlFromClipboard()
                     }
                 }
                 .show()
+            // Make the focused option visible at a glance for D-pad users.
+            dlg.listView?.let { lv ->
+                lv.selector = androidx.core.content.ContextCompat
+                    .getDrawable(requireContext(), R.drawable.bg_dialog_list_item)
+                lv.requestFocus()
+                lv.setSelection(0)
+            }
         }
+    }
+
+    private fun pasteUrlFromClipboard() {
+        val ctx = requireContext()
+        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val clip = cm.primaryClip
+        val text = clip?.getItemAt(0)?.coerceToText(ctx)?.toString()?.trim().orEmpty()
+        val urls = Regex("""(?i)\bhttps?://\S+\.m3u8?\S*""").findAll(text).map { it.value }.toList()
+        val chosen = urls.firstOrNull() ?: text.takeIf {
+            it.startsWith("http://", true) || it.startsWith("https://", true)
+        }
+        if (chosen.isNullOrBlank()) {
+            Toast.makeText(ctx, R.string.no_url_in_clipboard, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val name = (Regex("""/([^/?#]+\.m3u8?)""").find(chosen)?.groupValues?.get(1)
+            ?.removeSuffix(".m3u8")?.removeSuffix(".m3u"))
+            ?.takeIf { it.isNotEmpty() }
+            ?: "Playlist ${prefs.customPlaylists.size + 1}"
+        android.app.AlertDialog.Builder(ctx, R.style.Theme_TVViewer_Dialog)
+            .setTitle(R.string.add_playlist)
+            .setMessage("$name\n$chosen")
+            .setPositiveButton(R.string.add) { _, _ ->
+                prefs.addCustomPlaylist(name, chosen)
+                Toast.makeText(ctx, R.string.playlist_added, Toast.LENGTH_SHORT).show()
+                refreshPlaylists()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
 
         adapter = PlaylistAdapter(
             playlists = emptyList(),

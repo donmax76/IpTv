@@ -11,6 +11,9 @@
     <string name="error_log_sent">Log sent</string>
     <string name="error_log_send_failed">Failed to send</string>
     <string name="bottom_nav_shortcut">Menu key — open bottom navigation</string>
+    <string name="paste_url_from_clipboard">Paste URL from clipboard</string>
+    <string name="no_url_in_clipboard">No playlist URL in clipboard</string>
+    <string name="add">Add</string>
     <string name="no_recent">No recent channels</string>
     <string name="no_recent_hint">Open a channel and it will appear here</string>
     <string name="epg_urls">EPG sources (XMLTV)</string>

@@ -1,40 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Hardware focus from a D-pad / remote -->
     <item android:state_focused="true">
         <layer-list>
-            <item>
-                <shape>
-                    <solid android:color="#7C6CF7"/>
-                </shape>
-            </item>
-            <item android:left="0dp" android:right="0dp">
-                <shape>
-                    <stroke android:width="2dp" android:color="#FFFFFF"/>
-                </shape>
-            </item>
+            <item><shape><solid android:color="#7C6CF7"/></shape></item>
+            <item><shape><stroke android:width="2dp" android:color="#FFFFFF"/></shape></item>
         </layer-list>
     </item>
-    <item android:state_hovered="true">
-        <shape>
-            <solid android:color="#506C5CE7"/>
-        </shape>
-    </item>
-    <item android:state_pressed="true">
-        <shape>
-            <solid android:color="#406C5CE7"/>
-        </shape>
-    </item>
+    <!-- ListView in an AlertDialog uses state_selected during D-pad
+         navigation. Make it just as bright as state_focused — without
+         this the user can't tell which item will be picked when they
+         press OK. -->
     <item android:state_selected="true">
-        <shape>
-            <solid android:color="#406C5CE7"/>
-        </shape>
+        <layer-list>
+            <item><shape><solid android:color="#7C6CF7"/></shape></item>
+            <item><shape><stroke android:width="2dp" android:color="#FFFFFF"/></shape></item>
+        </layer-list>
     </item>
     <item android:state_activated="true">
-        <shape>
-            <solid android:color="#406C5CE7"/>
-        </shape>
+        <layer-list>
+            <item><shape><solid android:color="#7C6CF7"/></shape></item>
+            <item><shape><stroke android:width="2dp" android:color="#FFFFFF"/></shape></item>
+        </layer-list>
     </item>
-    <item>
-        <color android:color="@android:color/transparent"/>
+    <item android:state_pressed="true">
+        <shape><solid android:color="#506C5CE7"/></shape>
     </item>
+    <item><color android:color="@android:color/transparent"/></item>
 </selector>
