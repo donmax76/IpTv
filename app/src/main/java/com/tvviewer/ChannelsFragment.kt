@@ -130,6 +130,25 @@ class ChannelsFragment : Fragment() {
             setupRecyclerView()
             adapter.notifyDataSetChanged()
         }
+        // Возвращаемся из плеера → прокручиваем список к текущему каналу и
+        // даём ему фокус, чтобы пользователь сразу видел, на каком канале
+        // он остановился.
+        scrollToCurrentChannel()
+    }
+
+    private fun scrollToCurrentChannel() {
+        val idx = ChannelDataHolder.currentChannelIndex
+        if (idx < 0 || idx >= ChannelDataHolder.allChannels.size) return
+        val targetUrl = ChannelDataHolder.allChannels[idx].url
+        val pos = filteredChannels.indexOfFirst { it.url == targetUrl }
+        if (pos < 0) return
+        recyclerView.post {
+            recyclerView.scrollToPosition(pos)
+            recyclerView.postDelayed({
+                val vh = recyclerView.findViewHolderForAdapterPosition(pos)
+                vh?.itemView?.requestFocus()
+            }, 80)
+        }
     }
 
     private fun checkPendingPlaylist() {

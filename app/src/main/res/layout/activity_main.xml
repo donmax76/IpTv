@@ -37,12 +37,13 @@
     <!-- Slide-out side rail (full 6-item nav with Recent and Settings) -->
     <com.google.android.material.navigation.NavigationView
         android:id="@+id/sideNav"
-        android:layout_width="220dp"
+        android:layout_width="260dp"
         android:layout_height="match_parent"
         android:layout_gravity="start"
         android:background="@color/surface"
         app:itemTextColor="@color/text_primary"
         app:itemIconTint="@color/text_primary"
+        app:itemTextAppearance="@style/SideNavTextAppearance"
         app:menu="@menu/side_navigation"/>
 
 </androidx.drawerlayout.widget.DrawerLayout>

@@ -2,6 +2,7 @@ package com.tvviewer
 
 import android.app.PictureInPictureParams
 import android.content.Context
+import android.content.Intent
 import android.content.res.Configuration
 import android.media.AudioManager
 import android.os.Build
@@ -161,6 +162,11 @@ class PlayerActivity : BaseActivity() {
     }
     private val MAX_RECONNECT = 8
 
+    // Когда true — следующий onPause не ставит плеер на паузу.
+    // Используется при открытии Настроек из выдвижного меню плеера: плеер
+    // продолжает играть, пока пользователь меняет настройки.
+    private var keepPlayingInBackground = false
+
     private var overlayAdapter: OverlayChannelAdapter? = null
     private var overlaySearchEdit: EditText? = null
     private var overlayChannelCount: TextView? = null
@@ -246,7 +252,14 @@ class PlayerActivity : BaseActivity() {
         findViewById<View>(R.id.playerDrawerTvGuide).setOnClickListener { gotoMain(2) }
         findViewById<View>(R.id.playerDrawerFavorites).setOnClickListener { gotoMain(3) }
         findViewById<View>(R.id.playerDrawerRecent).setOnClickListener { gotoMain(4) }
-        findViewById<View>(R.id.playerDrawerSettings).setOnClickListener { gotoMain(5) }
+        // Настройки открываем поверх плеера, не завершая активити: трансляция
+        // продолжается (звук+картинка), пользователь меняет параметры,
+        // возвращается обратно — плеер идёт без перезапуска.
+        findViewById<View>(R.id.playerDrawerSettings).setOnClickListener {
+            keepPlayingInBackground = true
+            hidePlayerDrawer()
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
         overlayChannelsList = findViewById(R.id.overlayChannelsList)
         numberInputDisplay = findViewById(R.id.numberInputDisplay)
         sleepTimerIndicator = findViewById(R.id.sleepTimerIndicator)
@@ -284,7 +297,15 @@ class PlayerActivity : BaseActivity() {
             persistentClock.visibility = View.VISIBLE
         }
 
-        btnBack.setOnClickListener { finish() }
+        // Стрелка "Назад" в плеере: возвращаемся не в пустой экран Каналов,
+        // а в текущий плейлист с подсвеченным текущим каналом. Сам индекс
+        // сохраняется в ChannelDataHolder.currentChannelIndex при каждом
+        // переключении канала, ChannelsFragment подхватит его.
+        btnBack.setOnClickListener {
+            ChannelDataHolder.openDrawerOnReturn = false
+            ChannelDataHolder.returnToTabIndex = 1 // index of Channels
+            finish()
+        }
 
         // Reset the auto-hide timer whenever the user moves focus between
         // any top-bar / control buttons or interacts with the layout.
@@ -401,8 +422,27 @@ class PlayerActivity : BaseActivity() {
         val catAdapter = CategoryAdapter(cats) { category ->
             overlaySelectedCategory = category
             filterOverlayChannels()
+            bumpChannelListIdleTimer()
         }
         overlayCategoriesList.adapter = catAdapter
+
+        // Любая прокрутка ленты категорий или смена фокуса внутри неё
+        // продлевает таймер автоскрытия — иначе пользователь не успевает
+        // выбрать категорию, пока перемещается по чипам.
+        overlayCategoriesList.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
+                if (dx != 0 || dy != 0) bumpChannelListIdleTimer()
+            }
+        })
+        overlayCategoriesList.viewTreeObserver.addOnGlobalFocusChangeListener { _, newFocus ->
+            if (newFocus != null && channelListVisible) {
+                var p: View? = newFocus
+                while (p != null) {
+                    if (p == channelListOverlay) { bumpChannelListIdleTimer(); break }
+                    p = p.parent as? View
+                }
+            }
+        }
 
         setupOverlayChannelList()
     }
@@ -1252,10 +1292,10 @@ class PlayerActivity : BaseActivity() {
     private fun showPlayerDrawer() {
         playerDrawerOverlay.visibility = View.VISIBLE
         playerDrawerOverlay.bringToFront()
-        // Push the channel list panel to the right by drawer width so the
-        // user sees both panels side-by-side instead of one covering the
-        // other. Width is 180dp (see fragment_player.xml).
-        val drawerWidth = (180 * resources.displayMetrics.density).toInt()
+        // Сдвигаем панель списка каналов вправо ровно на ширину выдвижного
+        // меню (240dp — см. activity_player.xml), чтобы оба элемента
+        // отображались рядом, а не перекрывали друг друга.
+        val drawerWidth = (240 * resources.displayMetrics.density).toInt()
         findViewById<View>(R.id.channelListPanel)
             ?.animate()?.translationX(drawerWidth.toFloat())?.setDuration(150)?.start()
         playerDrawerOverlay.findViewById<View>(R.id.playerDrawerPlaylists)?.requestFocus()
@@ -1554,6 +1594,27 @@ class PlayerActivity : BaseActivity() {
             lockOverlay.visibility = View.GONE
             controlsVisible = false
             channelListVisible = false
+        } else {
+            // Пользователь закрыл окно PiP крестиком (а не вернулся в плеер):
+            // активити уже в STOPPED, плеер продолжал крутить аудио в фоне —
+            // надо прибить, иначе звук остаётся висеть до следующего onCreate.
+            if (lifecycle.currentState == androidx.lifecycle.Lifecycle.State.CREATED ||
+                lifecycle.currentState == androidx.lifecycle.Lifecycle.State.DESTROYED) {
+                player?.stop()
+                player?.release()
+                player = null
+                finish()
+            }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Покинули PiP-окно (свернули в фон, выключили картинку): глушим
+        // плеер, чтобы звук не "залипал" в системе.
+        val inPip = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode
+        if (!inPip && !keepPlayingInBackground) {
+            player?.stop()
         }
     }
 
@@ -1582,7 +1643,9 @@ class PlayerActivity : BaseActivity() {
         super.onPause()
         // Keep playing in Picture-in-Picture mode
         val inPip = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode
-        if (!inPip) {
+        // Если пользователь открыл Настройки прямо из плеера — не ставим
+        // на паузу: пускай идёт трансляция, пока он крутит ползунки.
+        if (!inPip && !keepPlayingInBackground) {
             player?.pause()
         }
         saveCurrentChannelState()
@@ -1590,6 +1653,9 @@ class PlayerActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Возвращаемся из Настроек / другой активити — флаг сбрасываем,
+        // дальнейшие onPause работают как обычно.
+        keepPlayingInBackground = false
         player?.play()
         hideSystemUI()
     }

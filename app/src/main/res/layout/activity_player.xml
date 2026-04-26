@@ -372,7 +372,7 @@
 
         <LinearLayout
             android:id="@+id/playerDrawerPanel"
-            android:layout_width="180dp"
+            android:layout_width="240dp"
             android:layout_height="match_parent"
             android:layout_gravity="start"
             android:orientation="vertical"
@@ -390,7 +390,7 @@
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/playerDrawerPlaylists"
-                style="@style/Widget.MaterialComponents.Button.TextButton"
+                style="@style/PlayerDrawerItem"
                 android:layout_width="match_parent"
                 android:layout_height="44dp"
                 android:gravity="start|center_vertical"
@@ -402,7 +402,7 @@
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/playerDrawerChannels"
-                style="@style/Widget.MaterialComponents.Button.TextButton"
+                style="@style/PlayerDrawerItem"
                 android:layout_width="match_parent"
                 android:layout_height="44dp"
                 android:gravity="start|center_vertical"
@@ -414,7 +414,7 @@
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/playerDrawerTvGuide"
-                style="@style/Widget.MaterialComponents.Button.TextButton"
+                style="@style/PlayerDrawerItem"
                 android:layout_width="match_parent"
                 android:layout_height="44dp"
                 android:gravity="start|center_vertical"
@@ -426,7 +426,7 @@
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/playerDrawerFavorites"
-                style="@style/Widget.MaterialComponents.Button.TextButton"
+                style="@style/PlayerDrawerItem"
                 android:layout_width="match_parent"
                 android:layout_height="44dp"
                 android:gravity="start|center_vertical"
@@ -438,7 +438,7 @@
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/playerDrawerRecent"
-                style="@style/Widget.MaterialComponents.Button.TextButton"
+                style="@style/PlayerDrawerItem"
                 android:layout_width="match_parent"
                 android:layout_height="44dp"
                 android:gravity="start|center_vertical"
@@ -450,7 +450,7 @@
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/playerDrawerSettings"
-                style="@style/Widget.MaterialComponents.Button.TextButton"
+                style="@style/PlayerDrawerItem"
                 android:layout_width="match_parent"
                 android:layout_height="44dp"
                 android:gravity="start|center_vertical"

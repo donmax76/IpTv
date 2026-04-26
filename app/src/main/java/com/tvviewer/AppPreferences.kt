@@ -373,7 +373,11 @@ class AppPreferences(context: Context) {
         private const val KEY_USER_AGENT = "user_agent"
         private const val MAX_RECENT = 30
         private const val DEFAULT_UPDATE_CHECK_URL = "https://raw.githubusercontent.com/donmax76/TestApp/master/TVViewer/version.json"
-        const val DEFAULT_USER_AGENT = "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36"
+        // VLC user-agent — many regional IPTV portals (izone.az,
+        // ucoz.ru, restream services, etc.) explicitly whitelist VLC and
+        // serve 403 to bare ExoPlayer. VLC is the de-facto standard so
+        // safer as a default.
+        const val DEFAULT_USER_AGENT = "VLC/3.0.20 LibVLC/3.0.20"
 
         const val PLAYER_INTERNAL = "internal"
         const val PLAYER_EXTERNAL = "external"
