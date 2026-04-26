@@ -176,9 +176,10 @@ class MainActivity : BaseActivity() {
     // D-pad / remote control navigation
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         // If the drawer is already open, route all D-pad keys to it so the
-        // user can navigate items and Back closes it.
+        // user can navigate items and Back / Right closes it.
         if (drawerLayout.isDrawerOpen(Gravity.START)) {
-            if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (keyCode == KeyEvent.KEYCODE_BACK ||
+                keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
                 drawerLayout.closeDrawer(Gravity.START)
                 return true
             }
@@ -258,9 +259,45 @@ class MainActivity : BaseActivity() {
 
     private fun openSideDrawer() {
         drawerLayout.openDrawer(Gravity.START)
-        sideNav.requestFocus()
-        // Focus the first item explicitly for D-pad users
         sideNav.menu.getItem(0)?.let { sideNav.setCheckedItem(it) }
+        // На первый вызов после старта Activity NavigationView ещё не
+        // успевает разложить пункты меню — requestFocus не находит на
+        // что направить фокус, и управление вверх/вниз перестаёт
+        // работать до повторного открытия. Фокусируем строго ПОСЛЕ
+        // того, как drawer полностью открылся, и принудительно ищем
+        // первую focusable RecyclerView-строку.
+        sideNav.post { focusFirstSideNavItem() }
+        sideNav.postDelayed({ focusFirstSideNavItem() }, 250)
+    }
+
+    private fun focusFirstSideNavItem() {
+        if (!drawerLayout.isDrawerOpen(Gravity.START)) return
+        // NavigationView внутри использует RecyclerView, у которого
+        // descendantFocusability=AfterDescendants — фокус "проваливается"
+        // на первую focusable строку.
+        val rv = findRecyclerView(sideNav)
+        if (rv != null) {
+            rv.requestFocus()
+            // Если RecyclerView ещё не привязал children — попробуем
+            // через миг, когда они будут.
+            rv.post {
+                val firstChild = rv.getChildAt(0)
+                firstChild?.requestFocus()
+            }
+        } else {
+            sideNav.requestFocus()
+        }
+    }
+
+    private fun findRecyclerView(root: View): androidx.recyclerview.widget.RecyclerView? {
+        if (root is androidx.recyclerview.widget.RecyclerView) return root
+        if (root is android.view.ViewGroup) {
+            for (i in 0 until root.childCount) {
+                val r = findRecyclerView(root.getChildAt(i))
+                if (r != null) return r
+            }
+        }
+        return null
     }
 
     @Deprecated("Required override for older APIs")
