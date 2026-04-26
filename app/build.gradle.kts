@@ -85,9 +85,11 @@ dependencies {
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     implementation("androidx.viewpager2:viewpager2:1.0.0")
 
-    // ExoPlayer for streaming (HLS, etc.)
+    // ExoPlayer for streaming (HLS / DASH / RTSP)
     implementation("androidx.media3:media3-exoplayer:1.2.0")
     implementation("androidx.media3:media3-exoplayer-hls:1.2.0")
+    implementation("androidx.media3:media3-exoplayer-dash:1.2.0")
+    implementation("androidx.media3:media3-exoplayer-rtsp:1.2.0")
     implementation("androidx.media3:media3-ui:1.2.0")
 
     // Coroutines

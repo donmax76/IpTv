@@ -953,11 +953,13 @@ class PlayerActivity : BaseActivity() {
                 androidx.media3.exoplayer.source.ProgressiveMediaSource.Factory(factory)
                     .createMediaSource(item)
             path.contains(".mpd") ->
-                // DASH — only supported if media3-exoplayer-dash is added,
-                // otherwise this throws. Default factory handles it
-                // gracefully when present.
-                androidx.media3.exoplayer.source.DefaultMediaSourceFactory(applicationContext)
-                    .setDataSourceFactory(factory)
+                // DASH — теперь зависимость media3-exoplayer-dash подключена,
+                // строим MediaSource напрямую, без обхода через
+                // DefaultMediaSourceFactory.
+                androidx.media3.exoplayer.dash.DashMediaSource.Factory(factory)
+                    .createMediaSource(item)
+            url.startsWith("rtsp", true) ->
+                androidx.media3.exoplayer.rtsp.RtspMediaSource.Factory()
                     .createMediaSource(item)
             else ->
                 // HLS by default — covers .m3u8, .ts, no-extension, query-
