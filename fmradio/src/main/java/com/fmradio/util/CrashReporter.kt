@@ -11,10 +11,17 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * Crash/error reporter — sends to Firebase Realtime DB (no auth needed).
+ * Same approach as TVViewer project.
+ */
 object CrashReporter {
 
     private const val TAG = "CrashReporter"
-    private const val REPORT_URL = "https://raw.githubusercontent.com/donmax76/IpTv/main/fmradio/crashes"
+
+    // Firebase Realtime Database project ID (public write, no token needed)
+    // Same Firebase project as TVViewer — crashes appear in /fmradio_crashes node
+    private const val FIREBASE_PROJECT_ID = "iptv-crash-reports"
 
     fun send(context: Context, errorText: String) {
         Thread {
@@ -33,16 +40,16 @@ object CrashReporter {
                     put("appVersion", appVersion)
                 }.toString()
 
-                sendToUrl(REPORT_URL, json)
+                sendToFirebase(json)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send crash report", e)
             }
         }.start()
     }
 
-    private fun sendToUrl(urlString: String, json: String) {
+    private fun sendToFirebase(json: String) {
         try {
-            val url = URL(urlString)
+            val url = URL("https://$FIREBASE_PROJECT_ID-default-rtdb.firebaseio.com/fmradio_crashes.json")
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
             conn.doOutput = true
@@ -50,9 +57,10 @@ object CrashReporter {
             conn.connectTimeout = 5000
             conn.readTimeout = 5000
             conn.outputStream.use { it.write(json.toByteArray(Charsets.UTF_8)) }
-            Log.d(TAG, "Crash sent, response: ${conn.responseCode}")
+            val code = conn.responseCode
+            Log.d(TAG, "Crash sent to Firebase, response: $code")
         } catch (e: Exception) {
-            Log.e(TAG, "Send to URL failed", e)
+            Log.e(TAG, "Send to Firebase failed", e)
         }
     }
 }
