@@ -682,16 +682,26 @@ class PlayerActivity : BaseActivity() {
         val p = player ?: return
         val tracks = p.currentTracks
 
+        // Собираем ВСЕ аудио-дорожки: и поддерживаемые, и нет. Раньше
+        // отфильтрованные по поддержке дорожки скрывались, и при
+        // не-AAC-потоках (AC3/EAC3 без аппаратного декодера) список
+        // оказывался пустым — пользователь видел "no audio tracks", хоть
+        // дорожка в потоке есть. Помечаем неподдерживаемые как
+        // "неподдерж." — пускай хотя бы видно, что есть в потоке.
         val audioTracks = mutableListOf<Pair<String, Int>>() // label, groupIndex
         var groupIndex = 0
         for (group in tracks.groups) {
             if (group.type == C.TRACK_TYPE_AUDIO) {
                 for (i in 0 until group.length) {
                     val format = group.getTrackFormat(i)
+                    val supported = group.isTrackSupported(i)
                     val label = buildString {
                         append(format.label ?: format.language ?: "Track ${audioTracks.size + 1}")
+                        format.codecs?.let { append(" [$it]") }
+                            ?: format.sampleMimeType?.let { append(" [${it.substringAfter('/')}]") }
                         if (format.channelCount > 0) append(" (${format.channelCount}ch)")
                         if (format.sampleRate > 0) append(" ${format.sampleRate / 1000}kHz")
+                        if (!supported) append(" — неподдерж.")
                     }
                     audioTracks.add(label to groupIndex)
                 }
@@ -702,7 +712,31 @@ class PlayerActivity : BaseActivity() {
         }
 
         if (audioTracks.isEmpty()) {
-            Toast.makeText(this, getString(R.string.no_audio_tracks), Toast.LENGTH_SHORT).show()
+            // Соберём диагностику: ExoPlayer не нашёл ни одной аудио-
+            // группы. Показываем что есть в потоке, чтобы видеть
+            // действительно ли аудио отсутствует или её просто не парсит
+            // экстрактор.
+            val diag = buildString {
+                append(getString(R.string.no_audio_tracks))
+                append("\n")
+                if (tracks.groups.isEmpty()) {
+                    append("В потоке нет дорожек вовсе.")
+                } else {
+                    append("В потоке найдено: ")
+                    val parts = tracks.groups.mapIndexed { idx, g ->
+                        val type = when (g.type) {
+                            C.TRACK_TYPE_VIDEO -> "video"
+                            C.TRACK_TYPE_AUDIO -> "audio"
+                            C.TRACK_TYPE_TEXT -> "text"
+                            else -> "type${g.type}"
+                        }
+                        val mime = if (g.length > 0) g.getTrackFormat(0).sampleMimeType ?: "?" else "?"
+                        "$type[$mime]"
+                    }
+                    append(parts.joinToString(", "))
+                }
+            }
+            Toast.makeText(this, diag, Toast.LENGTH_LONG).show()
             return
         }
 
@@ -1011,7 +1045,12 @@ class PlayerActivity : BaseActivity() {
             else ->
                 // HLS by default — covers .m3u8, .ts, no-extension, query-
                 // string-only IPTV portal URLs (izone.az, ucoz, …).
+                // setAllowChunklessPreparation(false): принудительно
+                // подгружаем все renditions сразу (включая отдельные
+                // аудио-дорожки), иначе на izone.az звуковая дорожка не
+                // обнаруживается до первого segment'а.
                 androidx.media3.exoplayer.hls.HlsMediaSource.Factory(factory)
+                    .setAllowChunklessPreparation(false)
                     .createMediaSource(item)
         }
     }
