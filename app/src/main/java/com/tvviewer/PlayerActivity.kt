@@ -42,7 +42,7 @@ import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
-import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.mediacodec.MediaCodecRenderer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.ui.PlayerView
@@ -980,26 +980,24 @@ class PlayerActivity : BaseActivity() {
     private fun offerExternalPlayer(error: PlaybackException) {
         val url = currentUrl ?: return
         errorLayout.visibility = View.VISIBLE
-        // Достаём подсказку о кодеке для текста
-        val codecHint = (error.cause as? androidx.media3.exoplayer.mediacodec.MediaCodecRenderer
-            .DecoderInitializationException)
-            ?.format?.sampleMimeType?.substringAfter('/') ?: "?"
-        errorText.text = "Кодек $codecHint не поддерживается этим устройством"
+        val cause = error.cause
+        val codecHint: String = if (cause is MediaCodecRenderer.DecoderInitializationException) {
+            cause.format?.sampleMimeType?.substringAfter('/') ?: "?"
+        } else {
+            "?"
+        }
+        errorText.text = "Кодек $codecHint не поддерживается"
         android.app.AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
             .setTitle("Звук не поддерживается")
-            .setMessage(
-                "Кодек $codecHint не декодируется встроенным плеером. " +
-                "Открыть канал во внешнем плеере (VLC / MX)?"
-            )
+            .setMessage("Кодек $codecHint не декодируется встроенным плеером. Открыть канал во внешнем плеере (VLC / MX)?")
             .setPositiveButton("Открыть") { _, _ ->
                 try {
-                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(android.net.Uri.parse(url), "video/*")
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
+                    val intent = Intent(Intent.ACTION_VIEW)
+                    intent.setDataAndType(android.net.Uri.parse(url), "video/*")
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     startActivity(intent)
                     finish()
-                } catch (_: Exception) {
+                } catch (e: Exception) {
                     Toast.makeText(this, R.string.no_player_app, Toast.LENGTH_LONG).show()
                 }
             }

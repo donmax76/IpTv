@@ -53,7 +53,19 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        ERROR_CONTENT=$(tail -100 build_output.log)
+        # Сначала выдёргиваем именно kotlinc-ошибки (формат "e: file://"
+        # и "error:") — они происходят в начале лога и теряются при
+        # tail. Если их нет — берём последние 200 строк.
+        KOTLIN_ERRORS=$(grep -E "^(e: |.*error: )" build_output.log | head -60 || true)
+        if [ -z "$KOTLIN_ERRORS" ]; then
+          ERROR_CONTENT=$(tail -200 build_output.log)
+        else
+          ERROR_CONTENT="=== Kotlin compile errors ===
+        $KOTLIN_ERRORS
+
+        === Build tail ===
+        $(tail -80 build_output.log)"
+        fi
         gh issue create \
           --title "Build Error - $(date +%Y%m%d-%H%M)" \
           --body "## Build Error Log
