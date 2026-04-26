@@ -120,6 +120,7 @@ class MainActivity : Activity() {
     private lateinit var layoutDebug: View
     private lateinit var tvDebugLog: TextView
     private lateinit var scrollDebug: ScrollView
+    private lateinit var btnSettings: Button
     private lateinit var btnDebug: Button
     private lateinit var btnDebugSave: Button
     private lateinit var btnDebugSend: Button
@@ -262,6 +263,9 @@ class MainActivity : Activity() {
 
         // Auto-connect: always try to find and open RTL-SDR on startup
         connectDevice()
+
+        // Silent auto-update check (only shows dialog if update available)
+        checkForUpdatesSilent()
     }
 
     private fun initViews() {
@@ -325,6 +329,9 @@ class MainActivity : Activity() {
 
         seekVolume.max = 100
         layoutScanning.visibility = View.GONE
+
+        // Settings button
+        btnSettings = findViewById(R.id.btnSettings)
 
         // Debug panel
         layoutDebug = findViewById(R.id.layoutDebug)
@@ -453,6 +460,9 @@ class MainActivity : Activity() {
         btnAf.setOnClickListener { toggleAf() }
         btnTa.setOnClickListener { toggleTa() }
         btnBand.setOnClickListener { showBandSelector() }
+
+        // Settings
+        btnSettings.setOnClickListener { openSettings() }
 
         // Debug panel
         btnDebug.setOnClickListener { toggleDebugPanel() }
@@ -1055,6 +1065,10 @@ class MainActivity : Activity() {
         startActivity(Intent.createChooser(shareIntent, "Send error log"))
     }
 
+    private fun openSettings() {
+        startActivity(Intent(this, SettingsActivity::class.java))
+    }
+
     private fun checkForUpdates() {
         showToast("Checking for updates...")
         activityScope.launch {
@@ -1078,6 +1092,60 @@ class MainActivity : Activity() {
                 }
             } catch (e: Exception) {
                 showToast("Update check failed")
+            }
+        }
+    }
+
+    private fun checkForUpdatesSilent() {
+        val prefs = getSharedPreferences("fm_radio_stations", MODE_PRIVATE)
+        if (!prefs.getBoolean("auto_update", true)) return
+        activityScope.launch {
+            try {
+                val versionCode = try {
+                    packageManager.getPackageInfo(packageName, 0).versionCode
+                } catch (_: Exception) { 0 }
+
+                val update = UpdateChecker.check(versionCode)
+                if (update != null) {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Update Available")
+                        .setMessage("New version ${update.versionName} is available.\nCurrent build: $versionCode\n\nUpdate now?")
+                        .setPositiveButton("Update") { _, _ ->
+                            UpdateInstaller.downloadAndInstall(this@MainActivity, update.downloadUrl)
+                        }
+                        .setNegativeButton("Later", null)
+                        .show()
+                }
+                // Silent: do NOT show "up to date" toast
+            } catch (_: Exception) {
+                // Silent: do NOT show error toast
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Sync volume/bass/treble from storage (may have been changed in SettingsActivity)
+        if (::seekVolume.isInitialized) {
+            val vol = (stationStorage.lastVolume * 100).toInt()
+            if (seekVolume.progress != vol) {
+                seekVolume.progress = vol
+                tvVolumeValue.text = vol.toString()
+                radioService?.setVolume(stationStorage.lastVolume)
+            }
+            val bass = stationStorage.bassLevel
+            if (seekBass.progress != bass) {
+                seekBass.progress = bass
+                val v = bass - 10
+                tvBassValue.text = if (v > 0) "+$v" else v.toString()
+                radioService?.setBass(bass)
+            }
+            val treble = stationStorage.trebleLevel
+            if (seekTreble.progress != treble) {
+                seekTreble.progress = treble
+                val v = treble - 10
+                tvTrebleValue.text = if (v > 0) "+$v" else v.toString()
+                radioService?.setTreble(treble)
             }
         }
     }

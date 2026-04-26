@@ -5,6 +5,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.view.ViewGroup
 import android.widget.Button
@@ -83,8 +85,50 @@ class CrashReportActivity : Activity() {
         }
         btnRow.addView(shareBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
+        val githubBtn = Button(this).apply {
+            text = "Report on GitHub"
+            setOnClickListener { openGitHubIssue(errorText) }
+        }
+        btnRow.addView(githubBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+
         layout.addView(btnRow)
         return layout
+    }
+
+    private fun openGitHubIssue(errorText: String) {
+        val firstLine = errorText.lineSequence().firstOrNull { it.isNotBlank() } ?: "Unknown crash"
+        val title = "Crash: ${firstLine.take(100)}"
+
+        val versionName = try {
+            packageManager.getPackageInfo(packageName, 0).versionName
+        } catch (_: Exception) { "unknown" }
+        val versionCode = try {
+            packageManager.getPackageInfo(packageName, 0).versionCode
+        } catch (_: Exception) { 0 }
+
+        val body = buildString {
+            appendLine("## Crash Report")
+            appendLine()
+            appendLine("**App:** FM Radio v$versionName (build $versionCode)")
+            appendLine("**Device:** ${Build.MANUFACTURER} ${Build.MODEL}")
+            appendLine("**Android:** ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
+            appendLine("**Arch:** ${Build.SUPPORTED_ABIS.joinToString(", ")}")
+            appendLine()
+            appendLine("## Stack Trace")
+            appendLine("```")
+            appendLine(errorText.take(4000))
+            appendLine("```")
+        }
+
+        val encodedTitle = Uri.encode(title)
+        val encodedBody = Uri.encode(body)
+        val url = "https://github.com/donmax76/IpTv/issues/new?title=$encodedTitle&body=$encodedBody&labels=crash-report,fm-radio"
+
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (_: Exception) {
+            Toast.makeText(this, "Cannot open browser", Toast.LENGTH_SHORT).show()
+        }
     }
 
     companion object {

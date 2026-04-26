@@ -54,6 +54,21 @@
                     android:fontFamily="monospace" />
 
                 <Button
+                    android:id="@+id/btnSettings"
+                    android:layout_width="wrap_content"
+                    android:layout_height="24dp"
+                    android:layout_toStartOf="@+id/btnDebug"
+                    android:layout_centerVertical="true"
+                    android:layout_marginEnd="4dp"
+                    android:text="&#x2699;"
+                    android:textColor="@color/lcd_amber"
+                    android:textSize="14sp"
+                    android:background="@android:color/transparent"
+                    android:padding="2dp"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp" />
+
+                <Button
                     android:id="@+id/btnDebug"
                     android:layout_width="wrap_content"
                     android:layout_height="24dp"

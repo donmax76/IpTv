@@ -334,6 +334,24 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update version.json
+        run: |
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+          cat > fmradio/version.json << EOF
+          {
+            "versionCode": $COMMIT_COUNT,
+            "versionName": "3.0.$COMMIT_COUNT",
+            "downloadUrl": "https://github.com/donmax76/IpTv/releases/latest/download/FmRadio.apk"
+          }
+          EOF
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add fmradio/version.json
+          git diff --cached --quiet || git commit -m "Auto-update version.json to 3.0.$COMMIT_COUNT"
+          git push || true
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4

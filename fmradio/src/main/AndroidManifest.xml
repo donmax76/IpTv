@@ -47,6 +47,12 @@
             android:exported="false" />
 
         <activity
+            android:name=".ui.SettingsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.FmRadio"
+            android:screenOrientation="landscape" />
+
+        <activity
             android:name=".util.CrashReportActivity"
             android:exported="false"
             android:theme="@style/Theme.FmRadio"
