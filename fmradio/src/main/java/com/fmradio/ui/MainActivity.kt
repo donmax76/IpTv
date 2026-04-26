@@ -121,7 +121,6 @@ class MainActivity : Activity() {
     private lateinit var tvDebugLog: TextView
     private lateinit var scrollDebug: ScrollView
     private lateinit var btnSettings: Button
-    private lateinit var btnDebug: Button
     private lateinit var btnDebugSave: Button
     private lateinit var btnDebugSend: Button
     private lateinit var btnDebugClear: Button
@@ -339,7 +338,6 @@ class MainActivity : Activity() {
         layoutDebug = findViewById(R.id.layoutDebug)
         tvDebugLog = findViewById(R.id.tvDebugLog)
         scrollDebug = findViewById(R.id.scrollDebug)
-        btnDebug = findViewById(R.id.btnDebug)
         btnDebugSave = findViewById(R.id.btnDebugSave)
         btnDebugSend = findViewById(R.id.btnDebugSend)
         btnDebugClear = findViewById(R.id.btnDebugClear)
@@ -467,7 +465,6 @@ class MainActivity : Activity() {
         btnSettings.setOnClickListener { openSettings() }
 
         // Debug panel
-        btnDebug.setOnClickListener { toggleDebugPanel() }
         btnDebugSave.setOnClickListener { shareDebugLog() }
         findViewById<Button>(R.id.btnDebugLogToggle).setOnClickListener { v ->
             val btn = v as Button
@@ -1147,8 +1144,23 @@ class MainActivity : Activity() {
         }
     }
 
+    override fun attachBaseContext(newBase: Context) {
+        val prefs = newBase.getSharedPreferences("fm_radio_stations", MODE_PRIVATE)
+        val lang = prefs.getString("app_language", "system") ?: "system"
+        super.attachBaseContext(com.fmradio.util.LocaleHelper.applyLanguage(newBase, lang))
+    }
+
     override fun onResume() {
         super.onResume()
+
+        // Show debug panel if requested from Settings
+        if (intent?.getBooleanExtra("show_debug", false) == true) {
+            intent.removeExtra("show_debug")
+            if (layoutDebug.visibility != View.VISIBLE) {
+                toggleDebugPanel()
+            }
+        }
+
         // Sync volume/bass/treble from storage (may have been changed in SettingsActivity)
         if (::seekVolume.isInitialized) {
             val vol = (stationStorage.lastVolume * 100).toInt()

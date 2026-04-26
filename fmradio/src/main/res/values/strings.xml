@@ -75,4 +75,30 @@
     <string name="cd_favorite">Favorite</string>
     <string name="cd_seek_back">Seek previous station</string>
     <string name="cd_seek_forward">Seek next station</string>
+    <string name="cd_prev_station">Previous station</string>
+    <string name="cd_next_station">Next station</string>
+
+    <!-- Settings -->
+    <string name="settings_title">SETTINGS</string>
+    <string name="settings_back">BACK</string>
+    <string name="settings_audio">AUDIO</string>
+    <string name="settings_language">LANGUAGE</string>
+    <string name="settings_debug">DEBUG</string>
+    <string name="settings_updates">UPDATES</string>
+    <string name="settings_about">ABOUT</string>
+    <string name="settings_file_logging">File Logging</string>
+    <string name="settings_send_log">SEND LOG</string>
+    <string name="settings_view_errors">VIEW ERRORS</string>
+    <string name="settings_clear_errors">CLEAR ERRORS</string>
+    <string name="settings_open_debug_panel">OPEN DEBUG PANEL</string>
+    <string name="settings_auto_update">Auto-check updates</string>
+    <string name="settings_check_update">CHECK UPDATE</string>
+    <string name="settings_current_version">Current version</string>
+    <string name="settings_app_language">App Language</string>
+    <string name="settings_select_language">Select Language</string>
+
+    <!-- Volume / EQ labels -->
+    <string name="label_volume">VOL</string>
+    <string name="label_bass">BASS</string>
+    <string name="label_treble">TREB</string>
 </resources>

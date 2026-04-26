@@ -2,6 +2,7 @@ package com.fmradio.ui
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -11,6 +12,7 @@ import android.widget.*
 import com.fmradio.data.StationStorage
 import com.fmradio.dsp.DebugLog
 import com.fmradio.util.ErrorLogger
+import com.fmradio.util.LocaleHelper
 import com.fmradio.util.UpdateChecker
 import com.fmradio.util.UpdateInstaller
 import kotlinx.coroutines.*
@@ -29,6 +31,12 @@ class SettingsActivity : Activity() {
     private val dimColor = 0xFF2D5E4A.toInt()
     private val textSecondary = 0xFFB0BEC5.toInt()
     private val redColor = 0xFFFF4444.toInt()
+
+    override fun attachBaseContext(newBase: Context) {
+        val prefs = newBase.getSharedPreferences("fm_radio_stations", MODE_PRIVATE)
+        val lang = prefs.getString("app_language", "system") ?: "system"
+        super.attachBaseContext(LocaleHelper.applyLanguage(newBase, lang))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,19 +62,23 @@ class SettingsActivity : Activity() {
         root.addView(buildTopBar())
 
         // Audio section
-        root.addView(buildSectionHeader("AUDIO"))
+        root.addView(buildSectionHeader(getString(com.fmradio.R.string.settings_audio)))
         root.addView(buildAudioSection())
 
+        // Language section
+        root.addView(buildSectionHeader(getString(com.fmradio.R.string.settings_language)))
+        root.addView(buildLanguageSection())
+
         // Debug section
-        root.addView(buildSectionHeader("DEBUG"))
+        root.addView(buildSectionHeader(getString(com.fmradio.R.string.settings_debug)))
         root.addView(buildDebugSection())
 
         // Updates section
-        root.addView(buildSectionHeader("UPDATES"))
+        root.addView(buildSectionHeader(getString(com.fmradio.R.string.settings_updates)))
         root.addView(buildUpdatesSection())
 
         // About section
-        root.addView(buildSectionHeader("ABOUT"))
+        root.addView(buildSectionHeader(getString(com.fmradio.R.string.settings_about)))
         root.addView(buildAboutSection())
 
         scroll.addView(root)
@@ -80,7 +92,7 @@ class SettingsActivity : Activity() {
             setPadding(0, 0, 0, 16)
 
             val backBtn = Button(this@SettingsActivity).apply {
-                text = "<  BACK"
+                text = "<  ${getString(com.fmradio.R.string.settings_back)}"
                 setTextColor(cyanColor)
                 textSize = 14f
                 setBackgroundColor(0x00000000)
@@ -92,7 +104,7 @@ class SettingsActivity : Activity() {
             ))
 
             val title = TextView(this@SettingsActivity).apply {
-                text = "SETTINGS"
+                text = getString(com.fmradio.R.string.settings_title)
                 setTextColor(amberColor)
                 textSize = 20f
                 typeface = android.graphics.Typeface.MONOSPACE
@@ -144,6 +156,56 @@ class SettingsActivity : Activity() {
                 stationStorage.trebleLevel, isBipolar = true) { progress ->
                 stationStorage.trebleLevel = progress
             })
+        }
+    }
+
+    private fun buildLanguageSection(): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(sectionBg)
+            setPadding(16, 12, 16, 12)
+
+            val prefs = getSharedPreferences("fm_radio_stations", MODE_PRIVATE)
+            val currentLang = prefs.getString("app_language", "system") ?: "system"
+
+            val row = LinearLayout(this@SettingsActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, 4, 0, 8)
+            }
+            val label = TextView(this@SettingsActivity).apply {
+                text = getString(com.fmradio.R.string.settings_app_language)
+                setTextColor(textSecondary)
+                textSize = 14f
+                typeface = android.graphics.Typeface.MONOSPACE
+            }
+            row.addView(label, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+
+            val languages = LocaleHelper.supportedLanguages
+            val currentName = languages.find { it.first == currentLang }?.second ?: "System"
+
+            val langBtn = Button(this@SettingsActivity).apply {
+                text = currentName
+                setTextColor(amberColor)
+                textSize = 13f
+                typeface = android.graphics.Typeface.MONOSPACE
+                setBackgroundColor(0xFF363640.toInt())
+                setPadding(24, 8, 24, 8)
+                setOnClickListener {
+                    val names = languages.map { it.second }.toTypedArray()
+                    AlertDialog.Builder(this@SettingsActivity)
+                        .setTitle(getString(com.fmradio.R.string.settings_select_language))
+                        .setItems(names) { _, which ->
+                            val selected = languages[which].first
+                            prefs.edit().putString("app_language", selected).apply()
+                            // Recreate activity to apply new language
+                            recreate()
+                        }
+                        .show()
+                }
+            }
+            row.addView(langBtn)
+            addView(row)
         }
     }
 
@@ -218,7 +280,7 @@ class SettingsActivity : Activity() {
                 setPadding(0, 4, 0, 8)
             }
             val logLabel = TextView(this@SettingsActivity).apply {
-                text = "File Logging"
+                text = getString(com.fmradio.R.string.settings_file_logging)
                 setTextColor(textSecondary)
                 textSize = 14f
                 typeface = android.graphics.Typeface.MONOSPACE
@@ -227,6 +289,14 @@ class SettingsActivity : Activity() {
 
             val logToggle = Switch(this@SettingsActivity).apply {
                 isChecked = DebugLog.fileLoggingEnabled
+                thumbTintList = android.content.res.ColorStateList(
+                    arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                    intArrayOf(greenColor, 0xFF888888.toInt())
+                )
+                trackTintList = android.content.res.ColorStateList(
+                    arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                    intArrayOf(0xFF005533.toInt(), 0xFF444444.toInt())
+                )
                 setOnCheckedChangeListener { _, checked ->
                     DebugLog.fileLoggingEnabled = checked
                 }
@@ -241,11 +311,31 @@ class SettingsActivity : Activity() {
                 setPadding(0, 4, 0, 4)
             }
 
-            btnRow.addView(makeButton("SEND LOG", cyanColor) { sendDebugLog() })
-            btnRow.addView(makeButton("VIEW ERRORS", amberColor) { viewErrors() })
-            btnRow.addView(makeButton("CLEAR ERRORS", redColor) { clearErrors() })
+            btnRow.addView(makeButton(getString(com.fmradio.R.string.settings_send_log), cyanColor) { sendDebugLog() })
+            btnRow.addView(makeButton(getString(com.fmradio.R.string.settings_view_errors), amberColor) { viewErrors() })
+            btnRow.addView(makeButton(getString(com.fmradio.R.string.settings_clear_errors), redColor) { clearErrors() })
             addView(btnRow)
+
+            // Open Debug Panel button
+            val debugBtnRow = LinearLayout(this@SettingsActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                setPadding(0, 8, 0, 4)
+            }
+            debugBtnRow.addView(makeButton(getString(com.fmradio.R.string.settings_open_debug_panel), amberColor) {
+                openDebugPanel()
+            })
+            addView(debugBtnRow)
         }
+    }
+
+    private fun openDebugPanel() {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            putExtra("show_debug", true)
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+        startActivity(intent)
+        finish()
     }
 
     private fun buildUpdatesSection(): LinearLayout {
@@ -265,7 +355,7 @@ class SettingsActivity : Activity() {
                 setPadding(0, 4, 0, 8)
             }
             val versionLabel = TextView(this@SettingsActivity).apply {
-                text = "Current version: $versionName"
+                text = "${getString(com.fmradio.R.string.settings_current_version)}: $versionName"
                 setTextColor(textSecondary)
                 textSize = 14f
                 typeface = android.graphics.Typeface.MONOSPACE
@@ -280,7 +370,7 @@ class SettingsActivity : Activity() {
                 setPadding(0, 4, 0, 8)
             }
             val autoLabel = TextView(this@SettingsActivity).apply {
-                text = "Auto-check updates"
+                text = getString(com.fmradio.R.string.settings_auto_update)
                 setTextColor(textSecondary)
                 textSize = 14f
                 typeface = android.graphics.Typeface.MONOSPACE
@@ -290,6 +380,14 @@ class SettingsActivity : Activity() {
             val prefs = getSharedPreferences("fm_radio_stations", MODE_PRIVATE)
             val autoToggle = Switch(this@SettingsActivity).apply {
                 isChecked = prefs.getBoolean("auto_update", true)
+                thumbTintList = android.content.res.ColorStateList(
+                    arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                    intArrayOf(greenColor, 0xFF888888.toInt())
+                )
+                trackTintList = android.content.res.ColorStateList(
+                    arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                    intArrayOf(0xFF005533.toInt(), 0xFF444444.toInt())
+                )
                 setOnCheckedChangeListener { _, checked ->
                     prefs.edit().putBoolean("auto_update", checked).apply()
                 }
@@ -303,7 +401,7 @@ class SettingsActivity : Activity() {
                 gravity = Gravity.CENTER
                 setPadding(0, 4, 0, 4)
             }
-            btnRow.addView(makeButton("CHECK UPDATE", greenColor) { checkForUpdates() })
+            btnRow.addView(makeButton(getString(com.fmradio.R.string.settings_check_update), greenColor) { checkForUpdates() })
             addView(btnRow)
         }
     }

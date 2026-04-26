@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Status -->
+    <string name="status_disconnected">RTL-SDR: Bağlantı kəsildi</string>
+    <string name="status_connecting">Qoşulur…</string>
+    <string name="status_connected">RTL-SDR: Qoşuldu</string>
+    <string name="status_no_device">RTL-SDR cihazı tapılmadı</string>
+    <string name="status_permission_denied">USB icazəsi rədd edildi</string>
+    <string name="status_connection_failed">Qoşulma uğursuz oldu</string>
+    <string name="status_playing">Oxunur</string>
+    <string name="status_stopped">Dayandırıldı</string>
+    <string name="status_seeking">Axtarılır…</string>
+
+    <!-- Buttons -->
+    <string name="btn_connect">Qoşul</string>
+    <string name="btn_disconnect">Ayır</string>
+    <string name="btn_scan">AXTAR</string>
+    <string name="btn_stop_scan">DAYAN</string>
+    <string name="btn_save">Saxla</string>
+    <string name="btn_cancel">Ləğv et</string>
+
+    <!-- Labels -->
+    <string name="label_saved_stations">STANSIYALAR</string>
+
+    <!-- Messages -->
+    <string name="msg_connect_rtlsdr">RTL-SDR cihazını USB ilə qoşun</string>
+    <string name="msg_usb_permission_needed">RTL-SDR üçün USB icazəsi lazımdır</string>
+    <string name="msg_device_connected">RTL-SDR cihazı qoşuldu!</string>
+    <string name="msg_connection_failed">RTL-SDR cihazı açılmadı</string>
+    <string name="msg_connect_first">Əvvəlcə RTL-SDR cihazını qoşun</string>
+    <string name="msg_scan_complete">Axtarış tamamlandı! %d stansiya tapıldı</string>
+    <string name="msg_scan_error">Axtarış xətası: %s</string>
+    <string name="msg_no_station_found">Stansiya tapılmadı</string>
+
+    <!-- Options -->
+    <string name="option_rename">Adını dəyiş</string>
+    <string name="option_delete">Sil</string>
+    <string name="option_toggle_favorite">Sevimlilər</string>
+
+    <!-- Dialogs -->
+    <string name="dialog_rename_title">Stansiyanın adını dəyiş</string>
+    <string name="dialog_add_station_title">Stansiya əlavə et</string>
+    <string name="hint_station_name">Stansiya adı</string>
+    <string name="hint_frequency_mhz">Tezlik (MHz)</string>
+    <string name="msg_station_added">Stansiya əlavə edildi: %s</string>
+    <string name="msg_invalid_frequency">Yanlış tezlik</string>
+
+    <!-- Band selector -->
+    <string name="dialog_band_title">Diapazonu seç</string>
+    <string name="msg_band_changed">Diapazon: %s</string>
+
+    <!-- Content descriptions -->
+    <string name="cd_freq_down">Tezliyi azalt</string>
+    <string name="cd_freq_up">Tezliyi artır</string>
+    <string name="cd_play_stop">Oxut / Dayandır</string>
+    <string name="cd_volume">Səs</string>
+    <string name="cd_seek_back">Əvvəlki stansiyanı axtar</string>
+    <string name="cd_seek_forward">Növbəti stansiyanı axtar</string>
+    <string name="cd_prev_station">Əvvəlki stansiya</string>
+    <string name="cd_next_station">Növbəti stansiya</string>
+
+    <!-- Settings -->
+    <string name="settings_title">TƏNZIMLƏMƏLƏR</string>
+    <string name="settings_back">GERİ</string>
+    <string name="settings_audio">SƏS</string>
+    <string name="settings_language">DİL</string>
+    <string name="settings_debug">SAZLAMA</string>
+    <string name="settings_updates">YENİLƏMƏLƏR</string>
+    <string name="settings_about">HAQQINDA</string>
+    <string name="settings_file_logging">Fayla yazma</string>
+    <string name="settings_send_log">LOQU GÖNDƏR</string>
+    <string name="settings_view_errors">XƏTALAR</string>
+    <string name="settings_clear_errors">XƏTALARI TƏMİZLƏ</string>
+    <string name="settings_open_debug_panel">SAZLAMA PANELİ</string>
+    <string name="settings_auto_update">Yeniləmələri avtomatik yoxla</string>
+    <string name="settings_check_update">YENİLƏMƏNİ YOXLA</string>
+    <string name="settings_current_version">Cari versiya</string>
+    <string name="settings_app_language">Tətbiq dili</string>
+    <string name="settings_select_language">Dil seçin</string>
+
+    <!-- Volume / EQ labels -->
+    <string name="label_volume">SƏS</string>
+    <string name="label_bass">BAS</string>
+    <string name="label_treble">TİZ</string>
+</resources>
