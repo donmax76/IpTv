@@ -876,32 +876,17 @@ class PlayerActivity : BaseActivity() {
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
             .setDataSourceFactory(wrappedFactory)
 
-        // NextRenderersFactory: подкидывает софтверные FFmpeg-декодеры
-        // (MP2 / AC3 / EAC3 / DTS / FLAC / Vorbis) поверх стандартных,
-        // и предпочитает их когда аппаратный декодер не справляется. На
-        // дешёвых TV-боксах без MP2-MediaCodec это единственный способ
-        // получить звук на DVB / izone-каналах.
-        val renderersFactory = io.github.anilbeesetti.nextlib.media3ext.ffdecoder
-            .NextRenderersFactory(this)
-            .setExtensionRendererMode(
-                androidx.media3.exoplayer.DefaultRenderersFactory
-                    .EXTENSION_RENDERER_MODE_PREFER
-            )
-
-        player = ExoPlayer.Builder(this, renderersFactory)
+        player = ExoPlayer.Builder(this)
             .setLoadControl(loadControl)
             .setMediaSourceFactory(mediaSourceFactory)
             .build().also { p ->
                 playerView.player = p
-                // Параметры выбора дорожек по умолчанию режут аудио, если
-                // ни одна дорожка не подходит под "preferredAudioLanguages".
-                // Снимаем фильтр — пускай играет любая поддерживаемая
-                // аудио-дорожка (важно для izone.az и других стримов с
-                // одной аудио без объявленного языка).
+                // Снимаем фильтр по preferredAudioLanguage, чтобы трек-
+                // селектор не дисквалифицировал дорожку без языка
+                // (актуально для izone.az и подобных).
                 p.trackSelectionParameters = p.trackSelectionParameters
                     .buildUpon()
                     .setPreferredAudioLanguage(null)
-                    .setPreferredAudioMimeTypes()
                     .build()
                 p.addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(state: Int) {
