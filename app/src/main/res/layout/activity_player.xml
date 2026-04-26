@@ -499,6 +499,16 @@
                 app:icon="@drawable/ic_channel_list"/>
 
             <com.google.android.material.button.MaterialButton
+                android:id="@+id/rightMenuLastChannel"
+                style="@style/PlayerDrawerItem"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:text="@string/last_channel"
+                android:textColor="@color/text_primary"
+                android:focusable="true"
+                app:icon="@drawable/ic_recent"/>
+
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/rightMenuAudio"
                 style="@style/PlayerDrawerItem"
                 android:layout_width="match_parent"

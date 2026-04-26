@@ -173,6 +173,8 @@
     <string name="tomorrow">Завтра</string>
     <string name="yesterday">Вчера</string>
     <string name="channel_list">Список каналов</string>
+    <string name="last_channel">Предыдущий канал</string>
+    <string name="no_previous_channel">Истории каналов нет</string>
     <string name="screen_orientation">Ориентация экрана</string>
     <string name="orientation_auto">Авто</string>
     <string name="orientation_portrait">Портрет</string>

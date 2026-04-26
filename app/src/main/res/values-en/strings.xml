@@ -124,6 +124,8 @@
     <string name="hide_channels">Hide list</string>
     <string name="channel_list">Channel list</string>
     <string name="screen_lock">Screen lock</string>
+    <string name="last_channel">Previous channel</string>
+    <string name="no_previous_channel">No channel history yet</string>
     <string name="tv_guide_hint">Tap a channel to switch. Program guide often unavailable for free channels.</string>
     <string name="list_display">List display</string>
     <string name="list_display_list">List</string>

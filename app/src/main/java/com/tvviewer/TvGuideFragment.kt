@@ -166,13 +166,10 @@ class TvGuideFragment : Fragment() {
             epgStatus.text = "${epgStatus.text} • ${getString(R.string.epg_last_update, dateStr)}"
         }
 
-        if (channelsWithData == 0) {
-            emptyLayout.visibility = View.VISIBLE
-            emptyText.text = getString(R.string.epg_no_data)
-            recyclerView.visibility = View.GONE
-            return
-        }
-
+        // Раньше при отсутствии EPG-данных весь экран ТВ-гида был пустой.
+        // Теперь показываем все каналы плейлиста как обычный список — у
+        // строк просто не будет программы. Пользователь видит свои
+        // каналы и может тапом запустить любой.
         filterAndDisplay()
     }
 
@@ -203,7 +200,11 @@ class TvGuideFragment : Fragment() {
 
         if (filteredItems.isEmpty()) {
             emptyLayout.visibility = View.VISIBLE
-            emptyText.text = getString(R.string.epg_no_data)
+            emptyText.text = if (allChannelsWithEpg.isEmpty()) {
+                getString(R.string.epg_load_playlist_first)
+            } else {
+                getString(R.string.epg_no_data)
+            }
             recyclerView.visibility = View.GONE
         } else {
             emptyLayout.visibility = View.GONE

@@ -100,6 +100,10 @@ class PlayerActivity : BaseActivity() {
     private var player: ExoPlayer? = null
     private var currentUrl: String? = null
     private var currentIndex: Int = 0
+    // Индекс предыдущего просмотренного канала, чтобы по кнопке Recall /
+    // Last channel / красной кнопке вернуться туда, где только что был.
+    // -1 — пока ни одного переключения не было.
+    private var previousIndex: Int = -1
     private var controlsVisible = true
     private var channelListVisible = false
     private val hideHandler = Handler(Looper.getMainLooper())
@@ -270,6 +274,10 @@ class PlayerActivity : BaseActivity() {
         findViewById<View>(R.id.rightMenuChannelList).setOnClickListener {
             hidePlayerRightMenu()
             toggleChannelList()
+        }
+        findViewById<View>(R.id.rightMenuLastChannel).setOnClickListener {
+            hidePlayerRightMenu()
+            switchToPreviousChannel()
         }
         findViewById<View>(R.id.rightMenuAudio).setOnClickListener {
             hidePlayerRightMenu()
@@ -1169,13 +1177,28 @@ class PlayerActivity : BaseActivity() {
         val channels = ChannelDataHolder.allChannels
         if (channels.isEmpty()) return
 
-        currentIndex = (currentIndex + direction + channels.size) % channels.size
-        switchToChannel(currentIndex)
+        val target = (currentIndex + direction + channels.size) % channels.size
+        switchToChannel(target)
+    }
+
+    /**
+     * Recall / Last channel — переключение на предыдущий просмотренный
+     * канал. Если истории нет (только что зашли), показываем тост.
+     */
+    private fun switchToPreviousChannel() {
+        val prev = previousIndex
+        val channels = ChannelDataHolder.allChannels
+        if (prev < 0 || prev >= channels.size) {
+            Toast.makeText(this, R.string.no_previous_channel, Toast.LENGTH_SHORT).show()
+            return
+        }
+        switchToChannel(prev)
     }
 
     private fun switchToChannel(index: Int) {
         val channels = ChannelDataHolder.allChannels
         if (index !in channels.indices) return
+        if (index == currentIndex) return // ничего не меняется
 
         // New channel — reset reconnect counter
         reconnectAttempts = 0
@@ -1184,6 +1207,9 @@ class PlayerActivity : BaseActivity() {
         // Persist the state of the channel we're leaving before switching.
         saveCurrentChannelState()
 
+        // Запоминаем тот, с которого уходим — чтобы кнопка Recall
+        // вернула нас на него, а не уехала ещё дальше в историю.
+        previousIndex = currentIndex
         currentIndex = index
         val channel = channels[currentIndex]
 
@@ -1671,6 +1697,17 @@ class PlayerActivity : BaseActivity() {
             // Info key
             KeyEvent.KEYCODE_INFO, KeyEvent.KEYCODE_TV_DATA_SERVICE -> {
                 showChannelBanner()
+                return true
+            }
+            // Recall / Last channel — возврат на предыдущий просмотренный
+            // канал. Под это идут все типичные пульты:
+            //   • KEYCODE_LAST_CHANNEL — стандарт Android TV ("Last")
+            //   • KEYCODE_PROG_RED — красная кнопка (часто "Recall")
+            //   • KEYCODE_TV_TELETEXT_NUMBER_ENTRY — некоторые приставки
+            KeyEvent.KEYCODE_LAST_CHANNEL,
+            KeyEvent.KEYCODE_PROG_RED -> {
+                switchToPreviousChannel()
+                showControls()
                 return true
             }
             // Favourite hotkey: F / yellow remote button / bookmark
