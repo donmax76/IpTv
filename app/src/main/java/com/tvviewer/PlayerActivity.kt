@@ -876,7 +876,19 @@ class PlayerActivity : BaseActivity() {
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
             .setDataSourceFactory(wrappedFactory)
 
-        player = ExoPlayer.Builder(this)
+        // NextRenderersFactory: подкидывает софтверные FFmpeg-декодеры
+        // (MP2 / AC3 / EAC3 / DTS / FLAC / Vorbis) поверх стандартных,
+        // и предпочитает их когда аппаратный декодер не справляется. На
+        // дешёвых TV-боксах без MP2-MediaCodec это единственный способ
+        // получить звук на DVB / izone-каналах.
+        val renderersFactory = io.github.anilbeesetti.nextlib.media3ext.ffdecoder
+            .NextRenderersFactory(this)
+            .setExtensionRendererMode(
+                androidx.media3.exoplayer.DefaultRenderersFactory
+                    .EXTENSION_RENDERER_MODE_PREFER
+            )
+
+        player = ExoPlayer.Builder(this, renderersFactory)
             .setLoadControl(loadControl)
             .setMediaSourceFactory(mediaSourceFactory)
             .build().also { p ->
