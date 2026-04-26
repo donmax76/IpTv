@@ -27,6 +27,12 @@ android {
         targetSdk = 34
         versionCode = gitVersionCode()
         versionName = gitVersionName()
+
+        // GitHub Issues API — same token as TVViewer (IPTV_ISSUE_TOKEN secret)
+        val issueToken = System.getenv("IPTV_ISSUE_TOKEN") ?: ""
+        buildConfigField("String", "ISSUE_TOKEN", "\"$issueToken\"")
+        buildConfigField("String", "ISSUE_REPO", "\"donmax76/IpTv\"")
+        buildConfigField("String", "NTFY_TOPIC", "\"\"")
     }
 
     // Native DSP library for real-time FM demodulation (C++ via JNI)

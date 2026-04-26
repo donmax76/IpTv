@@ -1052,17 +1052,17 @@ class MainActivity : Activity() {
     }
 
     private fun sendErrorLog() {
-        val errorContent = ErrorLogger.getErrorContent(this)
-        if (errorContent.isBlank()) {
-            showToast("No error logs to send")
+        val debugLog = com.fmradio.dsp.DebugLog.getText()
+        val errorLog = ErrorLogger.getErrorContent(this)
+        val combined = buildString {
+            if (debugLog.isNotBlank()) { append("=== DEBUG LOG ===\n"); append(debugLog); append("\n\n") }
+            if (errorLog.isNotBlank()) { append("=== ERROR LOG ===\n"); append(errorLog) }
+        }
+        if (combined.isBlank()) {
+            showToast("Нет логов для отправки")
             return
         }
-        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "FM Radio Error Log")
-            putExtra(Intent.EXTRA_TEXT, errorContent)
-        }
-        startActivity(Intent.createChooser(shareIntent, "Send error log"))
+        com.fmradio.util.CrashReporter.sendLog(this, combined)
     }
 
     private fun openSettings() {
