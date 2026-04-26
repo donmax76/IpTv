@@ -119,68 +119,57 @@
                 android:textSize="10sp"
                 android:visibility="gone"/>
 
+            <!-- Кнопки настроек плеера (аудио/скорость/PiP/блокировка/
+                 соотношение/список каналов) перенесены в правое
+                 выпадающее меню (DPAD_RIGHT). Здесь они скрыты, но
+                 оставлены ради существующих ссылок в Kotlin-коде —
+                 проще скрыть, чем переписывать инициализацию. -->
             <ImageButton
                 android:id="@+id/btnAudioTrack"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
                 android:src="@drawable/ic_audio_track"
-                android:tint="@android:color/white"
-                android:background="@drawable/bg_player_button"
-                android:focusable="true"
-                android:layout_marginEnd="4dp"
+                android:visibility="gone"
                 android:contentDescription="@string/audio_track"/>
 
             <ImageButton
                 android:id="@+id/btnSpeed"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
                 android:src="@drawable/ic_speed"
-                android:tint="@android:color/white"
-                android:background="@drawable/bg_player_button"
-                android:focusable="true"
-                android:layout_marginEnd="4dp"
+                android:visibility="gone"
                 android:contentDescription="@string/playback_speed"/>
 
             <ImageButton
                 android:id="@+id/btnChannelList"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
                 android:src="@drawable/ic_channel_list"
-                android:tint="@android:color/white"
-                android:background="@drawable/bg_player_button"
-                android:focusable="true"
-                android:layout_marginEnd="4dp"
+                android:visibility="gone"
                 android:contentDescription="@string/channel_list"/>
 
             <ImageButton
                 android:id="@+id/btnLock"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
                 android:src="@drawable/ic_lock"
-                android:tint="@android:color/white"
-                android:background="@drawable/bg_player_button"
-                android:focusable="true"
-                android:layout_marginEnd="4dp"
+                android:visibility="gone"
                 android:contentDescription="@string/screen_lock"/>
 
             <ImageButton
                 android:id="@+id/btnPip"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
                 android:src="@drawable/ic_pip"
-                android:tint="@android:color/white"
-                android:background="@drawable/bg_player_button"
-                android:focusable="true"
-                android:layout_marginEnd="4dp"
+                android:visibility="gone"
                 android:contentDescription="PiP"/>
 
             <ImageButton
                 android:id="@+id/btnAspectRatio"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
                 android:src="@drawable/ic_aspect_ratio"
-                android:background="@drawable/bg_player_button"
-                android:focusable="true"
+                android:visibility="gone"
                 android:contentDescription="@string/aspect_ratio"/>
 
         </LinearLayout>
@@ -372,7 +361,7 @@
 
         <LinearLayout
             android:id="@+id/playerDrawerPanel"
-            android:layout_width="240dp"
+            android:layout_width="260dp"
             android:layout_height="match_parent"
             android:layout_gravity="start"
             android:orientation="vertical"
@@ -459,6 +448,105 @@
                 android:textColor="@color/text_primary"
                 android:focusable="true"
                 app:icon="@drawable/ic_settings"/>
+
+        </LinearLayout>
+
+    </FrameLayout>
+
+    <!-- Правое выпадающее меню плеера: открывается по DPAD_RIGHT.
+         Содержит все настройки, которые раньше торчали в верхнем
+         правом углу (Аудио / Скорость / Список каналов / Блокировка /
+         PiP / Соотношение). Закрывается по DPAD_LEFT, BACK или
+         тапу по затемнению. -->
+    <FrameLayout
+        android:id="@+id/playerRightMenuOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <View
+            android:id="@+id/playerRightMenuDimBg"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#80000000"/>
+
+        <LinearLayout
+            android:id="@+id/playerRightMenuPanel"
+            android:layout_width="240dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="end"
+            android:orientation="vertical"
+            android:background="@color/surface"
+            android:padding="6dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="16dp"
+                android:text="@string/settings"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp"
+                android:textStyle="bold"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/rightMenuChannelList"
+                style="@style/PlayerDrawerItem"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:text="@string/channel_list"
+                android:textColor="@color/text_primary"
+                android:focusable="true"
+                app:icon="@drawable/ic_channel_list"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/rightMenuAudio"
+                style="@style/PlayerDrawerItem"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:text="@string/audio_track"
+                android:textColor="@color/text_primary"
+                android:focusable="true"
+                app:icon="@drawable/ic_audio_track"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/rightMenuSpeed"
+                style="@style/PlayerDrawerItem"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:text="@string/playback_speed"
+                android:textColor="@color/text_primary"
+                android:focusable="true"
+                app:icon="@drawable/ic_speed"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/rightMenuAspect"
+                style="@style/PlayerDrawerItem"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:text="@string/aspect_ratio"
+                android:textColor="@color/text_primary"
+                android:focusable="true"
+                app:icon="@drawable/ic_aspect_ratio"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/rightMenuPip"
+                style="@style/PlayerDrawerItem"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:text="PiP"
+                android:textColor="@color/text_primary"
+                android:focusable="true"
+                app:icon="@drawable/ic_pip"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/rightMenuLock"
+                style="@style/PlayerDrawerItem"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:text="@string/screen_lock"
+                android:textColor="@color/text_primary"
+                android:focusable="true"
+                app:icon="@drawable/ic_lock"/>
 
         </LinearLayout>
 

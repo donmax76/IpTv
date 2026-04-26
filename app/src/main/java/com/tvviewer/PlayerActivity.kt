@@ -74,6 +74,7 @@ class PlayerActivity : BaseActivity() {
     private lateinit var persistentClock: TextView
     private lateinit var channelListOverlay: FrameLayout
     private lateinit var playerDrawerOverlay: FrameLayout
+    private lateinit var playerRightMenuOverlay: FrameLayout
     private var streamDataFactory: androidx.media3.datasource.DataSource.Factory? = null
     private lateinit var overlayChannelsList: RecyclerView
     private lateinit var numberInputDisplay: TextView
@@ -259,6 +260,36 @@ class PlayerActivity : BaseActivity() {
             keepPlayingInBackground = true
             hidePlayerDrawer()
             startActivity(Intent(this, SettingsActivity::class.java))
+        }
+
+        // Правое выпадающее меню плеера (DPAD_RIGHT). Все эти действия
+        // раньше торчали кнопками в верхнем правом углу — теперь они
+        // спрятаны и доступны только из этого меню.
+        playerRightMenuOverlay = findViewById(R.id.playerRightMenuOverlay)
+        findViewById<View>(R.id.playerRightMenuDimBg).setOnClickListener { hidePlayerRightMenu() }
+        findViewById<View>(R.id.rightMenuChannelList).setOnClickListener {
+            hidePlayerRightMenu()
+            toggleChannelList()
+        }
+        findViewById<View>(R.id.rightMenuAudio).setOnClickListener {
+            hidePlayerRightMenu()
+            showAudioTrackDialog()
+        }
+        findViewById<View>(R.id.rightMenuSpeed).setOnClickListener {
+            hidePlayerRightMenu()
+            cycleSpeed()
+        }
+        findViewById<View>(R.id.rightMenuAspect).setOnClickListener {
+            hidePlayerRightMenu()
+            cycleAspectRatio()
+        }
+        findViewById<View>(R.id.rightMenuPip).setOnClickListener {
+            hidePlayerRightMenu()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) enterPipMode()
+        }
+        findViewById<View>(R.id.rightMenuLock).setOnClickListener {
+            hidePlayerRightMenu()
+            toggleScreenLock()
         }
         overlayChannelsList = findViewById(R.id.overlayChannelsList)
         numberInputDisplay = findViewById(R.id.numberInputDisplay)
@@ -1381,9 +1412,9 @@ class PlayerActivity : BaseActivity() {
         playerDrawerOverlay.visibility = View.VISIBLE
         playerDrawerOverlay.bringToFront()
         // Сдвигаем панель списка каналов вправо ровно на ширину выдвижного
-        // меню (240dp — см. activity_player.xml), чтобы оба элемента
+        // меню (260dp — см. activity_player.xml), чтобы оба элемента
         // отображались рядом, а не перекрывали друг друга.
-        val drawerWidth = (240 * resources.displayMetrics.density).toInt()
+        val drawerWidth = (260 * resources.displayMetrics.density).toInt()
         findViewById<View>(R.id.channelListPanel)
             ?.animate()?.translationX(drawerWidth.toFloat())?.setDuration(150)?.start()
         playerDrawerOverlay.findViewById<View>(R.id.playerDrawerPlaylists)?.requestFocus()
@@ -1397,6 +1428,22 @@ class PlayerActivity : BaseActivity() {
             // Return focus to the channel list so the user can keep navigating
             findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.overlayChannelsList)
                 ?.requestFocus()
+        }
+    }
+
+    private fun rightMenuVisible(): Boolean =
+        ::playerRightMenuOverlay.isInitialized &&
+            playerRightMenuOverlay.visibility == View.VISIBLE
+
+    private fun showPlayerRightMenu() {
+        playerRightMenuOverlay.visibility = View.VISIBLE
+        playerRightMenuOverlay.bringToFront()
+        playerRightMenuOverlay.findViewById<View>(R.id.rightMenuChannelList)?.requestFocus()
+    }
+
+    private fun hidePlayerRightMenu() {
+        if (::playerRightMenuOverlay.isInitialized) {
+            playerRightMenuOverlay.visibility = View.GONE
         }
     }
 
@@ -1474,6 +1521,16 @@ class PlayerActivity : BaseActivity() {
         // Any keypress while the channel list is visible counts as activity
         if (channelListVisible) bumpChannelListIdleTimer()
 
+        // Правое выпадающее меню: BACK или DPAD_LEFT закрывают, остальное
+        // — стандартная навигация по пунктам.
+        if (rightMenuVisible()) {
+            if (keyCode == KeyEvent.KEYCODE_BACK ||
+                keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                hidePlayerRightMenu(); return true
+            }
+            return super.onKeyDown(keyCode, event)
+        }
+
         // Player drawer: Back closes it; everything else falls through to
         // the default focus traversal so the user can move between menu
         // items and click them.
@@ -1499,10 +1556,16 @@ class PlayerActivity : BaseActivity() {
         if (inTopBar) {
             when (keyCode) {
                 KeyEvent.KEYCODE_DPAD_LEFT,
-                KeyEvent.KEYCODE_DPAD_RIGHT,
                 KeyEvent.KEYCODE_DPAD_UP,
                 KeyEvent.KEYCODE_DPAD_CENTER,
                 KeyEvent.KEYCODE_ENTER -> return super.onKeyDown(keyCode, event)
+                KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                    // С верхнего бара (там теперь только кнопка Назад)
+                    // Right тоже открывает правое меню плеера, как и из
+                    // основной зоны.
+                    showPlayerRightMenu()
+                    return true
+                }
                 KeyEvent.KEYCODE_DPAD_DOWN -> {
                     // Leave the top bar — return focus to the player area
                     playerView.requestFocus()
@@ -1560,13 +1623,19 @@ class PlayerActivity : BaseActivity() {
                 toggleChannelList()
                 return true
             }
-            // D-pad Right - close channel list
+            // D-pad Right
+            //   • если открыт список каналов — закрываем его
+            //   • иначе — открываем правое выпадающее меню плеера
+            //     (Аудио / Скорость / Список каналов / PiP / Блокировка /
+            //     Соотношение). Раньше эти кнопки висели в верхнем
+            //     правом углу — теперь убраны и доступны только отсюда.
             KeyEvent.KEYCODE_DPAD_RIGHT -> {
                 if (channelListVisible) {
                     hideChannelList()
                     return true
                 }
-                return super.onKeyDown(keyCode, event)
+                showPlayerRightMenu()
+                return true
             }
             // Play/Pause
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE -> {
