@@ -808,6 +808,16 @@ class PlayerActivity : BaseActivity() {
             .setMediaSourceFactory(mediaSourceFactory)
             .build().also { p ->
                 playerView.player = p
+                // Параметры выбора дорожек по умолчанию режут аудио, если
+                // ни одна дорожка не подходит под "preferredAudioLanguages".
+                // Снимаем фильтр — пускай играет любая поддерживаемая
+                // аудио-дорожка (важно для izone.az и других стримов с
+                // одной аудио без объявленного языка).
+                p.trackSelectionParameters = p.trackSelectionParameters
+                    .buildUpon()
+                    .setPreferredAudioLanguage(null)
+                    .setPreferredAudioMimeTypes()
+                    .build()
                 p.addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(state: Int) {
                         when (state) {
@@ -838,6 +848,7 @@ class PlayerActivity : BaseActivity() {
                     }
 
                     override fun onTracksChanged(tracks: Tracks) {
+                        ensureAudioTrackSelected(tracks)
                         updateAudioTrackInfo()
                     }
 
@@ -881,6 +892,42 @@ class PlayerActivity : BaseActivity() {
         errorText.text = getString(R.string.reconnecting) +
             " (${reconnectAttempts}/$MAX_RECONNECT)"
         reconnectHandler.postDelayed(reconnectRunnable, delayMs)
+    }
+
+    /**
+     * Многие HLS-стримы (izone.az, региональные порталы CIS) объявляют
+     * аудио в отдельном #EXT-X-MEDIA:TYPE=AUDIO без флага DEFAULT=YES,
+     * и ExoPlayer не выбирает ни одну дорожку — звук пропадает, видео
+     * идёт. Здесь вручную включаем первую поддерживаемую аудио-дорожку,
+     * если автовыбор оставил всё выключенным.
+     */
+    private fun ensureAudioTrackSelected(tracks: Tracks) {
+        val p = player ?: return
+        val hasSelectedAudio = tracks.groups.any { g ->
+            g.type == C.TRACK_TYPE_AUDIO && g.isSelected
+        }
+        if (hasSelectedAudio) return
+        val firstSupported = tracks.groups
+            .firstOrNull { it.type == C.TRACK_TYPE_AUDIO && hasAnySupportedTrack(it) }
+            ?: return
+        for (i in 0 until firstSupported.length) {
+            if (firstSupported.isTrackSupported(i)) {
+                val override = TrackSelectionOverride(firstSupported.mediaTrackGroup, i)
+                p.trackSelectionParameters = p.trackSelectionParameters
+                    .buildUpon()
+                    .setOverrideForType(override)
+                    .build()
+                Log.d("PlayerActivity", "Force-selected audio track: ${firstSupported.getTrackFormat(i).label ?: firstSupported.getTrackFormat(i).language}")
+                return
+            }
+        }
+    }
+
+    private fun hasAnySupportedTrack(group: Tracks.Group): Boolean {
+        for (i in 0 until group.length) {
+            if (group.isTrackSupported(i)) return true
+        }
+        return false
     }
 
     private fun updateAudioTrackInfo() {

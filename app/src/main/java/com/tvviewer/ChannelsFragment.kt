@@ -158,6 +158,18 @@ class ChannelsFragment : Fragment() {
             ChannelDataHolder.pendingPlaylistName = null
             ChannelDataHolder.pendingPlaylistUrl = null
             loadPlaylist(name ?: "", url)
+            return
+        }
+        // Если фрагмент создан заново (например, пользователь нажал
+        // стрелку Назад в плеере, а ChannelsFragment ещё не был открыт),
+        // pendingPlaylistUrl пуст, а сами Каналы — пусты. Подтягиваем
+        // последний плейлист из настроек, чтобы экран не оставался
+        // пустым.
+        if (currentPlaylistUrl == null && allChannels.isEmpty()) {
+            val lastUrl = prefs.lastPlaylistUrl
+            if (!lastUrl.isNullOrBlank()) {
+                loadPlaylist(prefs.lastPlaylistName ?: "", lastUrl)
+            }
         }
     }
 

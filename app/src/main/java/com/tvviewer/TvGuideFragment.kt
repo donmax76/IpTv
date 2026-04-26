@@ -42,6 +42,9 @@ class TvGuideFragment : Fragment() {
     private var allChannelsWithEpg: List<EpgChannelItem> = emptyList()
     private var filteredItems: List<EpgChannelItem> = emptyList()
     private var selectedDateOffset = 0 // 0=today, -1=yesterday, 1=tomorrow
+    // Чтобы фрагмент не уходил в бесконечный цикл refreshEpg() →
+    // loadEpgData() → refreshEpg(), когда сервер EPG отдаёт пусто.
+    private var autoRefreshAttempted = false
 
     data class EpgChannelItem(
         val channel: Channel,
@@ -129,9 +132,17 @@ class TvGuideFragment : Fragment() {
                 ChannelDataHolder.epgData = cached
             }
 
-            // allEpgUrls() includes built-in defaults when nothing else
-            // is configured, so TV Guide always has at least one source.
-            if (prefs.allEpgUrls().isNotEmpty() && ChannelDataHolder.epgData.isEmpty()) {
+            // Авто-рефреш — РОВНО ОДИН раз за визит фрагмента, и не чаще
+            // раза в час по prefs.epgLastUpdate. Иначе при пустом ответе
+            // сервера фрагмент бесконечно гонял запросы:
+            // refreshEpg() → loadEpgData() → refreshEpg() → ...
+            val sinceLastRefresh = System.currentTimeMillis() - prefs.epgLastUpdate
+            val ONE_HOUR = 60 * 60 * 1000L
+            if (prefs.allEpgUrls().isNotEmpty() &&
+                ChannelDataHolder.epgData.isEmpty() &&
+                !autoRefreshAttempted &&
+                (prefs.epgLastUpdate == 0L || sinceLastRefresh > ONE_HOUR)) {
+                autoRefreshAttempted = true
                 refreshEpg()
                 return
             }
@@ -219,13 +230,20 @@ class TvGuideFragment : Fragment() {
             try {
                 val data = EpgRepository.fetchAll(urls, appCtx)
                 ChannelDataHolder.epgData = data
+                // Метку времени ставим в любом случае — даже когда ответ
+                // пустой. Иначе loadEpgData() сразу же снова дёргал
+                // refreshEpg() и фрагмент крутил пустые обновления.
                 prefs.epgLastUpdate = System.currentTimeMillis()
                 if (!isAdded) return@launch
                 progressBar.visibility = View.GONE
                 loadEpgData()
-                Toast.makeText(appCtx, R.string.epg_updated, Toast.LENGTH_SHORT).show()
+                if (data.isNotEmpty()) {
+                    Toast.makeText(appCtx, R.string.epg_updated, Toast.LENGTH_SHORT).show()
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "EPG refresh error", e)
+                // Тоже отмечаем — не пытаемся биться об мёртвый сервер ещё час.
+                prefs.epgLastUpdate = System.currentTimeMillis()
                 if (!isAdded) return@launch
                 progressBar.visibility = View.GONE
                 Toast.makeText(appCtx, R.string.epg_update_failed, Toast.LENGTH_SHORT).show()
