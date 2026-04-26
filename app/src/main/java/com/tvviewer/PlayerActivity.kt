@@ -984,7 +984,7 @@ class PlayerActivity : BaseActivity() {
         // В media3 1.2.0 у DecoderInitializationException есть только
         // String mimeType (Format-объекта здесь нет — появился в 1.4+).
         val codecHint: String = if (cause is MediaCodecRenderer.DecoderInitializationException) {
-            cause.mimeType.substringAfter('/')
+            cause.mimeType?.substringAfter('/') ?: "?"
         } else {
             "?"
         }
