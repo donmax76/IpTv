@@ -308,6 +308,8 @@ class MainActivity : Activity() {
         btnAf = findViewById(R.id.btnAf)
         btnTa = findViewById(R.id.btnTa)
         btnBand = findViewById(R.id.btnBand)
+        findViewById<Button>(R.id.btnPrevStation).setOnClickListener { switchStation(-1) }
+        findViewById<Button>(R.id.btnNextStation).setOnClickListener { switchStation(1) }
         layoutScanning = findViewById(R.id.layoutScanning)
         progressScan = findViewById(R.id.progressScan)
         tvScanStatus = findViewById(R.id.tvScanStatus)
@@ -545,6 +547,28 @@ class MainActivity : Activity() {
             Log.e("FMRadio", "Debug panel error", e)
             DebugLog.log("UI", "Debug panel error: ${e.message}")
         }
+    }
+
+    /**
+     * Switch to previous (-1) or next (+1) saved station.
+     * Wraps around at the ends of the list.
+     */
+    private fun switchStation(direction: Int) {
+        val stations = stationStorage.loadStations().sortedBy { it.frequencyHz }
+        if (stations.isEmpty()) {
+            showToast("Нет сохранённых станций")
+            return
+        }
+        val currentIdx = stations.indexOfFirst {
+            Math.abs(it.frequencyHz - currentFrequency) < 50000
+        }
+        val nextIdx = when {
+            currentIdx < 0 -> if (direction > 0) 0 else stations.lastIndex
+            else -> (currentIdx + direction + stations.size) % stations.size
+        }
+        val station = stations[nextIdx]
+        setFrequency(station.frequencyHz)
+        if (radioService?.isPlaying != true) startPlayback()
     }
 
     private fun showBandSelector() {
