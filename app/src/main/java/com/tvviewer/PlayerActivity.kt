@@ -1215,6 +1215,26 @@ class PlayerActivity : BaseActivity() {
         // New channel — reset reconnect counter
         reconnectAttempts = 0
         reconnectHandler.removeCallbacks(reconnectRunnable)
+        // Полная остановка плеера перед сменой источника. Без этого
+        // иногда оставались таймеры и track-override'ы с прошлого
+        // канала, и новый источник не мог пробиться через бесконечное
+        // "Reconnecting…".
+        player?.let { p ->
+            p.stop()
+            // Сбрасываем все track-override'ы (особенно по аудио,
+            // которое мы форсим в ensureAudioTrackSelected). На новом
+            // канале старый override указывает в никуда и плеер мог
+            // зависать в STATE_BUFFERING, не выбрав ни одной дорожки.
+            p.trackSelectionParameters = p.trackSelectionParameters
+                .buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                .build()
+        }
+        // Прячем индикатор ошибок предыдущего канала — playStream его
+        // тоже скроет, но для подстраховки.
+        errorLayout.visibility = View.GONE
 
         // Persist the state of the channel we're leaving before switching.
         saveCurrentChannelState()
