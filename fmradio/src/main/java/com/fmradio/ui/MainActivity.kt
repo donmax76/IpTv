@@ -1189,6 +1189,13 @@ class MainActivity : Activity() {
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         setIntent(intent)
+        // Show debug panel if requested from Settings
+        if (intent?.getBooleanExtra("show_debug", false) == true) {
+            intent.removeExtra("show_debug")
+            if (layoutDebug.visibility != View.VISIBLE) {
+                toggleDebugPanel()
+            }
+        }
         if (intent?.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) {
             // Bring activity to front so it's visible above system UI
             moveTaskToFront()
