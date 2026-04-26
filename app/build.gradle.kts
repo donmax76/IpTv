@@ -5,7 +5,11 @@ plugins {
 
 android {
     namespace = "com.tvviewer"
-    compileSdk = 34
+    // compileSdk=35 нужен для зависимости nextlib-media3ext (тянет
+    // media3 1.5.x), которая даёт софтверные FFmpeg-декодеры для MP2 /
+    // AC3 / EAC3. AGP 8.2.0 поддерживает 35 (предупреждение про
+    // максимум — не блокер).
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.tvviewer"

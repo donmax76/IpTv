@@ -1489,9 +1489,57 @@ class PlayerActivity : BaseActivity() {
         }
     }
 
+    /**
+     * Циклическое перемещение фокуса по пунктам плеер-меню. Возвращает
+     * true, если фокус был передвинут, false — если фокус не на пункте
+     * меню (тогда onKeyDown отдаёт ключ дефолтному поиску фокуса).
+     */
+    private fun cyclePlayerDrawerFocus(forward: Boolean): Boolean {
+        val items = listOf(
+            R.id.playerDrawerPlaylists,
+            R.id.playerDrawerChannels,
+            R.id.playerDrawerTvGuide,
+            R.id.playerDrawerFavorites,
+            R.id.playerDrawerRecent,
+            R.id.playerDrawerSettings,
+        )
+        val focusedId = currentFocus?.id ?: return false
+        val idx = items.indexOf(focusedId)
+        if (idx < 0) return false
+        val nextIdx = if (forward) {
+            if (idx == items.size - 1) 0 else idx + 1
+        } else {
+            if (idx == 0) items.size - 1 else idx - 1
+        }
+        findViewById<View>(items[nextIdx])?.requestFocus()
+        return true
+    }
+
     private fun rightMenuVisible(): Boolean =
         ::playerRightMenuOverlay.isInitialized &&
             playerRightMenuOverlay.visibility == View.VISIBLE
+
+    private fun cycleRightMenuFocus(forward: Boolean): Boolean {
+        val items = listOf(
+            R.id.rightMenuChannelList,
+            R.id.rightMenuLastChannel,
+            R.id.rightMenuAudio,
+            R.id.rightMenuSpeed,
+            R.id.rightMenuAspect,
+            R.id.rightMenuPip,
+            R.id.rightMenuLock,
+        )
+        val focusedId = currentFocus?.id ?: return false
+        val idx = items.indexOf(focusedId)
+        if (idx < 0) return false
+        val nextIdx = if (forward) {
+            if (idx == items.size - 1) 0 else idx + 1
+        } else {
+            if (idx == 0) items.size - 1 else idx - 1
+        }
+        findViewById<View>(items[nextIdx])?.requestFocus()
+        return true
+    }
 
     private fun showPlayerRightMenu() {
         playerRightMenuOverlay.visibility = View.VISIBLE
@@ -1579,22 +1627,35 @@ class PlayerActivity : BaseActivity() {
         // Any keypress while the channel list is visible counts as activity
         if (channelListVisible) bumpChannelListIdleTimer()
 
-        // Правое выпадающее меню: BACK или DPAD_LEFT закрывают, остальное
-        // — стандартная навигация по пунктам.
+        // Правое выпадающее меню: BACK или DPAD_LEFT закрывают,
+        // UP/DOWN зацикливаются внутри пунктов (как в плеер-меню).
         if (rightMenuVisible()) {
             if (keyCode == KeyEvent.KEYCODE_BACK ||
                 keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
                 hidePlayerRightMenu(); return true
             }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
+                keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                if (cycleRightMenuFocus(keyCode == KeyEvent.KEYCODE_DPAD_DOWN)) {
+                    return true
+                }
+            }
             return super.onKeyDown(keyCode, event)
         }
 
-        // Player drawer: Back closes it; everything else falls through to
-        // the default focus traversal so the user can move between menu
-        // items and click them.
+        // Плеер-меню (выдвижное слева по DPAD_LEFT 2x): Back / Right
+        // закрывают, UP/DOWN зацикливаются по пунктам меню (раньше с
+        // последнего пункта DOWN уводил фокус в список каналов справа
+        // и пользователь не мог вернуться обратно).
         if (playerDrawerVisible()) {
             if (keyCode == KeyEvent.KEYCODE_BACK) { hidePlayerDrawer(); return true }
             if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) { hidePlayerDrawer(); return true }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
+                keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                if (cyclePlayerDrawerFocus(keyCode == KeyEvent.KEYCODE_DPAD_DOWN)) {
+                    return true
+                }
+            }
             return super.onKeyDown(keyCode, event)
         }
 
