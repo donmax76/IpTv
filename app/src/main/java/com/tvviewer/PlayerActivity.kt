@@ -41,6 +41,8 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.ui.PlayerView
@@ -876,7 +878,21 @@ class PlayerActivity : BaseActivity() {
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
             .setDataSourceFactory(wrappedFactory)
 
-        player = ExoPlayer.Builder(this)
+        // RenderersFactory с двумя ключевыми опциями для MP2-аудио:
+        //  • setEnableDecoderFallback — если аппаратный декодер не
+        //    запустился, ExoPlayer пробует следующий из списка
+        //    (часто это софтверный c2.android.mp3.decoder, который
+        //    проглатывает MP2-кадры).
+        //  • setExtensionRendererMode(PREFER) — если когда-нибудь
+        //    в classpath будет media3-decoder-ffmpeg, он будет
+        //    выбран первым.
+        val renderersFactory = DefaultRenderersFactory(this)
+            .setEnableDecoderFallback(true)
+            .setExtensionRendererMode(
+                DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
+            )
+
+        player = ExoPlayer.Builder(this, renderersFactory)
             .setLoadControl(loadControl)
             .setMediaSourceFactory(mediaSourceFactory)
             .build().also { p ->
@@ -940,10 +956,55 @@ class PlayerActivity : BaseActivity() {
                                 return
                             } catch (_: Exception) {}
                         }
+                        // Декодер не нашёлся (типичный случай — MP2-аудио
+                        // на дешёвых TV-боксах без MP2 MediaCodec'а).
+                        // Reconnect не поможет — формат не изменится.
+                        // Предлагаем открыть канал во внешнем плеере.
+                        if (error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
+                            error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
+                            error.errorCode == PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED) {
+                            offerExternalPlayer(error)
+                            return
+                        }
                         scheduleReconnect()
                     }
                 })
             }
+    }
+
+    /**
+     * Декодер не нашёлся — обычно MP2-аудио на TV-боксах без
+     * software-декодера. Предлагаем пользователю запустить канал
+     * во внешнем плеере (VLC / MX), который декодирует MP2.
+     */
+    private fun offerExternalPlayer(error: PlaybackException) {
+        val url = currentUrl ?: return
+        errorLayout.visibility = View.VISIBLE
+        // Достаём подсказку о кодеке для текста
+        val codecHint = (error.cause as? androidx.media3.exoplayer.mediacodec.MediaCodecRenderer
+            .DecoderInitializationException)
+            ?.format?.sampleMimeType?.substringAfter('/') ?: "?"
+        errorText.text = "Кодек $codecHint не поддерживается этим устройством"
+        android.app.AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
+            .setTitle("Звук не поддерживается")
+            .setMessage(
+                "Кодек $codecHint не декодируется встроенным плеером. " +
+                "Открыть канал во внешнем плеере (VLC / MX)?"
+            )
+            .setPositiveButton("Открыть") { _, _ ->
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(android.net.Uri.parse(url), "video/*")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(intent)
+                    finish()
+                } catch (_: Exception) {
+                    Toast.makeText(this, R.string.no_player_app, Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
     }
 
     private fun scheduleReconnect() {
