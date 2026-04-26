@@ -67,11 +67,15 @@ object CrashReporter {
         val body = systemInfo() + "\n```\n$logText\n```"
 
         Thread {
-            val ok = postToNtfy(title, body)
+            val ntfyOk = postToNtfy(title, body)
+            val ghOk = postToGitHub(title, body)
+
             main.post {
-                Toast.makeText(context,
-                    if (ok) "Лог отправлен" else "Ошибка отправки",
-                    Toast.LENGTH_SHORT).show()
+                if (ntfyOk || ghOk) {
+                    Toast.makeText(context, "Лог отправлен", Toast.LENGTH_SHORT).show()
+                } else {
+                    openInBrowser(context, title, body)
+                }
             }
         }.start()
     }

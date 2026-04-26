@@ -470,12 +470,17 @@ class SettingsActivity : Activity() {
     }
 
     private fun sendDebugLog() {
-        val intent = DebugLog.getShareIntent(this)
-        if (intent != null) {
-            startActivity(Intent.createChooser(intent, "Share FM Radio Debug Log"))
-        } else {
-            Toast.makeText(this, "No log file available", Toast.LENGTH_SHORT).show()
+        val debugLog = DebugLog.getText()
+        val errorLog = com.fmradio.util.ErrorLogger.getErrorContent(this)
+        val combined = buildString {
+            if (debugLog.isNotBlank()) { append("=== DEBUG LOG ===\n"); append(debugLog); append("\n\n") }
+            if (errorLog.isNotBlank()) { append("=== ERROR LOG ===\n"); append(errorLog) }
         }
+        if (combined.isBlank()) {
+            Toast.makeText(this, "No log available", Toast.LENGTH_SHORT).show()
+            return
+        }
+        com.fmradio.util.CrashReporter.sendLog(this, combined)
     }
 
     private fun viewErrors() {
@@ -488,13 +493,8 @@ class SettingsActivity : Activity() {
             .setTitle("Error Log")
             .setMessage(content.takeLast(4000))
             .setPositiveButton("OK", null)
-            .setNeutralButton("Share") { _, _ ->
-                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, "FM Radio Error Log")
-                    putExtra(Intent.EXTRA_TEXT, content)
-                }
-                startActivity(Intent.createChooser(shareIntent, "Send error log"))
+            .setNeutralButton("Send") { _, _ ->
+                com.fmradio.util.CrashReporter.sendLog(this, content)
             }
             .show()
     }

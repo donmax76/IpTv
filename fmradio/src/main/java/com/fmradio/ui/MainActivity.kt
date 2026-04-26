@@ -99,12 +99,6 @@ class MainActivity : Activity() {
     private lateinit var tvStationsHeader: TextView
     private var stationsExpanded = true
 
-    private lateinit var seekVolume: SeekBar
-    private lateinit var seekBass: SeekBar
-    private lateinit var seekTreble: SeekBar
-    private lateinit var tvVolumeValue: TextView
-    private lateinit var tvBassValue: TextView
-    private lateinit var tvTrebleValue: TextView
 
     private lateinit var btnScan: Button
     private lateinit var btnAddStation: TextView
@@ -296,12 +290,6 @@ class MainActivity : Activity() {
 
         tvStationsHeader = findViewById(R.id.tvStationsHeader)
 
-        seekVolume = findViewById(R.id.seekVolume)
-        seekBass = findViewById(R.id.seekBass)
-        seekTreble = findViewById(R.id.seekTreble)
-        tvVolumeValue = findViewById(R.id.tvVolumeValue)
-        tvBassValue = findViewById(R.id.tvBassValue)
-        tvTrebleValue = findViewById(R.id.tvTrebleValue)
 
         btnScan = findViewById(R.id.btnScan)
         btnAf = findViewById(R.id.btnAf)
@@ -328,7 +316,6 @@ class MainActivity : Activity() {
         )
         lvStations.adapter = stationAdapter
 
-        seekVolume.max = 100
         layoutScanning.visibility = View.GONE
 
         // Settings button
@@ -366,14 +353,6 @@ class MainActivity : Activity() {
         updateFrequencyDisplay(currentFrequency)
         seekFrequency.progress = frequencyToProgress(currentFrequency)
 
-        seekVolume.progress = (stationStorage.lastVolume * 100).toInt()
-        tvVolumeValue.text = seekVolume.progress.toString()
-
-        seekBass.progress = stationStorage.bassLevel
-        tvBassValue.text = (seekBass.progress - 10).toString()
-
-        seekTreble.progress = stationStorage.trebleLevel
-        tvTrebleValue.text = (seekTreble.progress - 10).toString()
 
         updateAfIndicator(stationStorage.afEnabled)
         updateTaIndicator(stationStorage.taEnabled)
@@ -412,37 +391,6 @@ class MainActivity : Activity() {
             }
         })
 
-        seekVolume.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
-                if (fromUser) {
-                    radioService?.setVolume(progress / 100f)
-                    stationStorage.lastVolume = progress / 100f
-                }
-                tvVolumeValue.text = progress.toString()
-            }
-            override fun onStartTrackingTouch(sb: SeekBar) {}
-            override fun onStopTrackingTouch(sb: SeekBar) {}
-        })
-
-        seekBass.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
-                val value = progress - 10
-                tvBassValue.text = if (value > 0) "+$value" else value.toString()
-                if (fromUser) { radioService?.setBass(progress); stationStorage.bassLevel = progress }
-            }
-            override fun onStartTrackingTouch(sb: SeekBar) {}
-            override fun onStopTrackingTouch(sb: SeekBar) {}
-        })
-
-        seekTreble.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
-                val value = progress - 10
-                tvTrebleValue.text = if (value > 0) "+$value" else value.toString()
-                if (fromUser) { radioService?.setTreble(progress); stationStorage.trebleLevel = progress }
-            }
-            override fun onStartTrackingTouch(sb: SeekBar) {}
-            override fun onStopTrackingTouch(sb: SeekBar) {}
-        })
 
         btnScan.setOnClickListener {
             if (scanner?.isScanning() == true) scanner?.stopScan() else startScan()
@@ -538,7 +486,7 @@ class MainActivity : Activity() {
                 }
                 // Log current state
                 DebugLog.log("UI", "Debug enabled. Device=${rtlSdrDevice?.isDeviceOpen()}, playing=${radioService?.isPlaying}, freq=${currentFrequency/1e6}MHz")
-                DebugLog.log("UI", "Volume=${seekVolume.progress}%, tuner=${rtlSdrDevice?.getTunerType()}")
+                DebugLog.log("UI", "Volume=${(stationStorage.lastVolume * 100).toInt()}%, tuner=${rtlSdrDevice?.getTunerType()}")
             }
         } catch (e: Exception) {
             Log.e("FMRadio", "Debug panel error", e)
@@ -674,12 +622,12 @@ class MainActivity : Activity() {
         val service = radioService ?: return
         if (rtlSdrDevice == null) { showToast(getString(R.string.msg_connect_first)); return }
 
-        DebugLog.log("UI", "startPlayback: freq=${currentFrequency/1e6}MHz vol=${seekVolume.progress}%")
+        DebugLog.log("UI", "startPlayback: freq=${currentFrequency/1e6}MHz vol=${(stationStorage.lastVolume * 100).toInt()}%")
         service.tuneToFrequency(currentFrequency)
         service.startPlayback()
-        service.setVolume(seekVolume.progress / 100f)
-        service.setBass(seekBass.progress)
-        service.setTreble(seekTreble.progress)
+        service.setVolume(stationStorage.lastVolume)
+        service.setBass(stationStorage.bassLevel)
+        service.setTreble(stationStorage.trebleLevel)
 
         btnPlayStop.setImageResource(R.drawable.ic_stop)
         tvStatus.text = getString(R.string.status_playing)
@@ -1161,29 +1109,10 @@ class MainActivity : Activity() {
             }
         }
 
-        // Sync volume/bass/treble from storage (may have been changed in SettingsActivity)
-        if (::seekVolume.isInitialized) {
-            val vol = (stationStorage.lastVolume * 100).toInt()
-            if (seekVolume.progress != vol) {
-                seekVolume.progress = vol
-                tvVolumeValue.text = vol.toString()
-                radioService?.setVolume(stationStorage.lastVolume)
-            }
-            val bass = stationStorage.bassLevel
-            if (seekBass.progress != bass) {
-                seekBass.progress = bass
-                val v = bass - 10
-                tvBassValue.text = if (v > 0) "+$v" else v.toString()
-                radioService?.setBass(bass)
-            }
-            val treble = stationStorage.trebleLevel
-            if (seekTreble.progress != treble) {
-                seekTreble.progress = treble
-                val v = treble - 10
-                tvTrebleValue.text = if (v > 0) "+$v" else v.toString()
-                radioService?.setTreble(treble)
-            }
-        }
+        // Apply volume/bass/treble from storage (may have been changed in SettingsActivity)
+        radioService?.setVolume(stationStorage.lastVolume)
+        radioService?.setBass(stationStorage.bassLevel)
+        radioService?.setTreble(stationStorage.trebleLevel)
     }
 
     override fun onNewIntent(intent: Intent?) {

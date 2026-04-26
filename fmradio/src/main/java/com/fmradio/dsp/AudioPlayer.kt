@@ -41,7 +41,10 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             AudioFormat.CHANNEL_OUT_STEREO,
             AudioFormat.ENCODING_PCM_16BIT
         )
-        val bufferSize = minBufSize * 15  // enough headroom without 3-4 sec channel switch delay
+        // At least 400ms buffer (19200 frames stereo = 76800 bytes) for car head units
+        // that report tiny minBufSize but have high scheduling jitter
+        val minDesired = sampleRate * 2 * 2 * 400 / 1000  // 400ms in bytes (stereo 16-bit)
+        val bufferSize = maxOf(minBufSize * 15, minDesired)
 
         audioTrack = AudioTrack.Builder()
             .setAudioAttributes(

@@ -105,8 +105,11 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private var bitBuffer = 0L
     private var bitCount = 0
 
-    // Syndrome-based block sync
+    // Syndrome-based block sync with confirmation
     private var synced = false
+    private var syncConfirmed = false
+    private var syncConfirmGood = 0
+    private var syncConfirmBad = 0
     private var blockIndex = 0
     private var goodBlocks = 0
     private var badBlocks = 0
@@ -120,7 +123,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private val psPending = CharArray(8) { ' ' }
     private val psConfirmed = CharArray(8) { ' ' }
     private val psHitCount = IntArray(4)
-    private val PS_CONFIRM_THRESHOLD = 1  // fast display, PI filter protects from garbage
+    private val PS_CONFIRM_THRESHOLD = 2  // require 2 identical receptions to filter noise
 
     // RT data
     private val rtChars = CharArray(64) { ' ' }
@@ -353,19 +356,21 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     }
 
     private fun processBit(bit: Int) {
-        // Shift bit into buffer
         bitBuffer = ((bitBuffer shl 1) or bit.toLong()) and 0x3FFFFFFL  // 26 bits
 
         bitCount++
         totalBitsProcessed++
 
         if (!synced) {
-            // Try to find sync by checking syndrome on every bit
+            // Search: check syndrome on every incoming bit
             if (bitCount >= 26) {
-                // Sync: require EXACT match (no correction) to avoid false sync
                 val syndrome = calcSyndrome(bitBuffer, 26)
                 if (syndrome == OFFSET_A) {
+                    // Candidate sync — enter confirmation phase
                     synced = true
+                    syncConfirmed = false
+                    syncConfirmGood = 1
+                    syncConfirmBad = 0
                     blockIndex = 0
                     groupData[0] = ((bitBuffer shr 10) and 0xFFFF).toInt()
                     groupValid[0] = true
@@ -373,12 +378,10 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                     bitCount = 0
                     goodBlocks = 1
                     badBlocks = 0
-                    Log.d(TAG, "RDS sync ACQUIRED at bit $totalBitsProcessed")
-                    DebugLog.log(TAG, "RDS sync ACQUIRED at bit $totalBitsProcessed")
+                    Log.d(TAG, "RDS sync candidate at bit $totalBitsProcessed")
                 }
             }
         } else {
-            // Synced: collect 26 bits per block
             if (bitCount >= 26) {
                 val expectedOffset = when (blockIndex) {
                     0 -> OFFSET_A
@@ -388,7 +391,6 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                     else -> OFFSET_A
                 }
 
-                // Try CRC check + single-bit error correction
                 val corrected = tryCorrectBlock(bitBuffer, expectedOffset)
                 if (corrected != null) {
                     groupData[blockIndex] = corrected
@@ -396,27 +398,48 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                     goodBlocks++
                     totalGoodBlocks++
                     badBlocks = (badBlocks - 1).coerceAtLeast(0)
+                    if (!syncConfirmed) syncConfirmGood++
                 } else {
                     groupValid[blockIndex] = false
                     badBlocks++
                     totalBadBlocks++
-                    // More tolerant: stay synced through noise bursts
-                    if (badBlocks > 25) {
-                        Log.d(TAG, "RDS sync LOST (badBlocks=$badBlocks) at bit $totalBitsProcessed")
-                        DebugLog.log(TAG, "RDS sync LOST (badBlocks=$badBlocks) at bit $totalBitsProcessed")
+                    if (!syncConfirmed) syncConfirmBad++
+                }
+
+                // Sync confirmation: need 5 good blocks in the first 8 checked
+                if (!syncConfirmed) {
+                    val totalChecked = syncConfirmGood + syncConfirmBad
+                    if (syncConfirmBad >= 4) {
+                        // Too many bad blocks — this was false sync
+                        Log.d(TAG, "RDS sync REJECTED (good=$syncConfirmGood bad=$syncConfirmBad)")
+                        DebugLog.log(TAG, "RDS sync REJECTED (good=$syncConfirmGood bad=$syncConfirmBad)")
                         synced = false
                         bitCount = 0
                         return
                     }
+                    if (syncConfirmGood >= 5) {
+                        syncConfirmed = true
+                        Log.d(TAG, "RDS sync CONFIRMED at bit $totalBitsProcessed")
+                        DebugLog.log(TAG, "RDS sync CONFIRMED at bit $totalBitsProcessed")
+                    }
+                }
+
+                // Once confirmed, lose sync after 12 consecutive bad blocks
+                if (syncConfirmed && badBlocks > 12) {
+                    Log.d(TAG, "RDS sync LOST (badBlocks=$badBlocks)")
+                    DebugLog.log(TAG, "RDS sync LOST (badBlocks=$badBlocks)")
+                    synced = false
+                    syncConfirmed = false
+                    bitCount = 0
+                    return
                 }
 
                 blockIndex++
                 bitCount = 0
 
                 if (blockIndex >= 4) {
-                    // Only require block B valid (group type). Data blocks C/D
-                    // may have errors but PS_CONFIRM=2 filters garbage over time.
-                    if (goodBlocks >= 1 && groupValid[1]) {
+                    // Require both A and B valid for reliable group decode
+                    if (syncConfirmed && goodBlocks >= 2 && groupValid[0] && groupValid[1]) {
                         decodeGroup()
                     }
                     blockIndex = 0
@@ -753,6 +776,9 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         bitBuffer = 0L
         bitCount = 0
         synced = false
+        syncConfirmed = false
+        syncConfirmGood = 0
+        syncConfirmBad = 0
         blockIndex = 0
         goodBlocks = 0
         badBlocks = 0
