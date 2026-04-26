@@ -1606,10 +1606,17 @@ class PlayerActivity : BaseActivity() {
         }
 
         when (keyCode) {
-            // D-pad center / Enter - toggle controls or select
+            // D-pad center / Enter — без полноэкранной панели управления
+            // (с кнопкой паузы); показываем нижний инфо-бар: имя канала,
+            // что идёт сейчас, часы. Повторное нажатие — скрыть.
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
                 if (channelListVisible) return super.onKeyDown(keyCode, event)
-                toggleControls()
+                if (channelInfoBanner.visibility == View.VISIBLE) {
+                    bannerHandler.removeCallbacks(bannerHideRunnable)
+                    channelInfoBanner.visibility = View.GONE
+                } else {
+                    showChannelBanner()
+                }
                 return true
             }
             // D-pad Up - previous channel, OR enter top bar if controls already shown
@@ -1694,9 +1701,14 @@ class PlayerActivity : BaseActivity() {
             KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN, KeyEvent.KEYCODE_VOLUME_MUTE -> {
                 return super.onKeyDown(keyCode, event)
             }
-            // Info key
+            // Info key — тоже переключатель нижнего инфо-бара
             KeyEvent.KEYCODE_INFO, KeyEvent.KEYCODE_TV_DATA_SERVICE -> {
-                showChannelBanner()
+                if (channelInfoBanner.visibility == View.VISIBLE) {
+                    bannerHandler.removeCallbacks(bannerHideRunnable)
+                    channelInfoBanner.visibility = View.GONE
+                } else {
+                    showChannelBanner()
+                }
                 return true
             }
             // Recall / Last channel — возврат на предыдущий просмотренный
