@@ -74,13 +74,28 @@
                     android:id="@+id/tvVersion"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_toStartOf="@+id/btnExit"
+                    android:layout_toStartOf="@+id/btnUpdate"
                     android:layout_centerVertical="true"
                     android:layout_marginEnd="6dp"
                     android:text="v3.0"
                     android:textColor="@color/version_text"
                     android:textSize="11sp"
                     android:fontFamily="monospace" />
+
+                <Button
+                    android:id="@+id/btnUpdate"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_toStartOf="@+id/btnExit"
+                    android:layout_centerVertical="true"
+                    android:layout_marginEnd="4dp"
+                    android:text="⟳"
+                    android:textSize="14sp"
+                    android:textColor="@color/lcd_cyan"
+                    android:background="@android:color/transparent"
+                    android:padding="0dp"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp" />
 
                 <Button
                     android:id="@+id/btnExit"
@@ -651,6 +666,17 @@
                 android:layout_height="28dp"
                 android:text="SAVE"
                 android:textColor="#FF00CCFF"
+                android:textSize="11sp"
+                android:background="@drawable/bg_button_metal"
+                android:layout_marginEnd="4dp"
+                android:padding="4dp" />
+
+            <Button
+                android:id="@+id/btnDebugSend"
+                android:layout_width="wrap_content"
+                android:layout_height="28dp"
+                android:text="SEND"
+                android:textColor="#FFFFCC00"
                 android:textSize="11sp"
                 android:background="@drawable/bg_button_metal"
                 android:layout_marginEnd="4dp"

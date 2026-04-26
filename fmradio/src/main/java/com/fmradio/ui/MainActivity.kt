@@ -28,6 +28,9 @@ import com.fmradio.dsp.FmScanner
 import com.fmradio.dsp.RdsDecoder
 import com.fmradio.rtlsdr.RtlSdrDevice
 import com.fmradio.rtlsdr.UsbPermissionHelper
+import com.fmradio.util.ErrorLogger
+import com.fmradio.util.UpdateChecker
+import com.fmradio.util.UpdateInstaller
 import kotlinx.coroutines.*
 
 class MainActivity : Activity() {
@@ -119,8 +122,10 @@ class MainActivity : Activity() {
     private lateinit var scrollDebug: ScrollView
     private lateinit var btnDebug: Button
     private lateinit var btnDebugSave: Button
+    private lateinit var btnDebugSend: Button
     private lateinit var btnDebugClear: Button
     private lateinit var btnDebugClose: Button
+    private lateinit var btnUpdate: Button
 
     private lateinit var lvStations: ListView
     private lateinit var stationAdapter: StationAdapter
@@ -327,8 +332,10 @@ class MainActivity : Activity() {
         scrollDebug = findViewById(R.id.scrollDebug)
         btnDebug = findViewById(R.id.btnDebug)
         btnDebugSave = findViewById(R.id.btnDebugSave)
+        btnDebugSend = findViewById(R.id.btnDebugSend)
         btnDebugClear = findViewById(R.id.btnDebugClear)
         btnDebugClose = findViewById(R.id.btnDebugClose)
+        btnUpdate = findViewById(R.id.btnUpdate)
 
         // Set version from BuildConfig (generated from git in build.gradle.kts)
         try {
@@ -461,8 +468,10 @@ class MainActivity : Activity() {
                 btn.setTextColor(0xFFFF4444.toInt())
             }
         }
+        btnDebugSend.setOnClickListener { sendErrorLog() }
         btnDebugClear.setOnClickListener { DebugLog.clear(); tvDebugLog.text = "" }
         btnDebugClose.setOnClickListener { toggleDebugPanel() }
+        btnUpdate.setOnClickListener { checkForUpdates() }
     }
 
     private fun shareDebugLog() {
@@ -1030,6 +1039,47 @@ class MainActivity : Activity() {
 
     private fun showToast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun sendErrorLog() {
+        val errorContent = ErrorLogger.getErrorContent(this)
+        if (errorContent.isBlank()) {
+            showToast("No error logs to send")
+            return
+        }
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "FM Radio Error Log")
+            putExtra(Intent.EXTRA_TEXT, errorContent)
+        }
+        startActivity(Intent.createChooser(shareIntent, "Send error log"))
+    }
+
+    private fun checkForUpdates() {
+        showToast("Checking for updates...")
+        activityScope.launch {
+            try {
+                val versionCode = try {
+                    packageManager.getPackageInfo(packageName, 0).versionCode
+                } catch (_: Exception) { 0 }
+
+                val update = UpdateChecker.check(versionCode)
+                if (update != null) {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Update Available")
+                        .setMessage("New version ${update.versionName} is available.\nCurrent version code: $versionCode\n\nUpdate now?")
+                        .setPositiveButton("Update") { _, _ ->
+                            UpdateInstaller.downloadAndInstall(this@MainActivity, update.downloadUrl)
+                        }
+                        .setNegativeButton("Later", null)
+                        .show()
+                } else {
+                    showToast("App is up to date")
+                }
+            } catch (e: Exception) {
+                showToast("Update check failed")
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent?) {
