@@ -25,7 +25,10 @@ import java.util.zip.GZIPInputStream
 object EpgRepository {
 
     private const val TAG = "TVViewer"
-    private const val EPG_CACHE_FILE = "epg_cache.json"
+    // v2: ключи нормализуются Unicode-aware (\p{L}\p{N}) — кириллица
+    // сохраняется. Старые кэши с пустыми ключами для русских каналов
+    // больше не читаются (новая фабрика fetchAll создаёт v2 с нуля).
+    private const val EPG_CACHE_FILE = "epg_cache_v2.json"
     private const val EPG_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000L // 6 hours
 
     private val client = OkHttpClient.Builder()

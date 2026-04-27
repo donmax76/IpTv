@@ -127,15 +127,18 @@ class TvGuideFragment : Fragment() {
                 ?.let { ChannelDataHolder.epgData = it }
         }
 
-        // Авто-refresh с тайм-out'ом 6 часов. Работает в одну сторону:
-        // если EPG-кэш пуст ИЛИ устарел больше чем на 6 часов —
-        // фоном запросим. Метка времени ставится даже на пустой ответ
+        // Авто-refresh: если данных нет вообще — пробуем не чаще раза
+        // в 5 минут. Если данные есть — обновляем не чаще раза в 6
+        // часов. Метка времени ставится даже на пустой/ошибочный ответ
         // в refreshEpg, поэтому без зацикливания.
         val sinceLastRefresh = System.currentTimeMillis() - prefs.epgLastUpdate
-        val sixHours = 6 * 60 * 60 * 1000L
-        if (ChannelDataHolder.epgData.isEmpty() &&
-            prefs.allEpgUrls().isNotEmpty() &&
-            (prefs.epgLastUpdate == 0L || sinceLastRefresh > sixHours)) {
+        val threshold = if (ChannelDataHolder.epgData.isEmpty()) {
+            5 * 60 * 1000L
+        } else {
+            6 * 60 * 60 * 1000L
+        }
+        if (prefs.allEpgUrls().isNotEmpty() &&
+            (prefs.epgLastUpdate == 0L || sinceLastRefresh > threshold)) {
             refreshEpg()
             return
         }
