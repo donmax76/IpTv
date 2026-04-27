@@ -23,6 +23,13 @@ class TVViewerApp : Application() {
         // Pre-warm the iptv-org channel database so logos / tvg-ids for
         // user-added channels become available a few seconds after launch.
         try { ChannelMetaLookup.ensureLoaded(applicationContext) } catch (_: Exception) {}
+        // IPTV-стримы часто живут на CDN'ах с несовпадающими сертами
+        // (53be5ef2d13aa.streamlock.net показывает cert *.maksnet.tv
+        // и пр.), и SSL-валидация их режет. Ослабляем глобально для
+        // HttpsURLConnection — этим пользуется ExoPlayer для стримов
+        // и HLS-манифестов. На GitHub API / EPG / playlist через
+        // OkHttp это не влияет (там свой HostnameVerifier).
+        try { installPermissiveSslForStreaming() } catch (_: Exception) {}
         Thread.setDefaultUncaughtExceptionHandler { _, throwable ->
             if (isCancellation(throwable)) return@setDefaultUncaughtExceptionHandler
             try {
@@ -60,6 +67,27 @@ class TVViewerApp : Application() {
                 Log.e("TVViewer", "Crash handler failed", e)
             }
         }
+    }
+
+    private fun installPermissiveSslForStreaming() {
+        val trustAll = arrayOf<javax.net.ssl.TrustManager>(
+            object : javax.net.ssl.X509TrustManager {
+                override fun checkClientTrusted(
+                    chain: Array<java.security.cert.X509Certificate>,
+                    authType: String
+                ) {}
+                override fun checkServerTrusted(
+                    chain: Array<java.security.cert.X509Certificate>,
+                    authType: String
+                ) {}
+                override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> =
+                    emptyArray()
+            }
+        )
+        val ctx = javax.net.ssl.SSLContext.getInstance("TLS")
+        ctx.init(null, trustAll, java.security.SecureRandom())
+        javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(ctx.socketFactory)
+        javax.net.ssl.HttpsURLConnection.setDefaultHostnameVerifier { _, _ -> true }
     }
 
     private fun getFullStackTrace(throwable: Throwable): String {
