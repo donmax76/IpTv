@@ -126,6 +126,14 @@
     <string name="screen_lock">Screen lock</string>
     <string name="last_channel">Previous channel</string>
     <string name="no_previous_channel">No channel history yet</string>
+    <string name="channel_http_headers">HTTP headers</string>
+    <string name="ua_default">Default</string>
+    <string name="ua_vlc">VLC</string>
+    <string name="ua_chrome">Chrome</string>
+    <string name="ua_firefox">Firefox</string>
+    <string name="ua_android">Android</string>
+    <string name="ua_lavf">FFmpeg/Lavf</string>
+    <string name="channel_ua_set">Channel UA: %1$s</string>
     <string name="codec_unsupported_title">Audio not supported</string>
     <string name="codec_unsupported_message">Codec %1$s is not decoded by the built-in player. Open the channel in an external player (VLC / MX)?</string>
     <string name="codec_unsupported_short">Codec %1$s is not supported</string>

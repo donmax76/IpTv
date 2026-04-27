@@ -76,6 +76,18 @@ class PlayerActivity : BaseActivity() {
             R.id.rightMenuAspect,
             R.id.rightMenuPip,
             R.id.rightMenuLock,
+            R.id.rightMenuHttp,
+        )
+
+        // Common User-Agents для per-channel переопределения. Первое
+        // значение "" означает "использовать глобальный".
+        private val UA_PRESETS = listOf(
+            "" to "ua_default",
+            "VLC/3.0.20 LibVLC/3.0.20" to "ua_vlc",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" to "ua_chrome",
+            "Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0" to "ua_firefox",
+            "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36" to "ua_android",
+            "Lavf/58.76.100" to "ua_lavf",
         )
     }
 
@@ -318,6 +330,10 @@ class PlayerActivity : BaseActivity() {
         findViewById<View>(R.id.rightMenuLock).setOnClickListener {
             hidePlayerRightMenu()
             toggleScreenLock()
+        }
+        findViewById<View>(R.id.rightMenuHttp).setOnClickListener {
+            hidePlayerRightMenu()
+            showChannelHttpDialog()
         }
         overlayChannelsList = findViewById(R.id.overlayChannelsList)
         numberInputDisplay = findViewById(R.id.numberInputDisplay)
@@ -876,10 +892,20 @@ class PlayerActivity : BaseActivity() {
         if (headers.isNotEmpty()) httpDataSourceFactory.setDefaultRequestProperties(headers)
         val wrappedFactory = androidx.media3.datasource.DataSource.Factory {
             val ds = httpDataSourceFactory.createDataSource()
-            // Auto-Referer: when the user has nothing configured,
-            // use the stream URL's scheme://host so picky servers
-            // (tv.izone.az etc.) accept the request.
             val streamUrl = currentUrl
+            // Per-channel User-Agent: если для этого канала задан свой
+            // UA (через "HTTP заголовки" в правом меню) — используем
+            // его поверх глобального. Помогает каналам с уникальными
+            // требованиями (например izone-стримы хотят VLC, ucoz —
+            // Chrome и т.д.).
+            if (!streamUrl.isNullOrBlank()) {
+                val perChannelUa = prefs.getChannelUserAgent(streamUrl)
+                if (perChannelUa != prefs.userAgent) {
+                    ds.setRequestProperty("User-Agent", perChannelUa)
+                }
+            }
+            // Auto-Referer: если пользователь ничего не настроил,
+            // используем scheme://host стрима (tv.izone.az и пр.).
             if (prefs.httpReferer.isBlank() && !streamUrl.isNullOrBlank()) {
                 try {
                     val u = java.net.URI(streamUrl)
@@ -896,15 +922,13 @@ class PlayerActivity : BaseActivity() {
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
             .setDataSourceFactory(wrappedFactory)
 
-        // RenderersFactory с двумя ключевыми опциями для MP2-аудио:
-        //  • setEnableDecoderFallback — если аппаратный декодер не
-        //    запустился, ExoPlayer пробует следующий из списка
-        //    (часто это софтверный c2.android.mp3.decoder, который
-        //    проглатывает MP2-кадры).
-        //  • setExtensionRendererMode(PREFER) — если когда-нибудь
-        //    в classpath будет media3-decoder-ffmpeg, он будет
-        //    выбран первым.
-        val renderersFactory = DefaultRenderersFactory(this)
+        // NextRenderersFactory: подкидывает софтверные FFmpeg-декодеры
+        // (MP2 / AC3 / EAC3 / DTS / FLAC / Vorbis) поверх стандартных,
+        // и предпочитает их когда аппаратный декодер не справляется. На
+        // дешёвых TV-боксах без MP2-MediaCodec это единственный способ
+        // получить звук на DVB / izone-каналах.
+        val renderersFactory = io.github.anilbeesetti.nextlib.media3ext.ffdecoder
+            .NextRenderersFactory(this)
             .setEnableDecoderFallback(true)
             .setExtensionRendererMode(
                 DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
@@ -986,6 +1010,39 @@ class PlayerActivity : BaseActivity() {
      * software-декодера. Предлагаем пользователю запустить канал
      * во внешнем плеере (VLC / MX), который декодирует MP2.
      */
+    /**
+     * Per-channel User-Agent. Пользователь выбирает пресет (VLC,
+     * Chrome, Firefox, Android, FFmpeg) или "По умолчанию" (использует
+     * глобальный prefs.userAgent). После выбора плеер перезапускает
+     * стрим с новым UA, чтобы канал сразу подхватил его.
+     */
+    private fun showChannelHttpDialog() {
+        val url = currentUrl ?: return
+        val current = AppPreferences(this).getChannelState(url).optString("ua", "")
+        val labels = UA_PRESETS.map { (_, key) ->
+            resources.getIdentifier(key, "string", packageName)
+                .let { if (it != 0) getString(it) else key }
+        }.toTypedArray()
+        val checkedIdx = UA_PRESETS.indexOfFirst { it.first == current }
+            .let { if (it < 0) 0 else it }
+        android.app.AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
+            .setTitle(R.string.user_agent)
+            .setSingleChoiceItems(labels, checkedIdx) { dialog, which ->
+                val (uaValue, _) = UA_PRESETS[which]
+                prefs.setChannelUserAgent(url, uaValue.ifEmpty { null })
+                Toast.makeText(
+                    this,
+                    getString(R.string.channel_ua_set, labels[which]),
+                    Toast.LENGTH_SHORT
+                ).show()
+                dialog.dismiss()
+                // Перезапускаем стрим, чтобы новый UA сразу применился.
+                playStream(url)
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
     private fun offerExternalPlayer(error: PlaybackException) {
         val url = currentUrl ?: return
         errorLayout.visibility = View.VISIBLE

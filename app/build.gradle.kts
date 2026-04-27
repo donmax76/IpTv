@@ -5,7 +5,10 @@ plugins {
 
 android {
     namespace = "com.tvviewer"
-    compileSdk = 34
+    // compileSdk=35 нужен для зависимости nextlib-media3ext (тянет
+    // media3 1.5.x), которая даёт софтверные FFmpeg-декодеры для MP2 /
+    // AC3 / EAC3.
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.tvviewer"
@@ -85,12 +88,20 @@ dependencies {
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     implementation("androidx.viewpager2:viewpager2:1.0.0")
 
-    // ExoPlayer for streaming (HLS / DASH / RTSP)
-    implementation("androidx.media3:media3-exoplayer:1.2.0")
-    implementation("androidx.media3:media3-exoplayer-hls:1.2.0")
-    implementation("androidx.media3:media3-exoplayer-dash:1.2.0")
-    implementation("androidx.media3:media3-exoplayer-rtsp:1.2.0")
-    implementation("androidx.media3:media3-ui:1.2.0")
+    // ExoPlayer for streaming (HLS / DASH / RTSP).
+    // Версия 1.5.0 — синхронизирована с nextlib-media3ext:0.8.3
+    // (тот тянет media3 1.5 транзитивно).
+    implementation("androidx.media3:media3-exoplayer:1.5.0")
+    implementation("androidx.media3:media3-exoplayer-hls:1.5.0")
+    implementation("androidx.media3:media3-exoplayer-dash:1.5.0")
+    implementation("androidx.media3:media3-exoplayer-rtsp:1.5.0")
+    implementation("androidx.media3:media3-ui:1.5.0")
+
+    // FFmpeg-расширение для Media3: софтверные декодеры MP2 / AC3 /
+    // EAC3 / DTS / FLAC / Vorbis. Нужно потому что многие IPTV-стримы
+    // (DVB, izone.az) используют MPEG-1 Layer 2, а Android-MediaCodec
+    // на дешёвых TV-боксах (X4 X4) этого кодека не имеет.
+    implementation("io.github.anilbeesetti.nextlib:nextlib-media3ext:0.8.3")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")

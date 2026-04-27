@@ -250,7 +250,25 @@ class AppPreferences(context: Context) {
         get() = prefs.getString(KEY_QUALITY_FILTER, "all") ?: "all"
         set(value) = prefs.edit().putString(KEY_QUALITY_FILTER, value).apply()
 
-    // Per-channel state: url -> JSONObject {speed, aspect, audio, pos, volume}
+    /**
+     * Per-channel User-Agent. Возвращает кастомный UA, если он задан
+     * для канала, иначе глобальный prefs.userAgent. Применяется в
+     * data-factory плеера вместо глобального.
+     */
+    fun getChannelUserAgent(url: String): String {
+        val state = getChannelState(url)
+        val custom = state.optString("ua", "").ifBlank { null }
+        return custom ?: userAgent
+    }
+
+    fun setChannelUserAgent(url: String, ua: String?) {
+        if (url.isBlank()) return
+        val state = getChannelState(url)
+        if (ua.isNullOrBlank()) state.remove("ua") else state.put("ua", ua)
+        saveChannelState(url, state)
+    }
+
+    // Per-channel state: url -> JSONObject {speed, aspect, audio, pos, volume, ua}
     fun getChannelState(url: String): JSONObject {
         if (url.isBlank()) return JSONObject()
         val raw = prefs.getString(KEY_PER_CHANNEL_STATE, "{}") ?: "{}"

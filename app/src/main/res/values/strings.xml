@@ -179,6 +179,14 @@
     <string name="codec_unsupported_message">Кодек %1$s не декодируется встроенным плеером. Открыть канал во внешнем плеере (VLC / MX)?</string>
     <string name="codec_unsupported_short">Кодек %1$s не поддерживается</string>
     <string name="open_external">Открыть</string>
+    <string name="channel_http_headers">HTTP заголовки</string>
+    <string name="ua_default">По умолчанию</string>
+    <string name="ua_vlc">VLC</string>
+    <string name="ua_chrome">Chrome</string>
+    <string name="ua_firefox">Firefox</string>
+    <string name="ua_android">Android</string>
+    <string name="ua_lavf">FFmpeg/Lavf</string>
+    <string name="channel_ua_set">UA для канала: %1$s</string>
     <string name="screen_orientation">Ориентация экрана</string>
     <string name="orientation_auto">Авто</string>
     <string name="orientation_portrait">Портрет</string>

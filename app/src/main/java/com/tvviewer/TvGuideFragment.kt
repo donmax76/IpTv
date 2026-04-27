@@ -97,21 +97,8 @@ class TvGuideFragment : Fragment() {
         if (!hidden) loadEpgData()
     }
 
-    private fun updateDateDisplay() {
-        val cal = Calendar.getInstance()
-        cal.add(Calendar.DAY_OF_YEAR, selectedDateOffset)
-        val dateStr = when (selectedDateOffset) {
-            0 -> getString(R.string.today)
-            1 -> getString(R.string.tomorrow)
-            -1 -> getString(R.string.yesterday)
-            else -> SimpleDateFormat("dd MMMM", Locale.getDefault()).format(cal.time)
-        }
-        tvCurrentDate.text = dateStr
-    }
-
     private fun loadEpgData() {
         val channels = ChannelDataHolder.allChannels
-        val epgData = ChannelDataHolder.epgData
 
         if (channels.isEmpty()) {
             emptyLayout.visibility = View.VISIBLE
@@ -121,35 +108,29 @@ class TvGuideFragment : Fragment() {
             return
         }
 
-        // Auto-refresh EPG if no data and we have a URL
-        if (epgData.isEmpty()) {
-            // Try loading from cache first
-            val cached = EpgRepository.loadFromCache(requireContext())
-            if (cached != null && cached.isNotEmpty()) {
-                ChannelDataHolder.epgData = cached
-            }
-
-            // Авто-рефреш не чаще раза в час: prefs.epgLastUpdate
-            // ставится даже на пустой / ошибочный ответ, защищает от
-            // цикла refreshEpg → loadEpgData → refreshEpg.
-            val sinceLastRefresh = System.currentTimeMillis() - prefs.epgLastUpdate
-            val oneHour = 60 * 60 * 1000L
-            if (prefs.allEpgUrls().isNotEmpty() &&
-                ChannelDataHolder.epgData.isEmpty() &&
-                (prefs.epgLastUpdate == 0L || sinceLastRefresh > oneHour)) {
-                refreshEpg()
-                return
-            }
+        // Подгружаем кэш если ChannelDataHolder пуст. Это БЕЗ показа
+        // спиннера и без сетевых запросов — мгновенно. Сетевой refresh
+        // делается ТОЛЬКО по нажатию кнопки обновить, чтобы не было
+        // ощущения "постоянно обновляется" при каждом заходе.
+        if (ChannelDataHolder.epgData.isEmpty()) {
+            EpgRepository.loadFromCache(requireContext())?.takeIf { it.isNotEmpty() }
+                ?.let { ChannelDataHolder.epgData = it }
         }
+        val epgData = ChannelDataHolder.epgData
 
         fun norm(s: String?): String =
             s?.lowercase()?.replace(Regex("[^a-z0-9]"), "") ?: ""
         allChannelsWithEpg = channels.map { ch ->
-            // Try by tvg-id first, then by normalized channel name
-            // (xmltv parser also indexes channels by display-name now).
-            val byId = epgData[norm(ch.tvgId)]
-            val byName = if (byId.isNullOrEmpty()) epgData[norm(ch.name)] else byId
-            EpgChannelItem(ch, byName ?: emptyList())
+            // Расширенный матчинг: пробуем
+            //  1. tvg-id из плейлиста
+            //  2. имя канала (XMLTV-парсер индексирует и по display-name)
+            //  3. tvg-id, найденный ChannelMetaLookup'ом по имени (база
+            //     iptv-org) — спасает каналы без tvg-id в M3U
+            val programmes = epgData[norm(ch.tvgId)]
+                ?: epgData[norm(ch.name)]
+                ?: ChannelMetaLookup.lookup(ch.name)?.tvgId?.let { epgData[norm(it)] }
+                ?: emptyList()
+            EpgChannelItem(ch, programmes)
         }
 
         val channelsWithData = allChannelsWithEpg.count { it.programmes.isNotEmpty() }
@@ -160,10 +141,6 @@ class TvGuideFragment : Fragment() {
             epgStatus.text = "${epgStatus.text} • ${getString(R.string.epg_last_update, dateStr)}"
         }
 
-        // Раньше при отсутствии EPG-данных весь экран ТВ-гида был пустой.
-        // Теперь показываем все каналы плейлиста как обычный список — у
-        // строк просто не будет программы. Пользователь видит свои
-        // каналы и может тапом запустить любой.
         filterAndDisplay()
     }
 
@@ -217,17 +194,15 @@ class TvGuideFragment : Fragment() {
         }
 
         progressBar.visibility = View.VISIBLE
-        // Use application context for the network call so the work survives
-        // a fragment detach. UI updates after that bail out if the fragment
-        // is no longer attached (was crashing as IllegalStateException).
+        // applicationContext чтобы переживать detach.
         val appCtx = requireContext().applicationContext
         lifecycleScope.launch {
             try {
                 val data = EpgRepository.fetchAll(urls, appCtx)
                 ChannelDataHolder.epgData = data
                 // Метку времени ставим в любом случае — даже когда ответ
-                // пустой. Иначе loadEpgData() сразу же снова дёргал
-                // refreshEpg() и фрагмент крутил пустые обновления.
+                // пустой / провалился. Иначе loadEpgData может крутить
+                // повторные refresh'и.
                 prefs.epgLastUpdate = System.currentTimeMillis()
                 if (!isAdded) return@launch
                 progressBar.visibility = View.GONE
@@ -237,7 +212,6 @@ class TvGuideFragment : Fragment() {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "EPG refresh error", e)
-                // Тоже отмечаем — не пытаемся биться об мёртвый сервер ещё час.
                 prefs.epgLastUpdate = System.currentTimeMillis()
                 if (!isAdded) return@launch
                 progressBar.visibility = View.GONE
