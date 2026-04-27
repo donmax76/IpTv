@@ -145,12 +145,17 @@ object EpgRepository {
                     return@use null
                 }
                 val body = response.body ?: return@use null
-                val contentEncoding = response.header("Content-Encoding")
-                val contentType = response.header("Content-Type") ?: ""
-                val isGzip = contentEncoding == "gzip" ||
-                    epgUrl.endsWith(".gz") ||
-                    contentType.contains("gzip")
-                val raw = body.byteStream()
+                // Умное определение gzip: смотрим первые 2 байта (магия
+                // 1F 8B). Если есть — gzipped, иначе plain XML. Это
+                // надёжнее чем доверять URL/Content-Type — некоторые
+                // серверы отдают .gz без Content-Encoding и наоборот.
+                val raw = body.byteStream().buffered()
+                raw.mark(2)
+                val b1 = raw.read()
+                val b2 = raw.read()
+                raw.reset()
+                val isGzip = (b1 == 0x1F && b2 == 0x8B)
+                Log.d(TAG, "EPG body: gzip=$isGzip (header=$b1 $b2)")
                 val stream = if (isGzip) GZIPInputStream(raw, 32 * 1024) else raw
                 stream.use { parseXmltvStreaming(it) }
             } ?: return@withContext loadFromCache(context) ?: emptyMap()

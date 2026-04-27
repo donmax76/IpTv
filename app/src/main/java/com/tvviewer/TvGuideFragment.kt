@@ -43,6 +43,10 @@ class TvGuideFragment : Fragment() {
     private var allChannelsWithEpg: List<EpgChannelItem> = emptyList()
     private var filteredItems: List<EpgChannelItem> = emptyList()
     private var selectedDateOffset = 0 // 0=today, -1=yesterday, 1=tomorrow
+    /** Чтобы при пустом кэше один auto-refresh за сессию был
+     *  гарантирован, а повторно при каждом onHiddenChanged не
+     *  дёргался. Сбрасывается при destroy фрагмента. */
+    private var triedAutoRefresh = false
 
     data class EpgChannelItem(
         val channel: Channel,
@@ -135,19 +139,19 @@ class TvGuideFragment : Fragment() {
                 ?.let { ChannelDataHolder.epgData = it }
         }
 
-        // Авто-refresh запускаем в ФОНЕ, не блокируя UI. Список
-        // каналов показываем сразу — без программы, если кэш пуст.
-        // Когда refresh завершится, UI обновится.
-        val sinceLastRefresh = System.currentTimeMillis() - prefs.epgLastUpdate
-        val threshold = if (ChannelDataHolder.epgData.isEmpty()) {
-            5 * 60 * 1000L
-        } else {
-            6 * 60 * 60 * 1000L
-        }
-        if (prefs.allEpgUrls().isNotEmpty() &&
-            (prefs.epgLastUpdate == 0L || sinceLastRefresh > threshold)) {
-            refreshEpg()
-            // НЕ выходим — продолжаем рендерить список с тем что есть.
+        // Авто-refresh: если кэш пуст — пробуем ОДИН раз за сессию
+        // фрагмента (флаг triedAutoRefresh). Если есть данные —
+        // обновляем не чаще раза в 6 часов. Список каналов всегда
+        // рендерится сразу (с программой если кэш есть, без — если
+        // нет), refresh идёт в фоне.
+        if (prefs.allEpgUrls().isNotEmpty()) {
+            val empty = ChannelDataHolder.epgData.isEmpty()
+            val sixHoursAgo = System.currentTimeMillis() - 6 * 60 * 60 * 1000L
+            val needFresh = !empty && prefs.epgLastUpdate < sixHoursAgo
+            if ((empty && !triedAutoRefresh) || needFresh) {
+                triedAutoRefresh = true
+                refreshEpg()
+            }
         }
         val epgData = ChannelDataHolder.epgData
 
