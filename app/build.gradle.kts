@@ -99,7 +99,7 @@ dependencies {
     // FFmpeg-расширение для Media3: софтверные декодеры MP2 / AC3 /
     // EAC3 / DTS / FLAC / Vorbis. Версия 0.7.7 — последняя
     // совместимая с нашим Kotlin 1.9.20 (0.8.x требует Kotlin 2.1).
-    implementation("io.github.anilbeesetti.nextlib:nextlib-media3ext:0.7.7")
+    implementation("io.github.anilbeesetti.nextlib:nextlib-media3ext:0.7.4")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
