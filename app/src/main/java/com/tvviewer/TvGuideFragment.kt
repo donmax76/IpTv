@@ -120,18 +120,32 @@ class TvGuideFragment : Fragment() {
             return
         }
 
-        // Подгружаем кэш если ChannelDataHolder пуст. Это БЕЗ показа
-        // спиннера и без сетевых запросов — мгновенно. Сетевой refresh
-        // делается ТОЛЬКО по нажатию кнопки обновить, чтобы не было
-        // ощущения "постоянно обновляется" при каждом заходе.
+        // Подгружаем кэш если ChannelDataHolder пуст. Это БЕЗ
+        // спиннера — мгновенно.
         if (ChannelDataHolder.epgData.isEmpty()) {
             EpgRepository.loadFromCache(requireContext())?.takeIf { it.isNotEmpty() }
                 ?.let { ChannelDataHolder.epgData = it }
         }
+
+        // Авто-refresh с тайм-out'ом 6 часов. Работает в одну сторону:
+        // если EPG-кэш пуст ИЛИ устарел больше чем на 6 часов —
+        // фоном запросим. Метка времени ставится даже на пустой ответ
+        // в refreshEpg, поэтому без зацикливания.
+        val sinceLastRefresh = System.currentTimeMillis() - prefs.epgLastUpdate
+        val sixHours = 6 * 60 * 60 * 1000L
+        if (ChannelDataHolder.epgData.isEmpty() &&
+            prefs.allEpgUrls().isNotEmpty() &&
+            (prefs.epgLastUpdate == 0L || sinceLastRefresh > sixHours)) {
+            refreshEpg()
+            return
+        }
         val epgData = ChannelDataHolder.epgData
 
         fun norm(s: String?): String =
-            s?.lowercase()?.replace(Regex("[^a-z0-9]"), "") ?: ""
+            // Unicode-aware: \p{L} держит буквы любого алфавита (включая
+            // кириллицу), \p{N} держит цифры. Должна совпадать с
+            // EpgRepository.normalizeId, иначе ключи не сматчатся.
+            s?.lowercase()?.replace(Regex("[^\\p{L}\\p{N}]"), "") ?: ""
         allChannelsWithEpg = channels.map { ch ->
             // Расширенный матчинг: пробуем
             //  1. tvg-id из плейлиста

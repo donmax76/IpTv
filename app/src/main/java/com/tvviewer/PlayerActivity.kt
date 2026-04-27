@@ -1465,7 +1465,7 @@ class PlayerActivity : BaseActivity() {
         val epg = ChannelDataHolder.epgData
         val tvgId = channel.tvgId ?: return
 
-        val normId = tvgId.lowercase().replace(Regex("[^a-z0-9]"), "")
+        val normId = tvgId.lowercase().replace(Regex("[^\\p{L}\\p{N}]"), "")
         val programmes = epg[normId] ?: return
         if (programmes.isEmpty()) return
 

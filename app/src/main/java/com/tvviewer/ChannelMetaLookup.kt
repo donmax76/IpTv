@@ -134,5 +134,8 @@ object ChannelMetaLookup {
     }
 
     private fun normalize(s: String): String =
-        s.lowercase().replace(Regex("[^a-z0-9а-я]"), "")
+        // Unicode-aware: \p{L} держит буквы любого алфавита (Cyrillic,
+        // азербайджанский ə, türk ç, и пр.), \p{N} — цифры. Должно
+        // совпадать с EpgRepository.normalizeId / TvGuideFragment.norm.
+        s.lowercase().replace(Regex("[^\\p{L}\\p{N}]"), "")
 }

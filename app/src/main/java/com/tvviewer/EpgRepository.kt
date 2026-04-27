@@ -311,7 +311,10 @@ object EpgRepository {
     }
 
     private fun normalizeId(id: String): String =
-        id.lowercase().replace(Regex("[^a-z0-9]"), "")
+        // \p{L} — любая буква (Cyrillic, Latin, Greek и т.д.), \p{N} — любая
+        // цифра. Без этого "Первый канал" нормализовалось в "" и
+        // русские каналы никогда не матчились с EPG по имени.
+        id.lowercase().replace(Regex("[^\\p{L}\\p{N}]"), "")
 
     private fun parseXmltvTime(s: String?): Long {
         if (s.isNullOrBlank()) return 0
