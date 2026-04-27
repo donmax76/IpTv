@@ -97,6 +97,18 @@ class TvGuideFragment : Fragment() {
         if (!hidden) loadEpgData()
     }
 
+    private fun updateDateDisplay() {
+        val cal = Calendar.getInstance()
+        cal.add(Calendar.DAY_OF_YEAR, selectedDateOffset)
+        val dateStr = when (selectedDateOffset) {
+            0 -> getString(R.string.today)
+            1 -> getString(R.string.tomorrow)
+            -1 -> getString(R.string.yesterday)
+            else -> SimpleDateFormat("dd MMMM", Locale.getDefault()).format(cal.time)
+        }
+        tvCurrentDate.text = dateStr
+    }
+
     private fun loadEpgData() {
         val channels = ChannelDataHolder.allChannels
 
