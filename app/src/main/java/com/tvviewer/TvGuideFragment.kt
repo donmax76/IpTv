@@ -236,9 +236,22 @@ class TvGuideFragment : Fragment() {
                 if (!isAdded) return@launch
                 progressBar.visibility = View.GONE
                 loadEpgData()
+                val summary = EpgRepository.lastFetchSummary
+                    .joinToString(", ") { (url, count) ->
+                        val host = url.substringAfter("://").substringBefore("/").take(20)
+                        "$host:$count"
+                    }
+                val errSummary = EpgRepository.lastFetchErrors
+                    .joinToString("; ") { (url, msg) ->
+                        val host = url.substringAfter("://").substringBefore("/").take(20)
+                        "$host=$msg".take(140)
+                    }
                 Toast.makeText(
                     appCtx,
-                    "EPG: загружено каналов с программой: ${data.size}",
+                    if (errSummary.isNotEmpty())
+                        "EPG: $summary\nОшибки: $errSummary"
+                    else
+                        "EPG: $summary (всего ${data.size} каналов)",
                     Toast.LENGTH_LONG
                 ).show()
             } catch (t: Throwable) {

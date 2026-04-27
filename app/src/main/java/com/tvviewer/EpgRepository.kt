@@ -74,11 +74,41 @@ object EpgRepository {
      * Fetch and merge EPG data from multiple URLs in parallel.
      * Last-write-wins on overlapping channel ids — additional sources fill in gaps.
      */
+    /** Список источников и сколько каналов выдал каждый. */
+    var lastFetchSummary: List<Pair<String, Int>> = emptyList()
+        private set
+    var lastFetchErrors: List<Pair<String, String>> = emptyList()
+        private set
+
     suspend fun fetchAll(urls: List<String>, context: Context? = null): Map<String, List<Programme>> = coroutineScope {
         val cleaned = urls.filter { it.isNotBlank() }.distinct()
         if (cleaned.isEmpty()) return@coroutineScope loadFromCache(context) ?: emptyMap()
-        val results = cleaned.map { u -> async(Dispatchers.IO) { runCatching { fetchSingle(u, context) }.getOrDefault(emptyMap()) } }
-            .map { it.await() }
+        val summary = mutableListOf<Pair<String, Int>>()
+        val errors = mutableListOf<Pair<String, String>>()
+        // Раньше каждый fetchSingle оборачивался в runCatching и его
+        // ошибка молча проглатывалась → пользователь видел "загружено
+        // 0" без объяснения. Теперь каждую ошибку логируем и кладём
+        // в lastFetchErrors, чтобы UI мог показать.
+        val results = cleaned.map { u ->
+            async(Dispatchers.IO) {
+                try {
+                    val data = fetchSingle(u, context)
+                    summary += u to data.size
+                    data
+                } catch (t: Throwable) {
+                    Log.e(TAG, "EPG source failed: $u", t)
+                    val msg = "${t.javaClass.simpleName}: ${t.message?.take(120)}"
+                    errors += u to msg
+                    summary += u to 0
+                    if (context != null) {
+                        try { ErrorLogger.logException(context, t) } catch (_: Exception) {}
+                    }
+                    emptyMap()
+                }
+            }
+        }.map { it.await() }
+        lastFetchSummary = summary
+        lastFetchErrors = errors
         val merged = mutableMapOf<String, List<Programme>>()
         for (r in results) merged.putAll(r)
         if (merged.isNotEmpty()) saveToCache(context, merged)
