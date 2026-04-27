@@ -1795,20 +1795,31 @@ class PlayerActivity : BaseActivity() {
                 }
                 return true
             }
-            // UP / DOWN / CHANNEL+/- / PAGE+/- — переключение канала,
-            // без показа полной панели управления (с кнопкой паузы и
-            // стрелкой Назад). showChannelBanner поднимает только
-            // нижний инфо-бар (имя/EPG/часы).
+            // Переключение канала вверх — широкий список keycode'ов,
+            // потому что разные ТВ-боксы / пульты шлют разное:
+            //  • DPAD_UP — D-pad стандартный
+            //  • CHANNEL_UP — стандарт Android TV (CH+)
+            //  • PAGE_UP — некоторые HDMI-донглы
+            //  • MEDIA_NEXT, NAVIGATE_NEXT — пульты с кнопками вперёд
+            //  • F12, BUTTON_R1 — некоторые ТВ-боксы (включая X4)
             KeyEvent.KEYCODE_DPAD_UP,
             KeyEvent.KEYCODE_CHANNEL_UP,
-            KeyEvent.KEYCODE_PAGE_UP -> {
+            KeyEvent.KEYCODE_PAGE_UP,
+            KeyEvent.KEYCODE_MEDIA_NEXT,
+            KeyEvent.KEYCODE_NAVIGATE_NEXT,
+            KeyEvent.KEYCODE_F12,
+            KeyEvent.KEYCODE_BUTTON_R1 -> {
                 if (channelListVisible) return super.onKeyDown(keyCode, event)
                 switchChannel(-1)
                 return true
             }
             KeyEvent.KEYCODE_DPAD_DOWN,
             KeyEvent.KEYCODE_CHANNEL_DOWN,
-            KeyEvent.KEYCODE_PAGE_DOWN -> {
+            KeyEvent.KEYCODE_PAGE_DOWN,
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS,
+            KeyEvent.KEYCODE_NAVIGATE_PREVIOUS,
+            KeyEvent.KEYCODE_F11,
+            KeyEvent.KEYCODE_BUTTON_L1 -> {
                 if (channelListVisible) return super.onKeyDown(keyCode, event)
                 switchChannel(1)
                 return true
@@ -1929,6 +1940,19 @@ class PlayerActivity : BaseActivity() {
             return true
         }
 
+        // Дебаг-логгер для неизвестных клавиш пульта: показываем
+        // keycode и имя на экране, чтобы пользователь мог сообщить
+        // что именно шлёт его пульт. Без этого мы гадаем.
+        // Не трогаем системные клавиши громкости/питания/back.
+        if (keyCode != KeyEvent.KEYCODE_VOLUME_UP &&
+            keyCode != KeyEvent.KEYCODE_VOLUME_DOWN &&
+            keyCode != KeyEvent.KEYCODE_VOLUME_MUTE &&
+            keyCode != KeyEvent.KEYCODE_BACK &&
+            keyCode != KeyEvent.KEYCODE_HOME &&
+            keyCode != KeyEvent.KEYCODE_POWER) {
+            val name = KeyEvent.keyCodeToString(keyCode)
+            Toast.makeText(this, "Key: $keyCode ($name)", Toast.LENGTH_LONG).show()
+        }
         return super.onKeyDown(keyCode, event)
     }
 
