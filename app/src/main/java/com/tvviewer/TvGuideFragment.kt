@@ -241,12 +241,20 @@ class TvGuideFragment : Fragment() {
                     "EPG: загружено каналов с программой: ${data.size}",
                     Toast.LENGTH_LONG
                 ).show()
-            } catch (e: Exception) {
-                Log.e(TAG, "EPG refresh error", e)
+            } catch (t: Throwable) {
+                // Throwable, не Exception: ловим и OOM / StackOverflow.
+                // Без этого ошибка молча убивала корутину и юзер видел
+                // вечный спиннер ("зависает обновление ТВ гида").
+                Log.e(TAG, "EPG refresh error", t)
+                ErrorLogger.logException(appCtx, t)
                 prefs.epgLastUpdate = System.currentTimeMillis()
                 if (!isAdded) return@launch
                 progressBar.visibility = View.GONE
-                Toast.makeText(appCtx, R.string.epg_update_failed, Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    appCtx,
+                    "EPG ошибка: ${t.javaClass.simpleName} — ${t.message?.take(80)}",
+                    Toast.LENGTH_LONG
+                ).show()
             }
         }
     }
