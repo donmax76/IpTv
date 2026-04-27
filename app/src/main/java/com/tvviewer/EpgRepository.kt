@@ -132,33 +132,28 @@ object EpgRepository {
                 .header("Accept-Encoding", "gzip")
                 .header("User-Agent", userAgent)
                 .build()
-            val bodyString = client.newCall(request).execute().use { response ->
+            // ВАЖНО: парсим ПОТОКОВО, без буферизации всего ответа в
+            // памяти. EPG-файлы бывают 100+ MB в gzip / 500+ MB
+            // распакованные — на X4 X4 (heap 256MB) предыдущая
+            // реализация (body.bytes() + readText) ловила
+            // OutOfMemoryError. XmlPullParser умеет работать с
+            // InputStream напрямую — отдаём ему GZIPInputStream и
+            // парсер читает по чанкам.
+            val result = client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     Log.e(TAG, "EPG HTTP error: ${response.code}")
-                    return@withContext loadFromCache(context) ?: emptyMap()
+                    return@use null
                 }
-                val body = response.body ?: return@withContext loadFromCache(context) ?: emptyMap()
-                try {
-                    val contentEncoding = response.header("Content-Encoding")
-                    val contentType = response.header("Content-Type") ?: ""
-                    if (contentEncoding == "gzip" || epgUrl.endsWith(".gz") || contentType.contains("gzip")) {
-                        val bytes = body.bytes()
-                        try {
-                            GZIPInputStream(bytes.inputStream()).bufferedReader().readText()
-                        } catch (e: Exception) {
-                            String(bytes)
-                        }
-                    } else {
-                        body.string()
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "EPG body read error", e)
-                    return@withContext loadFromCache(context) ?: emptyMap()
-                }
-            }
-
-            Log.d(TAG, "EPG data size: ${bodyString.length} chars")
-            val result = parseXmltv(bodyString)
+                val body = response.body ?: return@use null
+                val contentEncoding = response.header("Content-Encoding")
+                val contentType = response.header("Content-Type") ?: ""
+                val isGzip = contentEncoding == "gzip" ||
+                    epgUrl.endsWith(".gz") ||
+                    contentType.contains("gzip")
+                val raw = body.byteStream()
+                val stream = if (isGzip) GZIPInputStream(raw, 32 * 1024) else raw
+                stream.use { parseXmltvStreaming(it) }
+            } ?: return@withContext loadFromCache(context) ?: emptyMap()
             Log.d(TAG, "EPG parsed: ${result.size} channels with data")
 
             // Save to cache
@@ -267,12 +262,27 @@ object EpgRepository {
         return result
     }
 
+    private fun parseXmltvStreaming(input: java.io.InputStream): Map<String, List<Programme>> {
+        // Та же логика, что у parseXmltv, но пуллер читает напрямую из
+        // InputStream — без сохранения всего XML в строку. Critical для
+        // больших EPG-файлов (epg.it999.ru ~500MB распакованный).
+        val factory = XmlPullParserFactory.newInstance()
+        factory.isNamespaceAware = false
+        val parser = factory.newPullParser()
+        parser.setInput(input, "UTF-8")
+        return parseXmltvFromParser(parser)
+    }
+
     private fun parseXmltv(xml: String): Map<String, List<Programme>> {
-        val result = mutableMapOf<String, MutableList<Programme>>()
         val factory = XmlPullParserFactory.newInstance()
         factory.isNamespaceAware = false
         val parser = factory.newPullParser()
         parser.setInput(StringReader(xml))
+        return parseXmltvFromParser(parser)
+    }
+
+    private fun parseXmltvFromParser(parser: XmlPullParser): Map<String, List<Programme>> {
+        val result = mutableMapOf<String, MutableList<Programme>>()
 
         // Map of channel-id → normalized display names (for fallback matching)
         val displayNamesById = mutableMapOf<String, MutableList<String>>()
