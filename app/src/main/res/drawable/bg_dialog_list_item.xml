@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- D-pad / remote navigation. We only highlight the focused or
-         selected (= being-navigated) row. We do NOT highlight
-         state_activated, because setSingleChoiceItems marks the
-         previously-chosen row with that flag and the radio button on
-         the right is enough indication — adding a second filled
-         highlight made the dialog look like two items were selected. -->
+    <!-- D-pad navigation: focused/selected row подсвечивается ярко
+         (фиолетовая заливка + белая рамка). Радио-выбранная строка
+         (state_activated) — приглушённая лиловая заливка с пунктирной
+         рамкой, чтобы видно было «эта строка выбрана» даже когда
+         фокус ушёл на другую. -->
     <item android:state_focused="true">
         <layer-list>
             <item><shape><solid android:color="#7C6CF7"/></shape></item>
@@ -16,6 +15,18 @@
         <layer-list>
             <item><shape><solid android:color="#7C6CF7"/></shape></item>
             <item><shape><stroke android:width="2dp" android:color="#FFFFFF"/></shape></item>
+        </layer-list>
+    </item>
+    <item android:state_activated="true">
+        <layer-list>
+            <item><shape><solid android:color="#503A2D9C"/></shape></item>
+            <item><shape><stroke android:width="2dp" android:color="#7C6CF7"/></shape></item>
+        </layer-list>
+    </item>
+    <item android:state_checked="true">
+        <layer-list>
+            <item><shape><solid android:color="#503A2D9C"/></shape></item>
+            <item><shape><stroke android:width="2dp" android:color="#7C6CF7"/></shape></item>
         </layer-list>
     </item>
     <item android:state_pressed="true">
