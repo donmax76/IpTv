@@ -15,11 +15,31 @@ object PlaylistRepository {
 
     data class PlaylistResult(val channels: List<Channel>, val epgUrl: String?)
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .build()
+    private val client: OkHttpClient = run {
+        // IPTV-плейлисты часто на CDN с самоподписанными / несовпадающими
+        // сертами (типа streamlock.net с DN=*.maksnet.tv). Ослабляем.
+        val trust = object : javax.net.ssl.X509TrustManager {
+            override fun checkClientTrusted(
+                chain: Array<java.security.cert.X509Certificate>,
+                authType: String
+            ) {}
+            override fun checkServerTrusted(
+                chain: Array<java.security.cert.X509Certificate>,
+                authType: String
+            ) {}
+            override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> =
+                emptyArray()
+        }
+        val ctx = javax.net.ssl.SSLContext.getInstance("TLS")
+        ctx.init(null, arrayOf<javax.net.ssl.TrustManager>(trust), java.security.SecureRandom())
+        OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .sslSocketFactory(ctx.socketFactory, trust)
+            .hostnameVerifier { _, _ -> true }
+            .build()
+    }
 
     /**
      * Fetch a playlist — either from a remote http(s) URL or a local file:// URI

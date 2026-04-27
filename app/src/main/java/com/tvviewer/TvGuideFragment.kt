@@ -225,6 +225,7 @@ class TvGuideFragment : Fragment() {
         progressBar.visibility = View.VISIBLE
         // applicationContext чтобы переживать detach.
         val appCtx = requireContext().applicationContext
+        Toast.makeText(appCtx, "EPG: запрашиваю ${urls.size} источник(ов)…", Toast.LENGTH_SHORT).show()
         lifecycleScope.launch {
             try {
                 val data = EpgRepository.fetchAll(urls, appCtx)
@@ -236,9 +237,11 @@ class TvGuideFragment : Fragment() {
                 if (!isAdded) return@launch
                 progressBar.visibility = View.GONE
                 loadEpgData()
-                if (data.isNotEmpty()) {
-                    Toast.makeText(appCtx, R.string.epg_updated, Toast.LENGTH_SHORT).show()
-                }
+                Toast.makeText(
+                    appCtx,
+                    "EPG: загружено каналов с программой: ${data.size}",
+                    Toast.LENGTH_LONG
+                ).show()
             } catch (e: Exception) {
                 Log.e(TAG, "EPG refresh error", e)
                 prefs.epgLastUpdate = System.currentTimeMillis()

@@ -31,11 +31,32 @@ object EpgRepository {
     private const val EPG_CACHE_FILE = "epg_cache_v2.json"
     private const val EPG_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000L // 6 hours
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .build()
+    private val client: OkHttpClient = run {
+        // EPG-источники бывают на HTTPS-доменах с самоподписанными
+        // или несовпадающими сертами (стандартная IPTV-ситуация).
+        // Стандартный OkHttp HostnameVerifier это режет — ослабляем.
+        val trust = object : javax.net.ssl.X509TrustManager {
+            override fun checkClientTrusted(
+                chain: Array<java.security.cert.X509Certificate>,
+                authType: String
+            ) {}
+            override fun checkServerTrusted(
+                chain: Array<java.security.cert.X509Certificate>,
+                authType: String
+            ) {}
+            override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> =
+                emptyArray()
+        }
+        val ctx = javax.net.ssl.SSLContext.getInstance("TLS")
+        ctx.init(null, arrayOf<javax.net.ssl.TrustManager>(trust), java.security.SecureRandom())
+        OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .sslSocketFactory(ctx.socketFactory, trust)
+            .hostnameVerifier { _, _ -> true }
+            .build()
+    }
 
     data class Programme(
         val start: Long,
