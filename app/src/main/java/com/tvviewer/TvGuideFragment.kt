@@ -90,6 +90,12 @@ class TvGuideFragment : Fragment() {
 
         updateDateDisplay()
         loadEpgData()
+        // База iptv-org (логотипы + tvg-id по имени) грузится в фоне
+        // при старте приложения. Когда дозагрузится — обновляем список,
+        // чтобы появились лого / EPG-матчинг по name → tvg-id.
+        ChannelMetaLookup.onLoaded {
+            if (isAdded) loadEpgData()
+        }
     }
 
     override fun onHiddenChanged(hidden: Boolean) {

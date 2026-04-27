@@ -43,7 +43,11 @@ class EpgAdapter(
         val now = System.currentTimeMillis()
 
         holder.name.text = channel.name
-        holder.logo.load(channel.logoUrl) {
+        // Лого: tvg-logo из M3U → база iptv-org по имени канала.
+        // Если ни там ни там нет — placeholder.
+        val logoUrl = channel.logoUrl
+            ?: ChannelMetaLookup.lookup(channel.name)?.logoUrl
+        holder.logo.load(logoUrl) {
             crossfade(true)
             error(R.drawable.ic_channel_placeholder)
             placeholder(R.drawable.ic_channel_placeholder)

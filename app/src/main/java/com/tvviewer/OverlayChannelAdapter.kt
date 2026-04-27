@@ -45,7 +45,10 @@ class OverlayChannelAdapter(
             holder.itemView.context, channel.name
         )
 
-        holder.logo.load(channel.logoUrl) {
+        // Лого: tvg-logo из M3U → база iptv-org по имени канала.
+        val logoUrl = channel.logoUrl
+            ?: ChannelMetaLookup.lookup(channel.name)?.logoUrl
+        holder.logo.load(logoUrl) {
             crossfade(true)
             error(R.drawable.ic_channel_placeholder)
             placeholder(R.drawable.ic_channel_placeholder)
