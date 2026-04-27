@@ -42,9 +42,6 @@ class TvGuideFragment : Fragment() {
     private var allChannelsWithEpg: List<EpgChannelItem> = emptyList()
     private var filteredItems: List<EpgChannelItem> = emptyList()
     private var selectedDateOffset = 0 // 0=today, -1=yesterday, 1=tomorrow
-    // Чтобы фрагмент не уходил в бесконечный цикл refreshEpg() →
-    // loadEpgData() → refreshEpg(), когда сервер EPG отдаёт пусто.
-    private var autoRefreshAttempted = false
 
     data class EpgChannelItem(
         val channel: Channel,
@@ -132,17 +129,14 @@ class TvGuideFragment : Fragment() {
                 ChannelDataHolder.epgData = cached
             }
 
-            // Авто-рефреш — РОВНО ОДИН раз за визит фрагмента, и не чаще
-            // раза в час по prefs.epgLastUpdate. Иначе при пустом ответе
-            // сервера фрагмент бесконечно гонял запросы:
-            // refreshEpg() → loadEpgData() → refreshEpg() → ...
+            // Авто-рефреш не чаще раза в час: prefs.epgLastUpdate
+            // ставится даже на пустой / ошибочный ответ, защищает от
+            // цикла refreshEpg → loadEpgData → refreshEpg.
             val sinceLastRefresh = System.currentTimeMillis() - prefs.epgLastUpdate
-            val ONE_HOUR = 60 * 60 * 1000L
+            val oneHour = 60 * 60 * 1000L
             if (prefs.allEpgUrls().isNotEmpty() &&
                 ChannelDataHolder.epgData.isEmpty() &&
-                !autoRefreshAttempted &&
-                (prefs.epgLastUpdate == 0L || sinceLastRefresh > ONE_HOUR)) {
-                autoRefreshAttempted = true
+                (prefs.epgLastUpdate == 0L || sinceLastRefresh > oneHour)) {
                 refreshEpg()
                 return
             }

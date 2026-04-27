@@ -59,6 +59,24 @@ class PlayerActivity : BaseActivity() {
         const val EXTRA_CHANNEL_NAME = "channel_name"
         const val EXTRA_CHANNEL_URL = "channel_url"
         const val EXTRA_CHANNEL_INDEX = "channel_index"
+
+        private val PLAYER_DRAWER_IDS = intArrayOf(
+            R.id.playerDrawerPlaylists,
+            R.id.playerDrawerChannels,
+            R.id.playerDrawerTvGuide,
+            R.id.playerDrawerFavorites,
+            R.id.playerDrawerRecent,
+            R.id.playerDrawerSettings,
+        )
+        private val RIGHT_MENU_IDS = intArrayOf(
+            R.id.rightMenuChannelList,
+            R.id.rightMenuLastChannel,
+            R.id.rightMenuAudio,
+            R.id.rightMenuSpeed,
+            R.id.rightMenuAspect,
+            R.id.rightMenuPip,
+            R.id.rightMenuLock,
+        )
     }
 
     private lateinit var playerView: PlayerView
@@ -897,13 +915,6 @@ class PlayerActivity : BaseActivity() {
             .setMediaSourceFactory(mediaSourceFactory)
             .build().also { p ->
                 playerView.player = p
-                // Снимаем фильтр по preferredAudioLanguage, чтобы трек-
-                // селектор не дисквалифицировал дорожку без языка
-                // (актуально для izone.az и подобных).
-                p.trackSelectionParameters = p.trackSelectionParameters
-                    .buildUpon()
-                    .setPreferredAudioLanguage(null)
-                    .build()
                 p.addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(state: Int) {
                         when (state) {
@@ -940,22 +951,20 @@ class PlayerActivity : BaseActivity() {
 
                     override fun onPlayerError(error: PlaybackException) {
                         loadingIndicator.visibility = View.GONE
-                        ErrorLogger.logException(this@PlayerActivity, error)
-                        // BehindLiveWindowException: HLS playback fell off
-                        // the back of the rolling live window. Don't tear
-                        // the source down — just jump to the live edge.
+                        // BehindLiveWindowException — HLS отстал от live-окна;
+                        // не разрушаем источник, просто прыгаем к live-edge.
+                        // Ошибку не логируем: она ожидаема и обрабатывается.
                         if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
                             try {
                                 player?.seekToDefaultPosition()
                                 player?.prepare()
-                                // If the seek alone doesn't bring us back
-                                // (rare but happens on some HLS streams),
-                                // schedule a reconnect 5s later as a safety
-                                // net. STATE_READY will cancel it.
+                                // Safety net на случай если seek не вернул
+                                // нас в live; STATE_READY отменит этот таймер.
                                 reconnectHandler.postDelayed(reconnectRunnable, 5_000)
                                 return
                             } catch (_: Exception) {}
                         }
+                        ErrorLogger.logException(this@PlayerActivity, error)
                         // Декодер не нашёлся (типичный случай — MP2-аудио
                         // на дешёвых TV-боксах без MP2 MediaCodec'а).
                         // Reconnect не поможет — формат не изменится.
@@ -980,30 +989,16 @@ class PlayerActivity : BaseActivity() {
     private fun offerExternalPlayer(error: PlaybackException) {
         val url = currentUrl ?: return
         errorLayout.visibility = View.VISIBLE
-        val cause = error.cause
-        // В media3 1.2.0 у DecoderInitializationException есть только
-        // String mimeType (Format-объекта здесь нет — появился в 1.4+).
-        val codecHint: String = if (cause is MediaCodecRenderer.DecoderInitializationException) {
-            cause.mimeType?.substringAfter('/') ?: "?"
-        } else {
-            "?"
-        }
-        errorText.text = "Кодек $codecHint не поддерживается"
+        val codec = (error.cause as? MediaCodecRenderer.DecoderInitializationException)
+            ?.mimeType?.substringAfter('/') ?: "?"
+        errorText.text = getString(R.string.codec_unsupported_short, codec)
         android.app.AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
-            .setTitle("Звук не поддерживается")
-            .setMessage("Кодек $codecHint не декодируется встроенным плеером. Открыть канал во внешнем плеере (VLC / MX)?")
-            .setPositiveButton("Открыть") { _, _ ->
-                try {
-                    val intent = Intent(Intent.ACTION_VIEW)
-                    intent.setDataAndType(android.net.Uri.parse(url), "video/*")
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    startActivity(intent)
-                    finish()
-                } catch (e: Exception) {
-                    Toast.makeText(this, R.string.no_player_app, Toast.LENGTH_LONG).show()
-                }
+            .setTitle(R.string.codec_unsupported_title)
+            .setMessage(getString(R.string.codec_unsupported_message, codec))
+            .setPositiveButton(R.string.open_external) { _, _ ->
+                if (launchExternalVideo(url)) finish()
             }
-            .setNegativeButton("Отмена", null)
+            .setNegativeButton(R.string.cancel, null)
             .show()
     }
 
@@ -1535,54 +1530,21 @@ class PlayerActivity : BaseActivity() {
         }
     }
 
-    /**
-     * Циклическое перемещение фокуса по пунктам плеер-меню. Возвращает
-     * true, если фокус был передвинут, false — если фокус не на пункте
-     * меню (тогда onKeyDown отдаёт ключ дефолтному поиску фокуса).
-     */
-    private fun cyclePlayerDrawerFocus(forward: Boolean): Boolean {
-        val items = listOf(
-            R.id.playerDrawerPlaylists,
-            R.id.playerDrawerChannels,
-            R.id.playerDrawerTvGuide,
-            R.id.playerDrawerFavorites,
-            R.id.playerDrawerRecent,
-            R.id.playerDrawerSettings,
-        )
-        val focusedId = currentFocus?.id ?: return false
-        val idx = items.indexOf(focusedId)
-        if (idx < 0) return false
-        val nextIdx = if (forward) {
-            if (idx == items.size - 1) 0 else idx + 1
-        } else {
-            if (idx == 0) items.size - 1 else idx - 1
-        }
-        findViewById<View>(items[nextIdx])?.requestFocus()
-        return true
-    }
-
     private fun rightMenuVisible(): Boolean =
         ::playerRightMenuOverlay.isInitialized &&
             playerRightMenuOverlay.visibility == View.VISIBLE
 
-    private fun cycleRightMenuFocus(forward: Boolean): Boolean {
-        val items = listOf(
-            R.id.rightMenuChannelList,
-            R.id.rightMenuLastChannel,
-            R.id.rightMenuAudio,
-            R.id.rightMenuSpeed,
-            R.id.rightMenuAspect,
-            R.id.rightMenuPip,
-            R.id.rightMenuLock,
-        )
+    /**
+     * Циклически переставляет фокус по списку id (UP/DOWN внутри
+     * выпадающего меню). Возвращает true, если фокус был на одном из
+     * пунктов и был передвинут.
+     */
+    private fun cycleFocus(items: IntArray, forward: Boolean): Boolean {
         val focusedId = currentFocus?.id ?: return false
         val idx = items.indexOf(focusedId)
         if (idx < 0) return false
-        val nextIdx = if (forward) {
-            if (idx == items.size - 1) 0 else idx + 1
-        } else {
-            if (idx == 0) items.size - 1 else idx - 1
-        }
+        val n = items.size
+        val nextIdx = if (forward) (idx + 1) % n else (idx - 1 + n) % n
         findViewById<View>(items[nextIdx])?.requestFocus()
         return true
     }
@@ -1682,7 +1644,7 @@ class PlayerActivity : BaseActivity() {
             }
             if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
                 keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-                if (cycleRightMenuFocus(keyCode == KeyEvent.KEYCODE_DPAD_DOWN)) {
+                if (cycleFocus(RIGHT_MENU_IDS, keyCode == KeyEvent.KEYCODE_DPAD_DOWN)) {
                     return true
                 }
             }
@@ -1698,7 +1660,7 @@ class PlayerActivity : BaseActivity() {
             if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) { hidePlayerDrawer(); return true }
             if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
                 keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-                if (cyclePlayerDrawerFocus(keyCode == KeyEvent.KEYCODE_DPAD_DOWN)) {
+                if (cycleFocus(PLAYER_DRAWER_IDS, keyCode == KeyEvent.KEYCODE_DPAD_DOWN)) {
                     return true
                 }
             }

@@ -175,6 +175,10 @@
     <string name="channel_list">Список каналов</string>
     <string name="last_channel">Предыдущий канал</string>
     <string name="no_previous_channel">Истории каналов нет</string>
+    <string name="codec_unsupported_title">Звук не поддерживается</string>
+    <string name="codec_unsupported_message">Кодек %1$s не декодируется встроенным плеером. Открыть канал во внешнем плеере (VLC / MX)?</string>
+    <string name="codec_unsupported_short">Кодек %1$s не поддерживается</string>
+    <string name="open_external">Открыть</string>
     <string name="screen_orientation">Ориентация экрана</string>
     <string name="orientation_auto">Авто</string>
     <string name="orientation_portrait">Портрет</string>

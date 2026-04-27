@@ -385,14 +385,7 @@ class ChannelsFragment : Fragment() {
         }
 
         if (prefs.playerType == AppPreferences.PLAYER_EXTERNAL) {
-            val externalIntent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(android.net.Uri.parse(channel.url), "video/*")
-            }
-            try {
-                startActivity(externalIntent)
-            } catch (e: Exception) {
-                android.widget.Toast.makeText(requireContext(), R.string.no_player_app, android.widget.Toast.LENGTH_SHORT).show()
-            }
+            requireContext().launchExternalVideo(channel.url)
         } else {
             startActivity(intent)
         }
