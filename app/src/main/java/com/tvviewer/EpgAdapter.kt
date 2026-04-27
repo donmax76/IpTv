@@ -50,59 +50,31 @@ class EpgAdapter(
         }
 
         holder.itemView.setOnClickListener { onChannelClick(channel) }
-
-        // D-pad: center/enter selects channel
         holder.itemView.setOnKeyListener { _, keyCode, event ->
             if (event.action == KeyEvent.ACTION_DOWN &&
                 (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER)) {
                 holder.itemView.performClick()
                 true
-            } else {
-                false
-            }
+            } else false
         }
 
-        // Find current programme
+        // Компактный single-line формат (как в OTT-плеерах):
+        //  • если идёт текущая программа — показываем её название, время
+        //    окончания и progressbar внизу
+        //  • если EPG пусто — серым "Нет EPG телепрограммы"
         val currentProg = item.programmes.firstOrNull { now in it.start..it.end }
-        val upcomingProgs = item.programmes.filter { it.start > now }.take(3)
-
         if (currentProg != null) {
-            holder.nowLayout.visibility = View.VISIBLE
-            holder.liveBadge.visibility = View.VISIBLE
-            holder.nowTime.text = "${timeFormat.format(Date(currentProg.start))} - ${timeFormat.format(Date(currentProg.end))}"
             holder.nowTitle.text = currentProg.title
-
-            // Progress
+            holder.nowTime.text = "${timeFormat.format(Date(currentProg.start))}-${timeFormat.format(Date(currentProg.end))}"
+            holder.nowTime.visibility = View.VISIBLE
             val total = (currentProg.end - currentProg.start).toFloat()
             val elapsed = (now - currentProg.start).toFloat()
             holder.nowProgress.progress = if (total > 0) ((elapsed / total) * 100).toInt() else 0
+            holder.nowProgress.visibility = View.VISIBLE
         } else {
-            holder.nowLayout.visibility = View.GONE
-            holder.liveBadge.visibility = View.GONE
-        }
-
-        // Next programmes
-        holder.nextLayout.removeAllViews()
-        if (upcomingProgs.isNotEmpty() || (currentProg == null && item.programmes.isNotEmpty())) {
-            holder.nextLayout.visibility = View.VISIBLE
-            val progsToShow = if (currentProg == null) item.programmes.take(4) else upcomingProgs
-            for (prog in progsToShow) {
-                val progView = LayoutInflater.from(holder.itemView.context)
-                    .inflate(R.layout.item_epg_programme, holder.nextLayout, false)
-                progView.findViewById<TextView>(R.id.progTime).text =
-                    "${timeFormat.format(Date(prog.start))} - ${timeFormat.format(Date(prog.end))}"
-                progView.findViewById<TextView>(R.id.progTitle).text = prog.title
-                val descView = progView.findViewById<TextView>(R.id.progDescription)
-                if (prog.description.isNotEmpty()) {
-                    descView.text = prog.description
-                    descView.visibility = View.VISIBLE
-                } else {
-                    descView.visibility = View.GONE
-                }
-                holder.nextLayout.addView(progView)
-            }
-        } else {
-            holder.nextLayout.visibility = View.GONE
+            holder.nowTitle.text = "Нет EPG телепрограммы"
+            holder.nowTime.visibility = View.GONE
+            holder.nowProgress.visibility = View.GONE
         }
     }
 

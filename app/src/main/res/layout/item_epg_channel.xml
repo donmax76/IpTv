@@ -1,132 +1,90 @@
 <?xml version="1.0" encoding="utf-8"?>
-<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginStart="@dimen/channel_card_margin_h"
-    android:layout_marginEnd="@dimen/channel_card_margin_h"
-    android:layout_marginTop="@dimen/channel_card_margin_v"
-    android:layout_marginBottom="@dimen/channel_card_margin_v"
-    app:cardBackgroundColor="@color/card_background"
-    app:cardCornerRadius="@dimen/channel_card_radius"
-    app:cardElevation="2dp"
-    app:strokeWidth="0dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:padding="10dp"
     android:focusable="true"
-    android:focusableInTouchMode="false"
-    android:foreground="@drawable/item_channel_focused">
+    android:foreground="@drawable/item_channel_focused"
+    android:background="@drawable/bg_epg_row">
+
+    <ImageView
+        android:id="@+id/epgChannelLogo"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_channel_placeholder"/>
 
     <LinearLayout
-        android:layout_width="match_parent"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_weight="1"
         android:orientation="vertical"
-        android:padding="@dimen/channel_card_padding">
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="8dp">
 
-        <!-- Channel header -->
-        <LinearLayout
+        <TextView
+            android:id="@+id/epgChannelName"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="8dp">
+            android:textColor="@color/text_primary"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:singleLine="true"
+            android:ellipsize="end"/>
 
-            <ImageView
-                android:id="@+id/epgChannelLogo"
-                android:layout_width="@dimen/epg_channel_logo"
-                android:layout_height="@dimen/epg_channel_logo"
-                android:scaleType="fitCenter"
-                android:adjustViewBounds="true"
-                android:src="@drawable/ic_channel_placeholder"/>
-
-            <TextView
-                android:id="@+id/epgChannelName"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="10dp"
-                android:textColor="@color/text_primary"
-                android:textSize="@dimen/epg_channel_name_text"
-                android:textStyle="bold"
-                android:singleLine="true"
-                android:ellipsize="end"/>
-
-            <TextView
-                android:id="@+id/epgLiveBadge"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="LIVE"
-                android:textColor="@android:color/white"
-                android:textSize="10sp"
-                android:textStyle="bold"
-                android:background="@drawable/bg_live_badge"
-                android:visibility="gone"/>
-
-        </LinearLayout>
-
-        <!-- Current program -->
-        <LinearLayout
-            android:id="@+id/epgNowLayout"
+        <TextView
+            android:id="@+id/epgNowTitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:background="@drawable/bg_epg_item"
-            android:padding="8dp"
-            android:layout_marginBottom="4dp"
-            android:visibility="gone">
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp"
+            android:singleLine="true"
+            android:ellipsize="end"
+            android:layout_marginTop="2dp"/>
 
-            <TextView
-                android:id="@+id/epgNowTime"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="@color/secondary"
-                android:textSize="@dimen/epg_time_text"
-                android:textStyle="bold"
-                android:layout_marginEnd="8dp"/>
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/epg_now"
-                    android:textColor="@color/secondary"
-                    android:textSize="10sp"
-                    android:textStyle="bold"/>
-
-                <TextView
-                    android:id="@+id/epgNowTitle"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textColor="@color/text_primary"
-                    android:textSize="@dimen/epg_title_text"
-                    android:maxLines="2"
-                    android:ellipsize="end"/>
-
-            </LinearLayout>
-
-            <ProgressBar
-                android:id="@+id/epgNowProgress"
-                style="?android:attr/progressBarStyleHorizontal"
-                android:layout_width="50dp"
-                android:layout_height="4dp"
-                android:progressTint="@color/secondary"
-                android:progressBackgroundTint="@color/surface_light"
-                android:max="100"/>
-
-        </LinearLayout>
-
-        <!-- Next programs -->
-        <LinearLayout
-            android:id="@+id/epgNextLayout"
+        <ProgressBar
+            android:id="@+id/epgNowProgress"
+            style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
+            android:layout_height="2dp"
+            android:progressTint="@color/primary"
+            android:progressBackgroundTint="#33FFFFFF"
+            android:max="100"
+            android:layout_marginTop="3dp"
             android:visibility="gone"/>
 
     </LinearLayout>
 
-</com.google.android.material.card.MaterialCardView>
+    <TextView
+        android:id="@+id/epgNowTime"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="@color/text_secondary"
+        android:textSize="12sp"
+        android:visibility="gone"/>
+
+    <!-- Невидимые холдеры — Adapter ссылается на них по ID, но в новом
+         компактном layout они скрыты. Оставлены ради совместимости с
+         существующим EpgAdapter (LIVE-бейдж убран по запросу). -->
+    <TextView
+        android:id="@+id/epgLiveBadge"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone"/>
+
+    <LinearLayout
+        android:id="@+id/epgNowLayout"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone"/>
+
+    <LinearLayout
+        android:id="@+id/epgNextLayout"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone"/>
+
+</LinearLayout>
