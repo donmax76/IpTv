@@ -29,10 +29,29 @@ object ChannelMetaLookup {
     private const val CACHE_FILE = "iptv_org_channels.json"
     private const val CACHE_LIFETIME_MS = 7L * 24 * 60 * 60 * 1000
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .build()
+    private val client: OkHttpClient = run {
+        val trust = object : javax.net.ssl.X509TrustManager {
+            override fun checkClientTrusted(
+                chain: Array<java.security.cert.X509Certificate>,
+                authType: String
+            ) {}
+            override fun checkServerTrusted(
+                chain: Array<java.security.cert.X509Certificate>,
+                authType: String
+            ) {}
+            override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> =
+                emptyArray()
+        }
+        val ctx = javax.net.ssl.SSLContext.getInstance("TLS")
+        ctx.init(null, arrayOf<javax.net.ssl.TrustManager>(trust), java.security.SecureRandom())
+        OkHttpClient.Builder()
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(90, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .sslSocketFactory(ctx.socketFactory, trust)
+            .hostnameVerifier { _, _ -> true }
+            .build()
+    }
 
     data class Meta(val logoUrl: String?, val tvgId: String?)
 
