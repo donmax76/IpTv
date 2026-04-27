@@ -3,11 +3,44 @@ package com.tvviewer
 import android.app.Application
 import android.content.Intent
 import android.util.Log
+import coil.ImageLoader
+import coil.ImageLoaderFactory
 import kotlinx.coroutines.CancellationException
+import okhttp3.OkHttpClient
 import java.io.PrintWriter
 import java.io.StringWriter
 
-class TVViewerApp : Application() {
+class TVViewerApp : Application(), ImageLoaderFactory {
+
+    override fun newImageLoader(): ImageLoader {
+        // Coil использует свой OkHttpClient — у него своя HostnameVerifier
+        // и SSL-цепочка, поэтому глобальный fix HttpsURLConnection из
+        // installPermissiveSslForStreaming() его не цепляет. Логотипы
+        // каналов часто хостятся на тех же CDN с несовпадающими сертами,
+        // что и стримы. Выдаём Coil'у trust-all OkHttpClient.
+        val trust = object : javax.net.ssl.X509TrustManager {
+            override fun checkClientTrusted(
+                chain: Array<java.security.cert.X509Certificate>,
+                authType: String
+            ) {}
+            override fun checkServerTrusted(
+                chain: Array<java.security.cert.X509Certificate>,
+                authType: String
+            ) {}
+            override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> =
+                emptyArray()
+        }
+        val ctx = javax.net.ssl.SSLContext.getInstance("TLS")
+        ctx.init(null, arrayOf<javax.net.ssl.TrustManager>(trust), java.security.SecureRandom())
+        val ok = OkHttpClient.Builder()
+            .sslSocketFactory(ctx.socketFactory, trust)
+            .hostnameVerifier { _, _ -> true }
+            .build()
+        return ImageLoader.Builder(this)
+            .okHttpClient(ok)
+            .crossfade(true)
+            .build()
+    }
 
     private fun isCancellation(throwable: Throwable): Boolean {
         var t: Throwable? = throwable
