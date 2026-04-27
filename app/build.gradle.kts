@@ -89,17 +89,16 @@ dependencies {
     implementation("androidx.viewpager2:viewpager2:1.0.0")
 
     // ExoPlayer for streaming (HLS / DASH / RTSP).
-    // 1.4.1 синхронизирована с nextlib-media3ext:0.7.7 (Kotlin 1.9).
-    implementation("androidx.media3:media3-exoplayer:1.4.1")
-    implementation("androidx.media3:media3-exoplayer-hls:1.4.1")
-    implementation("androidx.media3:media3-exoplayer-dash:1.4.1")
-    implementation("androidx.media3:media3-exoplayer-rtsp:1.4.1")
-    implementation("androidx.media3:media3-ui:1.4.1")
+    // 1.5.0 — синхронизирована с nextlib-media3ext:0.8.3.
+    implementation("androidx.media3:media3-exoplayer:1.5.0")
+    implementation("androidx.media3:media3-exoplayer-hls:1.5.0")
+    implementation("androidx.media3:media3-exoplayer-dash:1.5.0")
+    implementation("androidx.media3:media3-exoplayer-rtsp:1.5.0")
+    implementation("androidx.media3:media3-ui:1.5.0")
 
     // FFmpeg-расширение для Media3: софтверные декодеры MP2 / AC3 /
-    // EAC3 / DTS / FLAC / Vorbis. Версия 0.7.7 — последняя
-    // совместимая с нашим Kotlin 1.9.20 (0.8.x требует Kotlin 2.1).
-    implementation("io.github.anilbeesetti.nextlib:nextlib-media3ext:0.7.4")
+    // EAC3 / DTS / FLAC / Vorbis. Опубликован на Maven Central.
+    implementation("io.github.anilbeesetti.nextlib:nextlib-media3ext:0.8.3")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
