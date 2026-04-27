@@ -127,10 +127,9 @@ class TvGuideFragment : Fragment() {
                 ?.let { ChannelDataHolder.epgData = it }
         }
 
-        // Авто-refresh: если данных нет вообще — пробуем не чаще раза
-        // в 5 минут. Если данные есть — обновляем не чаще раза в 6
-        // часов. Метка времени ставится даже на пустой/ошибочный ответ
-        // в refreshEpg, поэтому без зацикливания.
+        // Авто-refresh запускаем в ФОНЕ, не блокируя UI. Список
+        // каналов показываем сразу — без программы, если кэш пуст.
+        // Когда refresh завершится, UI обновится.
         val sinceLastRefresh = System.currentTimeMillis() - prefs.epgLastUpdate
         val threshold = if (ChannelDataHolder.epgData.isEmpty()) {
             5 * 60 * 1000L
@@ -140,7 +139,7 @@ class TvGuideFragment : Fragment() {
         if (prefs.allEpgUrls().isNotEmpty() &&
             (prefs.epgLastUpdate == 0L || sinceLastRefresh > threshold)) {
             refreshEpg()
-            return
+            // НЕ выходим — продолжаем рендерить список с тем что есть.
         }
         val epgData = ChannelDataHolder.epgData
 

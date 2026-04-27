@@ -50,8 +50,9 @@ object EpgRepository {
         val ctx = javax.net.ssl.SSLContext.getInstance("TLS")
         ctx.init(null, arrayOf<javax.net.ssl.TrustManager>(trust), java.security.SecureRandom())
         OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(120, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .callTimeout(45, TimeUnit.SECONDS)
             .followRedirects(true)
             .sslSocketFactory(ctx.socketFactory, trust)
             .hostnameVerifier { _, _ -> true }
