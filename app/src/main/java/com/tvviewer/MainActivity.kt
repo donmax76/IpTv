@@ -50,33 +50,8 @@ class MainActivity : BaseActivity() {
         // visibility on drawer events.
         bottomNav.visibility = View.GONE
 
-        // Side drawer (left): full 6-item nav including Recent and Settings
         sideNav.setNavigationItemSelectedListener { item ->
-            when (item.itemId) {
-                R.id.side_nav_playlists -> {
-                    showFragment(PlaylistsFragment.TAG, ::PlaylistsFragment)
-                    bottomNav.selectedItemId = R.id.nav_playlists
-                }
-                R.id.side_nav_channels -> {
-                    showFragment(ChannelsFragment.TAG, ::ChannelsFragment)
-                    bottomNav.selectedItemId = R.id.nav_channels
-                }
-                R.id.side_nav_tv_guide -> {
-                    showFragment(TvGuideFragment.TAG, ::TvGuideFragment)
-                    bottomNav.selectedItemId = R.id.nav_tv_guide
-                }
-                R.id.side_nav_favorites -> {
-                    showFragment(FavoritesFragment.TAG, ::FavoritesFragment)
-                    bottomNav.selectedItemId = R.id.nav_favorites
-                }
-                R.id.side_nav_recent -> {
-                    showFragment(RecentFragment.TAG, ::RecentFragment)
-                }
-                R.id.side_nav_settings -> {
-                    openSettings()
-                }
-            }
-            drawerLayout.closeDrawer(Gravity.START)
+            handleSideNavSelection(item.itemId)
             true
         }
 
@@ -175,13 +150,27 @@ class MainActivity : BaseActivity() {
 
     // D-pad / remote control navigation
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        // If the drawer is already open, route all D-pad keys to it so the
-        // user can navigate items and Back / Right closes it.
+        // Drawer открыт — обрабатываем UP/DOWN/OK сами, чтобы
+        // навигация работала с первого открытия (родная фокус-логика
+        // NavigationView ненадёжна на первом разворачивании).
         if (drawerLayout.isDrawerOpen(Gravity.START)) {
-            if (keyCode == KeyEvent.KEYCODE_BACK ||
-                keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                drawerLayout.closeDrawer(Gravity.START)
-                return true
+            when (keyCode) {
+                KeyEvent.KEYCODE_BACK,
+                KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                    drawerLayout.closeDrawer(Gravity.START)
+                    return true
+                }
+                KeyEvent.KEYCODE_DPAD_DOWN -> {
+                    moveSideNavSelection(+1); return true
+                }
+                KeyEvent.KEYCODE_DPAD_UP -> {
+                    moveSideNavSelection(-1); return true
+                }
+                KeyEvent.KEYCODE_DPAD_CENTER,
+                KeyEvent.KEYCODE_ENTER -> {
+                    handleSideNavSelection(sideNavItemIds[sideNavSelectedIdx])
+                    return true
+                }
             }
             return super.onKeyDown(keyCode, event)
         }
@@ -257,36 +246,59 @@ class MainActivity : BaseActivity() {
         return super.onKeyDown(keyCode, event)
     }
 
+    private val sideNavItemIds = intArrayOf(
+        R.id.side_nav_playlists,
+        R.id.side_nav_channels,
+        R.id.side_nav_tv_guide,
+        R.id.side_nav_favorites,
+        R.id.side_nav_recent,
+        R.id.side_nav_settings,
+    )
+    private var sideNavSelectedIdx = 0
+
     private fun openSideDrawer() {
         drawerLayout.openDrawer(Gravity.START)
-        sideNav.menu.getItem(0)?.let { sideNav.setCheckedItem(it) }
-        // На первый вызов после старта Activity NavigationView ещё не
-        // успевает разложить пункты меню — requestFocus не находит на
-        // что направить фокус, и управление вверх/вниз перестаёт
-        // работать до повторного открытия. Фокусируем строго ПОСЛЕ
-        // того, как drawer полностью открылся, и принудительно ищем
-        // первую focusable RecyclerView-строку.
-        sideNav.post { focusFirstSideNavItem() }
-        sideNav.postDelayed({ focusFirstSideNavItem() }, 250)
+        // Сбрасываем выбор на первый пункт. UP/DOWN перебирают пункты
+        // через sideNav.setCheckedItem (визуальная подсветка), OK
+        // активирует выбранный пункт. Раньше полагались на родную
+        // NavigationView фокус-логику, но она не разворачивалась с
+        // первого открытия Activity.
+        sideNavSelectedIdx = 0
+        sideNav.setCheckedItem(sideNavItemIds[0])
     }
 
-    private fun focusFirstSideNavItem() {
-        if (!drawerLayout.isDrawerOpen(Gravity.START)) return
-        // NavigationView внутри использует RecyclerView, у которого
-        // descendantFocusability=AfterDescendants — фокус "проваливается"
-        // на первую focusable строку.
-        val rv = findRecyclerView(sideNav)
-        if (rv != null) {
-            rv.requestFocus()
-            // Если RecyclerView ещё не привязал children — попробуем
-            // через миг, когда они будут.
-            rv.post {
-                val firstChild = rv.getChildAt(0)
-                firstChild?.requestFocus()
+    private fun handleSideNavSelection(itemId: Int) {
+        when (itemId) {
+            R.id.side_nav_playlists -> {
+                showFragment(PlaylistsFragment.TAG, ::PlaylistsFragment)
+                bottomNav.selectedItemId = R.id.nav_playlists
             }
-        } else {
-            sideNav.requestFocus()
+            R.id.side_nav_channels -> {
+                showFragment(ChannelsFragment.TAG, ::ChannelsFragment)
+                bottomNav.selectedItemId = R.id.nav_channels
+            }
+            R.id.side_nav_tv_guide -> {
+                showFragment(TvGuideFragment.TAG, ::TvGuideFragment)
+                bottomNav.selectedItemId = R.id.nav_tv_guide
+            }
+            R.id.side_nav_favorites -> {
+                showFragment(FavoritesFragment.TAG, ::FavoritesFragment)
+                bottomNav.selectedItemId = R.id.nav_favorites
+            }
+            R.id.side_nav_recent -> {
+                showFragment(RecentFragment.TAG, ::RecentFragment)
+            }
+            R.id.side_nav_settings -> {
+                openSettings()
+            }
         }
+        drawerLayout.closeDrawer(Gravity.START)
+    }
+
+    private fun moveSideNavSelection(delta: Int) {
+        val n = sideNavItemIds.size
+        sideNavSelectedIdx = (sideNavSelectedIdx + delta + n) % n
+        sideNav.setCheckedItem(sideNavItemIds[sideNavSelectedIdx])
     }
 
     private fun findRecyclerView(root: View): androidx.recyclerview.widget.RecyclerView? {

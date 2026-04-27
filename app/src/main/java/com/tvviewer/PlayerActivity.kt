@@ -320,7 +320,8 @@ class PlayerActivity : BaseActivity() {
             cycleSpeed()
         }
         findViewById<View>(R.id.rightMenuAspect).setOnClickListener {
-            hidePlayerRightMenu()
+            // НЕ закрываем меню — позволяем многократно нажать OK для
+            // быстрого перебора Fit/16:9/4:3/Stretch без переоткрытия.
             cycleAspectRatio()
         }
         findViewById<View>(R.id.rightMenuPip).setOnClickListener {
@@ -816,11 +817,28 @@ class PlayerActivity : BaseActivity() {
         }
 
         val names = audioTracks.map { it.first }.toTypedArray()
+        // Определяем индекс текущей выбранной дорожки, чтобы подсветить
+        // её в диалоге (раньше использовался setItems — без подсветки,
+        // пользователь не понимал что выбрано).
+        var currentSelectedIdx = -1
+        var counter = 0
+        for (group in tracks.groups) {
+            if (group.type == C.TRACK_TYPE_AUDIO) {
+                for (i in 0 until group.length) {
+                    if (group.isTrackSelected(i)) {
+                        currentSelectedIdx = counter
+                    }
+                    counter++
+                }
+            }
+        }
         val dialog = android.app.AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
             .setTitle(getString(R.string.audio_track))
-            .setItems(names) { _, which ->
+            .setSingleChoiceItems(names, currentSelectedIdx) { d, which ->
                 selectAudioTrack(which)
+                d.dismiss()
             }
+            .setNegativeButton(R.string.cancel, null)
             .create()
         // Anchor to the right side as a narrow side sheet so it doesn't
         // span the whole screen ("слишком растянуто в лево").
@@ -1777,22 +1795,22 @@ class PlayerActivity : BaseActivity() {
                 }
                 return true
             }
-            // D-pad Up - previous channel, OR enter top bar if controls already shown
-            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> {
+            // UP / DOWN / CHANNEL+/- / PAGE+/- — переключение канала,
+            // без показа полной панели управления (с кнопкой паузы и
+            // стрелкой Назад). showChannelBanner поднимает только
+            // нижний инфо-бар (имя/EPG/часы).
+            KeyEvent.KEYCODE_DPAD_UP,
+            KeyEvent.KEYCODE_CHANNEL_UP,
+            KeyEvent.KEYCODE_PAGE_UP -> {
                 if (channelListVisible) return super.onKeyDown(keyCode, event)
-                if (controlsVisible && keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-                    focusTopBar()
-                    return true
-                }
                 switchChannel(-1)
-                showControls()
                 return true
             }
-            // D-pad Down - next channel
-            KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> {
+            KeyEvent.KEYCODE_DPAD_DOWN,
+            KeyEvent.KEYCODE_CHANNEL_DOWN,
+            KeyEvent.KEYCODE_PAGE_DOWN -> {
                 if (channelListVisible) return super.onKeyDown(keyCode, event)
                 switchChannel(1)
-                showControls()
                 return true
             }
             // D-pad Left
@@ -1869,15 +1887,18 @@ class PlayerActivity : BaseActivity() {
                 }
                 return true
             }
-            // Recall / Last channel — возврат на предыдущий просмотренный
-            // канал. Под это идут все типичные пульты:
-            //   • KEYCODE_LAST_CHANNEL — стандарт Android TV ("Last")
-            //   • KEYCODE_PROG_RED — красная кнопка (часто "Recall")
-            //   • KEYCODE_TV_TELETEXT_NUMBER_ENTRY — некоторые приставки
+            // Recall / Last channel — возврат на предыдущий канал.
+            // KEYCODE_LAST_CHANNEL — стандарт Android TV; красная
+            // кнопка пульта тоже часто работает как Recall.
             KeyEvent.KEYCODE_LAST_CHANNEL,
             KeyEvent.KEYCODE_PROG_RED -> {
                 switchToPreviousChannel()
-                showControls()
+                return true
+            }
+            // Зелёная кнопка пульта — циклическая смена соотношения
+            // экрана (Fit / 16:9 / 4:3 / Stretch). Без захода в меню.
+            KeyEvent.KEYCODE_PROG_GREEN -> {
+                cycleAspectRatio()
                 return true
             }
             // Favourite hotkey: F / yellow remote button / bookmark

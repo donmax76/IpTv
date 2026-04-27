@@ -50,13 +50,14 @@
             android:background="@drawable/bg_player_gradient_top"
             android:layout_alignParentTop="true">
 
+            <!-- Стрелка "Назад" скрыта по запросу пользователя.
+                 Выход из плеера: BACK на пульте или DPAD_LEFT 2x. -->
             <ImageButton
                 android:id="@+id/btnBack"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
                 android:src="@drawable/ic_back"
-                android:background="@drawable/bg_player_button"
-                android:focusable="true"
+                android:visibility="gone"
                 android:contentDescription="@string/back"/>
 
             <LinearLayout
@@ -174,19 +175,20 @@
 
         </LinearLayout>
 
-        <!-- Center play/pause -->
+        <!-- Кнопки спрятаны: пользователь не хочет видеть посередине
+             экрана кнопку паузы, а внизу — номер канала и стрелки
+             prev/next. Сама пауза по-прежнему доступна через тап
+             экрана и MEDIA_PLAY_PAUSE на пульте, переключение каналов
+             — через UP/DOWN/CHANNEL+/-/PAGE+/-. Кнопки оставлены в
+             разметке (visibility=gone) ради ID-ссылок в коде. -->
         <ImageButton
             android:id="@+id/btnPlayPause"
-            android:layout_width="64dp"
-            android:layout_height="64dp"
-            android:layout_centerInParent="true"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
             android:src="@drawable/ic_pause"
-            android:background="@drawable/bg_player_control"
-            android:scaleType="center"
-            android:focusable="true"
+            android:visibility="gone"
             android:contentDescription="@string/play_pause"/>
 
-        <!-- Bottom bar -->
         <LinearLayout
             android:id="@+id/bottomBar"
             android:layout_width="match_parent"
@@ -194,56 +196,36 @@
             android:orientation="vertical"
             android:padding="12dp"
             android:background="@drawable/bg_player_gradient_bottom"
-            android:layout_alignParentBottom="true">
+            android:layout_alignParentBottom="true"
+            android:visibility="gone">
 
-            <!-- Sleep timer indicator -->
             <TextView
                 android:id="@+id/sleepTimerIndicator"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_gravity="center_horizontal"
                 android:textColor="@color/accent_orange"
                 android:textSize="11sp"
+                android:visibility="gone"/>
+
+            <ImageButton
+                android:id="@+id/btnPrevChannel"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
                 android:visibility="gone"
-                android:layout_marginBottom="6dp"/>
+                android:contentDescription="@string/prev_channel"/>
 
-            <!-- Channel navigation -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center">
+            <TextView
+                android:id="@+id/channelNumber"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:visibility="gone"/>
 
-                <ImageButton
-                    android:id="@+id/btnPrevChannel"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
-                    android:src="@drawable/ic_back"
-                    android:background="@drawable/bg_player_button"
-                    android:focusable="true"
-                    android:contentDescription="@string/prev_channel"/>
-
-                <TextView
-                    android:id="@+id/channelNumber"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textColor="@android:color/white"
-                    android:textSize="15sp"
-                    android:textStyle="bold"
-                    android:layout_marginStart="20dp"
-                    android:layout_marginEnd="20dp"/>
-
-                <ImageButton
-                    android:id="@+id/btnNextChannel"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
-                    android:src="@drawable/ic_back"
-                    android:rotation="180"
-                    android:background="@drawable/bg_player_button"
-                    android:focusable="true"
-                    android:contentDescription="@string/next_channel"/>
-
-            </LinearLayout>
+            <ImageButton
+                android:id="@+id/btnNextChannel"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:visibility="gone"
+                android:contentDescription="@string/next_channel"/>
 
         </LinearLayout>
 
