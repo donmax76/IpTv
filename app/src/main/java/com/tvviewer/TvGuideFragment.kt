@@ -243,6 +243,21 @@ class TvGuideFragment : Fragment() {
         val appCtx = requireContext().applicationContext
         val started = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
         debugStatus.text = "[$started] Запрашиваю ${urls.size} EPG-источник(ов)…"
+        // Фильтр: парсим только программы каналов, что есть в текущем
+        // плейлисте. Без этого парсер аллоцирует тысячи объектов
+        // Programme для каналов которые мы никогда не покажем — отсюда
+        // лаги UI и GC-паузы во время / после загрузки EPG.
+        fun norm(s: String?): String =
+            s?.lowercase()?.replace(Regex("[^\\p{L}\\p{N}]"), "") ?: ""
+        val playlistKeys = mutableSetOf<String>()
+        for (ch in ChannelDataHolder.allChannels) {
+            norm(ch.tvgId).takeIf { it.isNotEmpty() }?.let { playlistKeys += it }
+            norm(ch.name).takeIf { it.isNotEmpty() }?.let { playlistKeys += it }
+            ChannelMetaLookup.lookup(ch.name)?.tvgId?.let { tid ->
+                norm(tid).takeIf { it.isNotEmpty() }?.let { playlistKeys += it }
+            }
+        }
+        EpgRepository.channelFilter = playlistKeys
         Toast.makeText(appCtx, "EPG: запрашиваю ${urls.size} источник(ов)…", Toast.LENGTH_SHORT).show()
         lifecycleScope.launch {
             try {

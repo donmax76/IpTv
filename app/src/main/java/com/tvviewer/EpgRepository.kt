@@ -74,6 +74,12 @@ object EpgRepository {
      * Fetch and merge EPG data from multiple URLs in parallel.
      * Last-write-wins on overlapping channel ids — additional sources fill in gaps.
      */
+    /** Filter set: только эти normalized id / display-names будут
+     *  индексироваться при парсинге. Drastically reduces memory: на
+     *  3639-канальный плейлист и 5000-канальный XMLTV экономит ~80%
+     *  программ. Установи перед fetchAll, очистится после. */
+    @Volatile var channelFilter: Set<String>? = null
+
     /** Список источников и сколько каналов выдал каждый. */
     var lastFetchSummary: List<Pair<String, Int>> = emptyList()
         private set
@@ -353,7 +359,15 @@ object EpgRepository {
                             inDisplayName = false
                         }
                         "programme" -> {
-                            if (channelId != null && title.isNotEmpty()) {
+                            // Если задан channelFilter — индексируем только
+                            // программы для каналов из плейлиста. Иначе на
+                            // больших EPG-файлах парсер забивает heap
+                            // десятками тысяч ненужных программ → лаги +
+                            // GC-паузы.
+                            val keep = channelFilter?.let { f ->
+                                channelId?.let { it in f } == true
+                            } ?: true
+                            if (keep && channelId != null && title.isNotEmpty()) {
                                 result.getOrPut(channelId!!) { mutableListOf() }
                                     .add(Programme(start, end, title, description))
                             }
