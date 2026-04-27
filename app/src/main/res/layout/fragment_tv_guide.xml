@@ -115,6 +115,18 @@
 
     </LinearLayout>
 
+    <!-- Постоянная статус-строка для диагностики EPG.
+         Всегда видна в самом низу TV-Гида. -->
+    <TextView
+        android:id="@+id/epgDebugStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="6dp"
+        android:textColor="#FF8888"
+        android:textSize="11sp"
+        android:singleLine="false"
+        android:maxLines="3"/>
+
     <!-- EPG List -->
     <FrameLayout
         android:layout_width="match_parent"

@@ -36,6 +36,7 @@ class TvGuideFragment : Fragment() {
     private lateinit var emptyLayout: LinearLayout
     private lateinit var emptyText: TextView
     private lateinit var epgStatus: TextView
+    private lateinit var debugStatus: TextView
     private lateinit var searchEditText: EditText
     private lateinit var tvCurrentDate: TextView
 
@@ -61,6 +62,7 @@ class TvGuideFragment : Fragment() {
         emptyLayout = view.findViewById(R.id.epgEmptyLayout)
         emptyText = view.findViewById(R.id.epgEmptyText)
         epgStatus = view.findViewById(R.id.epgStatus)
+        debugStatus = view.findViewById(R.id.epgDebugStatus)
         searchEditText = view.findViewById(R.id.epgSearchEditText)
         tvCurrentDate = view.findViewById(R.id.tvCurrentDate)
 
@@ -169,6 +171,11 @@ class TvGuideFragment : Fragment() {
 
         val channelsWithData = allChannelsWithEpg.count { it.programmes.isNotEmpty() }
         epgStatus.text = getString(R.string.epg_channels_count, channelsWithData)
+        // Постоянная диагностика: видно сколько каналов в плейлисте,
+        // сколько в EPG-кэше, сколько сматчилось.
+        val mlLoaded = if (ChannelMetaLookup.isLoaded()) "✓" else "…"
+        debugStatus.text = "Каналов: ${channels.size}, EPG-кэш: ${epgData.size}, " +
+            "сматчилось: $channelsWithData, iptv-org: $mlLoaded"
 
         if (prefs.epgLastUpdate > 0) {
             val dateStr = SimpleDateFormat("HH:mm dd.MM", Locale.getDefault()).format(Date(prefs.epgLastUpdate))
@@ -230,6 +237,8 @@ class TvGuideFragment : Fragment() {
         progressBar.visibility = View.VISIBLE
         // applicationContext чтобы переживать detach.
         val appCtx = requireContext().applicationContext
+        val started = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+        debugStatus.text = "[$started] Запрашиваю ${urls.size} EPG-источник(ов)…"
         Toast.makeText(appCtx, "EPG: запрашиваю ${urls.size} источник(ов)…", Toast.LENGTH_SHORT).show()
         lifecycleScope.launch {
             try {
@@ -252,14 +261,13 @@ class TvGuideFragment : Fragment() {
                         val host = url.substringAfter("://").substringBefore("/").take(20)
                         "$host=$msg".take(140)
                     }
-                Toast.makeText(
-                    appCtx,
-                    if (errSummary.isNotEmpty())
-                        "EPG: $summary\nОшибки: $errSummary"
-                    else
-                        "EPG: $summary (всего ${data.size} каналов)",
-                    Toast.LENGTH_LONG
-                ).show()
+                val finished = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+                val statusLine = if (errSummary.isNotEmpty())
+                    "[$finished] $summary | err: $errSummary"
+                else
+                    "[$finished] $summary (всего ${data.size})"
+                debugStatus.text = statusLine
+                Toast.makeText(appCtx, statusLine, Toast.LENGTH_LONG).show()
             } catch (t: Throwable) {
                 // Throwable, не Exception: ловим и OOM / StackOverflow.
                 // Без этого ошибка молча убивала корутину и юзер видел
@@ -269,11 +277,9 @@ class TvGuideFragment : Fragment() {
                 prefs.epgLastUpdate = System.currentTimeMillis()
                 if (!isAdded) return@launch
                 progressBar.visibility = View.GONE
-                Toast.makeText(
-                    appCtx,
-                    "EPG ошибка: ${t.javaClass.simpleName} — ${t.message?.take(80)}",
-                    Toast.LENGTH_LONG
-                ).show()
+                val errMsg = "EPG ошибка: ${t.javaClass.simpleName} — ${t.message?.take(80)}"
+                debugStatus.text = errMsg
+                Toast.makeText(appCtx, errMsg, Toast.LENGTH_LONG).show()
             }
         }
     }
