@@ -125,7 +125,7 @@
         android:textColor="#FF8888"
         android:textSize="11sp"
         android:singleLine="false"
-        android:maxLines="3"/>
+        android:maxLines="6"/>
 
     <!-- EPG List -->
     <FrameLayout

@@ -183,8 +183,30 @@ class TvGuideFragment : Fragment() {
         val logosMatched = channels.count { ch ->
             ch.logoUrl != null || ChannelMetaLookup.lookup(ch.name)?.logoUrl != null
         }
-        debugStatus.text = "Каналов: ${channels.size} | EPG-кэш: ${epgData.size} | " +
+        val baseLine = "Каналов: ${channels.size} | EPG-кэш: ${epgData.size} | " +
             "EPG-match: $channelsWithData | Лого: $logosMatched | iptv-org: $mlLoaded"
+        // Если был fetch — показываем результат каждого источника +
+        // ошибки. Без этого после refresh'а debugStatus перетирался
+        // и юзер не успевал увидеть КАК провалились источники.
+        val fetchInfo = buildString {
+            val summary = EpgRepository.lastFetchSummary
+            if (summary.isNotEmpty()) {
+                append("\nИсточники: ")
+                append(summary.joinToString(", ") { (url, count) ->
+                    val host = url.substringAfter("://").substringBefore("/").take(20)
+                    "$host:$count"
+                })
+            }
+            val errs = EpgRepository.lastFetchErrors
+            if (errs.isNotEmpty()) {
+                append("\nОшибки: ")
+                append(errs.joinToString("; ") { (url, msg) ->
+                    val host = url.substringAfter("://").substringBefore("/").take(20)
+                    "$host=${msg.take(80)}"
+                })
+            }
+        }
+        debugStatus.text = baseLine + fetchInfo
 
         if (prefs.epgLastUpdate > 0) {
             val dateStr = SimpleDateFormat("HH:mm dd.MM", Locale.getDefault()).format(Date(prefs.epgLastUpdate))
