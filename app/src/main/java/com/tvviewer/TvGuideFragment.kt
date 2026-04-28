@@ -179,10 +179,7 @@ class TvGuideFragment : Fragment() {
 
         val channelsWithData = allChannelsWithEpg.count { it.programmes.isNotEmpty() }
         epgStatus.text = getString(R.string.epg_channels_count, channelsWithData)
-        // Постоянная диагностика: видно сколько каналов в плейлисте,
-        // сколько в EPG-кэше, сколько сматчилось по EPG, сколько
-        // нашли лого в iptv-org.
-        val mlLoaded = if (ChannelMetaLookup.isLoaded()) "✓" else "…"
+        // Финальная диагностика — обновляем после того как всё посчитали.
         val logosMatched = channels.count { ch ->
             ch.logoUrl != null || ChannelMetaLookup.lookup(ch.name)?.logoUrl != null
         }
