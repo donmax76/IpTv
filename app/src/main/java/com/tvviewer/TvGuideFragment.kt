@@ -123,6 +123,10 @@ class TvGuideFragment : Fragment() {
 
     private fun loadEpgData() {
         val channels = ChannelDataHolder.allChannels
+        // Диагностика рисуется СРАЗУ — до любой тяжёлой работы.
+        // Если ниже что-то упадёт, юзер всё равно увидит счётчики.
+        val mlLoaded = if (ChannelMetaLookup.isLoaded()) "✓" else "…"
+        debugStatus.text = "Каналов: ${channels.size} | EPG-кэш: ${ChannelDataHolder.epgData.size} | iptv-org: $mlLoaded | загрузка…"
 
         if (channels.isEmpty()) {
             emptyLayout.visibility = View.VISIBLE
@@ -176,10 +180,14 @@ class TvGuideFragment : Fragment() {
         val channelsWithData = allChannelsWithEpg.count { it.programmes.isNotEmpty() }
         epgStatus.text = getString(R.string.epg_channels_count, channelsWithData)
         // Постоянная диагностика: видно сколько каналов в плейлисте,
-        // сколько в EPG-кэше, сколько сматчилось.
+        // сколько в EPG-кэше, сколько сматчилось по EPG, сколько
+        // нашли лого в iptv-org.
         val mlLoaded = if (ChannelMetaLookup.isLoaded()) "✓" else "…"
-        debugStatus.text = "Каналов: ${channels.size}, EPG-кэш: ${epgData.size}, " +
-            "сматчилось: $channelsWithData, iptv-org: $mlLoaded"
+        val logosMatched = channels.count { ch ->
+            ch.logoUrl != null || ChannelMetaLookup.lookup(ch.name)?.logoUrl != null
+        }
+        debugStatus.text = "Каналов: ${channels.size} | EPG-кэш: ${epgData.size} | " +
+            "EPG-match: $channelsWithData | Лого: $logosMatched | iptv-org: $mlLoaded"
 
         if (prefs.epgLastUpdate > 0) {
             val dateStr = SimpleDateFormat("HH:mm dd.MM", Locale.getDefault()).format(Date(prefs.epgLastUpdate))
