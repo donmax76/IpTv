@@ -39,6 +39,16 @@ class TVViewerApp : Application(), ImageLoaderFactory {
         return ImageLoader.Builder(this)
             .okHttpClient(ok)
             .crossfade(true)
+            // Cap memory cache: 10% of heap (вместо дефолта 25%).
+            // На X4 X4 (256MB heap) это ~25 MB. Этого хватает для
+            // ~100 видимых лого, остальные грузятся по-новой при
+            // прокрутке. Без этого у нас 3000+ кэшированных картинок
+            // забивали память — отсюда лаги в плеере.
+            .memoryCache {
+                coil.memory.MemoryCache.Builder(this)
+                    .maxSizePercent(0.10)
+                    .build()
+            }
             .build()
     }
 

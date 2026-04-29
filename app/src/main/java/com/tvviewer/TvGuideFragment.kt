@@ -47,6 +47,10 @@ class TvGuideFragment : Fragment() {
      *  гарантирован, а повторно при каждом onHiddenChanged не
      *  дёргался. Сбрасывается при destroy фрагмента. */
     private var triedAutoRefresh = false
+    /** Активная EPG-загрузка. Отменяется при паузе фрагмента,
+     *  чтобы парсер не ел CPU/heap, пока пользователь смотрит ТВ
+     *  (отсюда были лаги видео). */
+    private var refreshJob: kotlinx.coroutines.Job? = null
 
     data class EpgChannelItem(
         val channel: Channel,
@@ -107,6 +111,20 @@ class TvGuideFragment : Fragment() {
     override fun onHiddenChanged(hidden: Boolean) {
         super.onHiddenChanged(hidden)
         if (!hidden) loadEpgData()
+        else {
+            // Уходим со вкладки → отменяем фоновую EPG-загрузку,
+            // чтобы парсер не ел CPU/heap пока юзер смотрит ТВ.
+            refreshJob?.cancel()
+            refreshJob = null
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // То же что onHiddenChanged: при уходе из активити (например
+        // запустил плеер) — отменяем EPG-загрузку.
+        refreshJob?.cancel()
+        refreshJob = null
     }
 
     private fun updateDateDisplay() {
@@ -291,7 +309,10 @@ class TvGuideFragment : Fragment() {
         }
         EpgRepository.channelFilter = playlistKeys
         Toast.makeText(appCtx, "EPG: запрашиваю ${urls.size} источник(ов)…", Toast.LENGTH_SHORT).show()
-        lifecycleScope.launch {
+        // Отменяем предыдущий job если он ещё бежит (например юзер
+        // успел нажать refresh дважды).
+        refreshJob?.cancel()
+        refreshJob = lifecycleScope.launch {
             try {
                 val data = EpgRepository.fetchAll(urls, appCtx)
                 ChannelDataHolder.epgData = data
