@@ -100,9 +100,24 @@ object EpgRepository {
         val results = cleaned.map { u ->
             async(Dispatchers.IO) {
                 try {
-                    val data = fetchSingle(u, context)
-                    summary += u to data.size
-                    data
+                    // withTimeoutOrNull: жёсткий потолок 3 минуты на
+                    // источник. Без этого медленный/зависший сервер мог
+                    // держать корутину часами (OkHttp readTimeout
+                    // ловит только полностью мёртвые соединения, а
+                    // trickling stream — нет).
+                    val data = kotlinx.coroutines.withTimeoutOrNull(180_000L) {
+                        fetchSingle(u, context)
+                    }
+                    if (data == null) {
+                        val msg = "Timeout (3 мин) — источник слишком медленный"
+                        Log.e(TAG, "EPG source timed out: $u")
+                        errors += u to msg
+                        summary += u to 0
+                        emptyMap()
+                    } else {
+                        summary += u to data.size
+                        data
+                    }
                 } catch (t: Throwable) {
                     Log.e(TAG, "EPG source failed: $u", t)
                     val msg = "${t.javaClass.simpleName}: ${t.message?.take(120)}"
