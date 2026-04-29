@@ -50,9 +50,11 @@ object EpgRepository {
         val ctx = javax.net.ssl.SSLContext.getInstance("TLS")
         ctx.init(null, arrayOf<javax.net.ssl.TrustManager>(trust), java.security.SecureRandom())
         OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .callTimeout(45, TimeUnit.SECONDS)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            // НЕТ callTimeout — он включал время чтения парсером, что
+            // на 100MB EPG-файлах срабатывало через 45s посередине
+            // парсинга. Read-timeout 60s ловит зависшие соединения.
             .followRedirects(true)
             .sslSocketFactory(ctx.socketFactory, trust)
             .hostnameVerifier { _, _ -> true }
@@ -150,58 +152,63 @@ object EpgRepository {
                     return@use null
                 }
                 val body = response.body ?: return@use null
-                val raw = body.byteStream().buffered()
-                raw.mark(2)
-                val b1 = raw.read()
-                val b2 = raw.read()
-                raw.reset()
-                val isGzip = (b1 == 0x1F && b2 == 0x8B)
-                Log.d(TAG, "EPG body: gzip=$isGzip (header=$b1 $b2)")
-                val decoded = if (isGzip) GZIPInputStream(raw, 32 * 1024) else raw
-                // Сохраняем первые 200 байт распакованного потока для
-                // диагностики — без них непонятно что приходит когда
-                // парсер возвращает 0. Используем BufferedInputStream
-                // с mark/reset чтобы не ломать парсинг.
-                val buffered = decoded.buffered(64 * 1024)
-                buffered.mark(512)
-                val peekBuf = ByteArray(200)
-                val peekLen = buffered.read(peekBuf)
-                buffered.reset()
-                lastFetchPeek = if (peekLen > 0) {
-                    String(peekBuf, 0, peekLen, Charsets.UTF_8)
-                        .filter { it.code in 32..126 || it == '\n' || it == '\t' }
-                        .take(180)
-                } else "(empty)"
-                Log.d(TAG, "EPG peek: $lastFetchPeek")
-                // Хак для XMLTV-файлов с <!DOCTYPE tv SYSTEM "...">.
-                // KXmlParser зависал на резолвинге внешнего DTD —
-                // феатуры Apache игнорирует. Пред-обрабатываем первый
-                // chunk: подменяем DOCTYPE-блок на пробелы. Дальше
-                // парсер видит чистый '<tv>...'
-                val cleanedFirst = run {
-                    val buf = ByteArray(8 * 1024)
-                    val n = buffered.read(buf)
-                    if (n <= 0) ByteArray(0) else {
-                        val s = String(buf, 0, n, Charsets.UTF_8)
-                        val cleaned = s.replace(
-                            Regex("<!DOCTYPE[^>]*>"),
-                            ""
-                        )
-                        cleaned.toByteArray(Charsets.UTF_8)
-                    }
+                // Стратегия: сначала СКАЧИВАЕМ во временный файл, потом
+                // ЗАКРЫВАЕМ HTTP, потом парсим с диска. Без этого парсер
+                // 100MB EPG-файла зависал в HTTP-чтении дольше
+                // OkHttp callTimeout, ловил InterruptedIOException.
+                val tempFile = context?.cacheDir?.let { File(it, "epg_dl_${System.nanoTime()}.bin") }
+                    ?: File.createTempFile("epg_dl", ".bin")
+                tempFile.outputStream().use { out ->
+                    body.byteStream().copyTo(out, 64 * 1024)
                 }
-                val combined: java.io.InputStream = java.io.SequenceInputStream(
-                    java.io.ByteArrayInputStream(cleanedFirst),
-                    buffered
-                )
-                combined.use { parseXmltvStreaming(it) }
-            } ?: return@withContext loadFromCache(context) ?: emptyMap()
-            Log.d(TAG, "EPG parsed: ${result.size} channels with data")
-
-            // Save to cache
-            saveToCache(context, result)
-
-            result
+                Log.d(TAG, "EPG downloaded ${tempFile.length()} bytes to $tempFile")
+                tempFile
+            }
+            // HTTP-соединение уже закрыто (response.use{} вышел).
+            // Парсим с диска без какого-либо тайм-аута.
+            val parsedResult = if (result != null) {
+                try {
+                    val raw = result.inputStream().buffered()
+                    raw.mark(2)
+                    val b1 = raw.read()
+                    val b2 = raw.read()
+                    raw.reset()
+                    val isGzip = (b1 == 0x1F && b2 == 0x8B)
+                    Log.d(TAG, "EPG body: gzip=$isGzip (header=$b1 $b2)")
+                    val decoded = if (isGzip) GZIPInputStream(raw, 32 * 1024) else raw
+                    val buffered = decoded.buffered(64 * 1024)
+                    buffered.mark(512)
+                    val peekBuf = ByteArray(200)
+                    val peekLen = buffered.read(peekBuf)
+                    buffered.reset()
+                    lastFetchPeek = if (peekLen > 0) {
+                        String(peekBuf, 0, peekLen, Charsets.UTF_8)
+                            .filter { it.code in 32..126 || it == '\n' || it == '\t' }
+                            .take(180)
+                    } else "(empty)"
+                    Log.d(TAG, "EPG peek: $lastFetchPeek")
+                    val cleanedFirst = run {
+                        val buf = ByteArray(8 * 1024)
+                        val n = buffered.read(buf)
+                        if (n <= 0) ByteArray(0) else {
+                            val s = String(buf, 0, n, Charsets.UTF_8)
+                            val cleaned = s.replace(Regex("<!DOCTYPE[^>]*>"), "")
+                            cleaned.toByteArray(Charsets.UTF_8)
+                        }
+                    }
+                    val combined: java.io.InputStream = java.io.SequenceInputStream(
+                        java.io.ByteArrayInputStream(cleanedFirst),
+                        buffered
+                    )
+                    combined.use { parseXmltvStreaming(it) }
+                } finally {
+                    try { result.delete() } catch (_: Exception) {}
+                }
+            } else null
+            val finalResult = parsedResult ?: return@withContext loadFromCache(context) ?: emptyMap()
+            Log.d(TAG, "EPG parsed: ${finalResult.size} channels with data")
+            saveToCache(context, finalResult)
+            finalResult
         } catch (e: Exception) {
             Log.e(TAG, "EPG fetch error", e)
             // Try to load from cache on error
