@@ -412,14 +412,19 @@ object EpgRepository {
                             description = ""
                         }
                         "title" -> if (inProgramme) inTitle = true
-                        "desc" -> if (inProgramme) inDesc = true
+                        // <desc> игнорируем намеренно: на больших EPG-
+                        // файлах описания (часто 500+ символов на каждое
+                        // событие) забивали heap и приводили к OOM.
+                        // ТВ-Гид показывает только заголовок, описание
+                        // не нужно.
                     }
                 }
                 XmlPullParser.TEXT -> {
                     when {
                         inDisplayName -> displayNameBuf += parser.text
-                        inTitle -> title = parser.text.trim()
-                        inDesc -> description = parser.text.trim()
+                        // Title тоже ограничиваем — некоторые EPG
+                        // запихивают целые синопсисы в <title>.
+                        inTitle -> title = parser.text.trim().take(120)
                     }
                 }
                 XmlPullParser.END_TAG -> {
@@ -448,7 +453,7 @@ object EpgRepository {
                             // копии, память не страдает.
                             if (channelId != null && title.isNotEmpty()) {
                                 result.getOrPut(channelId!!) { mutableListOf() }
-                                    .add(Programme(start, end, title, description))
+                                    .add(Programme(start, end, title, ""))
                             }
                             inProgramme = false
                         }
