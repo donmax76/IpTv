@@ -286,12 +286,38 @@ object EpgRepository {
     private fun parseXmltvStreaming(input: java.io.InputStream): Map<String, List<Programme>> {
         val factory = XmlPullParserFactory.newInstance()
         factory.isNamespaceAware = false
+        // ВАЖНО: отключаем external DTD / entity resolution. EPG-файлы
+        // часто начинаются с <!DOCTYPE tv SYSTEM "http://epg.it999.ru/
+        // xmltv.dtd"> — парсер пытается загрузить этот DTD по сети,
+        // зависает / падает / молча возвращает пустой документ.
+        try {
+            factory.setFeature(
+                "http://apache.org/xml/features/nonvalidating/load-external-dtd",
+                false
+            )
+        } catch (_: Throwable) {}
+        try {
+            factory.setFeature(
+                "http://xml.org/sax/features/external-general-entities",
+                false
+            )
+        } catch (_: Throwable) {}
+        try {
+            factory.setFeature(
+                "http://xml.org/sax/features/external-parameter-entities",
+                false
+            )
+        } catch (_: Throwable) {}
         val parser = factory.newPullParser()
-        // null = парсер сам определит encoding из <?xml version=...?>
-        // декларации. Раньше форсил "UTF-8" — ломалось на windows-1251
-        // EPG-файлах (часть русских серверов).
         parser.setInput(input, null)
-        return parseXmltvFromParser(parser)
+        return try {
+            parseXmltvFromParser(parser)
+        } catch (t: Throwable) {
+            Log.e(TAG, "parseXmltvStreaming failed", t)
+            // Сохраняем в peek для диагностики
+            lastFetchPeek = "PARSER ERROR: ${t.javaClass.simpleName}: ${t.message?.take(140)}"
+            emptyMap()
+        }
     }
 
     private fun parseXmltv(xml: String): Map<String, List<Programme>> {
@@ -401,6 +427,14 @@ object EpgRepository {
         }
 
         result.values.forEach { it.sortBy { p -> p.start } }
+        // Дублируем счётчик в lastFetchPeek (если ещё не было ошибки)
+        // — увидим reached parser, сколько каналов / программ
+        // распарсилось.
+        if (!lastFetchPeek.startsWith("PARSER ERROR")) {
+            val totalProgs = result.values.sumOf { it.size }
+            lastFetchPeek = "Parsed: ${result.size} channels, $totalProgs programmes" +
+                " | peek: " + lastFetchPeek.take(100)
+        }
         return result
     }
 
