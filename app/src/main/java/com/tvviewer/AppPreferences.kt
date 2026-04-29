@@ -349,15 +349,13 @@ class AppPreferences(context: Context) {
 
     companion object {
         /** Built-in EPG sources used as a fallback when the user has none configured.
-         *  Список в порядке приоритета — лёгкие источники сверху,
-         *  огромные epg.it999.ru ниже. Если первый отдаёт данные за
-         *  3 минуты, ждать второго не обязательно. */
+         *  Эти источники работают в OTT Navigator — значит сами по
+         *  себе валидны. Round 59-62 настроили pipeline (download
+         *  to disk + 3-min timeout + drop descriptions) так чтобы
+         *  они корректно парсились на TV-боксах с 256MB heap. */
         val DEFAULT_EPG_URLS: List<String> = listOf(
-            // iptv-org/epg — генерируется ежедневно, по странам.
-            // Это намного меньше it999, обычно ~10-20 MB на страну.
-            "https://epgshare01.online/epgshare01/epg_ripper_AZ1.xml.gz",
-            "https://epgshare01.online/epgshare01/epg_ripper_RU1.xml.gz",
             "http://epg.it999.ru/edem.xml.gz",
+            "https://iptvx.one/epg/epg.xml.gz",
         )
 
         private const val PREFS_NAME = "tvviewer_prefs"
