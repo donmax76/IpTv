@@ -224,6 +224,11 @@ object EpgRepository {
             Log.d(TAG, "EPG parsed: ${finalResult.size} channels with data")
             saveToCache(context, finalResult)
             finalResult
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // ВАЖНО: CancellationException пробрасываем дальше. Иначе
+            // withTimeoutOrNull не увидит, что таймаут сработал, а
+            // fetchSingle вернёт emptyMap как успешный результат.
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "EPG fetch error", e)
             // Try to load from cache on error
