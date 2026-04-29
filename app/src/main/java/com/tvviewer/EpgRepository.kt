@@ -129,6 +129,11 @@ object EpgRepository {
         fetchSingle(epgUrl, context)
     }
 
+    /** Last fetch raw response peek (first 200 chars after gzip).
+     *  Используется в debugStatus в TvGuide для диагностики "почему 0". */
+    @Volatile var lastFetchPeek: String = ""
+        private set
+
     private suspend fun fetchSingle(epgUrl: String, context: Context?): Map<String, List<Programme>> = withContext(Dispatchers.IO) {
         val userAgent = context?.let { AppPreferences(it).userAgent } ?: AppPreferences.DEFAULT_USER_AGENT
         try {
@@ -138,23 +143,13 @@ object EpgRepository {
                 .header("Accept-Encoding", "gzip")
                 .header("User-Agent", userAgent)
                 .build()
-            // ВАЖНО: парсим ПОТОКОВО, без буферизации всего ответа в
-            // памяти. EPG-файлы бывают 100+ MB в gzip / 500+ MB
-            // распакованные — на X4 X4 (heap 256MB) предыдущая
-            // реализация (body.bytes() + readText) ловила
-            // OutOfMemoryError. XmlPullParser умеет работать с
-            // InputStream напрямую — отдаём ему GZIPInputStream и
-            // парсер читает по чанкам.
             val result = client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     Log.e(TAG, "EPG HTTP error: ${response.code}")
+                    lastFetchPeek = "HTTP ${response.code} ${response.message}"
                     return@use null
                 }
                 val body = response.body ?: return@use null
-                // Умное определение gzip: смотрим первые 2 байта (магия
-                // 1F 8B). Если есть — gzipped, иначе plain XML. Это
-                // надёжнее чем доверять URL/Content-Type — некоторые
-                // серверы отдают .gz без Content-Encoding и наоборот.
                 val raw = body.byteStream().buffered()
                 raw.mark(2)
                 val b1 = raw.read()
@@ -162,8 +157,23 @@ object EpgRepository {
                 raw.reset()
                 val isGzip = (b1 == 0x1F && b2 == 0x8B)
                 Log.d(TAG, "EPG body: gzip=$isGzip (header=$b1 $b2)")
-                val stream = if (isGzip) GZIPInputStream(raw, 32 * 1024) else raw
-                stream.use { parseXmltvStreaming(it) }
+                val decoded = if (isGzip) GZIPInputStream(raw, 32 * 1024) else raw
+                // Сохраняем первые 200 байт распакованного потока для
+                // диагностики — без них непонятно что приходит когда
+                // парсер возвращает 0. Используем BufferedInputStream
+                // с mark/reset чтобы не ломать парсинг.
+                val buffered = decoded.buffered(64 * 1024)
+                buffered.mark(512)
+                val peekBuf = ByteArray(200)
+                val peekLen = buffered.read(peekBuf)
+                buffered.reset()
+                lastFetchPeek = if (peekLen > 0) {
+                    String(peekBuf, 0, peekLen, Charsets.UTF_8)
+                        .filter { it.code in 32..126 || it == '\n' || it == '\t' }
+                        .take(180)
+                } else "(empty)"
+                Log.d(TAG, "EPG peek: $lastFetchPeek")
+                buffered.use { parseXmltvStreaming(it) }
             } ?: return@withContext loadFromCache(context) ?: emptyMap()
             Log.d(TAG, "EPG parsed: ${result.size} channels with data")
 
@@ -274,13 +284,13 @@ object EpgRepository {
     }
 
     private fun parseXmltvStreaming(input: java.io.InputStream): Map<String, List<Programme>> {
-        // Та же логика, что у parseXmltv, но пуллер читает напрямую из
-        // InputStream — без сохранения всего XML в строку. Critical для
-        // больших EPG-файлов (epg.it999.ru ~500MB распакованный).
         val factory = XmlPullParserFactory.newInstance()
         factory.isNamespaceAware = false
         val parser = factory.newPullParser()
-        parser.setInput(input, "UTF-8")
+        // null = парсер сам определит encoding из <?xml version=...?>
+        // декларации. Раньше форсил "UTF-8" — ломалось на windows-1251
+        // EPG-файлах (часть русских серверов).
+        parser.setInput(input, null)
         return parseXmltvFromParser(parser)
     }
 

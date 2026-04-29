@@ -205,6 +205,11 @@ class TvGuideFragment : Fragment() {
                     "$host=${msg.take(80)}"
                 })
             }
+            val peek = EpgRepository.lastFetchPeek
+            if (peek.isNotEmpty()) {
+                append("\nПервые байты: ")
+                append(peek.take(120))
+            }
         }
         debugStatus.text = baseLine + fetchInfo
 
