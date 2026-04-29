@@ -68,7 +68,10 @@ object UpdateChecker {
 
             val tagName = json.optString("tag_name", "") // e.g. "v5.2-build27"
             val releaseName = json.optString("name", "") // e.g. "TVViewer v5.2 (Build 27)"
-            val releaseNotes = json.optString("body", "")
+            // GitHub API возвращает "body": null если у релиза нет
+            // описания. JSONObject.optString в этом случае отдаёт
+            // строку "null" вместо пустой — поэтому проверяем явно.
+            val releaseNotes = if (json.isNull("body")) "" else json.optString("body", "")
 
             // Parse version from tag: "v5.2-build27" -> versionCode from build number
             val versionCode = extractVersionCode(tagName)
