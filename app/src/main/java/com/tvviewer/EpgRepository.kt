@@ -359,15 +359,15 @@ object EpgRepository {
                             inDisplayName = false
                         }
                         "programme" -> {
-                            // Если задан channelFilter — индексируем только
-                            // программы для каналов из плейлиста. Иначе на
-                            // больших EPG-файлах парсер забивает heap
-                            // десятками тысяч ненужных программ → лаги +
-                            // GC-паузы.
-                            val keep = channelFilter?.let { f ->
-                                channelId?.let { it in f } == true
-                            } ?: true
-                            if (keep && channelId != null && title.isNotEmpty()) {
+                            // Раньше я добавлял playlist-фильтр здесь
+                            // (channelFilter), но он сравнивал channelId
+                            // из EPG ("1tvru") с именем канала из M3U
+                            // ("первыйканал") — никогда не совпадало,
+                            // парсер скипал ВСЁ. Снято: пишем все
+                            // programme'ы, лишние entries — это просто
+                            // ссылки на тот же List<Programme>, не
+                            // копии, память не страдает.
+                            if (channelId != null && title.isNotEmpty()) {
                                 result.getOrPut(channelId!!) { mutableListOf() }
                                     .add(Programme(start, end, title, description))
                             }
