@@ -66,12 +66,15 @@ object UpdateChecker {
             val body = response.body?.string() ?: return Result.failure(Exception("Empty response"))
             val json = JSONObject(body)
 
-            val tagName = json.optString("tag_name", "") // e.g. "v5.2-build27"
-            val releaseName = json.optString("name", "") // e.g. "TVViewer v5.2 (Build 27)"
-            // GitHub API возвращает "body": null если у релиза нет
-            // описания. JSONObject.optString в этом случае отдаёт
-            // строку "null" вместо пустой — поэтому проверяем явно.
-            val releaseNotes = if (json.isNull("body")) "" else json.optString("body", "")
+            // Хелпер: optString возвращает строку "null" если поле в
+            // JSON имеет значение null. Используем isNull-проверку
+            // на каждом обращении.
+            fun safeStr(o: JSONObject, key: String): String =
+                if (o.isNull(key)) "" else o.optString(key, "")
+
+            val tagName = safeStr(json, "tag_name") // e.g. "v5.2-build27"
+            val releaseName = safeStr(json, "name") // e.g. "TVViewer v5.2 (Build 27)"
+            val releaseNotes = safeStr(json, "body")
 
             // Parse version from tag: "v5.2-build27" -> versionCode from build number
             val versionCode = extractVersionCode(tagName)
@@ -82,9 +85,9 @@ object UpdateChecker {
             var downloadUrl = ""
             for (i in 0 until assets.length()) {
                 val asset = assets.getJSONObject(i)
-                val assetName = asset.optString("name", "")
+                val assetName = safeStr(asset, "name")
                 if (assetName.endsWith(".apk")) {
-                    downloadUrl = asset.optString("browser_download_url", "")
+                    downloadUrl = safeStr(asset, "browser_download_url")
                     break
                 }
             }
