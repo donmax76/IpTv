@@ -111,20 +111,20 @@ class TvGuideFragment : Fragment() {
     override fun onHiddenChanged(hidden: Boolean) {
         super.onHiddenChanged(hidden)
         if (!hidden) loadEpgData()
-        else {
-            // Уходим со вкладки → отменяем фоновую EPG-загрузку,
-            // чтобы парсер не ел CPU/heap пока юзер смотрит ТВ.
-            refreshJob?.cancel()
-            refreshJob = null
-        }
+        // НЕ отменяем EPG-фетч при смене таба — пользователь может
+        // вернуться. Отмена идёт только при паузе активити (см. onPause)
+        // когда открывается плеер и видео.
     }
 
     override fun onPause() {
         super.onPause()
-        // То же что onHiddenChanged: при уходе из активити (например
-        // запустил плеер) — отменяем EPG-загрузку.
+        // При паузе активити (например запуск плеера) отменяем
+        // EPG-загрузку — освобождаем CPU/heap для видео.
         refreshJob?.cancel()
         refreshJob = null
+        // Сбрасываем флаг, чтобы при возврате авто-refresh смог
+        // запуститься заново (если EPG так и пуст).
+        triedAutoRefresh = false
     }
 
     private fun updateDateDisplay() {
