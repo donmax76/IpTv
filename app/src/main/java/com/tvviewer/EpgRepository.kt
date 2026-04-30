@@ -371,7 +371,7 @@ object EpgRepository {
 
     /** SAX handler для XMLTV: только title (description выкинут чтобы
      *  heap не забивался), display-names собираются для пост-мирроринга. */
-    private inner class XmltvSaxHandler : org.xml.sax.helpers.DefaultHandler() {
+    private class XmltvSaxHandler : org.xml.sax.helpers.DefaultHandler() {
         val result = mutableMapOf<String, MutableList<Programme>>()
         val displayNamesById = mutableMapOf<String, MutableList<String>>()
         private var inChannel = false
