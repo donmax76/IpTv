@@ -327,6 +327,11 @@ class TvGuideFragment : Fragment() {
             }
         }
         EpgRepository.channelFilter = playlistKeys
+        // Подписываемся на прогресс — без этого debugStatus не менялся
+        // от "Запрашиваю…" до финального результата, юзер думал зависло.
+        EpgRepository.onProgress = { stage ->
+            if (isAdded) debugStatus.text = "[$started] $stage"
+        }
         Toast.makeText(appCtx, "EPG: запрашиваю ${urls.size} источник(ов)…", Toast.LENGTH_SHORT).show()
         // Отменяем предыдущий job если он ещё бежит (например юзер
         // успел нажать refresh дважды).
@@ -371,6 +376,8 @@ class TvGuideFragment : Fragment() {
                 val errMsg = "EPG ошибка: ${t.javaClass.simpleName} — ${t.message?.take(80)}"
                 debugStatus.text = errMsg
                 Toast.makeText(appCtx, errMsg, Toast.LENGTH_LONG).show()
+            } finally {
+                EpgRepository.onProgress = null
             }
         }
     }

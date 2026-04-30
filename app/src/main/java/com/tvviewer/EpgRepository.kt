@@ -102,16 +102,17 @@ object EpgRepository {
         val results = cleaned.map { u ->
             async(Dispatchers.IO) {
                 try {
-                    // withTimeoutOrNull: жёсткий потолок 3 минуты на
-                    // источник. Без этого медленный/зависший сервер мог
-                    // держать корутину часами (OkHttp readTimeout
-                    // ловит только полностью мёртвые соединения, а
-                    // trickling stream — нет).
-                    val data = kotlinx.coroutines.withTimeoutOrNull(180_000L) {
+                    // withTimeoutOrNull: жёсткий потолок 90 сек на
+                    // источник. Раньше было 3 мин, но пользователь не мог
+                    // дождаться — если оба источника зависли, юзер ждал
+                    // до 6 минут. На X4 X4 (256MB heap) парсинг 50MB
+                    // XMLTV + фильтр по плейлисту укладывается в 30-40
+                    // сек, так что 90 сек хватает с запасом.
+                    val data = kotlinx.coroutines.withTimeoutOrNull(90_000L) {
                         fetchSingle(u, context)
                     }
                     if (data == null) {
-                        val msg = "Timeout (3 мин) — источник слишком медленный"
+                        val msg = "Timeout (90 сек) — источник слишком медленный"
                         Log.e(TAG, "EPG source timed out: $u")
                         errors += u to msg
                         summary += u to 0
@@ -157,11 +158,25 @@ object EpgRepository {
     @Volatile var lastFetchPeek: String = ""
         private set
 
+    /** Колбэк прогресса (всегда вызывается с main thread). UI подписывается,
+     *  чтобы юзер видел "скачал 8MB / парсю / готово" а не пустой спиннер.
+     *  Не зависим от view lifecycle — фрагмент переустанавливает на null
+     *  в onDestroy. */
+    @Volatile var onProgress: ((String) -> Unit)? = null
+
+    private fun reportProgress(text: String) {
+        val cb = onProgress ?: return
+        try {
+            android.os.Handler(android.os.Looper.getMainLooper()).post { cb(text) }
+        } catch (_: Throwable) {}
+    }
+
     private suspend fun fetchSingle(epgUrl: String, context: Context?): Map<String, List<Programme>> = withContext(Dispatchers.IO) {
         val userAgent = context?.let { AppPreferences(it).userAgent } ?: AppPreferences.DEFAULT_USER_AGENT
         val host = epgUrl.substringAfter("://").substringBefore("/").take(30)
         try {
             Log.d(TAG, "Fetching EPG from: $epgUrl")
+            reportProgress("Подключаюсь к $host…")
             if (context != null) ErrorLogger.info(context, "EPG", "fetchSingle($host) start, UA=${userAgent.take(40)}")
             val request = Request.Builder()
                 .url(epgUrl)
@@ -178,6 +193,7 @@ object EpgRepository {
                     return@use null
                 }
                 val body = response.body ?: return@use null
+                reportProgress("$host: скачиваю EPG…")
                 if (context != null) ErrorLogger.info(context, "EPG",
                     "fetchSingle($host) HTTP ${response.code}, downloading…")
                 // Стратегия: сначала СКАЧИВАЕМ во временный файл, потом
@@ -190,6 +206,7 @@ object EpgRepository {
                     body.byteStream().copyTo(out, 64 * 1024)
                 }
                 Log.d(TAG, "EPG downloaded ${tempFile.length()} bytes to $tempFile")
+                reportProgress("$host: скачано ${tempFile.length() / 1024} KB, парсю…")
                 if (context != null) ErrorLogger.info(context, "EPG",
                     "fetchSingle($host) downloaded ${tempFile.length() / 1024} KB in ${(System.currentTimeMillis() - tStart) / 1000}s")
                 tempFile
@@ -239,6 +256,7 @@ object EpgRepository {
             } else null
             val finalResult = parsedResult ?: return@withContext loadFromCache(context) ?: emptyMap()
             Log.d(TAG, "EPG parsed: ${finalResult.size} channels with data")
+            reportProgress("$host: ${finalResult.size} каналов, ${finalResult.values.sumOf { it.size }} передач")
             if (context != null) ErrorLogger.info(context, "EPG",
                 "fetchSingle($host) parsed ${finalResult.size} channels, " +
                 "${finalResult.values.sumOf { it.size }} programmes")
@@ -367,7 +385,20 @@ object EpgRepository {
             }
             val handler = XmltvSaxHandler()
             parser.parse(input, handler)
-            val result = handler.result
+            // Пост-фильтр: оставляем только каналы из текущего плейлиста.
+            // Без этого XMLTV на 5000 каналов держит в памяти ~150K объектов
+            // Programme, из которых 90% мы никогда не покажем. Убирает
+            // десятки МБ хипа и ускоряет последующие операции.
+            val filter = channelFilter
+            val result = if (filter != null && filter.isNotEmpty()) {
+                val keep = mutableMapOf<String, MutableList<Programme>>()
+                for ((id, progs) in handler.result) {
+                    val matchesById = id in filter
+                    val matchesByName = handler.displayNamesById[id]?.any { it in filter } == true
+                    if (matchesById || matchesByName) keep[id] = progs
+                }
+                keep
+            } else handler.result
             // Сортируем + мирроринг под display-names (для матчинга по имени)
             result.values.forEach { it.sortBy { p -> p.start } }
             for ((id, names) in handler.displayNamesById) {
