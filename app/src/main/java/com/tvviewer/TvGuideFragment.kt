@@ -201,6 +201,25 @@ class TvGuideFragment : Fragment() {
         val logosMatched = channels.count { ch ->
             ch.logoUrl != null || ChannelMetaLookup.lookup(ch.name)?.logoUrl != null
         }
+        // Дамп: сколько ID/имён в плейлисте vs в EPG, сколько пересечений.
+        // Это даёт понять, где теряется матч — в загрузке EPG, в его
+        // парсинге или в нормализации ключей.
+        val ctx = context?.applicationContext
+        if (ctx != null) {
+            val epgKeys = epgData.keys
+            val playlistTvgIds = channels.mapNotNull { norm(it.tvgId).takeIf { k -> k.isNotEmpty() } }.toSet()
+            val playlistNames = channels.map { norm(it.name) }.filter { it.isNotEmpty() }.toSet()
+            val intersectByTvg = playlistTvgIds.count { it in epgKeys }
+            val intersectByName = playlistNames.count { it in epgKeys }
+            val sampleEpg = epgKeys.take(5).joinToString()
+            val samplePl = (playlistTvgIds + playlistNames).take(5).joinToString()
+            ErrorLogger.info(ctx, "TVGUIDE",
+                "match: channels=${channels.size} epg-keys=${epgKeys.size} " +
+                "match-by-tvgId=$intersectByTvg/${playlistTvgIds.size} " +
+                "match-by-name=$intersectByName/${playlistNames.size} " +
+                "channelsWithData=$channelsWithData | " +
+                "epgSample=[$sampleEpg] plSample=[$samplePl]")
+        }
         val baseLine = "Каналов: ${channels.size} | EPG-кэш: ${epgData.size} | " +
             "EPG-match: $channelsWithData | Лого: $logosMatched | iptv-org: $mlLoaded"
         // Если был fetch — показываем результат каждого источника +

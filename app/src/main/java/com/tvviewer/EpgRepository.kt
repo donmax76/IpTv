@@ -91,6 +91,8 @@ object EpgRepository {
     suspend fun fetchAll(urls: List<String>, context: Context? = null): Map<String, List<Programme>> = coroutineScope {
         val cleaned = urls.filter { it.isNotBlank() }.distinct()
         if (cleaned.isEmpty()) return@coroutineScope loadFromCache(context) ?: emptyMap()
+        if (context != null) ErrorLogger.info(context, "EPG",
+            "fetchAll start: ${cleaned.size} sources, filter=${channelFilter?.size ?: 0} keys")
         val summary = mutableListOf<Pair<String, Int>>()
         val errors = mutableListOf<Pair<String, String>>()
         // Раньше каждый fetchSingle оборачивался в runCatching и его
@@ -135,6 +137,10 @@ object EpgRepository {
         val merged = mutableMapOf<String, List<Programme>>()
         for (r in results) merged.putAll(r)
         if (merged.isNotEmpty()) saveToCache(context, merged)
+        if (context != null) ErrorLogger.info(context, "EPG",
+            "fetchAll done: merged=${merged.size} channels, " +
+            "summary=${summary.joinToString { "${it.first.substringAfter("://").substringBefore("/").take(20)}=${it.second}" }}, " +
+            "errors=${errors.size}")
         merged.ifEmpty { loadFromCache(context) ?: emptyMap() }
     }
 
@@ -153,20 +159,27 @@ object EpgRepository {
 
     private suspend fun fetchSingle(epgUrl: String, context: Context?): Map<String, List<Programme>> = withContext(Dispatchers.IO) {
         val userAgent = context?.let { AppPreferences(it).userAgent } ?: AppPreferences.DEFAULT_USER_AGENT
+        val host = epgUrl.substringAfter("://").substringBefore("/").take(30)
         try {
             Log.d(TAG, "Fetching EPG from: $epgUrl")
+            if (context != null) ErrorLogger.info(context, "EPG", "fetchSingle($host) start, UA=${userAgent.take(40)}")
             val request = Request.Builder()
                 .url(epgUrl)
                 .header("Accept-Encoding", "gzip")
                 .header("User-Agent", userAgent)
                 .build()
+            val tStart = System.currentTimeMillis()
             val result = client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     Log.e(TAG, "EPG HTTP error: ${response.code}")
                     lastFetchPeek = "HTTP ${response.code} ${response.message}"
+                    if (context != null) ErrorLogger.info(context, "EPG",
+                        "fetchSingle($host) HTTP ${response.code} ${response.message}")
                     return@use null
                 }
                 val body = response.body ?: return@use null
+                if (context != null) ErrorLogger.info(context, "EPG",
+                    "fetchSingle($host) HTTP ${response.code}, downloading…")
                 // Стратегия: сначала СКАЧИВАЕМ во временный файл, потом
                 // ЗАКРЫВАЕМ HTTP, потом парсим с диска. Без этого парсер
                 // 100MB EPG-файла зависал в HTTP-чтении дольше
@@ -177,6 +190,8 @@ object EpgRepository {
                     body.byteStream().copyTo(out, 64 * 1024)
                 }
                 Log.d(TAG, "EPG downloaded ${tempFile.length()} bytes to $tempFile")
+                if (context != null) ErrorLogger.info(context, "EPG",
+                    "fetchSingle($host) downloaded ${tempFile.length() / 1024} KB in ${(System.currentTimeMillis() - tStart) / 1000}s")
                 tempFile
             }
             // HTTP-соединение уже закрыто (response.use{} вышел).
@@ -190,6 +205,8 @@ object EpgRepository {
                     raw.reset()
                     val isGzip = (b1 == 0x1F && b2 == 0x8B)
                     Log.d(TAG, "EPG body: gzip=$isGzip (header=$b1 $b2)")
+                    if (context != null) ErrorLogger.info(context, "EPG",
+                        "fetchSingle($host) gzip=$isGzip, parsing…")
                     val decoded = if (isGzip) GZIPInputStream(raw, 32 * 1024) else raw
                     val buffered = decoded.buffered(64 * 1024)
                     buffered.mark(512)
@@ -222,6 +239,9 @@ object EpgRepository {
             } else null
             val finalResult = parsedResult ?: return@withContext loadFromCache(context) ?: emptyMap()
             Log.d(TAG, "EPG parsed: ${finalResult.size} channels with data")
+            if (context != null) ErrorLogger.info(context, "EPG",
+                "fetchSingle($host) parsed ${finalResult.size} channels, " +
+                "${finalResult.values.sumOf { it.size }} programmes")
             saveToCache(context, finalResult)
             finalResult
         } catch (e: kotlinx.coroutines.CancellationException) {

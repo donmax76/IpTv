@@ -30,6 +30,27 @@ object ErrorLogger {
         }
     }
 
+    /**
+     * Кладёт INFO-событие в тот же tvviewer_errors.txt, но с префиксом
+     * `[ts][TAG]`, чтобы вся последовательность работы (HTTP коды,
+     * размеры, парсинг, матчинг) была видна одной таймлайной картинкой
+     * в "Логе ошибок". Раньше там были только ошибки — пользователь не
+     * мог понять, ГДЕ именно теряется EPG, потому что happy-path события
+     * никуда не писались.
+     */
+    fun info(context: Context, tag: String, message: String) {
+        try {
+            val file = getErrorFile(context)
+            val ts = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
+            val line = "[$ts][$tag] $message\n"
+            android.util.Log.i(tag, message)
+            val content = (readFile(file) + line).takeLast(MAX_SIZE)
+            file.writeText(content)
+        } catch (e: Exception) {
+            android.util.Log.e("ErrorLogger", "info write failed", e)
+        }
+    }
+
     fun logException(context: Context, throwable: Throwable) {
         if (throwable is kotlinx.coroutines.CancellationException) return
         if (throwable.message?.contains("Response code: 403") == true ||
