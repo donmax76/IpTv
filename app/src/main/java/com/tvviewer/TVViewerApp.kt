@@ -49,6 +49,16 @@ class TVViewerApp : Application(), ImageLoaderFactory {
                     .maxSizePercent(0.10)
                     .build()
             }
+            // Cap disk cache to 50 MB. По дефолту Coil выделяет до 250 MB
+            // в cacheDir на лого. У пользователя 3000+ каналов — все
+            // лого попадают на диск и распухают приложение до 1+ ГБ.
+            // 50 MB хватает для ~5000 PNG/SVG.
+            .diskCache {
+                coil.disk.DiskCache.Builder()
+                    .directory(cacheDir.resolve("image_cache"))
+                    .maxSizeBytes(50L * 1024 * 1024)
+                    .build()
+            }
             .build()
     }
 
@@ -63,6 +73,17 @@ class TVViewerApp : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        // Подметаем мусор в cacheDir: epg_dl_*.bin остаются, если
+        // приложение упало или килланулось посреди загрузки EPG.
+        // Они весят по 50-100 MB каждый, а собирается их за месяц
+        // на гигабайт.
+        try {
+            cacheDir?.listFiles()?.forEach { f ->
+                if (f.name.startsWith("epg_dl_") && f.name.endsWith(".bin")) {
+                    try { f.delete() } catch (_: Exception) {}
+                }
+            }
+        } catch (_: Exception) {}
         // Pre-warm the iptv-org channel database so logos / tvg-ids for
         // user-added channels become available a few seconds after launch.
         try { ChannelMetaLookup.ensureLoaded(applicationContext) } catch (_: Exception) {}
