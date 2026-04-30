@@ -95,27 +95,39 @@ object EpgRepository {
     // же Deferred. Без этого один вызов из ChannelsFragment (auto-load
     // playlist) и второй из TvGuideFragment (refresh button) запускали
     // ДВА параллельных скачивания + парсинга 80+46 MB XMLTV → OOM-краш
-    // на 256MB heap. Сохраняется до полного завершения, после чего
-    // обнуляется.
+    // на 256MB heap.
+    //
+    // ВАЖНО: inFlight обнуляется только когда РЕАЛЬНАЯ работа в
+    // fetchScope закончилась (finally внутри async{}), а НЕ когда
+    // await был отменён (например при смене таба). Иначе пока 1-й
+    // парсинг продолжает молотить, 2-й вызов видит inFlight==null
+    // и запускает второй параллельный парс — снова OOM.
     private val fetchScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var inFlight: Deferred<Map<String, List<Programme>>>? = null
+    private val inFlightLock = Any()
 
     suspend fun fetchAll(urls: List<String>, context: Context? = null): Map<String, List<Programme>> {
         val cleaned = urls.filter { it.isNotBlank() }.distinct()
         if (cleaned.isEmpty()) return loadFromCache(context) ?: emptyMap()
-        // Если уже идёт fetchAll — дождись его, не запускай новый.
-        inFlight?.let { existing ->
-            if (context != null) ErrorLogger.info(context, "EPG",
-                "fetchAll: уже в полёте, await существующий")
-            return existing.await()
+        val deferred = synchronized(inFlightLock) {
+            val existing = inFlight
+            if (existing != null && !existing.isCompleted) {
+                if (context != null) ErrorLogger.info(context, "EPG",
+                    "fetchAll: уже в полёте, await существующий")
+                existing
+            } else {
+                val newDeferred = fetchScope.async {
+                    try {
+                        doFetchAll(cleaned, context)
+                    } finally {
+                        synchronized(inFlightLock) { inFlight = null }
+                    }
+                }
+                inFlight = newDeferred
+                newDeferred
+            }
         }
-        val deferred = fetchScope.async { doFetchAll(cleaned, context) }
-        inFlight = deferred
-        return try {
-            deferred.await()
-        } finally {
-            inFlight = null
-        }
+        return deferred.await()
     }
 
     private suspend fun doFetchAll(cleaned: List<String>, context: Context?): Map<String, List<Programme>> = coroutineScope {
