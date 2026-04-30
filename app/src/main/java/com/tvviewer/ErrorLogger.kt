@@ -38,6 +38,14 @@ object ErrorLogger {
         while (t != null) {
             if (t.message?.contains("Response code: 403") == true ||
                 t.message?.contains("Response code: 404") == true) return
+            // ExoPlayer чанки плеера регулярно ловят SocketException
+            // ("Socket closed") при переключении канала или временном
+            // обрыве сети — это норма, а не ошибка. Не пишем их в
+            // tvviewer_errors.txt, иначе пользователь шлёт лог за логом
+            // про плеерные блипы вместо реальных багов.
+            if (t is java.net.SocketException ||
+                t is java.net.SocketTimeoutException ||
+                t is java.io.InterruptedIOException) return
             t = t.cause
         }
         val sw = java.io.StringWriter()
