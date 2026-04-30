@@ -2,7 +2,10 @@ package com.tvviewer
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
@@ -88,9 +91,34 @@ object EpgRepository {
     var lastFetchErrors: List<Pair<String, String>> = emptyList()
         private set
 
-    suspend fun fetchAll(urls: List<String>, context: Context? = null): Map<String, List<Programme>> = coroutineScope {
+    // Дедуп-блок: если fetchAll уже в полёте, второй вызов awaits тот
+    // же Deferred. Без этого один вызов из ChannelsFragment (auto-load
+    // playlist) и второй из TvGuideFragment (refresh button) запускали
+    // ДВА параллельных скачивания + парсинга 80+46 MB XMLTV → OOM-краш
+    // на 256MB heap. Сохраняется до полного завершения, после чего
+    // обнуляется.
+    private val fetchScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile private var inFlight: Deferred<Map<String, List<Programme>>>? = null
+
+    suspend fun fetchAll(urls: List<String>, context: Context? = null): Map<String, List<Programme>> {
         val cleaned = urls.filter { it.isNotBlank() }.distinct()
-        if (cleaned.isEmpty()) return@coroutineScope loadFromCache(context) ?: emptyMap()
+        if (cleaned.isEmpty()) return loadFromCache(context) ?: emptyMap()
+        // Если уже идёт fetchAll — дождись его, не запускай новый.
+        inFlight?.let { existing ->
+            if (context != null) ErrorLogger.info(context, "EPG",
+                "fetchAll: уже в полёте, await существующий")
+            return existing.await()
+        }
+        val deferred = fetchScope.async { doFetchAll(cleaned, context) }
+        inFlight = deferred
+        return try {
+            deferred.await()
+        } finally {
+            inFlight = null
+        }
+    }
+
+    private suspend fun doFetchAll(cleaned: List<String>, context: Context?): Map<String, List<Programme>> = coroutineScope {
         if (context != null) ErrorLogger.info(context, "EPG",
             "fetchAll start: ${cleaned.size} sources, filter=${channelFilter?.size ?: 0} keys")
         val summary = mutableListOf<Pair<String, Int>>()
