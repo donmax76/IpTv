@@ -1222,6 +1222,13 @@ class PlayerActivity : BaseActivity() {
         }
     }
 
+    // Слушатель для seek после restore (VOD). Хранится отдельно
+    // чтобы можно было отписать предыдущий при следующем playStream
+    // — иначе для лайв-стримов (которые никогда не достигают READY
+    // в смысле seek-target) слушатели бесконечно копились на плеере,
+    // отсюда GC-паузы и зависания после долгого просмотра.
+    private var pendingSeekListener: Player.Listener? = null
+
     private fun playStream(url: String) {
         loadingIndicator.visibility = View.VISIBLE
         errorLayout.visibility = View.GONE
@@ -1249,8 +1256,12 @@ class PlayerActivity : BaseActivity() {
                 playbackParameters = PlaybackParameters(speedValues[speedIdx])
             }
             // Position — only seek for VOD-like content (duration known and remaining > 5%).
+            // Сначала отписываем прошлый pendingSeekListener (если был),
+            // чтобы не накапливать слушатели на лайв-стримах.
+            pendingSeekListener?.let { removeListener(it) }
+            pendingSeekListener = null
             if (savedPos > 30_000L) {
-                addListener(object : Player.Listener {
+                val listener = object : Player.Listener {
                     override fun onPlaybackStateChanged(state: Int) {
                         if (state == Player.STATE_READY) {
                             val dur = duration
@@ -1258,9 +1269,12 @@ class PlayerActivity : BaseActivity() {
                                 seekTo(savedPos)
                             }
                             removeListener(this)
+                            pendingSeekListener = null
                         }
                     }
-                })
+                }
+                pendingSeekListener = listener
+                addListener(listener)
             }
         }
         if (savedAspect in 0..3) {
