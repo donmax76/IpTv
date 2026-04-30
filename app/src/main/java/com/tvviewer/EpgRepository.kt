@@ -332,39 +332,120 @@ object EpgRepository {
     }
 
     private fun parseXmltvStreaming(input: java.io.InputStream): Map<String, List<Programme>> {
-        val factory = XmlPullParserFactory.newInstance()
-        factory.isNamespaceAware = false
-        // ВАЖНО: отключаем external DTD / entity resolution. EPG-файлы
-        // часто начинаются с <!DOCTYPE tv SYSTEM "http://epg.it999.ru/
-        // xmltv.dtd"> — парсер пытается загрузить этот DTD по сети,
-        // зависает / падает / молча возвращает пустой документ.
-        try {
-            factory.setFeature(
-                "http://apache.org/xml/features/nonvalidating/load-external-dtd",
-                false
-            )
-        } catch (_: Throwable) {}
-        try {
-            factory.setFeature(
-                "http://xml.org/sax/features/external-general-entities",
-                false
-            )
-        } catch (_: Throwable) {}
-        try {
-            factory.setFeature(
-                "http://xml.org/sax/features/external-parameter-entities",
-                false
-            )
-        } catch (_: Throwable) {}
-        val parser = factory.newPullParser()
-        parser.setInput(input, null)
+        // Использую SAX (javax.xml.parsers) вместо KXmlParser — стандартный
+        // Android-парсер, надёжнее на больших файлах. EntityResolver
+        // подменяю на пустой, чтобы DTD точно не грузилось по сети.
         return try {
-            parseXmltvFromParser(parser)
+            val factory = javax.xml.parsers.SAXParserFactory.newInstance()
+            factory.isNamespaceAware = false
+            try { factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false) } catch (_: Throwable) {}
+            try { factory.setFeature("http://xml.org/sax/features/external-general-entities", false) } catch (_: Throwable) {}
+            try { factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false) } catch (_: Throwable) {}
+            val parser = factory.newSAXParser()
+            parser.xmlReader.entityResolver = org.xml.sax.EntityResolver { _, _ ->
+                org.xml.sax.InputSource(java.io.StringReader(""))
+            }
+            val handler = XmltvSaxHandler()
+            parser.parse(input, handler)
+            val result = handler.result
+            // Сортируем + мирроринг под display-names (для матчинга по имени)
+            result.values.forEach { it.sortBy { p -> p.start } }
+            for ((id, names) in handler.displayNamesById) {
+                val progs = result[id] ?: continue
+                for (n in names) {
+                    if (n != id && !result.containsKey(n)) result[n] = progs
+                }
+            }
+            if (!lastFetchPeek.startsWith("PARSER ERROR")) {
+                val totalProgs = result.values.sumOf { it.size }
+                lastFetchPeek = "Parsed: ${result.size} channels, $totalProgs programmes" +
+                    " | peek: " + lastFetchPeek.take(100)
+            }
+            result
         } catch (t: Throwable) {
-            Log.e(TAG, "parseXmltvStreaming failed", t)
-            // Сохраняем в peek для диагностики
+            Log.e(TAG, "SAX parser failed", t)
             lastFetchPeek = "PARSER ERROR: ${t.javaClass.simpleName}: ${t.message?.take(140)}"
             emptyMap()
+        }
+    }
+
+    /** SAX handler для XMLTV: только title (description выкинут чтобы
+     *  heap не забивался), display-names собираются для пост-мирроринга. */
+    private inner class XmltvSaxHandler : org.xml.sax.helpers.DefaultHandler() {
+        val result = mutableMapOf<String, MutableList<Programme>>()
+        val displayNamesById = mutableMapOf<String, MutableList<String>>()
+        private var inChannel = false
+        private var inProgramme = false
+        private var inDisplayName = false
+        private var inTitle = false
+        private var currentChannelId: String? = null
+        private val displayNameBuf = StringBuilder()
+        private val titleBuf = StringBuilder()
+        private var programmeChannel: String? = null
+        private var programmeStart: Long = 0
+        private var programmeEnd: Long = 0
+
+        override fun startElement(uri: String?, localName: String?, qName: String?, attrs: org.xml.sax.Attributes?) {
+            val name = qName ?: localName ?: return
+            when (name) {
+                "channel" -> {
+                    inChannel = true
+                    currentChannelId = attrs?.getValue("id")?.let { normalizeId(it) }
+                }
+                "display-name" -> if (inChannel) {
+                    inDisplayName = true
+                    displayNameBuf.setLength(0)
+                }
+                "programme" -> {
+                    inProgramme = true
+                    programmeChannel = attrs?.getValue("channel")?.let { normalizeId(it) }
+                    programmeStart = parseXmltvTime(attrs?.getValue("start"))
+                    programmeEnd = parseXmltvTime(attrs?.getValue("stop"))
+                    titleBuf.setLength(0)
+                }
+                "title" -> if (inProgramme) {
+                    inTitle = true
+                    titleBuf.setLength(0)
+                }
+            }
+        }
+
+        override fun characters(ch: CharArray?, start: Int, length: Int) {
+            if (ch == null) return
+            when {
+                inDisplayName -> displayNameBuf.append(ch, start, length)
+                inTitle -> titleBuf.append(ch, start, length)
+            }
+        }
+
+        override fun endElement(uri: String?, localName: String?, qName: String?) {
+            val name = qName ?: localName ?: return
+            when (name) {
+                "channel" -> {
+                    inChannel = false
+                    currentChannelId = null
+                }
+                "display-name" -> {
+                    if (inChannel && currentChannelId != null) {
+                        val norm = normalizeId(displayNameBuf.toString())
+                        if (norm.isNotBlank()) {
+                            displayNamesById.getOrPut(currentChannelId!!) { mutableListOf() }.add(norm)
+                        }
+                    }
+                    inDisplayName = false
+                }
+                "title" -> inTitle = false
+                "programme" -> {
+                    val chId = programmeChannel
+                    val title = titleBuf.toString().trim().take(120)
+                    if (chId != null && title.isNotEmpty()) {
+                        result.getOrPut(chId) { mutableListOf() }
+                            .add(Programme(programmeStart, programmeEnd, title, ""))
+                    }
+                    inProgramme = false
+                    programmeChannel = null
+                }
+            }
         }
     }
 
