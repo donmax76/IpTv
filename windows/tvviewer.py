@@ -51,7 +51,7 @@ except ImportError:
     HAS_VLC = False
 
 from m3u_parser import fetch_playlist, load_playlist_file, Channel, PlaylistResult
-from epg_parser import fetch_epg, get_now_next, get_current_progress, EpgData
+from epg_parser import fetch_epg, get_now_next, get_current_progress, EpgData, normalize_id, trace
 
 # --- Crash auto-publish to ntfy.sh (token-less) ---
 # Same topic as the Android client so the developer reads one stream:
@@ -556,26 +556,35 @@ def _swap_self_and_restart(new_exe_path: str):
 class LoadEpgThread(QThread):
     """Background thread for loading EPG data from one or more URLs.
 
-    When multiple URLs are provided, programmes are merged by tvg-id
-    (later URLs override earlier ones for the same id).
+    Mirrors Android EpgRepository.fetchAll: emits live progress updates
+    (sent over progress signal), traces every step into tvviewer_trace.txt
+    so user can debug a stuck refresh, and filters by playlist channels
+    so a 50-MB XMLTV doesn't keep 5000 unused channels in memory.
     """
     finished = pyqtSignal(object)
+    progress = pyqtSignal(str)
 
-    def __init__(self, urls):
+    def __init__(self, urls, channel_filter=None):
         super().__init__()
         if isinstance(urls, str):
             urls = [urls]
         self.urls = [u for u in (urls or []) if u]
+        self.channel_filter = set(channel_filter) if channel_filter else None
 
     def run(self):
+        trace("EPG", f"fetchAll start: {len(self.urls)} sources, "
+                     f"filter={len(self.channel_filter) if self.channel_filter else 0} keys")
         merged = {}
+        cb = lambda s: self.progress.emit(s)
         for url in self.urls:
             try:
-                data = fetch_epg(url)
+                data = fetch_epg(url, progress=cb, channel_filter=self.channel_filter)
                 if isinstance(data, dict):
                     merged.update(data)
-            except Exception:
+            except Exception as e:
+                trace("EPG", f"source failed: {url} → {type(e).__name__}: {e}")
                 continue
+        trace("EPG", f"fetchAll done: merged={len(merged)} channels")
         self.finished.emit(merged)
 
 
@@ -2861,8 +2870,23 @@ class MainWindow(QMainWindow):
 
     def load_epg(self, urls):
         # Accept single URL (str) or list of URLs (multi-EPG).
-        self.epg_thread = LoadEpgThread(urls)
+        # Build filter from current playlist so big XMLTV files don't keep
+        # 5000+ unused channels in memory (mirrors Android Round 73).
+        playlist_keys = set()
+        for ch in self.channels:
+            if getattr(ch, 'tvg_id', None):
+                k = normalize_id(ch.tvg_id)
+                if k:
+                    playlist_keys.add(k)
+            n = normalize_id(ch.name)
+            if n:
+                playlist_keys.add(n)
+        self.epg_thread = LoadEpgThread(urls, channel_filter=playlist_keys or None)
         self.epg_thread.finished.connect(self.on_epg_loaded)
+        # Live progress goes to ChannelsPage status label so user sees
+        # "downloaded 8500 KB, парсю…" instead of a frozen UI.
+        if hasattr(self, 'channels_page') and hasattr(self.channels_page, 'status_label'):
+            self.epg_thread.progress.connect(self.channels_page.status_label.setText)
         self.epg_thread.start()
 
     def on_epg_loaded(self, data):
