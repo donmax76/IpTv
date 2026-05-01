@@ -489,13 +489,6 @@ object EpgRepository {
         }
     }
 
-    private val rxChAttr = Regex("""channel="([^"]+)"""")
-    private val rxStartAttr = Regex("""start="([^"]+)"""")
-    private val rxStopAttr = Regex("""stop="([^"]+)"""")
-    private val rxIdAttr = Regex("""id="([^"]+)"""")
-    private val rxTitleEl = Regex("""<title[^>]*>([^<]*)</title>""")
-    private val rxDisplayNameEl = Regex("""<display-name[^>]*>([^<]*)</display-name>""")
-
     private fun parseXmltvFast(
         input: java.io.InputStream,
         acceptKeys: Set<String>?
@@ -504,53 +497,94 @@ object EpgRepository {
         val displayNamesById = mutableMapOf<String, MutableList<String>>()
 
         val reader = java.io.InputStreamReader(input, Charsets.UTF_8)
-        val sb = StringBuilder(128 * 1024)
-        val buf = CharArray(32 * 1024)
+        val sb = StringBuilder(256 * 1024)
+        val buf = CharArray(64 * 1024)
 
+        var pos = 0                 // позиция начала необработанного куска в sb
         var seenProgramme = false
         var pCount = 0
-        var iter = 0
+        var skipCount = 0
         val tStart = System.currentTimeMillis()
 
-        fun processProgrammeBlock(block: String) {
-            val chMatch = rxChAttr.find(block) ?: return
-            val chId = normalizeId(chMatch.groupValues[1])
+        // Достаёт значение атрибута без regex: ищет attr=" и закрывающую ".
+        // Возвращает null если не найден или вышел за границы.
+        fun extractAttr(s: CharSequence, from: Int, to: Int, attr: String): String? {
+            val needle = "$attr=\""
+            val idx = s.indexOf(needle, from)
+            if (idx < 0 || idx >= to) return null
+            val start = idx + needle.length
+            val endQuote = s.indexOf('"', start)
+            if (endQuote < 0 || endQuote >= to) return null
+            return s.substring(start, endQuote)
+        }
+
+        // Достаёт контент тэга вроде <title>...</title>. На больших блоках
+        // быстрее regex потому что нет компиляции pattern + Matcher state.
+        fun extractTagContent(s: CharSequence, from: Int, to: Int, tag: String): String? {
+            val open = "<$tag"
+            val close = "</$tag>"
+            val ob = s.indexOf(open, from)
+            if (ob < 0 || ob >= to) return null
+            val obEnd = s.indexOf('>', ob)
+            if (obEnd < 0 || obEnd >= to) return null
+            val cb = s.indexOf(close, obEnd)
+            if (cb < 0 || cb >= to) return null
+            return s.substring(obEnd + 1, cb)
+        }
+
+        fun processProgrammeBlock(blockStart: Int, blockEnd: Int) {
+            // Header — от <programme до первого >. Атрибуты только тут.
+            val headerEnd = sb.indexOf('>', blockStart)
+            if (headerEnd < 0 || headerEnd >= blockEnd) return
+            val rawCh = extractAttr(sb, blockStart, headerEnd, "channel") ?: return
+            val chId = normalizeId(rawCh)
             if (chId.isEmpty()) return
             if (acceptKeys != null) {
-                if (chId !in acceptKeys && fuzzyKey(chId) !in acceptKeys) return
+                if (chId !in acceptKeys && fuzzyKey(chId) !in acceptKeys) {
+                    skipCount++
+                    return
+                }
             }
-            val titleMatch = rxTitleEl.find(block) ?: return
-            val title = titleMatch.groupValues[1].trim().take(120)
-            if (title.isEmpty()) return
-            val startMatch = rxStartAttr.find(block) ?: return
-            val stopMatch = rxStopAttr.find(block) ?: return
-            val start = parseXmltvTime(startMatch.groupValues[1])
-            val end = parseXmltvTime(stopMatch.groupValues[1])
+            val rawStart = extractAttr(sb, blockStart, headerEnd, "start") ?: return
+            val rawStop = extractAttr(sb, blockStart, headerEnd, "stop") ?: return
+            val start = parseXmltvTime(rawStart)
+            val end = parseXmltvTime(rawStop)
             if (start <= 0 || end <= 0) return
+            val title = extractTagContent(sb, headerEnd + 1, blockEnd, "title")?.trim()?.take(120) ?: return
+            if (title.isEmpty()) return
             result.getOrPut(chId) { mutableListOf() }.add(Programme(start, end, title, ""))
         }
 
-        fun processChannelsRange(s: CharSequence) {
-            var ce = 0
-            while (true) {
-                val cb = s.indexOf("<channel ", ce)
-                if (cb < 0) break
-                val cend = s.indexOf("</channel>", cb)
-                if (cend < 0) break
-                val block = s.subSequence(cb, cend + "</channel>".length).toString()
-                val idMatch = rxIdAttr.find(block)
-                if (idMatch != null) {
-                    val cId = normalizeId(idMatch.groupValues[1])
-                    if (cId.isNotEmpty()) {
-                        for (m in rxDisplayNameEl.findAll(block)) {
-                            val name = normalizeId(m.groupValues[1])
-                            if (name.isNotBlank() && name != cId) {
-                                displayNamesById.getOrPut(cId) { mutableListOf() }.add(name)
+        fun processChannelsRange(rangeStart: Int, rangeEnd: Int) {
+            var p = rangeStart
+            while (p < rangeEnd) {
+                val cb = sb.indexOf("<channel ", p)
+                if (cb < 0 || cb >= rangeEnd) break
+                val ce = sb.indexOf("</channel>", cb)
+                if (ce < 0 || ce >= rangeEnd) break
+                val headerEnd = sb.indexOf('>', cb)
+                if (headerEnd in cb until ce) {
+                    val rawId = extractAttr(sb, cb, headerEnd, "id")
+                    if (rawId != null) {
+                        val cId = normalizeId(rawId)
+                        if (cId.isNotEmpty()) {
+                            // Display-names могут идти несколько раз внутри
+                            var dnFrom = headerEnd + 1
+                            while (dnFrom < ce) {
+                                val dn = extractTagContent(sb, dnFrom, ce, "display-name") ?: break
+                                val name = normalizeId(dn)
+                                if (name.isNotBlank() && name != cId) {
+                                    displayNamesById.getOrPut(cId) { mutableListOf() }.add(name)
+                                }
+                                // двигаемся за конец этого display-name
+                                val dnClose = sb.indexOf("</display-name>", dnFrom)
+                                if (dnClose < 0) break
+                                dnFrom = dnClose + "</display-name>".length
                             }
                         }
                     }
                 }
-                ce = cend + "</channel>".length
+                p = ce + "</channel>".length
             }
         }
 
@@ -558,54 +592,61 @@ object EpgRepository {
             val n = reader.read(buf)
             if (n < 0) break
             sb.append(buf, 0, n)
-            iter++
 
-            if (iter and 0x1F == 0 && Thread.currentThread().isInterrupted) {
+            if (Thread.currentThread().isInterrupted) {
                 throw InterruptedException("EPG parser cancelled")
             }
 
+            // Phase 1: до первого <programme — это блок channels.
             if (!seenProgramme) {
-                val pIdx = sb.indexOf("<programme ")
+                val pIdx = sb.indexOf("<programme ", pos)
                 if (pIdx >= 0) {
-                    processChannelsRange(sb.subSequence(0, pIdx))
-                    sb.delete(0, pIdx)
+                    processChannelsRange(pos, pIdx)
+                    pos = pIdx
                     seenProgramme = true
-                } else if (sb.length > 4 * 1024 * 1024) {
-                    // No programmes yet, but buffer huge — process safe
-                    // prefix (everything up to 1KB tail) to free memory.
+                } else if (sb.length - pos > 4 * 1024 * 1024) {
+                    // Защита от unbounded buf — обрабатываем хвост и трим.
                     val safe = sb.length - 1024
-                    processChannelsRange(sb.subSequence(0, safe))
+                    processChannelsRange(pos, safe)
                     sb.delete(0, safe)
+                    pos = 0
                 }
             }
 
+            // Phase 2: programme blocks.
             if (seenProgramme) {
                 while (true) {
-                    val pe = sb.indexOf("</programme>")
+                    val pb = sb.indexOf("<programme ", pos)
+                    if (pb < 0) break
+                    val pe = sb.indexOf("</programme>", pb)
                     if (pe < 0) break
-                    val pb = sb.lastIndexOf("<programme ", pe)
-                    if (pb < 0 || pb >= pe) {
-                        sb.delete(0, pe + "</programme>".length)
-                        continue
-                    }
-                    val block = sb.subSequence(pb, pe + "</programme>".length).toString()
-                    processProgrammeBlock(block)
+                    val blockEnd = pe + "</programme>".length
+                    processProgrammeBlock(pb, blockEnd)
                     pCount++
-                    if (pCount and 0xFFFF == 0) {
-                        if (Thread.currentThread().isInterrupted) {
-                            throw InterruptedException("EPG parser cancelled")
-                        }
+                    pos = blockEnd
+                    if ((pCount and 0x1FFF) == 0) {
                         val sec = (System.currentTimeMillis() - tStart) / 1000
-                        reportProgress("Парсю… ${pCount / 1000}K программ за ${sec}с")
+                        reportProgress("Парсю… ${pCount / 1000}K блоков, accepted=${result.values.sumOf { it.size }}, ${sec}с")
                     }
-                    sb.delete(0, pe + "</programme>".length)
+                }
+                // Раз буфер большой — сдвигаем хвост вниз. Это единственный
+                // момент где платим O(n) memcpy, и происходит раз в
+                // мегабайт обработанных данных, а не на каждой программе.
+                if (pos > 256 * 1024) {
+                    sb.delete(0, pos)
+                    pos = 0
                 }
             }
         }
 
         if (!seenProgramme) {
-            processChannelsRange(sb)
+            processChannelsRange(pos, sb.length)
         }
+
+        val sec = (System.currentTimeMillis() - tStart) / 1000
+        reportProgress("Парсинг готов: ${pCount / 1000}K блоков, " +
+            "${result.values.sumOf { it.size }} принято, $skipCount отброшено, ${sec}с")
+
         return Pair(result, displayNamesById)
     }
 
