@@ -52,6 +52,7 @@ except ImportError:
 
 from m3u_parser import fetch_playlist, load_playlist_file, Channel, PlaylistResult
 from epg_parser import fetch_epg, get_now_next, get_current_progress, EpgData, normalize_id, trace
+import channel_meta_lookup
 
 # --- Crash auto-publish to ntfy.sh (token-less) ---
 # Same topic as the Android client so the developer reads one stream:
@@ -2661,10 +2662,19 @@ class MainWindow(QMainWindow):
         self.epg_data = {}
         self.loader_thread = None
         self.epg_thread = None
+        # Корень для всех кэшей: лого, EPG, iptv-org channels.json,
+        # tvviewer_trace.txt. Хранится рядом с config.
+        self.cache_dir = os.path.dirname(os.path.abspath(CONFIG_FILE))
         # Shared logo cache (async network + on-disk cache)
-        cache_root = os.path.join(
-            os.path.dirname(os.path.abspath(CONFIG_FILE)), "tvviewer_logos")
+        cache_root = os.path.join(self.cache_dir, "tvviewer_logos")
         self.logo_cache = LogoCache(cache_root, self)
+        # Pre-warm iptv-org channels DB чтобы лого/tvg-id для каналов
+        # без tvg-logo стали доступны через несколько секунд после
+        # старта (Android делает то же в TVViewerApp.onCreate).
+        try:
+            channel_meta_lookup.ensure_loaded(self.cache_dir)
+        except Exception:
+            pass
         self.setWindowTitle("M3U IPTV - TVViewer")
         self.setMinimumSize(900, 600)
         self.resize(1100, 700)
@@ -2836,8 +2846,32 @@ class MainWindow(QMainWindow):
 
     def on_playlist_loaded(self, result: PlaylistResult, name: str):
         self.channels = result.channels
+        # Fallback логотипов через iptv-org channels.json (как Android
+        # ChannelMetaLookup). Если плейлист не несёт tvg-logo, пробуем
+        # найти по имени канала. Если БД ещё не загружена — повторим
+        # после её загрузки через коллбэк.
+        try:
+            channel_meta_lookup.fill_missing_logos(self.channels)
+        except Exception:
+            pass
         self.channels_page.set_channels(self.channels, name, self.epg_data)
         self.channels_page.status_label.setText(f"{len(self.channels)} channels loaded")
+        # Кикаем загрузку iptv-org БД (no-op если уже загружена), и
+        # после готовности заново применяем fill_missing_logos +
+        # обновляем UI.
+        def on_meta_ready():
+            enriched = 0
+            try:
+                enriched = channel_meta_lookup.fill_missing_logos(self.channels)
+            except Exception:
+                pass
+            if enriched:
+                trace("META", f"enriched {enriched} channels with iptv-org logos/tvg-ids")
+                # Перерисовываем оба списка
+                if hasattr(self, 'channels_page'):
+                    self.channels_page.set_channels(self.channels, name, self.epg_data)
+        channel_meta_lookup.ensure_loaded(self.cache_dir,
+                                          on_loaded=lambda: QTimer.singleShot(0, on_meta_ready))
 
         # Build the EPG source list: playlist's url-tvg + last_epg_url + extra
         # epg_urls + built-in defaults so EPG works out-of-the-box even when

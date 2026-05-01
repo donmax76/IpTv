@@ -36,7 +36,7 @@ jobs:
     - name: Build EXE with PyInstaller
       run: |
         cd windows
-        pyinstaller --onefile --windowed --name TVViewer --hidden-import m3u_parser --hidden-import epg_parser --hidden-import version --add-data "m3u_parser.py;." --add-data "epg_parser.py;." --add-data "version.py;." tvviewer.py
+        pyinstaller --onefile --windowed --name TVViewer --hidden-import m3u_parser --hidden-import epg_parser --hidden-import channel_meta_lookup --hidden-import version --add-data "m3u_parser.py;." --add-data "epg_parser.py;." --add-data "channel_meta_lookup.py;." --add-data "version.py;." tvviewer.py
 
     - name: Prepare release files
       run: |
