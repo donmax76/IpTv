@@ -109,6 +109,24 @@ object EpgRepository {
     suspend fun fetchAll(urls: List<String>, context: Context? = null): Map<String, List<Programme>> {
         val cleaned = urls.filter { it.isNotBlank() }.distinct()
         if (cleaned.isEmpty()) return loadFromCache(context) ?: emptyMap()
+        // Если фильтр не задан явно, авто-выводим из ChannelDataHolder.
+        // Без этого ChannelsFragment запускает fetchAll до того как
+        // TvGuideFragment установит channelFilter — парсер обрабатывает
+        // ВСЕ 5000+ каналов из XMLTV вместо ~200 нужных, и уходит в
+        // 3+ минутный парсинг 75MB iptvx.one на телефоне средней
+        // мощности. Юзер видит пустой ТВ Гид всё это время.
+        if (channelFilter.isNullOrEmpty()) {
+            val auto = mutableSetOf<String>()
+            for (ch in ChannelDataHolder.allChannels) {
+                ch.tvgId?.let { normalizeId(it).takeIf { k -> k.isNotEmpty() }?.let(auto::add) }
+                normalizeId(ch.name).takeIf { k -> k.isNotEmpty() }?.let(auto::add)
+            }
+            if (auto.isNotEmpty()) {
+                channelFilter = auto
+                if (context != null) ErrorLogger.info(context, "EPG",
+                    "fetchAll: auto-filter из плейлиста = ${auto.size} ключей")
+            }
+        }
         val deferred = synchronized(inFlightLock) {
             val existing = inFlight
             if (existing != null && !existing.isCompleted) {
@@ -289,7 +307,17 @@ object EpgRepository {
                         java.io.ByteArrayInputStream(cleanedFirst),
                         buffered
                     )
-                    combined.use { parseXmltvStreaming(it) }
+                    // runInterruptible: при отмене корутины
+                    // (withTimeoutOrNull) Java thread получит interrupt,
+                    // и SAX-парсер увидит Thread.interrupted() в своей
+                    // проверке раз в 4096 элементов. Без этого блокирующий
+                    // парсинг продолжается ещё несколько минут после
+                    // 90с-таймаута.
+                    combined.use { stream ->
+                        kotlinx.coroutines.runInterruptible {
+                            parseXmltvStreaming(stream)
+                        }
+                    }
                 } finally {
                     try { result.delete() } catch (_: Exception) {}
                 }
@@ -489,7 +517,17 @@ object EpgRepository {
         private var programmeStart: Long = 0
         private var programmeEnd: Long = 0
 
+        private var elementCounter = 0
+
         override fun startElement(uri: String?, localName: String?, qName: String?, attrs: org.xml.sax.Attributes?) {
+            // SAX-парсер блокирующий, корутинная отмена не доходит. Раз
+            // в 4096 элементов проверяем Thread.interrupted() — если
+            // фрагмент сменил таб или сработал withTimeoutOrNull,
+            // вылетаем с InterruptedException а не парсим ещё минуту.
+            elementCounter++
+            if (elementCounter and 0xFFF == 0 && Thread.currentThread().isInterrupted) {
+                throw InterruptedException("EPG parser cancelled")
+            }
             val name = qName ?: localName ?: return
             when (name) {
                 "channel" -> {
