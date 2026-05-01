@@ -438,24 +438,19 @@ object EpgRepository {
     }
 
     private fun parseXmltvStreaming(input: java.io.InputStream): Map<String, List<Programme>> {
-        // Использую SAX (javax.xml.parsers) вместо KXmlParser — стандартный
-        // Android-парсер, надёжнее на больших файлах. EntityResolver
-        // подменяю на пустой, чтобы DTD точно не грузилось по сети.
+        // Regex-based потоковый парсер. Заменил SAX потому что SAX на
+        // 75MB XMLTV токенизирует все ~1M узлов даже если 90% программ
+        // нам не нужны → ловил 90+с таймаут на Redmi Note 9S.
+        // Этот вариант:
+        //  - читает поток чанками (32KB) в StringBuilder;
+        //  - находит <programme ...>...</programme> через indexOf
+        //    (намного быстрее SAX, нет XML-тoкенизации);
+        //  - сразу извлекает channel-атрибут, проверяет фильтр —
+        //    если канал не наш, скипает блок целиком без regex по
+        //    title/start/stop;
+        //  - <channel ...>...</channel> блоки обрабатываются в
+        //    префиксе перед первым programme (типичная структура XMLTV).
         return try {
-            val factory = javax.xml.parsers.SAXParserFactory.newInstance()
-            factory.isNamespaceAware = false
-            try { factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false) } catch (_: Throwable) {}
-            try { factory.setFeature("http://xml.org/sax/features/external-general-entities", false) } catch (_: Throwable) {}
-            try { factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false) } catch (_: Throwable) {}
-            val parser = factory.newSAXParser()
-            parser.xmlReader.entityResolver = org.xml.sax.EntityResolver { _, _ ->
-                org.xml.sax.InputSource(java.io.StringReader(""))
-            }
-            // Передаём фильтр + fuzzy-варианты прямо в handler. Тогда
-            // на программу выделяется Programme ТОЛЬКО для каналов из
-            // плейлиста — выкидываем 90%+ работы парсера и парсинг
-            // 75MB iptvx.one укладывается в 30-40с вместо 90+ (где
-            // ловит таймаут и возвращает 0 каналов).
             val filter = channelFilter
             val acceptKeys: Set<String>? = if (filter != null && filter.isNotEmpty()) {
                 val expanded = HashSet<String>(filter.size * 2)
@@ -466,23 +461,14 @@ object EpgRepository {
                 }
                 expanded
             } else null
-            val handler = XmltvSaxHandler(acceptKeys)
-            parser.parse(input, handler)
-            val result = handler.result
-            // Сортируем + мирроринг под display-names (для матчинга по имени)
+            val (result, displayNamesById) = parseXmltvFast(input, acceptKeys)
             result.values.forEach { it.sortBy { p -> p.start } }
-            for ((id, names) in handler.displayNamesById) {
+            for ((id, names) in displayNamesById) {
                 val progs = result[id] ?: continue
                 for (n in names) {
                     if (n != id && !result.containsKey(n)) result[n] = progs
                 }
             }
-            // Fuzzy-зеркалирование: для каждого ключа добавляем
-            // запись под "fuzzy" вариантом (без HD/SD/region/digits),
-            // чтобы плейлисты типа "Sky Sports News HD 50 UK"
-            // матчились с XMLTV id "skysportsnews.uk". Чтобы не
-            // схлопнуть несколько каналов в один — пишем только
-            // если fuzzy-ключа ещё нет.
             val snapshot = result.toMap()
             for ((id, progs) in snapshot) {
                 val fk = fuzzyKey(id)
@@ -497,128 +483,130 @@ object EpgRepository {
             }
             result
         } catch (t: Throwable) {
-            Log.e(TAG, "SAX parser failed", t)
+            Log.e(TAG, "fast parser failed", t)
             lastFetchPeek = "PARSER ERROR: ${t.javaClass.simpleName}: ${t.message?.take(140)}"
             emptyMap()
         }
     }
 
-    /** SAX handler для XMLTV.
-     *  acceptKeys: если задан — Programme создаётся только когда channel
-     *    id ИЛИ его fuzzy-вариант входит в это множество. Это
-     *    radикально ускоряет парсинг 75MB iptvx.one — пропускаем
-     *    создание ~140K объектов Programme для каналов которых нет в
-     *    плейлисте, парсинг укладывается в 30-40с вместо 90+ (где
-     *    ловит таймаут и возвращает 0). */
-    private class XmltvSaxHandler(private val acceptKeys: Set<String>?) : org.xml.sax.helpers.DefaultHandler() {
+    private val rxChAttr = Regex("""channel="([^"]+)"""")
+    private val rxStartAttr = Regex("""start="([^"]+)"""")
+    private val rxStopAttr = Regex("""stop="([^"]+)"""")
+    private val rxIdAttr = Regex("""id="([^"]+)"""")
+    private val rxTitleEl = Regex("""<title[^>]*>([^<]*)</title>""")
+    private val rxDisplayNameEl = Regex("""<display-name[^>]*>([^<]*)</display-name>""")
+
+    private fun parseXmltvFast(
+        input: java.io.InputStream,
+        acceptKeys: Set<String>?
+    ): Pair<MutableMap<String, MutableList<Programme>>, MutableMap<String, MutableList<String>>> {
         val result = mutableMapOf<String, MutableList<Programme>>()
         val displayNamesById = mutableMapOf<String, MutableList<String>>()
-        private var inChannel = false
-        private var inProgramme = false
-        private var inDisplayName = false
-        private var inTitle = false
-        private var currentChannelId: String? = null
-        private val displayNameBuf = StringBuilder()
-        private val titleBuf = StringBuilder()
-        private var programmeChannel: String? = null
-        private var programmeAccepted = false
-        private var programmeStart: Long = 0
-        private var programmeEnd: Long = 0
 
-        private var elementCounter = 0
+        val reader = java.io.InputStreamReader(input, Charsets.UTF_8)
+        val sb = StringBuilder(128 * 1024)
+        val buf = CharArray(32 * 1024)
 
-        private fun isAccepted(chId: String): Boolean {
-            val keys = acceptKeys ?: return true
-            if (chId in keys) return true
-            val fk = fuzzyKey(chId)
-            return fk.isNotEmpty() && fk in keys
+        var seenProgramme = false
+        var pCount = 0
+        var iter = 0
+        val tStart = System.currentTimeMillis()
+
+        fun processProgrammeBlock(block: String) {
+            val chMatch = rxChAttr.find(block) ?: return
+            val chId = normalizeId(chMatch.groupValues[1])
+            if (chId.isEmpty()) return
+            if (acceptKeys != null) {
+                if (chId !in acceptKeys && fuzzyKey(chId) !in acceptKeys) return
+            }
+            val titleMatch = rxTitleEl.find(block) ?: return
+            val title = titleMatch.groupValues[1].trim().take(120)
+            if (title.isEmpty()) return
+            val startMatch = rxStartAttr.find(block) ?: return
+            val stopMatch = rxStopAttr.find(block) ?: return
+            val start = parseXmltvTime(startMatch.groupValues[1])
+            val end = parseXmltvTime(stopMatch.groupValues[1])
+            if (start <= 0 || end <= 0) return
+            result.getOrPut(chId) { mutableListOf() }.add(Programme(start, end, title, ""))
         }
 
-        override fun startElement(uri: String?, localName: String?, qName: String?, attrs: org.xml.sax.Attributes?) {
-            // SAX-парсер блокирующий, корутинная отмена не доходит. Раз
-            // в 4096 элементов проверяем Thread.interrupted() — если
-            // фрагмент сменил таб или сработал withTimeoutOrNull,
-            // вылетаем с InterruptedException а не парсим ещё минуту.
-            elementCounter++
-            if (elementCounter and 0xFFF == 0 && Thread.currentThread().isInterrupted) {
+        fun processChannelsRange(s: CharSequence) {
+            var ce = 0
+            while (true) {
+                val cb = s.indexOf("<channel ", ce)
+                if (cb < 0) break
+                val cend = s.indexOf("</channel>", cb)
+                if (cend < 0) break
+                val block = s.subSequence(cb, cend + "</channel>".length).toString()
+                val idMatch = rxIdAttr.find(block)
+                if (idMatch != null) {
+                    val cId = normalizeId(idMatch.groupValues[1])
+                    if (cId.isNotEmpty()) {
+                        for (m in rxDisplayNameEl.findAll(block)) {
+                            val name = normalizeId(m.groupValues[1])
+                            if (name.isNotBlank() && name != cId) {
+                                displayNamesById.getOrPut(cId) { mutableListOf() }.add(name)
+                            }
+                        }
+                    }
+                }
+                ce = cend + "</channel>".length
+            }
+        }
+
+        while (true) {
+            val n = reader.read(buf)
+            if (n < 0) break
+            sb.append(buf, 0, n)
+            iter++
+
+            if (iter and 0x1F == 0 && Thread.currentThread().isInterrupted) {
                 throw InterruptedException("EPG parser cancelled")
             }
-            // Прогресс каждые 50K элементов — пользователь видит что
-            // парсер живой ("обработано 200 тыс. элементов") а не
-            // зависший спиннер.
-            if (elementCounter % 50_000 == 0) {
-                reportProgress("Парсю… ${elementCounter / 1000}K элементов")
+
+            if (!seenProgramme) {
+                val pIdx = sb.indexOf("<programme ")
+                if (pIdx >= 0) {
+                    processChannelsRange(sb.subSequence(0, pIdx))
+                    sb.delete(0, pIdx)
+                    seenProgramme = true
+                } else if (sb.length > 4 * 1024 * 1024) {
+                    // No programmes yet, but buffer huge — process safe
+                    // prefix (everything up to 1KB tail) to free memory.
+                    val safe = sb.length - 1024
+                    processChannelsRange(sb.subSequence(0, safe))
+                    sb.delete(0, safe)
+                }
             }
-            val name = qName ?: localName ?: return
-            when (name) {
-                "channel" -> {
-                    inChannel = true
-                    currentChannelId = attrs?.getValue("id")?.let { normalizeId(it) }
-                }
-                "display-name" -> if (inChannel) {
-                    inDisplayName = true
-                    displayNameBuf.setLength(0)
-                }
-                "programme" -> {
-                    inProgramme = true
-                    val chId = attrs?.getValue("channel")?.let { normalizeId(it) }
-                    programmeChannel = chId
-                    // Inline-фильтр: если канал не в acceptKeys, пропускаем
-                    // даже сбор title/start/stop — экономим аллокации.
-                    programmeAccepted = chId != null && isAccepted(chId)
-                    if (programmeAccepted) {
-                        programmeStart = parseXmltvTime(attrs?.getValue("start"))
-                        programmeEnd = parseXmltvTime(attrs?.getValue("stop"))
+
+            if (seenProgramme) {
+                while (true) {
+                    val pe = sb.indexOf("</programme>")
+                    if (pe < 0) break
+                    val pb = sb.lastIndexOf("<programme ", pe)
+                    if (pb < 0 || pb >= pe) {
+                        sb.delete(0, pe + "</programme>".length)
+                        continue
                     }
-                    titleBuf.setLength(0)
-                }
-                "title" -> if (inProgramme && programmeAccepted) {
-                    inTitle = true
-                    titleBuf.setLength(0)
+                    val block = sb.subSequence(pb, pe + "</programme>".length).toString()
+                    processProgrammeBlock(block)
+                    pCount++
+                    if (pCount and 0xFFFF == 0) {
+                        if (Thread.currentThread().isInterrupted) {
+                            throw InterruptedException("EPG parser cancelled")
+                        }
+                        val sec = (System.currentTimeMillis() - tStart) / 1000
+                        reportProgress("Парсю… ${pCount / 1000}K программ за ${sec}с")
+                    }
+                    sb.delete(0, pe + "</programme>".length)
                 }
             }
         }
 
-        override fun characters(ch: CharArray?, start: Int, length: Int) {
-            if (ch == null) return
-            when {
-                inDisplayName -> displayNameBuf.append(ch, start, length)
-                inTitle -> titleBuf.append(ch, start, length)
-            }
+        if (!seenProgramme) {
+            processChannelsRange(sb)
         }
-
-        override fun endElement(uri: String?, localName: String?, qName: String?) {
-            val name = qName ?: localName ?: return
-            when (name) {
-                "channel" -> {
-                    inChannel = false
-                    currentChannelId = null
-                }
-                "display-name" -> {
-                    if (inChannel && currentChannelId != null) {
-                        val norm = normalizeId(displayNameBuf.toString())
-                        if (norm.isNotBlank()) {
-                            displayNamesById.getOrPut(currentChannelId!!) { mutableListOf() }.add(norm)
-                        }
-                    }
-                    inDisplayName = false
-                }
-                "title" -> inTitle = false
-                "programme" -> {
-                    if (programmeAccepted) {
-                        val chId = programmeChannel
-                        val title = titleBuf.toString().trim().take(120)
-                        if (chId != null && title.isNotEmpty()) {
-                            result.getOrPut(chId) { mutableListOf() }
-                                .add(Programme(programmeStart, programmeEnd, title, ""))
-                        }
-                    }
-                    inProgramme = false
-                    programmeAccepted = false
-                    programmeChannel = null
-                }
-            }
-        }
+        return Pair(result, displayNamesById)
     }
 
     private fun parseXmltv(xml: String): Map<String, List<Programme>> {
