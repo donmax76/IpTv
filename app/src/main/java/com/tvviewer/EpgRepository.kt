@@ -447,6 +447,19 @@ object EpgRepository {
                     if (n != id && !result.containsKey(n)) result[n] = progs
                 }
             }
+            // Fuzzy-зеркалирование: для каждого ключа добавляем
+            // запись под "fuzzy" вариантом (без HD/SD/region/digits),
+            // чтобы плейлисты типа "Sky Sports News HD 50 UK"
+            // матчились с XMLTV id "skysportsnews.uk". Чтобы не
+            // схлопнуть несколько каналов в один — пишем только
+            // если fuzzy-ключа ещё нет.
+            val snapshot = result.toMap()
+            for ((id, progs) in snapshot) {
+                val fk = fuzzyKey(id)
+                if (fk.isNotEmpty() && fk != id && !result.containsKey(fk)) {
+                    result[fk] = progs
+                }
+            }
             if (!lastFetchPeek.startsWith("PARSER ERROR")) {
                 val totalProgs = result.values.sumOf { it.size }
                 lastFetchPeek = "Parsed: ${result.size} channels, $totalProgs programmes" +
@@ -668,6 +681,41 @@ object EpgRepository {
         // цифра. Без этого "Первый канал" нормализовалось в "" и
         // русские каналы никогда не матчились с EPG по имени.
         id.lowercase().replace(Regex("[^\\p{L}\\p{N}]"), "")
+
+    /** Аггрессивная нормализация для fuzzy-матча: normalizeId плюс
+     *  отрезание суффиксов качества/региона/слота, которые часто есть
+     *  в M3U-именах но отсутствуют в XMLTV id. Например:
+     *    "Sky Sports News HD 50 UK" → "skysportsnewshd50uk" → "skysportsnews"
+     *    "Первый HD"               → "первыйhd"          → "первый"
+     *    "РБК HD 4K"               → "рбкhd4k"           → "рбк"
+     *  Используется как fallback когда точный match по normalizeId
+     *  и display-name дал 0 совпадений. */
+    private val fuzzyTrailDigits = Regex("\\d+$")
+    private val fuzzySuffixes = listOf(
+        "uhd", "fhd", "qhd", "hd", "sd", "4k", "8k",
+        "uk", "ru", "us", "az", "ua", "by", "kz", "tr", "ge", "am", "uz", "tj", "kg",
+    )
+    fun fuzzyKey(id: String?): String {
+        if (id.isNullOrBlank()) return ""
+        var t = normalizeId(id)
+        // Минимум 3 символа после стрипа: защита от схлопывания
+        // "1tv"→"1" итд. Цикл: пока что-то меняется (хвостовые цифры
+        // или суффикс) — продолжаем.
+        var changed = true
+        while (changed && t.length > 3) {
+            changed = false
+            val nt = fuzzyTrailDigits.replace(t, "")
+            if (nt.length in 3..t.length - 1) { t = nt; changed = true; continue }
+            for (suf in fuzzySuffixes) {
+                if (t.endsWith(suf) && t.length - suf.length >= 3) {
+                    t = t.substring(0, t.length - suf.length)
+                    changed = true
+                    break
+                }
+            }
+        }
+        return t
+    }
 
     private fun parseXmltvTime(s: String?): Long {
         if (s.isNullOrBlank()) return 0

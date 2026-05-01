@@ -51,7 +51,7 @@ except ImportError:
     HAS_VLC = False
 
 from m3u_parser import fetch_playlist, load_playlist_file, Channel, PlaylistResult
-from epg_parser import fetch_epg, get_now_next, get_current_progress, EpgData, normalize_id, trace
+from epg_parser import fetch_epg, get_now_next, get_current_progress, EpgData, normalize_id, fuzzy_key, trace
 import channel_meta_lookup
 
 # --- Crash auto-publish to ntfy.sh (token-less) ---
@@ -1046,7 +1046,7 @@ class ChannelsPage(QWidget):
             for i, ch in enumerate(filtered):
                 epg_text = ""
                 if show_epg:
-                    now_prog, _ = get_now_next(epg, ch.tvg_id)
+                    now_prog, _ = get_now_next(epg, ch.tvg_id, ch.name)
                     if now_prog:
                         try:
                             t = datetime.fromtimestamp(now_prog.start).strftime('%H:%M')
@@ -1153,7 +1153,7 @@ class FavoritesPage(QWidget):
                 if ch.url not in favs:
                     continue
                 self.fav_channels.append(ch)
-                now_prog, _ = get_now_next(epg_data, ch.tvg_id)
+                now_prog, _ = get_now_next(epg_data, ch.tvg_id, ch.name)
                 epg = f"  {now_prog.title}" if now_prog else ""
                 item = QListWidgetItem(f"♥ {ch.name}{epg}")
                 item.setData(Qt.UserRole, idx)
@@ -1435,7 +1435,7 @@ class PlayerPage(QWidget):
                 f" border-radius: 6px; color: {COLORS['text_secondary']};"
                 f" font-weight: bold; font-size: 18px;")
         # EPG
-        now_prog, next_prog = get_now_next(self.epg_data, ch.tvg_id)
+        now_prog, next_prog = get_now_next(self.epg_data, ch.tvg_id, ch.name)
         if now_prog:
             try:
                 t1 = datetime.fromtimestamp(now_prog.start).strftime('%H:%M')
@@ -1690,7 +1690,7 @@ class PlayerPage(QWidget):
         if not self.channels or self.current_index >= len(self.channels):
             return
         ch = self.channels[self.current_index]
-        now_prog, next_prog = get_now_next(self.epg_data, ch.tvg_id)
+        now_prog, next_prog = get_now_next(self.epg_data, ch.tvg_id, ch.name)
         if now_prog:
             t1 = datetime.fromtimestamp(now_prog.start).strftime('%H:%M')
             t2 = datetime.fromtimestamp(now_prog.end).strftime('%H:%M')
@@ -2007,7 +2007,7 @@ class RecentPage(QWidget):
                 if idx is None:
                     continue
                 ch = channels[idx]
-                now_prog, _ = get_now_next(epg_data, ch.tvg_id)
+                now_prog, _ = get_now_next(epg_data, ch.tvg_id, ch.name)
                 epg_text = f"  {now_prog.title}" if now_prog else ""
                 q = detect_quality(ch.name)
                 qbadge = f"  ◆{q}" if q else ""
@@ -2128,7 +2128,7 @@ class TvGuidePage(QWidget):
             for idx, ch in enumerate(self.channels):
                 if query and query not in ch.name.lower():
                     continue
-                now_prog, next_prog = get_now_next(self.epg_data, ch.tvg_id)
+                now_prog, next_prog = get_now_next(self.epg_data, ch.tvg_id, ch.name)
                 if now_prog:
                     try:
                         t1 = datetime.fromtimestamp(now_prog.start).strftime('%H:%M')

@@ -188,9 +188,14 @@ class TvGuideFragment : Fragment() {
             //  2. имя канала (XMLTV-парсер индексирует и по display-name)
             //  3. tvg-id, найденный ChannelMetaLookup'ом по имени (база
             //     iptv-org) — спасает каналы без tvg-id в M3U
+            //  4. fuzzy-ключ: имя без суффиксов "HD/SD/4K/UK/RU/digits"
+            //     — матчит "Sky Sports News HD 50 UK" с XMLTV id
+            //     "skysportsnews.uk".
             val programmes = epgData[norm(ch.tvgId)]
                 ?: epgData[norm(ch.name)]
                 ?: ChannelMetaLookup.lookup(ch.name)?.tvgId?.let { epgData[norm(it)] }
+                ?: epgData[EpgRepository.fuzzyKey(ch.name)]
+                ?: epgData[EpgRepository.fuzzyKey(ch.tvgId)]
                 ?: emptyList()
             EpgChannelItem(ch, programmes)
         }

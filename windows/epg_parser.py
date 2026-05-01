@@ -47,6 +47,50 @@ def normalize_id(tvg_id: str) -> str:
     return _NORM_RE.sub('', tvg_id.lower())
 
 
+_FUZZY_TRAIL_DIGITS = re.compile(r'\d+$')
+_FUZZY_SUFFIXES = (
+    'uhd', 'fhd', 'qhd', 'hd', 'sd', '4k', '8k',
+    'uk', 'ru', 'us', 'az', 'ua', 'by', 'kz', 'tr', 'ge', 'am', 'uz', 'tj', 'kg',
+)
+
+
+def fuzzy_key(s: str) -> str:
+    """Aggressive normalization for fuzzy match: normalize_id then strip
+    trailing digits and quality/region suffixes (HD/SD/4K/UK/RU/...).
+
+    Used as a fallback when the exact normalize_id and display-name
+    lookups produce no hit. Mirrors Android EpgRepository.fuzzyKey.
+
+    Examples:
+        "Sky Sports News HD 50 UK" -> "skysportsnews"
+        "Первый HD"               -> "первый"
+        "РБК HD 4K"               -> "рбк"
+
+    Length floor of 4 chars protects "1tv" from being eaten down to "" by
+    a "tv" suffix rule that doesn't exist anyway, but the floor also keeps
+    over-aggressive stripping in check.
+    """
+    if not s:
+        return ""
+    t = normalize_id(s)
+    # Минимум 3 символа после стрипа: защита от схлопывания "1tv" → "1"
+    # (стрип "tv") или "rbc" → "rb" (но "tv"/"rb" не в наших суффиксах).
+    while len(t) > 3:
+        nt = _FUZZY_TRAIL_DIGITS.sub('', t)
+        if 3 <= len(nt) < len(t):
+            t = nt
+            continue
+        stripped = False
+        for suf in _FUZZY_SUFFIXES:
+            if t.endswith(suf) and len(t) - len(suf) >= 3:
+                t = t[:-len(suf)]
+                stripped = True
+                break
+        if not stripped:
+            break
+    return t
+
+
 def trace(tag: str, message: str, cache_dir: str = "."):
     """Append timestamped trace line to tvviewer_trace.txt + stdout.
     Bounded to 500 KB. Mirrors Android ErrorLogger.info()."""
@@ -234,6 +278,15 @@ def parse_xmltv_streaming(content: bytes,
             if n not in epg:
                 epg[n] = progs
 
+    # Fuzzy mirror: each existing key also indexed under fuzzy_key().
+    # Snapshot first so we don't iterate while mutating; skip if the
+    # fuzzy key already belongs to another channel.
+    snapshot = list(epg.items())
+    for cid, progs in snapshot:
+        fk = fuzzy_key(cid)
+        if fk and fk != cid and fk not in epg:
+            epg[fk] = progs
+
     return epg
 
 
@@ -246,13 +299,26 @@ def parse_xmltv(xml_text: str) -> EpgData:
     return parse_xmltv_streaming(content)
 
 
-def get_now_next(epg: EpgData, tvg_id: Optional[str]) -> Tuple[Optional[Programme], Optional[Programme]]:
-    """Get current and next programme for a channel."""
-    if not tvg_id:
-        return None, None
+def get_now_next(epg: EpgData, tvg_id: Optional[str], name: Optional[str] = None) -> Tuple[Optional[Programme], Optional[Programme]]:
+    """Get current and next programme for a channel.
 
-    norm_id = normalize_id(tvg_id)
-    programmes = epg.get(norm_id, [])
+    Tries (in order): normalize_id(tvg_id), normalize_id(name),
+    fuzzy_key(name), fuzzy_key(tvg_id). The fuzzy fallback catches
+    M3U names like 'Sky Sports News HD 50 UK' that don't match the
+    XMLTV id 'skysportsnews.uk' exactly.
+    """
+    programmes: List[Programme] = []
+    for key in (
+        normalize_id(tvg_id) if tvg_id else "",
+        normalize_id(name) if name else "",
+        fuzzy_key(name) if name else "",
+        fuzzy_key(tvg_id) if tvg_id else "",
+    ):
+        if key and key in epg:
+            programmes = epg[key]
+            break
+    if not programmes:
+        return None, None
     now = time.time()
 
     current = None
