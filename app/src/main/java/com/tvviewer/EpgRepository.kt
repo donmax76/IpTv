@@ -462,24 +462,47 @@ object EpgRepository {
         //  - <channel ...>...</channel> блоки обрабатываются в
         //    префиксе перед первым programme (типичная структура XMLTV).
         return try {
+            // Принимаем ВСЕ programmes (acceptKeys=null означает no-op
+            // фильтр). Память: 500K × ~100 байт = 50 MB пик. После
+            // парсинга применяем фильтр + display-name + iptv-org
+            // мирроринг, остаётся ~1 MB. Это устойчивее к разным
+            // форматам XMLTV (lite-файлы без <channel> блоков и т.д.).
+            val (rawResult, displayNamesById) = parseXmltvFast(input, null)
+
+            // Mirror display-names → programmes map. Это ставит
+            // программу под именем канала (Cyrillic "Муз ТВ" → "музтв")
+            // помимо id ("muztv"). Должно работать и до и после фильтра.
+            for ((id, names) in displayNamesById) {
+                val progs = rawResult[id] ?: continue
+                for (n in names) {
+                    if (n != id && !rawResult.containsKey(n)) rawResult[n] = progs
+                }
+            }
+
             val filter = channelFilter
-            val acceptKeys: Set<String>? = if (filter != null && filter.isNotEmpty()) {
+            val result: MutableMap<String, MutableList<Programme>> = if (filter == null || filter.isEmpty()) {
+                rawResult
+            } else {
+                // Расширенный набор ключей: filter + fuzzy(filter).
                 val expanded = HashSet<String>(filter.size * 2)
                 expanded.addAll(filter)
                 for (k in filter) {
                     val fk = fuzzyKey(k)
                     if (fk.isNotEmpty()) expanded.add(fk)
                 }
-                expanded
-            } else null
-            val (result, displayNamesById) = parseXmltvFast(input, acceptKeys)
-            result.values.forEach { it.sortBy { p -> p.start } }
-            for ((id, names) in displayNamesById) {
-                val progs = result[id] ?: continue
-                for (n in names) {
-                    if (n != id && !result.containsKey(n)) result[n] = progs
+                val keep = mutableMapOf<String, MutableList<Programme>>()
+                for ((id, progs) in rawResult) {
+                    if (id in expanded || fuzzyKey(id) in expanded) {
+                        keep[id] = progs
+                    }
                 }
+                keep
             }
+
+            result.values.forEach { it.sortBy { p -> p.start } }
+
+            // Fuzzy-зеркалирование оставшихся каналов (для устойчивого
+            // матчинга на стороне playlist'а).
             val snapshot = result.toMap()
             for ((id, progs) in snapshot) {
                 val fk = fuzzyKey(id)
@@ -489,8 +512,8 @@ object EpgRepository {
             }
             if (!lastFetchPeek.startsWith("PARSER ERROR")) {
                 val totalProgs = result.values.sumOf { it.size }
-                lastFetchPeek = "Parsed: ${result.size} channels, $totalProgs programmes" +
-                    " | peek: " + lastFetchPeek.take(100)
+                lastFetchPeek = "Parsed: ${result.size} channels, $totalProgs programmes (raw=${rawResult.size}, dn=${displayNamesById.size})" +
+                    " | peek: " + lastFetchPeek.take(80)
             }
             result
         } catch (t: Throwable) {
@@ -578,23 +601,13 @@ object EpgRepository {
             return s.substring(obEnd + 1, cb)
         }
 
-        fun isAccepted(chId: String): Boolean {
-            if (acceptKeys == null) return true
-            val cached = acceptCache[chId]
-            if (cached != null) return cached
-            // Также проверяем display-names этого канала. Иначе XMLTV
-            // c латинскими id (muztv) не матчатся с кириллическим
-            // плейлистом ("Муз ТВ" → музтв). К моменту разбора программы
-            // displayNamesById для текущего канала уже заполнен в
-            // phase 1 (XMLTV кладёт <channel> блоки до <programme>).
-            val ok = chId in acceptKeys ||
-                fuzzyKey(chId) in acceptKeys ||
-                (displayNamesById[chId]?.any {
-                    it in acceptKeys || fuzzyKey(it) in acceptKeys
-                } == true)
-            acceptCache[chId] = ok
-            return ok
-        }
+        // Inline-фильтр отключён: simplified epg.xml не содержит
+        // <channel> блоков, поэтому display-name матчинг не помогает,
+        // и фильтр отбрасывал всё. Лучше принять все programmes и
+        // отфильтровать пост-фактум — там доступна и iptv-org база.
+        // Память: 500K progs × ~100 байт = 50 MB пик, потом фильтр
+        // оставляет 5-10K = ~1 MB финал. На 256 MB heap нормально.
+        fun isAccepted(chId: String): Boolean = true
 
         fun processProgrammeBlock(blockStart: Int, blockEnd: Int) {
             val headerEnd = sb.indexOf(">", blockStart)
