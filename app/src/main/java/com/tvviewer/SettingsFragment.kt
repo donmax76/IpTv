@@ -162,10 +162,16 @@ class SettingsFragment : Fragment() {
         builder.setNeutralButton("Из списка") { _, _ ->
             val pairs = AppPreferences.SUGGESTED_EPG_URLS
             val titles = pairs.map { it.first }.toTypedArray()
+            // setSingleChoiceItems вместо setItems — даёт активное
+            // состояние (state_checked) на выбранной строке, которое
+            // подсвечено в bg_dialog_list_item. Без этого DPAD-навигация
+            // не показывала какую строку юзер сейчас выбирает.
+            var selectedIdx = 0
             AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
                 .setTitle("Готовые EPG-источники")
-                .setItems(titles) { _, which ->
-                    val url = pairs[which].second
+                .setSingleChoiceItems(titles, 0) { _, which -> selectedIdx = which }
+                .setPositiveButton(R.string.ok) { _, _ ->
+                    val url = pairs[selectedIdx].second
                     if (prefs.lastEpgUrl.isNullOrBlank()) {
                         prefs.lastEpgUrl = url
                     } else {

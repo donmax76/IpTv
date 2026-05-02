@@ -12,11 +12,23 @@ import androidx.core.content.ContextCompat
 fun AlertDialog.installFocusListBackground(): AlertDialog {
     listView?.let { lv ->
         val selector = ContextCompat.getDrawable(context, R.drawable.bg_dialog_list_item)
-        selector?.let { lv.selector = it }
-        lv.descendantFocusability = android.view.ViewGroup.FOCUS_AFTER_DESCENDANTS
-        lv.requestFocus()
-        if (lv.checkedItemPosition < 0 && lv.count > 0) {
-            lv.setSelection(0)
+        selector?.let {
+            lv.selector = it
+            // Selector рисуется ПОВЕРХ строк — иначе тёмная подложка
+            // плейлистного диалога перекрывает фиолетовую заливку и
+            // юзер не видит куда переместился фокус через DPAD.
+            lv.isDrawSelectorOnTop = false
+        }
+        lv.descendantFocusability = android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS
+        lv.isFocusable = true
+        lv.isFocusableInTouchMode = true
+        // post() — список ещё не выкатан в момент show(), фокус
+        // запрашиваем после layout-фазы.
+        lv.post {
+            lv.requestFocus()
+            if (lv.checkedItemPosition < 0 && lv.count > 0) {
+                lv.setSelection(0)
+            }
         }
     }
     return this
