@@ -1540,12 +1540,23 @@ class PlayerActivity : BaseActivity() {
         bannerChannelNumber.text = "${currentIndex + 1}"
         bannerChannelName.text = channel.name
 
-        channel.logoUrl?.let { url ->
-            bannerChannelLogo.load(url) {
+        // Лого: tvg-logo → LearnedLogos → iptv-org. Раньше брали
+        // только channel.logoUrl и если он null — лого не показывали.
+        // С Round 100 (без favicon-fallback) у большинства каналов
+        // logoUrl=null, и нижняя панель оставалась без лого хотя в
+        // списках лого появлялись. Теперь та же цепочка что в
+        // адаптерах.
+        val resolvedLogo = channel.logoUrl
+            ?: LearnedLogos.lookup(channel.name)
+            ?: ChannelMetaLookup.lookup(channel.name)?.logoUrl
+        if (resolvedLogo != null) {
+            bannerChannelLogo.load(resolvedLogo) {
                 crossfade(true)
                 error(R.drawable.ic_channel_placeholder)
                 placeholder(R.drawable.ic_channel_placeholder)
             }
+        } else {
+            bannerChannelLogo.setImageResource(R.drawable.ic_channel_placeholder)
         }
 
         val (nowProg, nextProg) = EpgRepository.getNowNextDetailed(ChannelDataHolder.epgData, channel.tvgId, channel.name)
