@@ -529,15 +529,11 @@ object EpgRepository {
 
             result.values.forEach { it.sortBy { p -> p.start } }
 
-            // Fuzzy-зеркалирование оставшихся каналов (для устойчивого
-            // матчинга на стороне playlist'а).
-            val snapshot = result.toMap()
-            for ((id, progs) in snapshot) {
-                val fk = fuzzyKey(id)
-                if (fk.isNotEmpty() && fk != id && !result.containsKey(fk)) {
-                    result[fk] = progs
-                }
-            }
+            // Fuzzy-зеркалирование убрано: после Round 118
+            // lookupProgrammes сам пробует fuzzyKey'и при поиске,
+            // а зеркалирование тут только дубило кэш в 2-3 раза.
+            // display-name мирроринг оставлен (выше) — он нужен для
+            // cross-script матчинга (latin id vs Cyrillic playlist).
             if (!lastFetchPeek.startsWith("PARSER ERROR")) {
                 val totalProgs = result.values.sumOf { it.size }
                 lastFetchPeek = "Parsed: ${result.size} channels, $totalProgs programmes (raw=${rawResult.size}, dn=${displayNamesById.size})" +
