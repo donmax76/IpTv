@@ -139,24 +139,37 @@ class SettingsFragment : Fragment() {
             Toast.makeText(requireContext(), "Обновление уже идёт", Toast.LENGTH_SHORT).show()
             return
         }
-        // Если успешно обновлялись < 24 часов назад — не дёргаем
-        // источники второй раз. Юзер просил такую защиту: "если
-        // обновление уже было то не нужно опять обновляться".
-        val last = prefs.epgLastUpdate
-        val ageMs = System.currentTimeMillis() - last
-        if (last > 0 && ageMs < 24L * 60 * 60 * 1000) {
-            val ts = SimpleDateFormat("HH:mm dd.MM", Locale.getDefault())
-                .format(java.util.Date(last))
-            statusView?.text = "Уже обновлено в $ts (через 24ч повторим)"
-            Toast.makeText(requireContext(),
-                "Уже обновлено сегодня в $ts", Toast.LENGTH_SHORT).show()
-            return
-        }
         val urls = prefs.allEpgUrls()
         if (urls.isEmpty()) {
             Toast.makeText(requireContext(), "Сначала добавьте EPG-источник", Toast.LENGTH_SHORT).show()
             return
         }
+        // Защита "уже обновлено сегодня" срабатывает ТОЛЬКО когда у нас
+        // действительно есть данные в кэше. Если ChannelDataHolder.epgData
+        // пуст (а lastUpdate был выставлен от неуспешного refresh'а) —
+        // даём свободно повторить. Плюс показываем диалог "Yes/No"
+        // на случай если юзер всё равно хочет принудительно обновить.
+        val last = prefs.epgLastUpdate
+        val ageMs = System.currentTimeMillis() - last
+        val cacheEmpty = ChannelDataHolder.epgData.isEmpty()
+        if (last > 0 && ageMs < 24L * 60 * 60 * 1000 && !cacheEmpty) {
+            val ts = SimpleDateFormat("HH:mm dd.MM", Locale.getDefault())
+                .format(java.util.Date(last))
+            android.app.AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
+                .setTitle("Уже обновлено в $ts")
+                .setMessage("Обновить заново?")
+                .setPositiveButton("Обновить") { _, _ ->
+                    runEpgRefresh(statusView, urls)
+                }
+                .setNegativeButton("Отмена", null)
+                .show()
+                .installFocusListBackground()
+            return
+        }
+        runEpgRefresh(statusView, urls)
+    }
+
+    private fun runEpgRefresh(statusView: TextView?, urls: List<String>) {
         statusView?.text = "Запускаю обновление…"
         val ctx = requireContext().applicationContext
         // Подписываемся на live-прогресс из EpgRepository, чтобы
@@ -174,13 +187,21 @@ class SettingsFragment : Fragment() {
                 val data = EpgRepository.fetchAll(urls, ctx)
                 if (data.isNotEmpty()) {
                     ChannelDataHolder.epgData = data
+                    // epgLastUpdate ставим ТОЛЬКО если получили что-то.
+                    // Иначе guard "уже обновлено" блокирует юзера хотя
+                    // программ нет.
+                    prefs.epgLastUpdate = System.currentTimeMillis()
+                    view?.post {
+                        statusView?.text = "Готово: ${data.size} каналов, " +
+                            SimpleDateFormat("HH:mm", Locale.getDefault()).format(java.util.Date())
+                    }
+                    Toast.makeText(ctx, "ТВ Гид обновлён: ${data.size} каналов", Toast.LENGTH_SHORT).show()
+                } else {
+                    view?.post { statusView?.text = "Источники пустые — попробуйте другой EPG" }
+                    Toast.makeText(ctx,
+                        "Источники не отдали программу. Проверьте URL в настройках.",
+                        Toast.LENGTH_LONG).show()
                 }
-                prefs.epgLastUpdate = System.currentTimeMillis()
-                view?.post {
-                    statusView?.text = "Готово: ${data.size} каналов, " +
-                        SimpleDateFormat("HH:mm", Locale.getDefault()).format(java.util.Date())
-                }
-                Toast.makeText(ctx, "ТВ Гид обновлён: ${data.size} каналов", Toast.LENGTH_SHORT).show()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // Юзер ушёл из настроек, но fetchAll сам по себе
                 // продолжается в fetchScope — не показываем ошибку.
