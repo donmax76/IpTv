@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="epg_click_to_refresh">Appuyez pour actualiser</string>
+    <string name="epg_last_update_prefix">Dernière mise à jour : %1$s</string>
+    <string name="epg_update_in_progress">Mise à jour déjà en cours</string>
+    <string name="epg_add_source_first">Ajoutez d\'abord une source EPG</string>
+    <string name="epg_already_updated">Déjà mis à jour à %1$s</string>
+    <string name="epg_refresh_again_confirm">Actualiser à nouveau ?</string>
+    <string name="epg_refresh_button">Actualiser</string>
+    <string name="epg_starting_update">Démarrage de la mise à jour…</string>
+    <string name="epg_done_channels">Terminé : %1$d chaînes, %2$s</string>
+    <string name="epg_guide_updated">Guide TV mis à jour : %1$d chaînes</string>
+    <string name="epg_sources_empty">Sources vides — essayez un autre EPG</string>
+    <string name="epg_no_data_check_url">Aucune donnée des sources. Vérifiez l\'URL.</string>
+    <string name="epg_error_status">Erreur : %1$s</string>
+    <string name="epg_update_error">Erreur de mise à jour : %1$s</string>
+    <string name="epg_from_list_button">Depuis la liste</string>
+    <string name="epg_preset_sources_title">Sources EPG préréglées</string>
+    <string name="epg_added_notification">Ajouté : %1$s</string>
+    <string name="epg_refresh_section_title">Actualiser le guide TV</string>
+    <string name="epg_refresh_running_banner">Mise à jour du guide TV en arrière-plan…</string>
+    <string name="no_epg_schedule">Pas de programme EPG</string>
+    <string name="no_current_program_data">Aucune donnée sur le programme actuel.</string>
+    <string name="now_playing_label">En cours</string>
+    <string name="up_next_label">À suivre</string>
+    <string name="hint_close_with_back">← ou Retour — fermer</string>
+    <string name="crash_report_header">Rapport d\'erreur automatique.\n\n</string>
+    <string name="copy_and_close">Copier et fermer</string>
+    <string name="copied_paste_in_chat">Copié ! Collez dans le chat.</string>
+</resources>

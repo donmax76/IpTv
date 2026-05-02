@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="epg_click_to_refresh">Toque para atualizar agora</string>
+    <string name="epg_last_update_prefix">Última atualização: %1$s</string>
+    <string name="epg_update_in_progress">Atualização já em andamento</string>
+    <string name="epg_add_source_first">Adicione uma fonte EPG primeiro</string>
+    <string name="epg_already_updated">Já atualizado às %1$s</string>
+    <string name="epg_refresh_again_confirm">Atualizar novamente?</string>
+    <string name="epg_refresh_button">Atualizar</string>
+    <string name="epg_starting_update">Iniciando atualização…</string>
+    <string name="epg_done_channels">Pronto: %1$d canais, %2$s</string>
+    <string name="epg_guide_updated">Guia TV atualizado: %1$d canais</string>
+    <string name="epg_sources_empty">Fontes vazias — tente outro EPG</string>
+    <string name="epg_no_data_check_url">As fontes não retornaram dados. Verifique a URL.</string>
+    <string name="epg_error_status">Erro: %1$s</string>
+    <string name="epg_update_error">Erro de atualização: %1$s</string>
+    <string name="epg_from_list_button">Da lista</string>
+    <string name="epg_preset_sources_title">Fontes EPG predefinidas</string>
+    <string name="epg_added_notification">Adicionado: %1$s</string>
+    <string name="epg_refresh_section_title">Atualizar guia TV</string>
+    <string name="epg_refresh_running_banner">Guia TV atualizando em segundo plano…</string>
+    <string name="no_epg_schedule">Sem programação EPG</string>
+    <string name="no_current_program_data">Sem dados do programa atual.</string>
+    <string name="now_playing_label">No ar</string>
+    <string name="up_next_label">A seguir</string>
+    <string name="hint_close_with_back">← ou Voltar — fechar</string>
+    <string name="crash_report_header">Relatório automático de erro.\n\n</string>
+    <string name="copy_and_close">Copiar e fechar</string>
+    <string name="copied_paste_in_chat">Copiado! Cole no chat.</string>
+</resources>

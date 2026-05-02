@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Round 132: новые EPG/i18n строки (Round 131) переведены на немецкий. -->
+    <string name="epg_click_to_refresh">Zum Aktualisieren tippen</string>
+    <string name="epg_last_update_prefix">Letzte Aktualisierung: %1$s</string>
+    <string name="epg_update_in_progress">Aktualisierung läuft bereits</string>
+    <string name="epg_add_source_first">Zuerst eine EPG-Quelle hinzufügen</string>
+    <string name="epg_already_updated">Bereits aktualisiert um %1$s</string>
+    <string name="epg_refresh_again_confirm">Erneut aktualisieren?</string>
+    <string name="epg_refresh_button">Aktualisieren</string>
+    <string name="epg_starting_update">Aktualisierung wird gestartet…</string>
+    <string name="epg_done_channels">Fertig: %1$d Kanäle, %2$s</string>
+    <string name="epg_guide_updated">TV-Guide aktualisiert: %1$d Kanäle</string>
+    <string name="epg_sources_empty">Quellen leer — versuchen Sie eine andere EPG</string>
+    <string name="epg_no_data_check_url">Quellen lieferten keine Daten. URL prüfen.</string>
+    <string name="epg_error_status">Fehler: %1$s</string>
+    <string name="epg_update_error">Aktualisierungsfehler: %1$s</string>
+    <string name="epg_from_list_button">Aus Liste</string>
+    <string name="epg_preset_sources_title">EPG-Voreinstellungen</string>
+    <string name="epg_added_notification">Hinzugefügt: %1$s</string>
+    <string name="epg_refresh_section_title">TV-Guide aktualisieren</string>
+    <string name="epg_refresh_running_banner">TV-Guide wird im Hintergrund aktualisiert…</string>
+    <string name="no_epg_schedule">Kein EPG-Plan</string>
+    <string name="no_current_program_data">Keine Daten zur aktuellen Sendung.</string>
+    <string name="now_playing_label">Läuft jetzt</string>
+    <string name="up_next_label">Als Nächstes</string>
+    <string name="hint_close_with_back">← oder Zurück — schließen</string>
+    <string name="crash_report_header">Automatischer Fehlerbericht.\n\n</string>
+    <string name="copy_and_close">Kopieren und schließen</string>
+    <string name="copied_paste_in_chat">Kopiert! In Chat einfügen.</string>
+</resources>

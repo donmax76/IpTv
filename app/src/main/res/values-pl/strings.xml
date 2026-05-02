@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="epg_click_to_refresh">Dotknij, aby odświeżyć</string>
+    <string name="epg_last_update_prefix">Ostatnia aktualizacja: %1$s</string>
+    <string name="epg_update_in_progress">Aktualizacja już trwa</string>
+    <string name="epg_add_source_first">Najpierw dodaj źródło EPG</string>
+    <string name="epg_already_updated">Już zaktualizowano o %1$s</string>
+    <string name="epg_refresh_again_confirm">Odświeżyć ponownie?</string>
+    <string name="epg_refresh_button">Odśwież</string>
+    <string name="epg_starting_update">Rozpoczynam aktualizację…</string>
+    <string name="epg_done_channels">Gotowe: %1$d kanałów, %2$s</string>
+    <string name="epg_guide_updated">EPG zaktualizowano: %1$d kanałów</string>
+    <string name="epg_sources_empty">Źródła puste — spróbuj inne EPG</string>
+    <string name="epg_no_data_check_url">Źródła nie zwróciły danych. Sprawdź URL.</string>
+    <string name="epg_error_status">Błąd: %1$s</string>
+    <string name="epg_update_error">Błąd aktualizacji: %1$s</string>
+    <string name="epg_from_list_button">Z listy</string>
+    <string name="epg_preset_sources_title">Gotowe źródła EPG</string>
+    <string name="epg_added_notification">Dodano: %1$s</string>
+    <string name="epg_refresh_section_title">Odśwież EPG</string>
+    <string name="epg_refresh_running_banner">EPG odświeża się w tle…</string>
+    <string name="no_epg_schedule">Brak EPG</string>
+    <string name="no_current_program_data">Brak danych o bieżącym programie.</string>
+    <string name="now_playing_label">Teraz na antenie</string>
+    <string name="up_next_label">Następnie</string>
+    <string name="hint_close_with_back">← lub Wstecz — zamknij</string>
+    <string name="crash_report_header">Automatyczne zgłoszenie błędu.\n\n</string>
+    <string name="copy_and_close">Kopiuj i zamknij</string>
+    <string name="copied_paste_in_chat">Skopiowano! Wklej w czat.</string>
+</resources>

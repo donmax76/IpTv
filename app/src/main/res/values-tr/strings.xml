@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="epg_click_to_refresh">Şimdi yenilemek için dokunun</string>
+    <string name="epg_last_update_prefix">Son güncelleme: %1$s</string>
+    <string name="epg_update_in_progress">Güncelleme zaten devam ediyor</string>
+    <string name="epg_add_source_first">Önce bir EPG kaynağı ekleyin</string>
+    <string name="epg_already_updated">%1$s\'da zaten güncellendi</string>
+    <string name="epg_refresh_again_confirm">Yeniden güncellensin mi?</string>
+    <string name="epg_refresh_button">Yenile</string>
+    <string name="epg_starting_update">Güncelleme başlatılıyor…</string>
+    <string name="epg_done_channels">Tamam: %1$d kanal, %2$s</string>
+    <string name="epg_guide_updated">TV Rehberi güncellendi: %1$d kanal</string>
+    <string name="epg_sources_empty">Kaynaklar boş — başka EPG deneyin</string>
+    <string name="epg_no_data_check_url">Kaynaklar veri vermedi. URL kontrol edin.</string>
+    <string name="epg_error_status">Hata: %1$s</string>
+    <string name="epg_update_error">Güncelleme hatası: %1$s</string>
+    <string name="epg_from_list_button">Listeden</string>
+    <string name="epg_preset_sources_title">Hazır EPG kaynakları</string>
+    <string name="epg_added_notification">Eklendi: %1$s</string>
+    <string name="epg_refresh_section_title">TV Rehberini yenile</string>
+    <string name="epg_refresh_running_banner">TV Rehberi arka planda güncelleniyor…</string>
+    <string name="no_epg_schedule">EPG programı yok</string>
+    <string name="no_current_program_data">Geçerli program hakkında veri yok.</string>
+    <string name="now_playing_label">Şimdi yayında</string>
+    <string name="up_next_label">Sırada</string>
+    <string name="hint_close_with_back">← veya Geri — kapat</string>
+    <string name="crash_report_header">Otomatik hata raporu.\n\n</string>
+    <string name="copy_and_close">Kopyala ve kapat</string>
+    <string name="copied_paste_in_chat">Kopyalandı! Sohbete yapıştırın.</string>
+</resources>

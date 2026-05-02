@@ -101,4 +101,32 @@
     <string name="update_url_hint">URL version.json. За замовчуванням: github.com/donmax76/IpTv</string>
     <string name="update_url_hint_placeholder">Залиште порожнім для стандартного URL</string>
     <string name="update_404_hint">Створіть Gist на gist.github.com з version.json, вставте raw URL вище</string>
+
+    <string name="epg_click_to_refresh">Натисніть, щоб оновити зараз</string>
+    <string name="epg_last_update_prefix">Останнє оновлення: %1$s</string>
+    <string name="epg_update_in_progress">Оновлення вже триває</string>
+    <string name="epg_add_source_first">Спочатку додайте джерело EPG</string>
+    <string name="epg_already_updated">Вже оновлено о %1$s</string>
+    <string name="epg_refresh_again_confirm">Оновити ще раз?</string>
+    <string name="epg_refresh_button">Оновити</string>
+    <string name="epg_starting_update">Запускаю оновлення…</string>
+    <string name="epg_done_channels">Готово: %1$d каналів, %2$s</string>
+    <string name="epg_guide_updated">Телегід оновлено: %1$d каналів</string>
+    <string name="epg_sources_empty">Джерела порожні — спробуйте інший EPG</string>
+    <string name="epg_no_data_check_url">Джерела не надали даних. Перевірте URL.</string>
+    <string name="epg_error_status">Помилка: %1$s</string>
+    <string name="epg_update_error">Помилка оновлення: %1$s</string>
+    <string name="epg_from_list_button">Зі списку</string>
+    <string name="epg_preset_sources_title">Готові джерела EPG</string>
+    <string name="epg_added_notification">Додано: %1$s</string>
+    <string name="epg_refresh_section_title">Оновити телегід</string>
+    <string name="epg_refresh_running_banner">Телегід оновлюється у фоні…</string>
+    <string name="no_epg_schedule">Немає програми EPG</string>
+    <string name="no_current_program_data">Немає даних про поточну програму.</string>
+    <string name="now_playing_label">Зараз в ефірі</string>
+    <string name="up_next_label">Далі</string>
+    <string name="hint_close_with_back">← або Назад — закрити</string>
+    <string name="crash_report_header">Автоматичний звіт про помилку.\n\n</string>
+    <string name="copy_and_close">Копіювати та закрити</string>
+    <string name="copied_paste_in_chat">Скопійовано! Вставте у чат.</string>
 </resources>

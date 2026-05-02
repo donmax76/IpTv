@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="epg_click_to_refresh">انقر للتحديث الآن</string>
+    <string name="epg_last_update_prefix">آخر تحديث: %1$s</string>
+    <string name="epg_update_in_progress">التحديث قيد التشغيل بالفعل</string>
+    <string name="epg_add_source_first">أضف مصدر EPG أولاً</string>
+    <string name="epg_already_updated">تم التحديث بالفعل في %1$s</string>
+    <string name="epg_refresh_again_confirm">تحديث مرة أخرى؟</string>
+    <string name="epg_refresh_button">تحديث</string>
+    <string name="epg_starting_update">بدء التحديث…</string>
+    <string name="epg_done_channels">تم: %1$d قناة، %2$s</string>
+    <string name="epg_guide_updated">تم تحديث دليل TV: %1$d قناة</string>
+    <string name="epg_sources_empty">المصادر فارغة — جرب EPG آخر</string>
+    <string name="epg_no_data_check_url">لم تُرجع المصادر بيانات. تحقق من الرابط.</string>
+    <string name="epg_error_status">خطأ: %1$s</string>
+    <string name="epg_update_error">خطأ التحديث: %1$s</string>
+    <string name="epg_from_list_button">من القائمة</string>
+    <string name="epg_preset_sources_title">مصادر EPG جاهزة</string>
+    <string name="epg_added_notification">تمت الإضافة: %1$s</string>
+    <string name="epg_refresh_section_title">تحديث دليل TV</string>
+    <string name="epg_refresh_running_banner">يُحدَّث دليل TV في الخلفية…</string>
+    <string name="no_epg_schedule">لا يوجد جدول EPG</string>
+    <string name="no_current_program_data">لا توجد بيانات عن البرنامج الحالي.</string>
+    <string name="now_playing_label">يُعرض الآن</string>
+    <string name="up_next_label">التالي</string>
+    <string name="hint_close_with_back">← أو رجوع — إغلاق</string>
+    <string name="crash_report_header">تقرير خطأ تلقائي.\n\n</string>
+    <string name="copy_and_close">نسخ وإغلاق</string>
+    <string name="copied_paste_in_chat">تم النسخ! الصق في الدردشة.</string>
+</resources>

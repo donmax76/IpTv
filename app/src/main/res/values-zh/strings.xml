@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="epg_click_to_refresh">点击立即更新</string>
+    <string name="epg_last_update_prefix">最近更新:%1$s</string>
+    <string name="epg_update_in_progress">更新已在进行中</string>
+    <string name="epg_add_source_first">请先添加 EPG 源</string>
+    <string name="epg_already_updated">已于 %1$s 更新</string>
+    <string name="epg_refresh_again_confirm">再次更新吗?</string>
+    <string name="epg_refresh_button">更新</string>
+    <string name="epg_starting_update">开始更新…</string>
+    <string name="epg_done_channels">完成:%1$d 频道,%2$s</string>
+    <string name="epg_guide_updated">电视指南已更新:%1$d 频道</string>
+    <string name="epg_sources_empty">源为空 — 请尝试其他 EPG</string>
+    <string name="epg_no_data_check_url">源未返回数据,请检查网址。</string>
+    <string name="epg_error_status">错误:%1$s</string>
+    <string name="epg_update_error">更新错误:%1$s</string>
+    <string name="epg_from_list_button">从列表</string>
+    <string name="epg_preset_sources_title">预设 EPG 源</string>
+    <string name="epg_added_notification">已添加:%1$s</string>
+    <string name="epg_refresh_section_title">更新电视指南</string>
+    <string name="epg_refresh_running_banner">电视指南正在后台更新…</string>
+    <string name="no_epg_schedule">无 EPG 节目</string>
+    <string name="no_current_program_data">当前节目无数据。</string>
+    <string name="now_playing_label">正在播放</string>
+    <string name="up_next_label">即将播放</string>
+    <string name="hint_close_with_back">← 或 返回 — 关闭</string>
+    <string name="crash_report_header">自动错误报告。\n\n</string>
+    <string name="copy_and_close">复制并关闭</string>
+    <string name="copied_paste_in_chat">已复制!粘贴到聊天中。</string>
+</resources>

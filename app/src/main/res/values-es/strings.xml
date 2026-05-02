@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="epg_click_to_refresh">Toca para actualizar ahora</string>
+    <string name="epg_last_update_prefix">Última actualización: %1$s</string>
+    <string name="epg_update_in_progress">La actualización ya está en curso</string>
+    <string name="epg_add_source_first">Primero añade una fuente EPG</string>
+    <string name="epg_already_updated">Ya actualizado a las %1$s</string>
+    <string name="epg_refresh_again_confirm">¿Actualizar de nuevo?</string>
+    <string name="epg_refresh_button">Actualizar</string>
+    <string name="epg_starting_update">Iniciando actualización…</string>
+    <string name="epg_done_channels">Hecho: %1$d canales, %2$s</string>
+    <string name="epg_guide_updated">Guía TV actualizada: %1$d canales</string>
+    <string name="epg_sources_empty">Fuentes vacías — prueba otra EPG</string>
+    <string name="epg_no_data_check_url">Las fuentes no devolvieron datos. Verifica la URL.</string>
+    <string name="epg_error_status">Error: %1$s</string>
+    <string name="epg_update_error">Error de actualización: %1$s</string>
+    <string name="epg_from_list_button">De la lista</string>
+    <string name="epg_preset_sources_title">Fuentes EPG predefinidas</string>
+    <string name="epg_added_notification">Añadido: %1$s</string>
+    <string name="epg_refresh_section_title">Actualizar guía TV</string>
+    <string name="epg_refresh_running_banner">Guía TV actualizándose en segundo plano…</string>
+    <string name="no_epg_schedule">Sin guía EPG</string>
+    <string name="no_current_program_data">Sin datos del programa actual.</string>
+    <string name="now_playing_label">Reproduciéndose</string>
+    <string name="up_next_label">A continuación</string>
+    <string name="hint_close_with_back">← o Atrás — cerrar</string>
+    <string name="crash_report_header">Reporte automático de error.\n\n</string>
+    <string name="copy_and_close">Copiar y cerrar</string>
+    <string name="copied_paste_in_chat">¡Copiado! Pega en el chat.</string>
+</resources>
