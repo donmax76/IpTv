@@ -139,6 +139,19 @@ class SettingsFragment : Fragment() {
             Toast.makeText(requireContext(), "Обновление уже идёт", Toast.LENGTH_SHORT).show()
             return
         }
+        // Если успешно обновлялись < 24 часов назад — не дёргаем
+        // источники второй раз. Юзер просил такую защиту: "если
+        // обновление уже было то не нужно опять обновляться".
+        val last = prefs.epgLastUpdate
+        val ageMs = System.currentTimeMillis() - last
+        if (last > 0 && ageMs < 24L * 60 * 60 * 1000) {
+            val ts = SimpleDateFormat("HH:mm dd.MM", Locale.getDefault())
+                .format(java.util.Date(last))
+            statusView?.text = "Уже обновлено в $ts (через 24ч повторим)"
+            Toast.makeText(requireContext(),
+                "Уже обновлено сегодня в $ts", Toast.LENGTH_SHORT).show()
+            return
+        }
         val urls = prefs.allEpgUrls()
         if (urls.isEmpty()) {
             Toast.makeText(requireContext(), "Сначала добавьте EPG-источник", Toast.LENGTH_SHORT).show()

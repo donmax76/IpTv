@@ -109,6 +109,16 @@ class ChannelsFragment : Fragment() {
         // списке каналов всё равно нет программы пока не сменит
         // плейлист.
         EpgRepository.addEpgUpdateListener(epgUpdateListener)
+
+        searchEditText.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) { filterChannels() }
+        })
+
+        swipeRefresh.setOnRefreshListener {
+            currentPlaylistUrl?.let { loadPlaylist(currentPlaylistName ?: "", it) }
+        }
     }
 
     private val epgUpdateListener: (Map<String, List<EpgRepository.Programme>>) -> Unit = { newData ->
@@ -122,17 +132,6 @@ class ChannelsFragment : Fragment() {
     override fun onDestroyView() {
         EpgRepository.removeEpgUpdateListener(epgUpdateListener)
         super.onDestroyView()
-    }
-
-        searchEditText.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: Editable?) { filterChannels() }
-        })
-
-        swipeRefresh.setOnRefreshListener {
-            currentPlaylistUrl?.let { loadPlaylist(currentPlaylistName ?: "", it) }
-        }
     }
 
     override fun onHiddenChanged(hidden: Boolean) {
