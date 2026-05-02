@@ -948,7 +948,16 @@ object EpgRepository {
      *  и display-name дал 0 совпадений. */
     private val fuzzyTrailDigits = Regex("\\d+$")
     private val fuzzySuffixes = listOf(
+        // Resolution markers (часто в скобках в плейлисте: "(720p)",
+        // "(1080p)" и т.д.). После normalize брackets улетают, остаётся
+        // например "cartoonnetwork1080p" — без явного strip'а буква "p"
+        // блокирует strip трейлинг-цифр и канал не матчится.
+        "1080p", "1080i", "720p", "720i", "576p", "576i", "480p", "480i",
+        "1440p", "2160p", "4320p",
         "uhd", "fhd", "qhd", "hd", "sd", "4k", "8k",
+        // Country/region 2-letter codes. Длинные имена стран
+        // (turkiye, azerbaijan) обычно идут целым словом — для них
+        // лучше работает diacritic-fold + alt_names в iptv-org.
         "uk", "ru", "us", "az", "ua", "by", "kz", "tr", "ge", "am", "uz", "tj", "kg",
     )
     fun fuzzyKey(id: String?): String {
