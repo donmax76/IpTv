@@ -323,6 +323,116 @@
 
         </LinearLayout>
 
+        <!-- Inline-панель деталей канала (продолжение списка вправо).
+             Показывается из OverlayChannelAdapter onShowDetailsClick.
+             BACK или DPAD_LEFT — закрывает её, фокус возвращается на
+             "избранное" чтобы юзер мог снова нажать вправо. -->
+        <ScrollView
+            android:id="@+id/channelDetailsPanel"
+            android:layout_width="380dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="start"
+            android:layout_marginStart="320dp"
+            android:background="@drawable/bg_overlay_panel"
+            android:padding="16dp"
+            android:visibility="gone"
+            android:focusable="true"
+            android:focusableInTouchMode="false">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/detailsChannelName"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@android:color/white"
+                    android:textSize="20sp"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="12dp"/>
+
+                <TextView
+                    android:id="@+id/detailsNowLabel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="#7C6CF7"
+                    android:textSize="13sp"
+                    android:textAllCaps="true"
+                    android:text="Сейчас в эфире"/>
+
+                <TextView
+                    android:id="@+id/detailsNowTime"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="#B0B0C0"
+                    android:textSize="13sp"
+                    android:layout_marginTop="2dp"/>
+
+                <TextView
+                    android:id="@+id/detailsNowTitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@android:color/white"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:layout_marginTop="4dp"/>
+
+                <TextView
+                    android:id="@+id/detailsNowDesc"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="#D0D0E0"
+                    android:textSize="14sp"
+                    android:layout_marginTop="6dp"
+                    android:lineSpacingExtra="2dp"/>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="14dp"
+                    android:layout_marginBottom="14dp"
+                    android:background="#33FFFFFF"/>
+
+                <TextView
+                    android:id="@+id/detailsNextLabel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="#4ECDC4"
+                    android:textSize="13sp"
+                    android:textAllCaps="true"
+                    android:text="Далее"/>
+
+                <TextView
+                    android:id="@+id/detailsNextTime"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="#B0B0C0"
+                    android:textSize="13sp"
+                    android:layout_marginTop="2dp"/>
+
+                <TextView
+                    android:id="@+id/detailsNextTitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@android:color/white"
+                    android:textSize="15sp"
+                    android:layout_marginTop="4dp"/>
+
+                <TextView
+                    android:id="@+id/detailsHint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="#707088"
+                    android:textSize="12sp"
+                    android:layout_marginTop="20dp"
+                    android:text="← или Назад — закрыть"/>
+
+            </LinearLayout>
+
+        </ScrollView>
+
     </FrameLayout>
 
     <!-- Side drawer that slides in from the left edge when the user

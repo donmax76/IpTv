@@ -595,45 +595,81 @@ class PlayerActivity : BaseActivity() {
         overlayChannelsList.adapter = overlayAdapter
     }
 
-    /** Полупрозрачный диалог с детальной информацией о текущей и
-     *  следующей программе на канале. Вызывается из списка каналов
-     *  в плеере: фокус на сердечке → DPAD_RIGHT → этот диалог. */
+    /** Показывает inline-панель с деталями программы (не отдельное
+     *  окно). BACK или DPAD_LEFT — закрывают её, фокус возвращается
+     *  на "избранное" в списке. */
     private fun showChannelDetailsDialog(channel: Channel) {
+        val panel = findViewById<View>(R.id.channelDetailsPanel) ?: return
         val (now, next) = EpgRepository.getNowNextDetailed(
             ChannelDataHolder.epgData, channel.tvgId, channel.name
         )
         val timeFmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
         val dateFmt = java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale.getDefault())
-        val message = buildString {
-            append(channel.name)
-            append("\n\n")
-            if (now != null) {
-                append("▶ Сейчас (")
-                append(timeFmt.format(java.util.Date(now.start)))
-                append("–")
-                append(timeFmt.format(java.util.Date(now.end)))
-                append(")\n")
-                append(now.title)
-                if (now.description.isNotEmpty()) {
-                    append("\n\n")
-                    append(now.description)
-                }
+
+        findViewById<android.widget.TextView>(R.id.detailsChannelName).text = channel.name
+
+        val nowTimeView = findViewById<android.widget.TextView>(R.id.detailsNowTime)
+        val nowTitleView = findViewById<android.widget.TextView>(R.id.detailsNowTitle)
+        val nowDescView = findViewById<android.widget.TextView>(R.id.detailsNowDesc)
+        val nowLabel = findViewById<android.widget.TextView>(R.id.detailsNowLabel)
+        if (now != null) {
+            nowLabel.visibility = View.VISIBLE
+            nowTimeView.visibility = View.VISIBLE
+            nowTitleView.visibility = View.VISIBLE
+            nowTimeView.text = "${timeFmt.format(java.util.Date(now.start))} – ${timeFmt.format(java.util.Date(now.end))}"
+            nowTitleView.text = now.title
+            if (now.description.isNotEmpty()) {
+                nowDescView.visibility = View.VISIBLE
+                nowDescView.text = now.description
             } else {
-                append("Нет данных о текущей программе.")
+                nowDescView.visibility = View.GONE
             }
-            if (next != null) {
-                append("\n\n")
-                append("▷ Далее (")
-                append(dateFmt.format(java.util.Date(next.start)))
-                append(")\n")
-                append(next.title)
-            }
+        } else {
+            nowLabel.visibility = View.GONE
+            nowTimeView.visibility = View.GONE
+            nowDescView.visibility = View.GONE
+            nowTitleView.visibility = View.VISIBLE
+            nowTitleView.text = "Нет данных о текущей программе."
         }
-        androidx.appcompat.app.AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
-            .setMessage(message)
-            .setPositiveButton(android.R.string.ok, null)
-            .show()
-            .window?.setBackgroundDrawableResource(R.drawable.bg_overlay_panel)
+
+        val nextTimeView = findViewById<android.widget.TextView>(R.id.detailsNextTime)
+        val nextTitleView = findViewById<android.widget.TextView>(R.id.detailsNextTitle)
+        val nextLabel = findViewById<android.widget.TextView>(R.id.detailsNextLabel)
+        if (next != null) {
+            nextLabel.visibility = View.VISIBLE
+            nextTimeView.visibility = View.VISIBLE
+            nextTitleView.visibility = View.VISIBLE
+            nextTimeView.text = dateFmt.format(java.util.Date(next.start))
+            nextTitleView.text = next.title
+        } else {
+            nextLabel.visibility = View.GONE
+            nextTimeView.visibility = View.GONE
+            nextTitleView.visibility = View.GONE
+        }
+
+        panel.visibility = View.VISIBLE
+        panel.requestFocus()
+        panel.setOnKeyListener { _, keyCode, event ->
+            if (event.action == android.view.KeyEvent.ACTION_DOWN) {
+                when (keyCode) {
+                    android.view.KeyEvent.KEYCODE_DPAD_LEFT,
+                    android.view.KeyEvent.KEYCODE_BACK -> {
+                        hideChannelDetailsPanel()
+                        true
+                    }
+                    else -> false
+                }
+            } else false
+        }
+    }
+
+    private fun hideChannelDetailsPanel() {
+        val panel = findViewById<View>(R.id.channelDetailsPanel) ?: return
+        if (panel.visibility != View.VISIBLE) return
+        panel.visibility = View.GONE
+        panel.setOnKeyListener(null)
+        // Возвращаем фокус в список каналов
+        findViewById<View>(R.id.overlayChannelsList)?.requestFocus()
     }
 
     // === Gesture support (volume/brightness) ===
@@ -1786,6 +1822,15 @@ class PlayerActivity : BaseActivity() {
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         // Any keypress while the channel list is visible counts as activity
         if (channelListVisible) bumpChannelListIdleTimer()
+
+        // Inline-панель деталей канала: BACK или LEFT закрывают её,
+        // не выходя из плеера.
+        if (findViewById<View>(R.id.channelDetailsPanel)?.visibility == View.VISIBLE) {
+            if (keyCode == KeyEvent.KEYCODE_BACK ||
+                keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                hideChannelDetailsPanel(); return true
+            }
+        }
 
         // Правое выпадающее меню: BACK или DPAD_LEFT закрывают,
         // UP/DOWN зацикливаются внутри пунктов (как в плеер-меню).

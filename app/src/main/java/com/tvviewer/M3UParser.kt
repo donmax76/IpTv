@@ -82,11 +82,15 @@ object M3UParser {
                                 logoUrl = resolveUrl(baseUrl, logoUrl)
                             }
                             val name = extInf.name.ifBlank { deriveNameFromUrl(url) ?: "Channel ${channels.size + 1}" }
+                            // Google-favicon как fallback убран: возвращает
+                            // серую планетку 16x16 и блокирует iptv-org
+                            // lookup (тот вызывается только если logoUrl
+                            // null). Лучше null → iptv-org → placeholder.
                             channels.add(
                                 Channel(
                                     name = name,
                                     url = url,
-                                    logoUrl = logoUrl ?: faviconFor(url),
+                                    logoUrl = logoUrl,
                                     group = extInf.group ?: extGroup,
                                     tvgId = extInf.tvgId
                                 )
@@ -110,7 +114,7 @@ object M3UParser {
                 channels.add(Channel(
                     name = derived,
                     url = url,
-                    logoUrl = faviconFor(url),
+                    logoUrl = null,                                // favicon-fallback убран — см. ту же причину выше
                     group = null,
                     tvgId = null,
                 ))
