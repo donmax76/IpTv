@@ -26,7 +26,12 @@ object ChannelMetaLookup {
 
     private const val TAG = "ChannelMetaLookup"
     private const val URL = "https://iptv-org.github.io/api/channels.json"
+    // iptv-org перенёс лого в отдельный файл — основной channels.json
+    // больше не содержит поле "logo". logos.json: массив объектов
+    // с {channel: "...", url: "https://...png", ...}.
+    private const val LOGOS_URL = "https://iptv-org.github.io/api/logos.json"
     private const val CACHE_FILE = "iptv_org_channels.json"
+    private const val LOGOS_CACHE_FILE = "iptv_org_logos.json"
     private const val CACHE_LIFETIME_MS = 7L * 24 * 60 * 60 * 1000
 
     private val client: OkHttpClient = run {
@@ -108,15 +113,30 @@ object ChannelMetaLookup {
         if (!loadingStarted.compareAndSet(false, true)) return
         Thread {
             try {
+                // 1. Сначала загружаем logos.json и строим карту
+                //    channel_id → logo_url. iptv-org держит лого в
+                //    отдельном файле с 2024 года (channels.json больше
+                //    не содержит поле "logo").
+                val logosCache = File(context.filesDir, LOGOS_CACHE_FILE)
+                val logosFresh = logosCache.exists() &&
+                    System.currentTimeMillis() - logosCache.lastModified() < CACHE_LIFETIME_MS
+                val logosText = if (logosFresh) logosCache.readText()
+                                else fetchAndCacheUrl(LOGOS_URL, logosCache)
+                val logosByChannel = parseLogos(logosText)
+                Log.d(TAG, "logos.json indexed: ${logosByChannel.size}")
+
+                // 2. Затем channels.json — строим byName/byFuzzy,
+                //    подтягивая лого из карты выше.
                 val cache = File(context.filesDir, CACHE_FILE)
                 val fresh = cache.exists() &&
                     System.currentTimeMillis() - cache.lastModified() < CACHE_LIFETIME_MS
-                val text = if (fresh) cache.readText() else fetchAndCache(cache)
-                if (text != null) parseAndIndex(text)
+                val text = if (fresh) cache.readText() else fetchAndCacheUrl(URL, cache)
+                if (text != null) parseAndIndex(text, logosByChannel)
                 if (!fresh) {
-                    // We loaded from a stale cache; queue a fresh fetch
-                    // in the background so the next session has new data.
-                    Thread { fetchAndCache(cache) }.start()
+                    Thread { fetchAndCacheUrl(URL, cache) }.start()
+                }
+                if (!logosFresh) {
+                    Thread { fetchAndCacheUrl(LOGOS_URL, logosCache) }.start()
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "ensureLoaded failed", e)
@@ -134,9 +154,9 @@ object ChannelMetaLookup {
         }.start()
     }
 
-    private fun fetchAndCache(cache: File): String? {
+    private fun fetchAndCacheUrl(url: String, cache: File): String? {
         return try {
-            val req = Request.Builder().url(URL).build()
+            val req = Request.Builder().url(url).build()
             client.newCall(req).execute().use { res ->
                 if (!res.isSuccessful) return null
                 val body = res.body?.string() ?: return null
@@ -144,19 +164,43 @@ object ChannelMetaLookup {
                 body
             }
         } catch (e: Exception) {
-            Log.e(TAG, "fetch failed", e)
+            Log.e(TAG, "fetch failed: $url", e)
             null
         }
     }
 
-    private fun parseAndIndex(text: String) {
+    private fun parseLogos(text: String?): Map<String, String> {
+        if (text.isNullOrBlank()) return emptyMap()
+        return try {
+            val out = HashMap<String, String>(8000)
+            val arr = JSONArray(text)
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val ch = o.optString("channel", "").takeIf { it.isNotEmpty() } ?: continue
+                val u = o.optString("url", "").takeIf { it.isNotEmpty() } ?: continue
+                // Берём первое лого встретившееся для канала. У iptv-org
+                // часто несколько вариантов (square, horizontal etc),
+                // выбираем какой первый попался.
+                if (ch !in out) out[ch] = u
+            }
+            out
+        } catch (e: Exception) {
+            Log.e(TAG, "parseLogos failed", e)
+            emptyMap()
+        }
+    }
+
+    private fun parseAndIndex(text: String, logosByChannel: Map<String, String>) {
         try {
             val arr = JSONArray(text)
             for (i in 0 until arr.length()) {
                 val o = arr.optJSONObject(i) ?: continue
                 val name = o.optString("name", "").takeIf { it.isNotEmpty() } ?: continue
                 val tvgId = o.optString("id", "").takeIf { it.isNotEmpty() }
+                // Сначала пробуем поле "logo" (старая схема), потом
+                // подтягиваем из карты logos.json по channel id.
                 val logo = o.optString("logo", "").takeIf { it.isNotEmpty() }
+                    ?: tvgId?.let { logosByChannel[it] }
                 if (logo == null && tvgId == null) continue
                 val key = normalize(name)
                 val meta = Meta(logo, tvgId)
