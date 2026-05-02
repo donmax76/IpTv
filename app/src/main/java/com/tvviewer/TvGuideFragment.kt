@@ -384,7 +384,14 @@ class TvGuideFragment : Fragment() {
         refreshJob = lifecycleScope.launch {
             try {
                 val data = EpgRepository.fetchAll(urls, appCtx)
-                ChannelDataHolder.epgData = data
+                // Если новый fetch пустой (ошибка/таймаут/нет источников
+                // ответили) — НЕ затираем старые данные. Юзер просил:
+                // "лого и программу что есть оставить, новое только
+                // дополнять". Старый кэш остаётся, потеряем максимум
+                // 24 часа неактуальности.
+                if (data.isNotEmpty()) {
+                    ChannelDataHolder.epgData = data
+                }
                 // Метку времени ставим в любом случае — даже когда ответ
                 // пустой / провалился. Иначе loadEpgData может крутить
                 // повторные refresh'и.

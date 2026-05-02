@@ -697,6 +697,39 @@
 
             </LinearLayout>
 
+            <!-- Ручное обновление ТВ Гида: один клик — пускаем
+                 fetchAll, статус-строка показывает прогресс.
+                 Юзер просил визуально видеть процесс, не уходя
+                 на вкладку "ТВ программа". -->
+            <LinearLayout
+                android:id="@+id/epgManualRefreshLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="8dp"
+                android:minHeight="48dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="@drawable/settings_item_focused">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Обновить ТВ Гид"
+                    android:textColor="@color/text_primary"
+                    android:textSize="16sp"/>
+
+                <TextView
+                    android:id="@+id/epgManualRefreshStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp"
+                    android:layout_marginTop="2dp"
+                    android:text="Нажмите чтобы обновить сейчас"/>
+
+            </LinearLayout>
+
         </LinearLayout>
 
         <!-- About Section -->

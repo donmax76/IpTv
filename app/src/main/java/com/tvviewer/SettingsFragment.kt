@@ -14,6 +14,8 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import java.text.SimpleDateFormat
+import java.util.Locale
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import coil.imageLoader
@@ -106,6 +108,65 @@ class SettingsFragment : Fragment() {
         epgUrlsValue?.text = epgUrlsSummary()
         view.findViewById<LinearLayout>(R.id.epgUrlsLayout)?.setOnClickListener {
             showEpgUrlsDialog(epgUrlsValue)
+        }
+
+        // Ручное обновление ТВ Гида с visual-status. Юзер просил
+        // видеть когда обновление идёт, и иметь возможность дёрнуть
+        // его руками не открывая вкладку "ТВ программа".
+        val epgManualStatus = view.findViewById<TextView>(R.id.epgManualRefreshStatus)
+        updateEpgManualStatus(epgManualStatus)
+        view.findViewById<LinearLayout>(R.id.epgManualRefreshLayout)?.setOnClickListener {
+            triggerManualEpgRefresh(epgManualStatus)
+        }
+    }
+
+    private fun updateEpgManualStatus(statusView: TextView?) {
+        statusView ?: return
+        val last = prefs.epgLastUpdate
+        if (last <= 0) {
+            statusView.text = "Нажмите чтобы обновить сейчас"
+        } else {
+            val ts = SimpleDateFormat("HH:mm dd.MM", Locale.getDefault())
+                .format(java.util.Date(last))
+            statusView.text = "Последнее обновление: $ts"
+        }
+    }
+
+    private var manualRefreshJob: kotlinx.coroutines.Job? = null
+
+    private fun triggerManualEpgRefresh(statusView: TextView?) {
+        if (manualRefreshJob?.isActive == true) {
+            Toast.makeText(requireContext(), "Обновление уже идёт", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val urls = prefs.allEpgUrls()
+        if (urls.isEmpty()) {
+            Toast.makeText(requireContext(), "Сначала добавьте EPG-источник", Toast.LENGTH_SHORT).show()
+            return
+        }
+        statusView?.text = "Запускаю обновление…"
+        val ctx = requireContext().applicationContext
+        // Подписываемся на live-прогресс из EpgRepository, чтобы
+        // отображать "скачиваю / парсю / готово" в этой же строке.
+        EpgRepository.onProgress = { stage ->
+            view?.post { statusView?.text = stage }
+        }
+        manualRefreshJob = lifecycleScope.launch {
+            try {
+                val data = EpgRepository.fetchAll(urls, ctx)
+                if (data.isNotEmpty()) {
+                    ChannelDataHolder.epgData = data
+                }
+                prefs.epgLastUpdate = System.currentTimeMillis()
+                statusView?.text = "Готово: ${data.size} каналов, " +
+                    SimpleDateFormat("HH:mm", Locale.getDefault()).format(java.util.Date())
+                Toast.makeText(ctx, "ТВ Гид обновлён: ${data.size} каналов", Toast.LENGTH_SHORT).show()
+            } catch (t: Throwable) {
+                statusView?.text = "Ошибка: ${t.javaClass.simpleName}"
+                Toast.makeText(ctx, "Ошибка обновления: ${t.message?.take(80)}", Toast.LENGTH_LONG).show()
+            } finally {
+                EpgRepository.onProgress = null
+            }
         }
     }
 
