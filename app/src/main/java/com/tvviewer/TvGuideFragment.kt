@@ -233,6 +233,14 @@ class TvGuideFragment : Fragment() {
             if (noLogoSample.isNotEmpty()) {
                 ErrorLogger.info(ctx2, "TVGUIDE", "no-logo sample: $noLogoSample")
             }
+            // Примеры логотипов с URL — чтобы видеть формат и хост.
+            // Если Coil их не грузит, по URL/хосту сразу понятно почему.
+            val logoSample = channels.mapNotNull { it.logoUrl }.distinctBy {
+                try { java.net.URI(it).host } catch (_: Exception) { it }
+            }.take(3).joinToString(" | ")
+            if (logoSample.isNotEmpty()) {
+                ErrorLogger.info(ctx2, "TVGUIDE", "logo URLs sample: ${logoSample.take(300)}")
+            }
         }
         // Дамп: сколько ID/имён в плейлисте vs в EPG, сколько пересечений.
         // Это даёт понять, где теряется матч — в загрузке EPG, в его
