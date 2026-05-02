@@ -327,6 +327,11 @@ object EpgRepository {
             if (context != null) ErrorLogger.info(context, "EPG",
                 "fetchSingle($host) parsed ${finalResult.size} channels, " +
                 "${finalResult.values.sumOf { it.size }} programmes")
+            // Если ничего не распарсилось — пишем peek в лог чтобы
+            // увидеть формат файла (HTML, кириллица, бинарь и т.д.)
+            if (context != null && finalResult.isEmpty() && lastFetchPeek.startsWith("EMPTY parse")) {
+                ErrorLogger.info(context, "EPG", "fetchSingle($host) $lastFetchPeek")
+            }
             saveToCache(context, finalResult)
             finalResult
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -628,6 +633,10 @@ object EpgRepository {
 
         reportProgress("Парсю… запускаю")
         var firstPeekLogged = false
+        // Сохраняем первые 200 символов чтобы записать в trace из
+        // fetchSingle (у parser нет прямого доступа к context для
+        // ErrorLogger).
+        var firstPeek: String? = null
 
         while (true) {
             val n = reader.read(buf)
@@ -643,6 +652,7 @@ object EpgRepository {
             if (!firstPeekLogged && sb.length >= 200) {
                 val peek = sb.substring(0, 200).replace('\n', ' ').replace('\r', ' ').take(180)
                 reportProgress("Peek: $peek")
+                firstPeek = peek
                 firstPeekLogged = true
             }
 
@@ -691,6 +701,13 @@ object EpgRepository {
         val sec = (System.currentTimeMillis() - tStart) / 1000
         val accepted = result.values.sumOf { it.size }
         reportProgress("Парсинг готов: ${pCount / 1000}K блоков, $accepted принято, $skipCount отброшено, ${sec}с")
+        // Если ничего не нашли — публикуем peek в lastFetchPeek чтобы
+        // fetchSingle мог записать его в trace-лог. Без этого мы не
+        // видим в чём проблема: какой формат у файла, кириллица ли,
+        // HTML 404 страница и т.д.
+        if (accepted == 0 && pCount == 0 && firstPeek != null) {
+            lastFetchPeek = "EMPTY parse, ${pCount} blocks, ${sec}s | peek: " + firstPeek!!.take(160)
+        }
 
         return Pair(result, displayNamesById)
     }
