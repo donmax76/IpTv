@@ -983,14 +983,33 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun initPlayer() {
+        // На X4 X4 (256MB heap, слабый ARM) дефолтные буферы Media3
+        // (50/50 сек) держат много декодированного видео, GC дёргает,
+        // отсюда плеер залипает. Снижаем минимум до 8 сек, максимум
+        // до 25, чтобы:
+        //  - быстрее стартовать (меньше начальный буфер ⇒ меньше
+        //    "паузу включаю..." при переключении канала),
+        //  - меньше памяти держать при играх в фоне (Coil + EPG
+        //    парсер не вытесняли видео-чанки из heap),
+        //  - реже проваливать кадры из-за GC.
+        // bufferForPlaybackMs (1500мс) — сколько НУЖНО буфера чтобы
+        // СТАРТОВАТЬ воспроизведение; rebuffer (2500мс) — сколько
+        // нужно чтобы продолжить ПОСЛЕ стagger'а. Ниже 1.5/2.5 сек
+        // нельзя — на нестабильных IPTV-стримах уйдёт в постоянный
+        // ребуфер.
         val loadControl = when (prefs.bufferMode) {
             "low" -> DefaultLoadControl.Builder()
-                .setBufferDurationsMs(5000, 15000, 1000, 2000)
+                .setBufferDurationsMs(5000, 12000, 1000, 2000)
+                .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
             "high" -> DefaultLoadControl.Builder()
-                .setBufferDurationsMs(30000, 60000, 3000, 5000)
+                .setBufferDurationsMs(20000, 40000, 2500, 4000)
+                .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
-            else -> DefaultLoadControl()
+            else -> DefaultLoadControl.Builder()
+                .setBufferDurationsMs(8000, 25000, 1500, 2500)
+                .setPrioritizeTimeOverSizeThresholds(true)
+                .build()
         }
 
         // Apply the user-configured User-Agent + Referer to every HTTP
@@ -1049,9 +1068,18 @@ class PlayerActivity : BaseActivity() {
                 DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
             )
 
+        // Track-selection: предпочтительный язык + ограничение
+        // максимального видео-битрейта чтобы железо X4 X4 не пыталось
+        // декодить 4K-чанки которые не вытянет → залипания.
+        // 1080p VP9/H.264 ~6 Mbps — потолок для большинства TV-боксов.
         player = ExoPlayer.Builder(this, renderersFactory)
             .setLoadControl(loadControl)
             .setMediaSourceFactory(mediaSourceFactory)
+            // Aggressive seek-back / forward отключаем — на IPTV-стриме
+            // (live HLS) seek всё равно ломается, а они держат
+            // дополнительный буфер.
+            .setSeekBackIncrementMs(10_000)
+            .setSeekForwardIncrementMs(10_000)
             .build().also { p ->
                 playerView.player = p
                 p.addListener(object : Player.Listener {
