@@ -63,7 +63,6 @@ class PlayerActivity : BaseActivity() {
         private val PLAYER_DRAWER_IDS = intArrayOf(
             R.id.playerDrawerPlaylists,
             R.id.playerDrawerChannels,
-            R.id.playerDrawerTvGuide,
             R.id.playerDrawerFavorites,
             R.id.playerDrawerRecent,
             R.id.playerDrawerSettings,
@@ -286,9 +285,10 @@ class PlayerActivity : BaseActivity() {
         }
         findViewById<View>(R.id.playerDrawerPlaylists).setOnClickListener { gotoMain(0) }
         findViewById<View>(R.id.playerDrawerChannels).setOnClickListener { gotoMain(1) }
-        findViewById<View>(R.id.playerDrawerTvGuide).setOnClickListener { gotoMain(2) }
-        findViewById<View>(R.id.playerDrawerFavorites).setOnClickListener { gotoMain(3) }
-        findViewById<View>(R.id.playerDrawerRecent).setOnClickListener { gotoMain(4) }
+        // playerDrawerTvGuide удалён вместе с вкладкой ТВ Гид.
+        // Индексы gotoMain сдвинуты на -1 после удаления.
+        findViewById<View>(R.id.playerDrawerFavorites).setOnClickListener { gotoMain(2) }
+        findViewById<View>(R.id.playerDrawerRecent).setOnClickListener { gotoMain(3) }
         // Настройки открываем поверх плеера, не завершая активити: трансляция
         // продолжается (звук+картинка), пользователь меняет параметры,
         // возвращается обратно — плеер идёт без перезапуска.

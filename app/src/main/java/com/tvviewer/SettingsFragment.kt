@@ -151,18 +151,28 @@ class SettingsFragment : Fragment() {
         EpgRepository.onProgress = { stage ->
             view?.post { statusView?.text = stage }
         }
-        manualRefreshJob = lifecycleScope.launch {
+        // Используем applicationScope — НЕ lifecycleScope — иначе
+        // когда юзер уходит из настроек до завершения, await ловит
+        // CancellationException и мы показываем "Ошибка". Сам
+        // EpgRepository.fetchAll работает в SupervisorJob, ему
+        // отмена await не мешает.
+        manualRefreshJob = TVViewerApp.applicationScope.launch {
             try {
                 val data = EpgRepository.fetchAll(urls, ctx)
                 if (data.isNotEmpty()) {
                     ChannelDataHolder.epgData = data
                 }
                 prefs.epgLastUpdate = System.currentTimeMillis()
-                statusView?.text = "Готово: ${data.size} каналов, " +
-                    SimpleDateFormat("HH:mm", Locale.getDefault()).format(java.util.Date())
+                view?.post {
+                    statusView?.text = "Готово: ${data.size} каналов, " +
+                        SimpleDateFormat("HH:mm", Locale.getDefault()).format(java.util.Date())
+                }
                 Toast.makeText(ctx, "ТВ Гид обновлён: ${data.size} каналов", Toast.LENGTH_SHORT).show()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Юзер ушёл из настроек, но fetchAll сам по себе
+                // продолжается в fetchScope — не показываем ошибку.
             } catch (t: Throwable) {
-                statusView?.text = "Ошибка: ${t.javaClass.simpleName}"
+                view?.post { statusView?.text = "Ошибка: ${t.javaClass.simpleName}" }
                 Toast.makeText(ctx, "Ошибка обновления: ${t.message?.take(80)}", Toast.LENGTH_LONG).show()
             } finally {
                 EpgRepository.onProgress = null

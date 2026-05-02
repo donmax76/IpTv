@@ -6,11 +6,23 @@ import android.util.Log
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.io.PrintWriter
 import java.io.StringWriter
 
 class TVViewerApp : Application(), ImageLoaderFactory {
+
+    companion object {
+        /** Process-wide scope для фоновых задач которые должны
+         *  переживать смену экранов: ручное обновление EPG из настроек,
+         *  авто-обновление в фоне. Использует SupervisorJob чтобы
+         *  одна ошибка не валила соседние корутины. */
+        val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    }
 
     override fun newImageLoader(): ImageLoader {
         // Coil использует свой OkHttpClient — у него своя HostnameVerifier
@@ -117,6 +129,12 @@ class TVViewerApp : Application(), ImageLoaderFactory {
         // playlists ever loaded). Даёт лого каналам в плейлистах
         // без tvg-logo если те же каналы встречались раньше с лого.
         try { LearnedLogos.ensureLoaded(applicationContext) } catch (_: Exception) {}
+        // Фоновое авто-обновление EPG: раз в 24 часа после последнего
+        // успешного обновления. Раньше эта проверка жила в TvGuideFragment
+        // (вкладка ТВ Гид) — но мы её убрали. Теперь ставим прямо в
+        // Application.onCreate. Запуск отложен на 30 секунд чтобы не
+        // конкурировать с iptv-org parse за CPU при холодном старте.
+        try { scheduleEpgAutoRefresh() } catch (_: Exception) {}
         // IPTV-стримы часто живут на CDN'ах с несовпадающими сертами
         // (53be5ef2d13aa.streamlock.net показывает cert *.maksnet.tv
         // и пр.), и SSL-валидация их режет. Ослабляем глобально для
@@ -159,6 +177,38 @@ class TVViewerApp : Application(), ImageLoaderFactory {
                 }
             } catch (e: Exception) {
                 Log.e("TVViewer", "Crash handler failed", e)
+            }
+        }
+    }
+
+    /** Запуск авто-обновления EPG в фоне. Условия:
+     *  1. Есть хотя бы один EPG-источник в настройках.
+     *  2. Прошло > 24 часов с последнего успешного fetchAll.
+     *  Если refresh уже был сегодня — ничего не делаем, кэш остаётся.
+     */
+    private fun scheduleEpgAutoRefresh() {
+        applicationScope.launch {
+            try {
+                kotlinx.coroutines.delay(30_000)        // прогреем CPU
+                val prefs = AppPreferences(applicationContext)
+                val urls = prefs.allEpgUrls()
+                if (urls.isEmpty()) return@launch
+                val dayAgo = System.currentTimeMillis() - 24L * 60 * 60 * 1000
+                if (prefs.epgLastUpdate >= dayAgo) {
+                    Log.d("TVViewer", "EPG auto-refresh skipped — refresh < 24h ago")
+                    return@launch
+                }
+                Log.d("TVViewer", "EPG auto-refresh starting")
+                val data = EpgRepository.fetchAll(urls, applicationContext)
+                if (data.isNotEmpty()) {
+                    ChannelDataHolder.epgData = data
+                    prefs.epgLastUpdate = System.currentTimeMillis()
+                    Log.d("TVViewer", "EPG auto-refresh done: ${data.size} channels")
+                }
+            } catch (_: CancellationException) {
+                // Application scope не отменяется штатно, но вдруг.
+            } catch (t: Throwable) {
+                Log.e("TVViewer", "EPG auto-refresh failed", t)
             }
         }
     }

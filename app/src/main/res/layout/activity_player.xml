@@ -493,18 +493,8 @@
                 android:focusable="true"
                 app:icon="@drawable/ic_channels"/>
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/playerDrawerTvGuide"
-                style="@style/PlayerDrawerItem"
-                android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:gravity="start|center_vertical"
-                android:padding="10dp"
-                android:text="@string/tv_guide"
-                android:textColor="@color/text_primary"
-                android:focusable="true"
-                app:icon="@drawable/ic_tv_guide"/>
-
+            <!-- ТВ Гид удалён по просьбе пользователя — программа
+                 показывается прямо в списке каналов. -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/playerDrawerFavorites"
                 style="@style/PlayerDrawerItem"
