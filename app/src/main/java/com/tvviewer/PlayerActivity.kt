@@ -598,8 +598,16 @@ class PlayerActivity : BaseActivity() {
     /** Показывает inline-панель с деталями программы (не отдельное
      *  окно). BACK или DPAD_LEFT — закрывают её, фокус возвращается
      *  на "избранное" в списке. */
+    /** View в списке каналов которое было сфокусировано когда юзер
+     *  открыл detail-панель. При закрытии возвращаем фокус именно
+     *  туда, а не на верх списка. */
+    private var detailsReturnFocus: View? = null
+
     private fun showChannelDetailsDialog(channel: Channel) {
         val panel = findViewById<View>(R.id.channelDetailsPanel) ?: return
+        // Запомним кто сейчас в фокусе — обычно это сердечко "избранное"
+        // конкретной строки. Туда же вернёмся при закрытии.
+        detailsReturnFocus = currentFocus
         val (now, next) = EpgRepository.getNowNextDetailed(
             ChannelDataHolder.epgData, channel.tvgId, channel.name
         )
@@ -668,8 +676,16 @@ class PlayerActivity : BaseActivity() {
         if (panel.visibility != View.VISIBLE) return
         panel.visibility = View.GONE
         panel.setOnKeyListener(null)
-        // Возвращаем фокус в список каналов
-        findViewById<View>(R.id.overlayChannelsList)?.requestFocus()
+        // Возвращаем фокус на ту View, что была активна перед открытием
+        // (обычно сердечко конкретной строки в списке), чтобы юзер
+        // оказался в той же строке откуда пришёл.
+        val ret = detailsReturnFocus
+        detailsReturnFocus = null
+        if (ret != null && ret.isAttachedToWindow) {
+            ret.requestFocus()
+        } else {
+            findViewById<View>(R.id.overlayChannelsList)?.requestFocus()
+        }
     }
 
     // === Gesture support (volume/brightness) ===

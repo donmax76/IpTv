@@ -68,6 +68,11 @@ object ChannelMetaLookup {
     @Synchronized
     fun isLoaded(): Boolean = loaded
 
+    /** Сколько каналов в индексе (чтобы понять — БД скачалась но
+     *  пустая, или вообще не загрузилась). */
+    @Synchronized
+    fun indexSize(): Int = byName.size
+
     /** Notify the caller (typically a RecyclerView adapter) once the
      *  database becomes available, so it can re-render channel rows
      *  with the freshly-found logos. */

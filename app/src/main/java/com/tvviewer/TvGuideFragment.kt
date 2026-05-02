@@ -225,7 +225,7 @@ class TvGuideFragment : Fragment() {
         if (ctx2 != null) {
             ErrorLogger.info(ctx2, "TVGUIDE",
                 "logos: m3u=$logosFromM3U iptv-org=$logosFromIptvOrg none=$logosNone | " +
-                "iptv-org-loaded=${ChannelMetaLookup.isLoaded()}")
+                "iptv-org-loaded=${ChannelMetaLookup.isLoaded()} index=${ChannelMetaLookup.indexSize()}")
             // Примеры каналов БЕЗ лого — поможет понять что в них особенного.
             val noLogoSample = channels.filter {
                 it.logoUrl == null && ChannelMetaLookup.lookup(it.name)?.logoUrl == null
