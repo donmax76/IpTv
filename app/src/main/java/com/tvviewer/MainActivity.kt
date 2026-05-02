@@ -54,6 +54,12 @@ class MainActivity : BaseActivity() {
             true
         }
 
+        // Touch-кнопка меню для телефонов (не работает с пультом — на
+        // боксе используется DPAD_LEFT). Открывает боковой drawer.
+        findViewById<View>(R.id.btnTouchMenu)?.setOnClickListener {
+            openSideDrawer()
+        }
+
         if (savedInstanceState == null) {
             bottomNav.selectedItemId = R.id.nav_home
 
@@ -377,15 +383,18 @@ class MainActivity : BaseActivity() {
             drawerLayout.closeDrawer(Gravity.START)
             return
         }
-        // Stage 1: if focus is anywhere except the bottom navigation, just
-        // jump to it. This gives the user a guaranteed one-key escape from
-        // a long channel list without scrolling through thousands of items.
+        // На пульте: первый BACK перебрасывает фокус на bottom-nav,
+        // второй — спрашивает выход. На телефоне (тач) bottom-nav скрыт,
+        // фокуса там нет никогда, так что диалог никогда не появлялся.
+        // Теперь: если фокус НЕ на bottom-nav И на пульте (есть focus,
+        // bottom-nav видим) — перебрасываем как раньше; иначе сразу
+        // подтверждаем выход.
         val focus = currentFocus
-        if (focus != null && !isBottomNavFocused(focus)) {
+        val bottomNavVisible = bottomNav.visibility == View.VISIBLE
+        if (focus != null && bottomNavVisible && !isBottomNavFocused(focus)) {
             bottomNav.requestFocus()
             return
         }
-        // Stage 2: focus is already on bottom nav — confirm exit.
         AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
             .setMessage(R.string.exit_app_confirm)
             .setPositiveButton(R.string.yes) { _, _ -> super.onBackPressed() }

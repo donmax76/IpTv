@@ -312,6 +312,15 @@ class PlayerActivity : BaseActivity() {
         // спрятаны и доступны только из этого меню.
         playerRightMenuOverlay = findViewById(R.id.playerRightMenuOverlay)
         findViewById<View>(R.id.playerRightMenuDimBg).setOnClickListener { hidePlayerRightMenu() }
+
+        // Touch-кнопки в верхней панели для телефона: список каналов
+        // и правое меню (на пульте те же действия — DPAD_LEFT / DPAD_RIGHT).
+        findViewById<View>(R.id.btnTouchChannelList)?.setOnClickListener {
+            toggleChannelList()
+        }
+        findViewById<View>(R.id.btnTouchRightMenu)?.setOnClickListener {
+            showPlayerRightMenu()
+        }
         findViewById<View>(R.id.rightMenuChannelList).setOnClickListener {
             hidePlayerRightMenu()
             toggleChannelList()

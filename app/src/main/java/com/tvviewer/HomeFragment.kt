@@ -12,32 +12,45 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import coil.load
+import coil.request.CachePolicy
 import kotlinx.coroutines.launch
 
 /** Стартовый экран приложения. Две большие кнопки:
  *   - Прямой эфир: запускает плеер с плейлистом по умолчанию
  *     (prefs.lastPlaylistUrl). Если плейлиста нет — toast подсказка.
  *   - Плейлисты: переключает на PlaylistsFragment.
- *  Под кнопками — текущий default-плейлист. Фон — серия цветных
- *  градиентов которая меняется каждые 8 сек с cross-fade. */
+ *  Под кнопками — текущий default-плейлист. Фон — высококачественные
+ *  фотографии с picsum.photos, меняются каждые 12 сек с cross-fade.
+ *  При первом запуске или офлайне используются захардкоженные градиенты
+ *  как fallback. */
 class HomeFragment : Fragment() {
 
     companion object {
         const val TAG = "HomeFragment"
-        private val BG_RES = intArrayOf(
+        // Fallback-градиенты на случай если интернета нет / picsum.photos
+        // недоступен. Coil попробует URL → если не загрузится, останется
+        // предыдущая картинка.
+        private val FALLBACK_BG_RES = intArrayOf(
             R.drawable.bg_home_gradient_1,
             R.drawable.bg_home_gradient_2,
             R.drawable.bg_home_gradient_3,
             R.drawable.bg_home_gradient_4,
             R.drawable.bg_home_gradient_5,
         )
-        private const val SLIDE_INTERVAL_MS = 8_000L
-        private const val FADE_DURATION_MS = 1_200L
+        // picsum.photos выдаёт случайное HD-фото нужного разрешения.
+        // ?random=N делает каждый запрос уникальным, чтобы Coil не
+        // отдавал кэш одной и той же картинки. Размер 1920×1080 даёт
+        // приличное качество и под 4K-экраном (scaleType centerCrop).
+        private const val PHOTO_URL_BASE = "https://picsum.photos/1920/1080?random="
+        private const val SLIDE_INTERVAL_MS = 12_000L
+        private const val FADE_DURATION_MS = 1_400L
     }
 
     private lateinit var prefs: AppPreferences
     private val bgHandler = Handler(Looper.getMainLooper())
-    private var bgIndex = 0
+    private var bgPhotoSeed = (System.currentTimeMillis() / 1000).toInt()
+    private var fallbackIndex = 0
     private var showingA = true
     private val bgRunnable = object : Runnable {
         override fun run() {
@@ -65,8 +78,14 @@ class HomeFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         refreshDefaultLabel()
-        // Стартуем cycle с задержкой чтобы первый смены не был сразу
-        // после открытия — пусть первый bg показывается полный интервал.
+        // Сразу подгружаем первое фото из интернета (вместо градиента
+        // по умолчанию). Дальше — cycle по таймеру каждые 12 сек.
+        view?.findViewById<ImageView>(R.id.homeBgA)?.load("$PHOTO_URL_BASE$bgPhotoSeed") {
+            placeholder(FALLBACK_BG_RES[0])
+            error(FALLBACK_BG_RES[0])
+            memoryCachePolicy(CachePolicy.ENABLED)
+            diskCachePolicy(CachePolicy.ENABLED)
+        }
         bgHandler.removeCallbacks(bgRunnable)
         bgHandler.postDelayed(bgRunnable, SLIDE_INTERVAL_MS)
     }
@@ -80,17 +99,31 @@ class HomeFragment : Fragment() {
         val v = view ?: return
         val a = v.findViewById<ImageView>(R.id.homeBgA) ?: return
         val b = v.findViewById<ImageView>(R.id.homeBgB) ?: return
-        bgIndex = (bgIndex + 1) % BG_RES.size
-        if (showingA) {
-            b.setImageResource(BG_RES[bgIndex])
-            b.animate().alpha(1f).setDuration(FADE_DURATION_MS).start()
-            a.animate().alpha(0f).setDuration(FADE_DURATION_MS).start()
-        } else {
-            a.setImageResource(BG_RES[bgIndex])
-            a.animate().alpha(1f).setDuration(FADE_DURATION_MS).start()
-            b.animate().alpha(0f).setDuration(FADE_DURATION_MS).start()
+        bgPhotoSeed += 1
+        fallbackIndex = (fallbackIndex + 1) % FALLBACK_BG_RES.size
+        val photoUrl = "$PHOTO_URL_BASE$bgPhotoSeed"
+        val target = if (showingA) b else a
+        val other = if (showingA) a else b
+        // Coil грузит из сети (с дисковым кэшем), показывает fallback
+        // градиент пока картинка не пришла. После загрузки запускаем
+        // cross-fade. Если сеть упала — на target останется fallback,
+        // и пользователь увидит цветной градиент вместо чёрного экрана.
+        target.load(photoUrl) {
+            placeholder(FALLBACK_BG_RES[fallbackIndex])
+            error(FALLBACK_BG_RES[fallbackIndex])
+            memoryCachePolicy(CachePolicy.ENABLED)
+            diskCachePolicy(CachePolicy.ENABLED)
+            listener(
+                onSuccess = { _, _ -> startFade(target, other) },
+                onError = { _, _ -> startFade(target, other) },
+            )
         }
         showingA = !showingA
+    }
+
+    private fun startFade(target: ImageView, other: ImageView) {
+        target.animate().alpha(1f).setDuration(FADE_DURATION_MS).start()
+        other.animate().alpha(0f).setDuration(FADE_DURATION_MS).start()
     }
 
     private fun refreshDefaultLabel() {

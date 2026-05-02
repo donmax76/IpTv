@@ -60,6 +60,19 @@
                 android:visibility="gone"
                 android:contentDescription="@string/back"/>
 
+            <!-- Touch-кнопка: открыть список каналов. На пульте то же
+                 самое делает DPAD_LEFT, на телефоне — нажатие сюда. -->
+            <ImageButton
+                android:id="@+id/btnTouchChannelList"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/ic_channels"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/channels"
+                android:padding="6dp"
+                android:focusable="false"
+                android:tint="@android:color/white"/>
+
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
@@ -190,6 +203,20 @@
                 android:src="@drawable/ic_aspect_ratio"
                 android:visibility="gone"
                 android:contentDescription="@string/aspect_ratio"/>
+
+            <!-- Touch-кнопка: открыть правое меню плеера (Аудио, Скорость,
+                 PiP, Блокировка, Соотношение сторон). На пульте то же
+                 самое делает DPAD_RIGHT. -->
+            <ImageButton
+                android:id="@+id/btnTouchRightMenu"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@drawable/ic_menu"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/settings"
+                android:padding="6dp"
+                android:focusable="false"
+                android:tint="@android:color/white"/>
 
         </LinearLayout>
 
