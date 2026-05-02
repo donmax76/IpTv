@@ -56,6 +56,11 @@ object ChannelMetaLookup {
     data class Meta(val logoUrl: String?, val tvgId: String?)
 
     private val byName = HashMap<String, Meta>(8000)
+    // Параллельный fuzzy-индекс: fuzzyKey(name) → Meta. Для каждого
+    // канала из iptv-org добавляется ещё запись по fuzzy-ключу. Это
+    // позволяет матчить плейлисты с suffix'ами ("Cartoon Network HD")
+    // на голые имена ("Cartoon Network") за O(1).
+    private val byFuzzy = HashMap<String, Meta>(8000)
     @Volatile private var loaded = false
     private val loadingStarted = AtomicBoolean(false)
     private val listeners = mutableListOf<() -> Unit>()
@@ -74,7 +79,13 @@ object ChannelMetaLookup {
     @Synchronized
     fun lookup(channelName: String): Meta? {
         if (!loaded || channelName.isBlank()) return null
-        return byName[normalize(channelName)]
+        // 1. Точное совпадение по нормализованному имени.
+        byName[normalize(channelName)]?.let { return it }
+        // 2. Fuzzy: убираем HD/SD/4K/UK/RU и хвостовые цифры. Например
+        //    "Cartoon Network HD" matches "Cartoon Network".
+        val fuzzy = EpgRepository.fuzzyKey(channelName)
+        if (fuzzy.isNotEmpty()) byFuzzy[fuzzy]?.let { return it }
+        return null
     }
 
     /** Kick off a background load. Safe to call repeatedly. */
@@ -134,15 +145,21 @@ object ChannelMetaLookup {
                 val logo = o.optString("logo", "").takeIf { it.isNotEmpty() }
                 if (logo == null && tvgId == null) continue
                 val key = normalize(name)
+                val meta = Meta(logo, tvgId)
                 if (key.isNotEmpty() && key !in byName) {
-                    byName[key] = Meta(logo, tvgId)
+                    byName[key] = meta
+                    val fk = EpgRepository.fuzzyKey(name)
+                    if (fk.isNotEmpty() && fk !in byFuzzy) byFuzzy[fk] = meta
                 }
                 // Also index alternative names
                 val alt = o.optJSONArray("alt_names") ?: continue
                 for (j in 0 until alt.length()) {
-                    val k = normalize(alt.optString(j, ""))
+                    val altName = alt.optString(j, "")
+                    val k = normalize(altName)
                     if (k.isNotEmpty() && k !in byName) {
-                        byName[k] = Meta(logo, tvgId)
+                        byName[k] = meta
+                        val fk = EpgRepository.fuzzyKey(altName)
+                        if (fk.isNotEmpty() && fk !in byFuzzy) byFuzzy[fk] = meta
                     }
                 }
             }
