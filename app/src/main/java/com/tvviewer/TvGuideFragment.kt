@@ -208,8 +208,31 @@ class TvGuideFragment : Fragment() {
         val channelsWithData = allChannelsWithEpg.count { it.programmes.isNotEmpty() }
         epgStatus.text = getString(R.string.epg_channels_count, channelsWithData)
         // Финальная диагностика — обновляем после того как всё посчитали.
-        val logosMatched = channels.count { ch ->
-            ch.logoUrl != null || ChannelMetaLookup.lookup(ch.name)?.logoUrl != null
+        // Разбиваем на категории чтобы видеть откуда лого:
+        //  fromM3U      — tvg-logo есть в плейлисте (включая favicon-fallback)
+        //  fromIptvOrg  — нашли через ChannelMetaLookup
+        //  noLogo       — не нашли никак
+        var logosFromM3U = 0
+        var logosFromIptvOrg = 0
+        var logosNone = 0
+        for (ch in channels) {
+            if (ch.logoUrl != null) logosFromM3U++
+            else if (ChannelMetaLookup.lookup(ch.name)?.logoUrl != null) logosFromIptvOrg++
+            else logosNone++
+        }
+        val logosMatched = logosFromM3U + logosFromIptvOrg
+        val ctx2 = context?.applicationContext
+        if (ctx2 != null) {
+            ErrorLogger.info(ctx2, "TVGUIDE",
+                "logos: m3u=$logosFromM3U iptv-org=$logosFromIptvOrg none=$logosNone | " +
+                "iptv-org-loaded=${ChannelMetaLookup.isLoaded()}")
+            // Примеры каналов БЕЗ лого — поможет понять что в них особенного.
+            val noLogoSample = channels.filter {
+                it.logoUrl == null && ChannelMetaLookup.lookup(it.name)?.logoUrl == null
+            }.take(5).joinToString { "${it.name}→${EpgRepository.fuzzyKey(it.name)}" }
+            if (noLogoSample.isNotEmpty()) {
+                ErrorLogger.info(ctx2, "TVGUIDE", "no-logo sample: $noLogoSample")
+            }
         }
         // Дамп: сколько ID/имён в плейлисте vs в EPG, сколько пересечений.
         // Это даёт понять, где теряется матч — в загрузке EPG, в его
