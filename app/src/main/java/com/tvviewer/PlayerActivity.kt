@@ -498,11 +498,23 @@ class PlayerActivity : BaseActivity() {
             }
         })
 
-        // Category chips in overlay
+        // Category chips in overlay — FlowLayoutManager для wrap'а на
+        // несколько строк, чтобы все категории видны сразу без скролла.
         val overlayCategoriesList = findViewById<RecyclerView>(R.id.overlayCategoriesList)
-        overlayCategoriesList.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+        overlayCategoriesList.layoutManager = FlowLayoutManager()
         val channels = ChannelDataHolder.allChannels
-        val cats = listOf(getString(R.string.all)) + channels.mapNotNull { it.group }.distinct().sorted()
+        val realCats = channels.mapNotNull { it.group?.split(';', ',', '|')?.firstOrNull()?.trim() }
+            .filter { it.isNotEmpty() && it.length <= 30 }
+            .distinct()
+            .sorted()
+        // Если у плейлиста нет категорий — скрываем строку чипов
+        // целиком (не показываем единственную "Все").
+        if (realCats.isEmpty()) {
+            overlayCategoriesList.visibility = View.GONE
+        } else {
+            overlayCategoriesList.visibility = View.VISIBLE
+        }
+        val cats = listOf(getString(R.string.all)) + realCats
         val catAdapter = CategoryAdapter(cats) { category ->
             overlaySelectedCategory = category
             filterOverlayChannels()
@@ -576,8 +588,11 @@ class PlayerActivity : BaseActivity() {
 
         val filtered = channels.withIndex().filter { (_, ch) ->
             val matchesSearch = query.isEmpty() || ch.name.lowercase().contains(query)
+            // Сравниваем по canonical group (первый сегмент до ';,|')
+            // чтобы chip "Culture" матчил каналы tagged "Culture;Education".
+            val canonicalGroup = ch.group?.split(';', ',', '|')?.firstOrNull()?.trim()
             val matchesCat = overlaySelectedCategory.isEmpty() || overlaySelectedCategory == allLabel ||
-                ch.group == overlaySelectedCategory
+                canonicalGroup == overlaySelectedCategory
             matchesSearch && matchesCat
         }
 
@@ -1135,6 +1150,11 @@ class PlayerActivity : BaseActivity() {
                         updateAudioTrackInfo()
                     }
 
+                    override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                        autoApplyAspectIfNeeded(videoSize)
+                        updateResolutionLabel(videoSize)
+                    }
+
                     override fun onPlayerError(error: PlaybackException) {
                         loadingIndicator.visibility = View.GONE
                         // BehindLiveWindowException — HLS отстал от live-окна;
@@ -1436,6 +1456,48 @@ class PlayerActivity : BaseActivity() {
             2 -> playerView.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIXED_HEIGHT
             3 -> playerView.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
         }
+    }
+
+    /** Если у канала ещё нет сохранённого aspect-режима — берём
+     *  «умный» auto: если source AR заметно ÝŸже экрана (4:3 в 16:9) —
+     *  RESIZE_MODE_ZOOM (заполняет высоту, кропает по бокам). Иначе
+     *  RESIZE_MODE_FIT (сохраняет пропорции). Это убирает чёрные
+     *  поля у каналов которые юзер раньше настраивал вручную.
+     *  Пользовательский per-channel override не трогаем. */
+    private fun autoApplyAspectIfNeeded(videoSize: androidx.media3.common.VideoSize) {
+        val url = currentUrl ?: return
+        if (videoSize.width <= 0 || videoSize.height <= 0) return
+        val saved = prefs.getChannelState(url).optInt("aspect", -1)
+        if (saved >= 0) return  // user already set a mode for this channel
+        val srcRatio = (videoSize.width.toFloat() *
+            (if (videoSize.pixelWidthHeightRatio > 0f) videoSize.pixelWidthHeightRatio else 1f)) /
+            videoSize.height.toFloat()
+        val view = playerView
+        val displayRatio = if (view.height > 0) view.width.toFloat() / view.height.toFloat() else 16f / 9f
+        playerView.resizeMode =
+            if (srcRatio < displayRatio * 0.95f) {
+                androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            } else {
+                androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+            }
+    }
+
+    /** Показывает разрешение текущего потока в нижнем info-bar
+     *  ("1920x1080" / "1280x720" / "720p" — в зависимости от высоты). */
+    private fun updateResolutionLabel(videoSize: androidx.media3.common.VideoSize) {
+        val tv = findViewById<TextView>(R.id.bottomResolutionLabel) ?: return
+        if (videoSize.width <= 0 || videoSize.height <= 0) {
+            tv.visibility = View.GONE
+            return
+        }
+        val tag = when {
+            videoSize.height >= 2000 -> "4K"
+            videoSize.height >= 1000 -> "${videoSize.height}p"
+            videoSize.height >= 700 -> "${videoSize.height}p"
+            else -> "${videoSize.width}x${videoSize.height}"
+        }
+        tv.text = tag
+        tv.visibility = View.VISIBLE
     }
 
     private fun saveCurrentChannelState() {
@@ -1903,6 +1965,14 @@ class PlayerActivity : BaseActivity() {
                 android.util.Log.d("PlayerActivity",
                     "key down: $kc (${KeyEvent.keyCodeToString(kc)})")
             }
+        }
+        // Любое нажатие при открытом списке каналов / категорий —
+        // продлевает таймер автоскрытия. Без этого пользователь
+        // переходит на категории, нажимает влево-вправо чтобы выбрать,
+        // а список успевает закрыться через 5 сек. Теперь активность =
+        // живёт пока юзер взаимодействует.
+        if (event.action == KeyEvent.ACTION_DOWN && channelListVisible) {
+            bumpChannelListIdleTimer()
         }
         // BACK / DPAD_RIGHT при открытом drawer'е — закрываем сами,
         // ДО того как DPAD_CENTER / OK успеет кликнуть какую-то

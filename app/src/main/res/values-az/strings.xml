@@ -127,4 +127,8 @@
     <string name="crash_report_header">Avtomatik xəta hesabatı.\n\n</string>
     <string name="copy_and_close">Kopyala və bağla</string>
     <string name="copied_paste_in_chat">Kopyalandı! Söhbətə yapışdırın.</string>
+    <string name="home_live">Canlı yayım</string>
+    <string name="home_default_playlist_format">Standart pleylist: %1$s</string>
+    <string name="home_no_default_playlist">«Pleylistlər»i açın və birini seçin — o standart olacaq</string>
+    <string name="home_choose_playlist_first">Əvvəlcə pleylist seçin</string>
 </resources>

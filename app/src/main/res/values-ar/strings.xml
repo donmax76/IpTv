@@ -27,4 +27,8 @@
     <string name="crash_report_header">تقرير خطأ تلقائي.\n\n</string>
     <string name="copy_and_close">نسخ وإغلاق</string>
     <string name="copied_paste_in_chat">تم النسخ! الصق في الدردشة.</string>
+    <string name="home_live">البث المباشر</string>
+    <string name="home_default_playlist_format">القائمة الافتراضية: %1$s</string>
+    <string name="home_no_default_playlist">افتح «القوائم» واختر واحدة — ستصبح الافتراضية</string>
+    <string name="home_choose_playlist_first">اختر قائمة أولاً</string>
 </resources>

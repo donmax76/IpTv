@@ -192,4 +192,8 @@
     <string name="crash_report_header">Automatic crash report.\n\n</string>
     <string name="copy_and_close">Copy and close</string>
     <string name="copied_paste_in_chat">Copied! Paste in chat.</string>
+    <string name="home_live">Live TV</string>
+    <string name="home_default_playlist_format">Default playlist: %1$s</string>
+    <string name="home_no_default_playlist">Open «Playlists» and pick one — it becomes your default</string>
+    <string name="home_choose_playlist_first">Choose a playlist first</string>
 </resources>

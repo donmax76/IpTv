@@ -1,16 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
     <item
+        android:id="@+id/nav_home"
+        android:icon="@drawable/ic_play"
+        android:title="@string/home_live"/>
+    <item
         android:id="@+id/nav_playlists"
         android:icon="@drawable/ic_playlist"
         android:title="@string/playlists"/>
-    <item
-        android:id="@+id/nav_channels"
-        android:icon="@drawable/ic_channels"
-        android:title="@string/channels"/>
-    <!-- ТВ Гид удалён по просьбе пользователя: программа сейчас
-         показывается прямо в списке каналов (now-playing бар под
-         каждой строкой). Отдельная вкладка дублирует информацию. -->
+    <!-- nav_channels удалён по просьбе пользователя: каналы теперь
+         доступны только из плеера (overlay со списком). HomeFragment +
+         PlaylistsFragment перекрывают весь use-case. -->
+    <!-- ТВ Гид удалён ранее: программа показывается прямо в списке. -->
     <item
         android:id="@+id/nav_favorites"
         android:icon="@drawable/ic_favorite"

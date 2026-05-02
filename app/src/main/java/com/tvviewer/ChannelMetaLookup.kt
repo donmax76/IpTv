@@ -66,6 +66,11 @@ object ChannelMetaLookup {
     // позволяет матчить плейлисты с suffix'ами ("Cartoon Network HD")
     // на голые имена ("Cartoon Network") за O(1).
     private val byFuzzy = HashMap<String, Meta>(8000)
+    // Если на один fuzzyKey претендуют несколько разных каналов
+    // ("Amedia 1" и "Amedia 2" → "amedia") — обе записи бесполезны:
+    // мы не можем отличить какую вернуть. Помечаем такие ключи
+    // как ambiguous, удаляем из byFuzzy и больше не используем.
+    private val ambiguousFuzzy = HashSet<String>(256)
     @Volatile private var loaded = false
     private val loadingStarted = AtomicBoolean(false)
     private val listeners = mutableListOf<() -> Unit>()
@@ -100,7 +105,12 @@ object ChannelMetaLookup {
         if (!loaded || channelName.isBlank()) return null
         // 1. Точное совпадение по нормализованному имени.
         byName[normalize(channelName)]?.let { return it }
-        // 2. Fuzzy: убираем HD/SD/4K/UK/RU и хвостовые цифры. Например
+        // 2. Fuzzy ОТКЛЮЧЕН для каналов с цифрой в конце имени:
+        //    "Amedia 2" → "amedia" коллапсирует с "Amedia 1" и
+        //    отдаёт чужие данные. Лучше null чем wrong-data.
+        val tail = channelName.trimEnd()
+        if (tail.isNotEmpty() && tail.last().isDigit()) return null
+        // 3. Fuzzy: убираем HD/SD/4K/UK/RU и т.д. Например
         //    "Cartoon Network HD" matches "Cartoon Network".
         val fuzzy = EpgRepository.fuzzyKey(channelName)
         if (fuzzy.isNotEmpty()) byFuzzy[fuzzy]?.let { return it }
@@ -244,15 +254,13 @@ object ChannelMetaLookup {
                 val meta = Meta(finalLogo, tvgId)
                 if (key.isNotEmpty() && key !in byName) {
                     byName[key] = meta
-                    val fk = EpgRepository.fuzzyKey(name)
-                    if (fk.isNotEmpty() && fk !in byFuzzy) byFuzzy[fk] = meta
+                    addFuzzy(EpgRepository.fuzzyKey(name), meta)
                 }
                 for (altName in altNames) {
                     val k = normalize(altName)
                     if (k.isNotEmpty() && k !in byName) {
                         byName[k] = meta
-                        val fk = EpgRepository.fuzzyKey(altName)
-                        if (fk.isNotEmpty() && fk !in byFuzzy) byFuzzy[fk] = meta
+                        addFuzzy(EpgRepository.fuzzyKey(altName), meta)
                     }
                 }
             }
@@ -261,6 +269,24 @@ object ChannelMetaLookup {
             Log.d(TAG, "indexed ${byName.size} channels")
         } catch (e: Throwable) {
             Log.e(TAG, "parseAndIndex failed", e)
+        }
+    }
+
+    /** Добавляет (или удаляет при коллизии) fuzzy-ключ. Если на тот же
+     *  ключ уже есть запись с ДРУГОЙ Meta — оба варианта удаляем,
+     *  ключ помечаем ambiguous и больше никогда не используем для
+     *  него byFuzzy[]. Это предотвращает кейс когда "Amedia 1" и
+     *  "Amedia 2" оба сводятся к "amedia" и выдают друг другу
+     *  чужой tvg-id из iptv-org. */
+    private fun addFuzzy(fk: String, meta: Meta) {
+        if (fk.isEmpty()) return
+        if (fk in ambiguousFuzzy) return
+        val existing = byFuzzy[fk]
+        if (existing == null) {
+            byFuzzy[fk] = meta
+        } else if (existing.tvgId != meta.tvgId || existing.logoUrl != meta.logoUrl) {
+            byFuzzy.remove(fk)
+            ambiguousFuzzy.add(fk)
         }
     }
 

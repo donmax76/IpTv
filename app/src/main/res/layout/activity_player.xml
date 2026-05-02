@@ -111,6 +111,24 @@
                 android:background="@drawable/bg_live_badge"
                 android:layout_marginEnd="6dp"/>
 
+            <!-- Разрешение текущего потока (1080p / 720p / 4K).
+                 Заполняется из onVideoSizeChanged когда плеер
+                 узнаёт реальный размер кадра. -->
+            <TextView
+                android:id="@+id/bottomResolutionLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@android:color/white"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:background="@drawable/bg_live_badge"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp"
+                android:paddingTop="2dp"
+                android:paddingBottom="2dp"
+                android:layout_marginEnd="6dp"
+                android:visibility="gone"/>
+
             <!-- Audio track info (shows track count) -->
             <TextView
                 android:id="@+id/audioTrackInfo"

@@ -594,19 +594,23 @@ object EpgRepository {
 
             result.values.forEach { it.sortBy { p -> p.start } }
 
-            // Fuzzy-зеркалирование в EPG-кэше нужно потому что
-            // playlist-side lookup пробует fuzzyKey, но если EPG
-            // содержит "amedia2" (точный id с цифрой), а fuzzyKey
-            // сводит "Amedia 2 (576p)" в "amedia" — точного ключа
-            // "amedia" в кэше нет, и матч не находит. Зеркалируем,
-            // используя ССЫЛКУ на тот же List<Programme> — это
-            // дополняет HashMap записями но не дублирует данные.
-            // Round 119 убрал это зеркалирование, в Round 126
-            // вернул потому что бьёт по матчу channel'ов с суффиксами.
+            // Fuzzy-зеркалирование. Сначала считаем сколько уникальных
+            // id сводятся к каждому fuzzyKey. Если на один fuzzy key
+            // претендуют несколько id (например "amedia1" и "amedia2"
+            // оба → "amedia") — зеркало НЕ создаём: иначе оба канала
+            // в плейлисте получат программу первого попавшегося id.
+            // Это и был баг "Amedia 1 и Amedia 2 одинаковые программы".
             val snapshot = result.toMap()
+            val fkCounts = HashMap<String, Int>(snapshot.size)
+            for ((id, _) in snapshot) {
+                val fk = fuzzyKey(id)
+                if (fk.isNotEmpty() && fk != id) {
+                    fkCounts[fk] = (fkCounts[fk] ?: 0) + 1
+                }
+            }
             for ((id, progs) in snapshot) {
                 val fk = fuzzyKey(id)
-                if (fk.isNotEmpty() && fk != id && !result.containsKey(fk)) {
+                if (fk.isNotEmpty() && fk != id && !result.containsKey(fk) && fkCounts[fk] == 1) {
                     result[fk] = progs
                 }
             }
@@ -1120,6 +1124,16 @@ object EpgRepository {
      *  обращения. Перебираем все возможные ключи в порядке от точного
      *  к фуззи, чтобы канал из любого плейлиста нашёл свою программу
      *  в общем кэше EPG. */
+    /** Канал с цифрой в конце имени ("Amedia 2", "ТНТ 4", "BBC 1"):
+     *  цифра — часть идентичности канала. Для таких пропускаем fuzzy
+     *  поиск, потому что fuzzyKey стрипает трейлинг-цифры и
+     *  "Amedia 1"/"Amedia 2" коллапсируют в один "amedia". */
+    private val numberedChannelRe = Regex("\\D\\s*\\d+\\s*$")
+    private fun isNumberedName(s: String?): Boolean {
+        if (s.isNullOrBlank()) return false
+        return numberedChannelRe.containsMatchIn(s)
+    }
+
     private fun lookupProgrammes(
         epg: Map<String, List<Programme>>,
         tvgId: String?,
@@ -1142,16 +1156,23 @@ object EpgRepository {
             }
         }
         // 3. Fuzzy-варианты (без HD/SD/UK/RU/(720p) и т.д.) — для
-        //    плейлистов с суффиксами имени.
-        if (!tvgId.isNullOrBlank()) {
-            fuzzyKey(tvgId).takeIf { it.isNotEmpty() }?.let(keys::add)
-        }
-        if (!channelName.isNullOrBlank()) {
-            fuzzyKey(channelName).takeIf { it.isNotEmpty() }?.let(keys::add)
-        }
-        if (!channelName.isNullOrBlank()) {
-            ChannelMetaLookup.lookup(channelName)?.tvgId?.let {
-                fuzzyKey(it).takeIf { k -> k.isNotEmpty() }?.let(keys::add)
+        //    плейлистов с суффиксами имени. ОТКЛЮЧАЕМ для каналов с
+        //    цифрой в конце ("Amedia 2", "ТНТ 4") — иначе они оба
+        //    схлопнутся в "amedia"/"тнт" и подцепят одну и ту же
+        //    программу. Если точного матча нет — лучше показать
+        //    "программа недоступна" чем чужую.
+        val numbered = isNumberedName(tvgId) || isNumberedName(channelName)
+        if (!numbered) {
+            if (!tvgId.isNullOrBlank()) {
+                fuzzyKey(tvgId).takeIf { it.isNotEmpty() }?.let(keys::add)
+            }
+            if (!channelName.isNullOrBlank()) {
+                fuzzyKey(channelName).takeIf { it.isNotEmpty() }?.let(keys::add)
+            }
+            if (!channelName.isNullOrBlank()) {
+                ChannelMetaLookup.lookup(channelName)?.tvgId?.let {
+                    fuzzyKey(it).takeIf { k -> k.isNotEmpty() }?.let(keys::add)
+                }
             }
         }
         return keys.firstNotNullOfOrNull { epg[it] }

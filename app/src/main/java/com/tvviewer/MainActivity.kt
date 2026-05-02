@@ -36,8 +36,8 @@ class MainActivity : BaseActivity() {
 
         bottomNav.setOnItemSelectedListener { item ->
             when (item.itemId) {
+                R.id.nav_home -> showFragment(HomeFragment.TAG, ::HomeFragment)
                 R.id.nav_playlists -> showFragment(PlaylistsFragment.TAG, ::PlaylistsFragment)
-                R.id.nav_channels -> showFragment(ChannelsFragment.TAG, ::ChannelsFragment)
                 R.id.nav_favorites -> showFragment(FavoritesFragment.TAG, ::FavoritesFragment)
                 R.id.nav_settings -> { openSettings(); false /* don't actually select */ }
                 else -> false
@@ -55,7 +55,7 @@ class MainActivity : BaseActivity() {
         }
 
         if (savedInstanceState == null) {
-            bottomNav.selectedItemId = R.id.nav_playlists
+            bottomNav.selectedItemId = R.id.nav_home
 
             // Auto-check for updates on start
             checkForUpdatesOnStart()
@@ -98,7 +98,9 @@ class MainActivity : BaseActivity() {
             window.decorView.post {
                 when (tab) {
                     0 -> showFragment(PlaylistsFragment.TAG, ::PlaylistsFragment)
-                    1 -> showFragment(ChannelsFragment.TAG, ::ChannelsFragment)
+                    // tab=1 раньше указывал на Channels — теперь возвращаем
+                    // на Home (стартовый экран Live/Playlists).
+                    1 -> showFragment(HomeFragment.TAG, ::HomeFragment)
                     2 -> showFragment(FavoritesFragment.TAG, ::FavoritesFragment)
                     3 -> showFragment(RecentFragment.TAG, ::RecentFragment)
                     4 -> openSettings()
@@ -136,10 +138,59 @@ class MainActivity : BaseActivity() {
         return true
     }
 
+    /** Старый switchToChannels: теперь сразу запускает плеер с
+     *  выбранным плейлистом вместо переключения на ChannelsFragment.
+     *  Каналы больше не доступны как отдельная вкладка. */
     fun switchToChannels(playlistName: String, playlistUrl: String) {
+        prefs.lastPlaylistUrl = playlistUrl
+        prefs.lastPlaylistName = playlistName
         ChannelDataHolder.pendingPlaylistName = playlistName
         ChannelDataHolder.pendingPlaylistUrl = playlistUrl
-        bottomNav.selectedItemId = R.id.nav_channels
+        playPlaylist(playlistName, playlistUrl)
+    }
+
+    fun openPlaylistsTab() {
+        bottomNav.selectedItemId = R.id.nav_playlists
+    }
+
+    fun openHomeTab() {
+        bottomNav.selectedItemId = R.id.nav_home
+    }
+
+    /** Загружает плейлист в фоне и запускает плеер на первом
+     *  (или последнем сохранённом) канале. */
+    private fun playPlaylist(name: String, url: String) {
+        val ctx = applicationContext
+        lifecycleScope.launch {
+            try {
+                val res = PlaylistRepository.fetchPlaylist(url, ctx)
+                val custom = prefs.customChannels.map { (n, u) -> Channel(name = n, url = u) }
+                val all = res.channels + custom
+                if (all.isEmpty()) {
+                    android.widget.Toast.makeText(ctx, R.string.load_failed, android.widget.Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+                ChannelDataHolder.allChannels = all
+                val lastChan = prefs.lastChannelUrl
+                val idx = all.indexOfFirst { it.url == lastChan }.let { if (it < 0) 0 else it }
+                ChannelDataHolder.currentChannelIndex = idx
+                val target = all[idx]
+                prefs.pushRecent(target.url)
+                val intent = Intent(this@MainActivity, PlayerActivity::class.java).apply {
+                    putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, target.name)
+                    putExtra(PlayerActivity.EXTRA_CHANNEL_URL, target.url)
+                    putExtra(PlayerActivity.EXTRA_CHANNEL_INDEX, idx)
+                }
+                if (prefs.playerType == AppPreferences.PLAYER_EXTERNAL) {
+                    ctx.launchExternalVideo(target.url)
+                } else {
+                    startActivity(intent)
+                }
+            } catch (e: Exception) {
+                ErrorLogger.logException(ctx, e)
+                android.widget.Toast.makeText(ctx, R.string.load_failed, android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     fun openSettings() {
@@ -255,8 +306,8 @@ class MainActivity : BaseActivity() {
     }
 
     private val sideNavItemIds = intArrayOf(
+        R.id.side_nav_home,
         R.id.side_nav_playlists,
-        R.id.side_nav_channels,
         R.id.side_nav_favorites,
         R.id.side_nav_recent,
         R.id.side_nav_settings,
@@ -281,13 +332,13 @@ class MainActivity : BaseActivity() {
 
     private fun handleSideNavSelection(itemId: Int) {
         when (itemId) {
+            R.id.side_nav_home -> {
+                showFragment(HomeFragment.TAG, ::HomeFragment)
+                bottomNav.selectedItemId = R.id.nav_home
+            }
             R.id.side_nav_playlists -> {
                 showFragment(PlaylistsFragment.TAG, ::PlaylistsFragment)
                 bottomNav.selectedItemId = R.id.nav_playlists
-            }
-            R.id.side_nav_channels -> {
-                showFragment(ChannelsFragment.TAG, ::ChannelsFragment)
-                bottomNav.selectedItemId = R.id.nav_channels
             }
             R.id.side_nav_favorites -> {
                 showFragment(FavoritesFragment.TAG, ::FavoritesFragment)
@@ -371,8 +422,8 @@ class MainActivity : BaseActivity() {
     }
 
     private val tabIds = listOf(
+        R.id.nav_home,
         R.id.nav_playlists,
-        R.id.nav_channels,
         R.id.nav_favorites,
         R.id.nav_settings
     )

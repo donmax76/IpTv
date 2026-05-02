@@ -76,8 +76,6 @@ class PlaylistsFragment : Fragment() {
         return inflater.inflate(R.layout.fragment_playlists, container, false)
     }
 
-    private var autoLoaded = false
-
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         prefs = AppPreferences(requireContext())
@@ -118,16 +116,10 @@ class PlaylistsFragment : Fragment() {
         recyclerView.adapter = adapter
 
         refreshPlaylists()
-
-        // Auto-load last playlist if channels are empty
-        if (!autoLoaded && ChannelDataHolder.allChannels.isEmpty()) {
-            autoLoaded = true
-            val lastUrl = prefs.lastPlaylistUrl
-            val lastName = prefs.lastPlaylistName
-            if (!lastUrl.isNullOrBlank()) {
-                (activity as? MainActivity)?.switchToChannels(lastName ?: "", lastUrl)
-            }
-        }
+        // Auto-load last playlist убран: точкой входа теперь служит
+        // HomeFragment с кнопкой «Прямой эфир». Без этого юзер
+        // открывает «Плейлисты» чтобы выбрать другой, а его сразу
+        // редиректит в плеер с прошлым.
     }
 
     private fun pasteUrlFromClipboard() {

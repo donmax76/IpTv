@@ -293,4 +293,8 @@
     <string name="crash_report_header">Автоматический отчёт об ошибке.\n\n</string>
     <string name="copy_and_close">Копировать и закрыть</string>
     <string name="copied_paste_in_chat">Скопировано! Вставьте в чат.</string>
+    <string name="home_live">Прямой эфир</string>
+    <string name="home_default_playlist_format">Плейлист по умолчанию: %1$s</string>
+    <string name="home_no_default_playlist">Откройте «Плейлисты» и выберите один — он станет плейлистом по умолчанию</string>
+    <string name="home_choose_playlist_first">Сначала выберите плейлист</string>
 </resources>

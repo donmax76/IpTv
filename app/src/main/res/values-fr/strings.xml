@@ -27,4 +27,8 @@
     <string name="crash_report_header">Rapport d\'erreur automatique.\n\n</string>
     <string name="copy_and_close">Copier et fermer</string>
     <string name="copied_paste_in_chat">Copié ! Collez dans le chat.</string>
+    <string name="home_live">TV en direct</string>
+    <string name="home_default_playlist_format">Playlist par défaut : %1$s</string>
+    <string name="home_no_default_playlist">Ouvrez «Playlists» et choisissez-en une — elle deviendra celle par défaut</string>
+    <string name="home_choose_playlist_first">Choisissez d\'abord une playlist</string>
 </resources>
