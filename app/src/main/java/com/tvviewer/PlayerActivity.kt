@@ -17,6 +17,7 @@ import android.util.Log
 import android.view.GestureDetector
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.ViewTreeObserver
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
@@ -92,6 +93,10 @@ class PlayerActivity : BaseActivity() {
 
     private lateinit var playerView: PlayerView
     private lateinit var controlsOverlay: RelativeLayout
+    // Listeners on viewTreeObserver — сохраняем чтобы снять в onDestroy
+    // иначе они удерживают Activity (memory leak — Round 129 audit).
+    private var controlsFocusListener: ViewTreeObserver.OnGlobalFocusChangeListener? = null
+    private var overlayFocusListener: ViewTreeObserver.OnGlobalFocusChangeListener? = null
     private lateinit var topBar: LinearLayout
     private lateinit var btnBack: ImageButton
     private lateinit var channelName: TextView
@@ -394,12 +399,15 @@ class PlayerActivity : BaseActivity() {
             topBar.getChildAt(i).onFocusChangeListener = keepAliveListener
         }
         // Same for the centre play / nav row, which has buttons too.
-        controlsOverlay.viewTreeObserver.addOnGlobalFocusChangeListener { _, newFocus ->
+        // Сохраняем ссылку чтобы снять листенер в onDestroy — иначе
+        // ViewTreeObserver удерживает Activity (Round 129 audit).
+        controlsFocusListener = ViewTreeObserver.OnGlobalFocusChangeListener { _, newFocus ->
             if (newFocus != null && controlsVisible &&
                 (isFocusInTopBar() || isInsideControlsOverlay(newFocus))) {
                 scheduleHideControls()
             }
         }
+        controlsOverlay.viewTreeObserver.addOnGlobalFocusChangeListener(controlsFocusListener)
 
         btnPlayPause.setOnClickListener {
             player?.let { p ->
@@ -510,7 +518,8 @@ class PlayerActivity : BaseActivity() {
                 if (dx != 0 || dy != 0) bumpChannelListIdleTimer()
             }
         })
-        overlayCategoriesList.viewTreeObserver.addOnGlobalFocusChangeListener { _, newFocus ->
+        // Тот же подход — сохраняем listener чтобы снять в onDestroy.
+        overlayFocusListener = ViewTreeObserver.OnGlobalFocusChangeListener { _, newFocus ->
             if (newFocus != null && channelListVisible) {
                 var p: View? = newFocus
                 while (p != null) {
@@ -519,6 +528,7 @@ class PlayerActivity : BaseActivity() {
                 }
             }
         }
+        overlayCategoriesList.viewTreeObserver.addOnGlobalFocusChangeListener(overlayFocusListener)
 
         setupOverlayChannelList()
     }
@@ -2274,6 +2284,25 @@ class PlayerActivity : BaseActivity() {
 
     override fun onDestroy() {
         saveCurrentChannelState()
+        // Снимаем ViewTreeObserver-listeners чтобы Activity не утекала.
+        try {
+            controlsFocusListener?.let {
+                if (::controlsOverlay.isInitialized)
+                    controlsOverlay.viewTreeObserver.removeOnGlobalFocusChangeListener(it)
+            }
+            overlayFocusListener?.let {
+                if (::overlayCategoriesList.isInitialized)
+                    overlayCategoriesList.viewTreeObserver.removeOnGlobalFocusChangeListener(it)
+            }
+        } catch (_: Throwable) {}
+        controlsFocusListener = null
+        overlayFocusListener = null
+        // Снимаем pendingSeekListener если он висит — иначе при
+        // быстрых переключениях канала листенеры копятся.
+        try {
+            pendingSeekListener?.let { player?.removeListener(it) }
+        } catch (_: Throwable) {}
+        pendingSeekListener = null
         super.onDestroy()
         hideHandler.removeCallbacks(hideRunnable)
         clockHandler.removeCallbacks(clockRunnable)

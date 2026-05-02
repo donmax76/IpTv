@@ -2,6 +2,7 @@ package com.tvviewer
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -106,11 +107,14 @@ object ChannelMetaLookup {
         return null
     }
 
-    /** Kick off a background load. Safe to call repeatedly. */
+    /** Kick off a background load. Safe to call repeatedly.
+     *  Использует TVViewerApp.applicationScope (coroutine, отменяемая
+     *  через SupervisorJob), а не сырой Thread{} — на 256 MB heap
+     *  сырые потоки накапливаются если приложение перезапускается. */
     fun ensureLoaded(context: Context) {
         if (loaded) return
         if (!loadingStarted.compareAndSet(false, true)) return
-        Thread {
+        TVViewerApp.applicationScope.launch {
             try {
                 // 1. Сначала загружаем logos.json и строим карту
                 //    channel_id → logo_url. iptv-org держит лого в
@@ -132,10 +136,10 @@ object ChannelMetaLookup {
                 val text = if (fresh) cache.readText() else fetchAndCacheUrl(URL, cache)
                 if (text != null) parseAndIndex(text, logosByChannel)
                 if (!fresh) {
-                    Thread { fetchAndCacheUrl(URL, cache) }.start()
+                    TVViewerApp.applicationScope.launch { fetchAndCacheUrl(URL, cache) }
                 }
                 if (!logosFresh) {
-                    Thread { fetchAndCacheUrl(LOGOS_URL, logosCache) }.start()
+                    TVViewerApp.applicationScope.launch { fetchAndCacheUrl(LOGOS_URL, logosCache) }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "ensureLoaded failed", e)
@@ -150,7 +154,7 @@ object ChannelMetaLookup {
                     }
                 }
             }
-        }.start()
+        }
     }
 
     private fun fetchAndCacheUrl(url: String, cache: File): String? {

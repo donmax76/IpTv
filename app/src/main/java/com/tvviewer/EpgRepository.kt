@@ -183,9 +183,10 @@ object EpgRepository {
                 }
                 results += emptyMap()
             }
-            // Подсказка GC между источниками — на 256MB heap
-            // освобождаем гигабайты строк перед следующим парсом.
-            System.gc()
+            // System.gc() убран: на ARM-CPU X4 X4 он блокирует main
+            // thread на 100+мс и часто срабатывает как ANR
+            // (audit Round 129). JVM-GC сам справится с давлением,
+            // его подсказки только мешают.
         }
         lastFetchSummary = summary
         lastFetchErrors = errors
