@@ -114,11 +114,12 @@ class TVViewerApp : Application(), ImageLoaderFactory {
                     try { f.delete() } catch (_: Exception) {}
                 }
             }
-            // Старый _v2 кэш EPG (с playlist-фильтром) больше не
-            // используется — Round 101 хранит все каналы. Удаляем
-            // чтобы не занимал ~3 MB на диске.
+            // Чистим устаревшие версии EPG-кэша. v2 был с playlist-
+            // фильтром (Round 101+), v3 без fuzzy-mirror (Round 119+).
+            // Текущая v4 с fuzzy-mirror восстановлен (Round 126).
             try {
                 java.io.File(filesDir, "epg_cache_v2.json").delete()
+                java.io.File(filesDir, "epg_cache_v3.json").delete()
                 java.io.File(filesDir, "epg_cache.json").delete()
             } catch (_: Exception) {}
         } catch (_: Exception) {}

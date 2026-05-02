@@ -36,7 +36,7 @@ object EpgRepository {
     // мог достать свои программы из общего кэша. Старый _v2 файл
     // содержал отфильтрованный кэш и его нужно выбросить — поэтому
     // меняю имя.
-    private const val EPG_CACHE_FILE = "epg_cache_v3.json"
+    private const val EPG_CACHE_FILE = "epg_cache_v4.json"
     private const val EPG_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000L // 6 hours
 
     private val client: OkHttpClient = run {
@@ -559,11 +559,22 @@ object EpgRepository {
 
             result.values.forEach { it.sortBy { p -> p.start } }
 
-            // Fuzzy-зеркалирование убрано: после Round 118
-            // lookupProgrammes сам пробует fuzzyKey'и при поиске,
-            // а зеркалирование тут только дубило кэш в 2-3 раза.
-            // display-name мирроринг оставлен (выше) — он нужен для
-            // cross-script матчинга (latin id vs Cyrillic playlist).
+            // Fuzzy-зеркалирование в EPG-кэше нужно потому что
+            // playlist-side lookup пробует fuzzyKey, но если EPG
+            // содержит "amedia2" (точный id с цифрой), а fuzzyKey
+            // сводит "Amedia 2 (576p)" в "amedia" — точного ключа
+            // "amedia" в кэше нет, и матч не находит. Зеркалируем,
+            // используя ССЫЛКУ на тот же List<Programme> — это
+            // дополняет HashMap записями но не дублирует данные.
+            // Round 119 убрал это зеркалирование, в Round 126
+            // вернул потому что бьёт по матчу channel'ов с суффиксами.
+            val snapshot = result.toMap()
+            for ((id, progs) in snapshot) {
+                val fk = fuzzyKey(id)
+                if (fk.isNotEmpty() && fk != id && !result.containsKey(fk)) {
+                    result[fk] = progs
+                }
+            }
             if (!lastFetchPeek.startsWith("PARSER ERROR")) {
                 val totalProgs = result.values.sumOf { it.size }
                 lastFetchPeek = "Parsed: ${result.size} channels, $totalProgs programmes (raw=${rawResult.size}, dn=${displayNamesById.size})" +
