@@ -227,9 +227,14 @@ object ChannelMetaLookup {
         }
     }
 
-    private fun normalize(s: String): String =
+    private fun normalize(s: String): String {
         // Unicode-aware: \p{L} держит буквы любого алфавита (Cyrillic,
         // азербайджанский ə, türk ç, и пр.), \p{N} — цифры. Должно
         // совпадать с EpgRepository.normalizeId / TvGuideFragment.norm.
-        s.lowercase().replace(Regex("[^\\p{L}\\p{N}]"), "")
+        // Plus diacritics-fold: 'Türkiye' → 'turkiye' для матчинга
+        // ASCII-вариантов плейлиста с UTF-8 именами в iptv-org.
+        val folded = java.text.Normalizer.normalize(s.lowercase(), java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+        return folded.replace(Regex("[^\\p{L}\\p{N}]"), "")
+    }
 }

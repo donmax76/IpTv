@@ -926,11 +926,17 @@ object EpgRepository {
         return result
     }
 
-    private fun normalizeId(id: String): String =
+    private fun normalizeId(id: String): String {
         // \p{L} — любая буква (Cyrillic, Latin, Greek и т.д.), \p{N} — любая
         // цифра. Без этого "Первый канал" нормализовалось в "" и
         // русские каналы никогда не матчились с EPG по имени.
-        id.lowercase().replace(Regex("[^\\p{L}\\p{N}]"), "")
+        // Дополнительно сворачиваем латинскую диакритику ('Türkiye' →
+        // 'turkiye') чтобы плейлистные ASCII-варианты матчились с
+        // iptv-org записями содержащими нац. символы.
+        val folded = java.text.Normalizer.normalize(id.lowercase(), java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+        return folded.replace(Regex("[^\\p{L}\\p{N}]"), "")
+    }
 
     /** Аггрессивная нормализация для fuzzy-матча: normalizeId плюс
      *  отрезание суффиксов качества/региона/слота, которые часто есть
