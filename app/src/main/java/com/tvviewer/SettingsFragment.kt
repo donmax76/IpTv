@@ -124,11 +124,11 @@ class SettingsFragment : Fragment() {
         statusView ?: return
         val last = prefs.epgLastUpdate
         if (last <= 0) {
-            statusView.text = "Нажмите чтобы обновить сейчас"
+            statusView.text = getString(R.string.epg_click_to_refresh)
         } else {
             val ts = SimpleDateFormat("HH:mm dd.MM", Locale.getDefault())
                 .format(java.util.Date(last))
-            statusView.text = "Последнее обновление: $ts"
+            statusView.text = getString(R.string.epg_last_update_prefix, ts)
         }
     }
 
@@ -145,12 +145,12 @@ class SettingsFragment : Fragment() {
 
     private fun triggerManualEpgRefresh(statusView: TextView?) {
         if (manualRefreshJob?.isActive == true) {
-            Toast.makeText(requireContext(), "Обновление уже идёт", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), getString(R.string.epg_update_in_progress), Toast.LENGTH_SHORT).show()
             return
         }
         val urls = prefs.allEpgUrls()
         if (urls.isEmpty()) {
-            Toast.makeText(requireContext(), "Сначала добавьте EPG-источник", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), getString(R.string.epg_add_source_first), Toast.LENGTH_SHORT).show()
             return
         }
         // Защита "уже обновлено сегодня" срабатывает ТОЛЬКО когда у нас
@@ -165,12 +165,12 @@ class SettingsFragment : Fragment() {
             val ts = SimpleDateFormat("HH:mm dd.MM", Locale.getDefault())
                 .format(java.util.Date(last))
             android.app.AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
-                .setTitle("Уже обновлено в $ts")
-                .setMessage("Обновить заново?")
-                .setPositiveButton("Обновить") { _, _ ->
+                .setTitle(getString(R.string.epg_already_updated, ts))
+                .setMessage(R.string.epg_refresh_again_confirm)
+                .setPositiveButton(R.string.epg_refresh_button) { _, _ ->
                     runEpgRefresh(statusView, urls)
                 }
-                .setNegativeButton("Отмена", null)
+                .setNegativeButton(R.string.cancel, null)
                 .show()
                 .installFocusListBackground()
             return
@@ -179,7 +179,7 @@ class SettingsFragment : Fragment() {
     }
 
     private fun runEpgRefresh(statusView: TextView?, urls: List<String>) {
-        statusView?.text = "Запускаю обновление…"
+        statusView?.text = getString(R.string.epg_starting_update)
         val ctx = requireContext().applicationContext
         // Подписываемся на live-прогресс из EpgRepository, чтобы
         // отображать "скачиваю / парсю / готово" в этой же строке.
@@ -200,21 +200,21 @@ class SettingsFragment : Fragment() {
                     // Иначе guard "уже обновлено" блокирует юзера хотя
                     // программ нет.
                     prefs.epgLastUpdate = System.currentTimeMillis()
+                    val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(java.util.Date())
                     view?.post {
-                        statusView?.text = "Готово: ${data.size} каналов, " +
-                            SimpleDateFormat("HH:mm", Locale.getDefault()).format(java.util.Date())
+                        statusView?.text = ctx.getString(R.string.epg_done_channels, data.size, timeStr)
                     }
-                    showToast(ctx, "ТВ Гид обновлён: ${data.size} каналов")
+                    showToast(ctx, ctx.getString(R.string.epg_guide_updated, data.size))
                 } else {
-                    view?.post { statusView?.text = "Источники пустые — попробуйте другой EPG" }
-                    showToast(ctx, "Источники не отдали программу. Проверьте URL.", Toast.LENGTH_LONG)
+                    view?.post { statusView?.text = ctx.getString(R.string.epg_sources_empty) }
+                    showToast(ctx, ctx.getString(R.string.epg_no_data_check_url), Toast.LENGTH_LONG)
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // Юзер ушёл из настроек, но fetchAll сам по себе
                 // продолжается в fetchScope — не показываем ошибку.
             } catch (t: Throwable) {
-                view?.post { statusView?.text = "Ошибка: ${t.javaClass.simpleName}" }
-                showToast(ctx, "Ошибка обновления: ${t.message?.take(80)}", Toast.LENGTH_LONG)
+                view?.post { statusView?.text = ctx.getString(R.string.epg_error_status, t.javaClass.simpleName) }
+                showToast(ctx, ctx.getString(R.string.epg_update_error, t.message?.take(80) ?: ""), Toast.LENGTH_LONG)
             } finally {
                 EpgRepository.onProgress = null
             }
@@ -283,12 +283,12 @@ class SettingsFragment : Fragment() {
         // Кнопка "Из списка": готовые источники EPG. FocusableDialog
         // даёт надёжную D-pad подсветку (тот же селектор что у
         // настроечных диалогов).
-        builder.setNeutralButton("Из списка") { _, _ ->
+        builder.setNeutralButton(getString(R.string.epg_from_list_button)) { _, _ ->
             val pairs = AppPreferences.SUGGESTED_EPG_URLS
             val titles = pairs.map { it.first }.toTypedArray()
             FocusableDialog.show(
                 requireContext(),
-                "Готовые EPG-источники",
+                getString(R.string.epg_preset_sources_title),
                 titles,
                 0
             ) { which ->
@@ -299,7 +299,7 @@ class SettingsFragment : Fragment() {
                     prefs.addEpgUrl(url)
                 }
                 label?.text = epgUrlsSummary()
-                Toast.makeText(requireContext(), "Добавлено: $url", Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), getString(R.string.epg_added_notification, url), Toast.LENGTH_SHORT).show()
             }
         }
         builder.setNegativeButton(R.string.cancel, null)

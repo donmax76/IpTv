@@ -99,10 +99,17 @@ object LearnedLogos {
     private fun persist(context: Context) {
         try {
             // Если карта раздулась — оставим самые свежие 10K (HashMap
-            // не упорядочен, так что просто обрезаем до лимита).
+            // не упорядочен, так что просто обрезаем до лимита.
+            // Audit #16: iterator-based truncation вместо take().associate
+            // — без промежуточного List<Pair> и Map.
             if (map.size > MAX_ENTRIES) {
-                val keep = map.entries.take(MAX_ENTRIES).associate { it.key to it.value }
-                map.clear(); map.putAll(keep)
+                val it = map.entries.iterator()
+                var i = 0
+                while (it.hasNext()) {
+                    it.next()
+                    if (i >= MAX_ENTRIES) it.remove()
+                    i++
+                }
             }
             val obj = JSONObject()
             for ((k, v) in map) obj.put(k, v)

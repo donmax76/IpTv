@@ -164,4 +164,32 @@
     <string name="epg_urls_add">Add EPG URL</string>
     <string name="epg_urls_empty">No sources configured</string>
     <string name="epg_urls_count">Active sources: %d</string>
+
+    <string name="epg_click_to_refresh">Tap to refresh now</string>
+    <string name="epg_last_update_prefix">Last update: %1$s</string>
+    <string name="epg_update_in_progress">Update already running</string>
+    <string name="epg_add_source_first">Add an EPG source first</string>
+    <string name="epg_already_updated">Already updated at %1$s</string>
+    <string name="epg_refresh_again_confirm">Refresh again?</string>
+    <string name="epg_refresh_button">Refresh</string>
+    <string name="epg_starting_update">Starting update…</string>
+    <string name="epg_done_channels">Done: %1$d channels, %2$s</string>
+    <string name="epg_guide_updated">TV Guide updated: %1$d channels</string>
+    <string name="epg_sources_empty">Sources returned nothing — try a different EPG</string>
+    <string name="epg_no_data_check_url">Sources returned no programme data. Check URL.</string>
+    <string name="epg_error_status">Error: %1$s</string>
+    <string name="epg_update_error">Update error: %1$s</string>
+    <string name="epg_from_list_button">From list</string>
+    <string name="epg_preset_sources_title">Preset EPG sources</string>
+    <string name="epg_added_notification">Added: %1$s</string>
+    <string name="epg_refresh_section_title">Refresh TV Guide</string>
+    <string name="epg_refresh_running_banner">TV Guide updating in background…</string>
+    <string name="no_epg_schedule">No EPG schedule</string>
+    <string name="no_current_program_data">No data on current programme.</string>
+    <string name="now_playing_label">Now playing</string>
+    <string name="up_next_label">Up next</string>
+    <string name="hint_close_with_back">← or Back — close</string>
+    <string name="crash_report_header">Automatic crash report.\n\n</string>
+    <string name="copy_and_close">Copy and close</string>
+    <string name="copied_paste_in_chat">Copied! Paste in chat.</string>
 </resources>

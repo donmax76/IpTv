@@ -14,8 +14,8 @@ import java.util.Date
 import java.util.Locale
 
 class OverlayChannelAdapter(
-    private val channels: List<Channel>,
-    private val epgData: Map<String, List<EpgRepository.Programme>>,
+    initialChannels: List<Channel>,
+    private var epgData: Map<String, List<EpgRepository.Programme>>,
     private var currentIndex: Int,
     private var favorites: Set<String> = emptySet(),
     private val onChannelClick: (Int) -> Unit,
@@ -24,6 +24,17 @@ class OverlayChannelAdapter(
     // о текущей программе на канале.
     private val onShowDetailsClick: ((Channel) -> Unit)? = null
 ) : RecyclerView.Adapter<OverlayChannelAdapter.ViewHolder>() {
+
+    private var channels: List<Channel> = initialChannels
+
+    /** Обновляет содержимое списка без пересоздания адаптера. Использует
+     *  notifyDataSetChanged потому что и список и индексы меняются
+     *  целиком (например при фильтре поиска). */
+    fun updateChannels(newChannels: List<Channel>, newCurrentIndex: Int) {
+        channels = newChannels
+        currentIndex = newCurrentIndex
+        notifyDataSetChanged()
+    }
 
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 

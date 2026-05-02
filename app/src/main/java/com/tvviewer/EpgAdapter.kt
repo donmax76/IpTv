@@ -78,7 +78,7 @@ class EpgAdapter(
             holder.nowProgress.progress = if (total > 0) ((elapsed / total) * 100).toInt() else 0
             holder.nowProgress.visibility = View.VISIBLE
         } else {
-            holder.nowTitle.text = "Нет EPG телепрограммы"
+            holder.nowTitle.text = holder.itemView.context.getString(R.string.no_epg_schedule)
             holder.nowTime.visibility = View.GONE
             holder.nowProgress.visibility = View.GONE
         }

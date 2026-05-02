@@ -360,7 +360,7 @@
                     android:textColor="#7C6CF7"
                     android:textSize="13sp"
                     android:textAllCaps="true"
-                    android:text="Сейчас в эфире"/>
+                    android:text="@string/now_playing_label"/>
 
                 <TextView
                     android:id="@+id/detailsNowTime"
@@ -402,7 +402,7 @@
                     android:textColor="#4ECDC4"
                     android:textSize="13sp"
                     android:textAllCaps="true"
-                    android:text="Далее"/>
+                    android:text="@string/up_next_label"/>
 
                 <TextView
                     android:id="@+id/detailsNextTime"
@@ -427,7 +427,7 @@
                     android:textColor="#707088"
                     android:textSize="12sp"
                     android:layout_marginTop="20dp"
-                    android:text="← или Назад — закрыть"/>
+                    android:text="@string/hint_close_with_back"/>
 
             </LinearLayout>
 

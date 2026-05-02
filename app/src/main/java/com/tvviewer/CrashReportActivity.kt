@@ -47,7 +47,7 @@ class CrashReportActivity : AppCompatActivity() {
                 val title = "[Android crash] " + errorText.lineSequence()
                     .firstOrNull { it.isNotBlank() }?.take(80).orEmpty()
                 val body = buildString {
-                    append("Автоматический отчёт об ошибке.\n\n")
+                    append(getString(R.string.crash_report_header))
                     append(GitHubReporter.systemInfo())
                     append("\n**Stacktrace**:\n```\n")
                     append(errorText.takeLast(4000))
@@ -59,11 +59,11 @@ class CrashReportActivity : AppCompatActivity() {
         layout.addView(reportBtn)
 
         val copyBtn = Button(this).apply {
-            text = "Копировать и закрыть"
+            text = getString(R.string.copy_and_close)
             setOnClickListener {
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("TVViewer Error", errorText))
-                Toast.makeText(this@CrashReportActivity, "Скопировано! Вставьте в чат.", Toast.LENGTH_LONG).show()
+                Toast.makeText(this@CrashReportActivity, getString(R.string.copied_paste_in_chat), Toast.LENGTH_LONG).show()
                 finish()
             }
         }

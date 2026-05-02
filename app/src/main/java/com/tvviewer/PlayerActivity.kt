@@ -588,21 +588,30 @@ class PlayerActivity : BaseActivity() {
         // Find current channel position in filtered list
         val filteredCurrentIndex = overlayFilteredIndices.indexOf(currentIndex)
 
-        overlayAdapter = OverlayChannelAdapter(overlayFilteredChannels, ChannelDataHolder.epgData, filteredCurrentIndex,
-            favorites = prefs.favorites,
-            onChannelClick = { filteredIndex ->
-                if (filteredIndex in overlayFilteredIndices.indices) {
-                    val realIndex = overlayFilteredIndices[filteredIndex]
-                    switchToChannel(realIndex)
-                    hideChannelList()
-                }
-            },
-            onFavoriteClick = { channel ->
-                toggleFavorite(channel)
-            },
-            onShowDetailsClick = { channel -> showChannelDetailsDialog(channel) }
-        )
-        overlayChannelsList.adapter = overlayAdapter
+        // Audit #10: переиспользуем существующий adapter если он есть
+        // (вместо создания нового на каждый keystroke в поиске).
+        // Старые адаптеры собирали мусор в GC и вызывали jank.
+        val existing = overlayAdapter
+        if (existing != null && overlayChannelsList.adapter === existing) {
+            existing.updateChannels(overlayFilteredChannels, filteredCurrentIndex)
+            existing.updateFavorites(prefs.favorites)
+        } else {
+            overlayAdapter = OverlayChannelAdapter(overlayFilteredChannels, ChannelDataHolder.epgData, filteredCurrentIndex,
+                favorites = prefs.favorites,
+                onChannelClick = { filteredIndex ->
+                    if (filteredIndex in overlayFilteredIndices.indices) {
+                        val realIndex = overlayFilteredIndices[filteredIndex]
+                        switchToChannel(realIndex)
+                        hideChannelList()
+                    }
+                },
+                onFavoriteClick = { channel ->
+                    toggleFavorite(channel)
+                },
+                onShowDetailsClick = { channel -> showChannelDetailsDialog(channel) }
+            )
+            overlayChannelsList.adapter = overlayAdapter
+        }
     }
 
     /** Показывает inline-панель с деталями программы (не отдельное
@@ -647,7 +656,7 @@ class PlayerActivity : BaseActivity() {
             nowTimeView.visibility = View.GONE
             nowDescView.visibility = View.GONE
             nowTitleView.visibility = View.VISIBLE
-            nowTitleView.text = "Нет данных о текущей программе."
+            nowTitleView.text = getString(R.string.no_current_program_data)
         }
 
         val nextTimeView = findViewById<android.widget.TextView>(R.id.detailsNextTime)

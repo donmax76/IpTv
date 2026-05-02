@@ -263,4 +263,34 @@
     <string name="epg_urls_add">Добавить URL EPG</string>
     <string name="epg_urls_empty">Источники не заданы</string>
     <string name="epg_urls_count">Активных источников: %d</string>
+
+    <!-- Round 131: вынесены захардкоженные русские строки чтобы
+         перевод на en/az покрывал ВСЁ — включая алерты и тосты. -->
+    <string name="epg_click_to_refresh">Нажмите чтобы обновить сейчас</string>
+    <string name="epg_last_update_prefix">Последнее обновление: %1$s</string>
+    <string name="epg_update_in_progress">Обновление уже идёт</string>
+    <string name="epg_add_source_first">Сначала добавьте EPG-источник</string>
+    <string name="epg_already_updated">Уже обновлено в %1$s</string>
+    <string name="epg_refresh_again_confirm">Обновить заново?</string>
+    <string name="epg_refresh_button">Обновить</string>
+    <string name="epg_starting_update">Запускаю обновление…</string>
+    <string name="epg_done_channels">Готово: %1$d каналов, %2$s</string>
+    <string name="epg_guide_updated">ТВ Гид обновлён: %1$d каналов</string>
+    <string name="epg_sources_empty">Источники пустые — попробуйте другой EPG</string>
+    <string name="epg_no_data_check_url">Источники не отдали программу. Проверьте URL.</string>
+    <string name="epg_error_status">Ошибка: %1$s</string>
+    <string name="epg_update_error">Ошибка обновления: %1$s</string>
+    <string name="epg_from_list_button">Из списка</string>
+    <string name="epg_preset_sources_title">Готовые EPG-источники</string>
+    <string name="epg_added_notification">Добавлено: %1$s</string>
+    <string name="epg_refresh_section_title">Обновить ТВ Гид</string>
+    <string name="epg_refresh_running_banner">Обновление ТВ Гида в фоне…</string>
+    <string name="no_epg_schedule">Нет EPG телепрограммы</string>
+    <string name="no_current_program_data">Нет данных о текущей программе.</string>
+    <string name="now_playing_label">Сейчас в эфире</string>
+    <string name="up_next_label">Далее</string>
+    <string name="hint_close_with_back">← или Назад — закрыть</string>
+    <string name="crash_report_header">Автоматический отчёт об ошибке.\n\n</string>
+    <string name="copy_and_close">Копировать и закрыть</string>
+    <string name="copied_paste_in_chat">Скопировано! Вставьте в чат.</string>
 </resources>

@@ -99,4 +99,32 @@
     <string name="update_url_hint">version.json URL. Varsayılan: github.com/donmax76/IpTv</string>
     <string name="update_url_hint_placeholder">Standart URL üçün boş buraxın</string>
     <string name="update_404_hint">gist.github.com-da version.json ilə Gist yaradın, raw URL-i yuxarıya yapışdırın</string>
+
+    <string name="epg_click_to_refresh">İndi yeniləmək üçün toxunun</string>
+    <string name="epg_last_update_prefix">Son yenilənmə: %1$s</string>
+    <string name="epg_update_in_progress">Yenilənmə artıq gedir</string>
+    <string name="epg_add_source_first">Əvvəlcə EPG-mənbə əlavə edin</string>
+    <string name="epg_already_updated">%1$s tarixində artıq yeniləndi</string>
+    <string name="epg_refresh_again_confirm">Yenidən yeniləyək?</string>
+    <string name="epg_refresh_button">Yenilə</string>
+    <string name="epg_starting_update">Yenilənmə başlayır…</string>
+    <string name="epg_done_channels">Hazır: %1$d kanal, %2$s</string>
+    <string name="epg_guide_updated">TV Bələdçisi yeniləndi: %1$d kanal</string>
+    <string name="epg_sources_empty">Mənbələr boşdur — başqa EPG sınayın</string>
+    <string name="epg_no_data_check_url">Mənbələr proqram verisi qaytarmadı. URL-i yoxlayın.</string>
+    <string name="epg_error_status">Xəta: %1$s</string>
+    <string name="epg_update_error">Yenilənmə xətası: %1$s</string>
+    <string name="epg_from_list_button">Siyahıdan</string>
+    <string name="epg_preset_sources_title">Hazır EPG mənbələri</string>
+    <string name="epg_added_notification">Əlavə edildi: %1$s</string>
+    <string name="epg_refresh_section_title">TV Bələdçisini yenilə</string>
+    <string name="epg_refresh_running_banner">TV Bələdçisi arxa planda yenilənir…</string>
+    <string name="no_epg_schedule">EPG-cədvəli yoxdur</string>
+    <string name="no_current_program_data">Cari proqram haqqında məlumat yoxdur.</string>
+    <string name="now_playing_label">İndi yayımda</string>
+    <string name="up_next_label">Növbəti</string>
+    <string name="hint_close_with_back">← və ya Geri — bağla</string>
+    <string name="crash_report_header">Avtomatik xəta hesabatı.\n\n</string>
+    <string name="copy_and_close">Kopyala və bağla</string>
+    <string name="copied_paste_in_chat">Kopyalandı! Söhbətə yapışdırın.</string>
 </resources>
