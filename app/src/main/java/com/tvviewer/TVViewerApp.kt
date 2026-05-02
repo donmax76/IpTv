@@ -32,9 +32,28 @@ class TVViewerApp : Application(), ImageLoaderFactory {
         }
         val ctx = javax.net.ssl.SSLContext.getInstance("TLS")
         ctx.init(null, arrayOf<javax.net.ssl.TrustManager>(trust), java.security.SecureRandom())
+        // User-Agent: некоторые CDN'ы (Cloudflare-проксирующие лого
+        // каналов) блокируют запросы с дефолтным "okhttp/4.x" UA или
+        // без UA. Подменяем на браузерный — это выручает большинство
+        // случаев когда логотипы есть в плейлисте, но не загружаются.
+        // Plus connect/read timeouts: 8с/10с — лого на медленном CDN
+        // не должно дёргать UI на 60+ секунд.
+        val uaInterceptor = okhttp3.Interceptor { chain ->
+            val req = chain.request().newBuilder()
+                .header("User-Agent",
+                    "Mozilla/5.0 (Linux; Android 11; TV Box) AppleWebKit/537.36 " +
+                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .build()
+            chain.proceed(req)
+        }
         val ok = OkHttpClient.Builder()
             .sslSocketFactory(ctx.socketFactory, trust)
             .hostnameVerifier { _, _ -> true }
+            .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .addInterceptor(uaInterceptor)
             .build()
         return ImageLoader.Builder(this)
             .okHttpClient(ok)
