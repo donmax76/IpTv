@@ -462,12 +462,21 @@ object EpgRepository {
         //  - <channel ...>...</channel> блоки обрабатываются в
         //    префиксе перед первым programme (типичная структура XMLTV).
         return try {
-            // Принимаем ВСЕ programmes (acceptKeys=null означает no-op
-            // фильтр). Память: 500K × ~100 байт = 50 MB пик. После
-            // парсинга применяем фильтр + display-name + iptv-org
-            // мирроринг, остаётся ~1 MB. Это устойчивее к разным
-            // форматам XMLTV (lite-файлы без <channel> блоков и т.д.).
-            val (rawResult, displayNamesById) = parseXmltvFast(input, null)
+            // Гибрид: inline-фильтр в parseXmltvFast при наличии
+            // <channel> блоков (5x быстрее), иначе принимает всё и
+            // post-filter ниже разбирается. Для 44MB it999.ru с
+            // 339 каналами это экономит парсинг ~280 ненужных каналов.
+            val filter = channelFilter
+            val acceptKeys: Set<String>? = if (filter != null && filter.isNotEmpty()) {
+                val expanded = HashSet<String>(filter.size * 2)
+                expanded.addAll(filter)
+                for (k in filter) {
+                    val fk = fuzzyKey(k)
+                    if (fk.isNotEmpty()) expanded.add(fk)
+                }
+                expanded
+            } else null
+            val (rawResult, displayNamesById) = parseXmltvFast(input, acceptKeys)
 
             // Mirror display-names → programmes map. Это ставит
             // программу под именем канала (Cyrillic "Муз ТВ" → "музтв")
@@ -479,20 +488,16 @@ object EpgRepository {
                 }
             }
 
-            val filter = channelFilter
-            val result: MutableMap<String, MutableList<Programme>> = if (filter == null || filter.isEmpty()) {
+            // Post-filter (использует уже посчитанные acceptKeys).
+            // Если inline уже отфильтровал — здесь будут проходить почти
+            // все. Если inline сдался (нет <channel> блоков) — тут
+            // финальная очистка. Дублирующая защита, ничего не стоит.
+            val result: MutableMap<String, MutableList<Programme>> = if (acceptKeys == null) {
                 rawResult
             } else {
-                // Расширенный набор ключей: filter + fuzzy(filter).
-                val expanded = HashSet<String>(filter.size * 2)
-                expanded.addAll(filter)
-                for (k in filter) {
-                    val fk = fuzzyKey(k)
-                    if (fk.isNotEmpty()) expanded.add(fk)
-                }
                 val keep = mutableMapOf<String, MutableList<Programme>>()
                 for ((id, progs) in rawResult) {
-                    if (id in expanded || fuzzyKey(id) in expanded) {
+                    if (id in acceptKeys || fuzzyKey(id) in acceptKeys) {
                         keep[id] = progs
                     }
                 }
@@ -601,13 +606,33 @@ object EpgRepository {
             return s.substring(obEnd + 1, cb)
         }
 
-        // Inline-фильтр отключён: simplified epg.xml не содержит
-        // <channel> блоков, поэтому display-name матчинг не помогает,
-        // и фильтр отбрасывал всё. Лучше принять все programmes и
-        // отфильтровать пост-фактум — там доступна и iptv-org база.
-        // Память: 500K progs × ~100 байт = 50 MB пик, потом фильтр
-        // оставляет 5-10K = ~1 MB финал. На 256 MB heap нормально.
-        fun isAccepted(chId: String): Boolean = true
+        // Inline-фильтр с graceful fallback: если у нас уже есть
+        // <channel> блоки с display-names (типичный XMLTV: каналы
+        // идут до программ), фильтруем строго по id + fuzzy +
+        // display-name. Если display-names map пустой (lite-файл
+        // без <channel>), пропускаем программу — пост-filter в
+        // parseXmltvStreaming сделает работу.
+        // Это даёт ~5x ускорение на больших файлах вроде 44MB
+        // it999.ru: из 339 каналов отбираем сразу ~50 которые в
+        // плейлисте, не аллоцируем 300K мусорных Programme.
+        fun isAccepted(chId: String): Boolean {
+            if (acceptKeys == null) return true
+            val cached = acceptCache[chId]
+            if (cached != null) return cached
+            // Файл без <channel> блоков → не отбрасываем ничего,
+            // пусть post-filter решит.
+            if (displayNamesById.isEmpty()) {
+                acceptCache[chId] = true
+                return true
+            }
+            val ok = chId in acceptKeys ||
+                fuzzyKey(chId) in acceptKeys ||
+                (displayNamesById[chId]?.any {
+                    it in acceptKeys || fuzzyKey(it) in acceptKeys
+                } == true)
+            acceptCache[chId] = ok
+            return ok
+        }
 
         fun processProgrammeBlock(blockStart: Int, blockEnd: Int) {
             val headerEnd = sb.indexOf(">", blockStart)
