@@ -158,34 +158,33 @@ class SettingsFragment : Fragment() {
                 .show()
                 .installFocusListBackground()
         }
-        // Кнопка "Из списка": показывает готовые источники EPG.
+        // Кнопка "Из списка": готовые источники EPG. FocusableDialog
+        // даёт надёжную D-pad подсветку (тот же селектор что у
+        // настроечных диалогов).
         builder.setNeutralButton("Из списка") { _, _ ->
             val pairs = AppPreferences.SUGGESTED_EPG_URLS
             val titles = pairs.map { it.first }.toTypedArray()
-            // setSingleChoiceItems вместо setItems — даёт активное
-            // состояние (state_checked) на выбранной строке, которое
-            // подсвечено в bg_dialog_list_item. Без этого DPAD-навигация
-            // не показывала какую строку юзер сейчас выбирает.
-            var selectedIdx = 0
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
-                .setTitle("Готовые EPG-источники")
-                .setSingleChoiceItems(titles, 0) { _, which -> selectedIdx = which }
-                .setPositiveButton(R.string.ok) { _, _ ->
-                    val url = pairs[selectedIdx].second
-                    if (prefs.lastEpgUrl.isNullOrBlank()) {
-                        prefs.lastEpgUrl = url
-                    } else {
-                        prefs.addEpgUrl(url)
-                    }
-                    label?.text = epgUrlsSummary()
-                    Toast.makeText(requireContext(), "Добавлено: $url", Toast.LENGTH_SHORT).show()
+            FocusableDialog.show(
+                requireContext(),
+                "Готовые EPG-источники",
+                titles,
+                0
+            ) { which ->
+                val url = pairs[which].second
+                if (prefs.lastEpgUrl.isNullOrBlank()) {
+                    prefs.lastEpgUrl = url
+                } else {
+                    prefs.addEpgUrl(url)
                 }
-                .setNegativeButton(R.string.cancel, null)
-                .show()
-                .installFocusListBackground()
+                label?.text = epgUrlsSummary()
+                Toast.makeText(requireContext(), "Добавлено: $url", Toast.LENGTH_SHORT).show()
+            }
         }
         builder.setNegativeButton(R.string.cancel, null)
-        builder.show()
+        // installFocusListBackground для верхнего диалога (где идёт
+        // setItems с EPG-URL'ами для удаления). Без него подсветка
+        // выбранной строки не показывается на TV-боксе.
+        builder.show().installFocusListBackground()
     }
 
     override fun onHiddenChanged(hidden: Boolean) {

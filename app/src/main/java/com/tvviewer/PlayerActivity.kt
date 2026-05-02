@@ -927,14 +927,17 @@ class PlayerActivity : BaseActivity() {
                 }
             }
         }
-        val dialog = android.app.AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
-            .setTitle(getString(R.string.audio_track))
-            .setSingleChoiceItems(names, currentSelectedIdx) { d, which ->
-                selectAudioTrack(which)
-                d.dismiss()
-            }
-            .setNegativeButton(R.string.cancel, null)
-            .create()
+        // Заменили setSingleChoiceItems на FocusableDialog: тот же
+        // селектор bg_dialog_list_item, что и во всех остальных
+        // диалогах списка, надёжный фокус через D-pad.
+        val dialog = FocusableDialog.show(
+            this,
+            getString(R.string.audio_track),
+            names.toList().toTypedArray(),
+            currentSelectedIdx
+        ) { which ->
+            selectAudioTrack(which)
+        }
         // Anchor to the right side as a narrow side sheet so it doesn't
         // span the whole screen ("слишком растянуто в лево").
         dialog.window?.let { w ->
@@ -944,7 +947,6 @@ class PlayerActivity : BaseActivity() {
             params.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
             w.attributes = params
         }
-        dialog.show()
     }
 
     private fun selectAudioTrack(trackIndex: Int) {
@@ -1138,22 +1140,24 @@ class PlayerActivity : BaseActivity() {
         }.toTypedArray()
         val checkedIdx = UA_PRESETS.indexOfFirst { it.first == current }
             .let { if (it < 0) 0 else it }
-        android.app.AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
-            .setTitle(R.string.user_agent)
-            .setSingleChoiceItems(labels, checkedIdx) { dialog, which ->
-                val (uaValue, _) = UA_PRESETS[which]
-                prefs.setChannelUserAgent(url, uaValue.ifEmpty { null })
-                Toast.makeText(
-                    this,
-                    getString(R.string.channel_ua_set, labels[which]),
-                    Toast.LENGTH_SHORT
-                ).show()
-                dialog.dismiss()
-                // Перезапускаем стрим, чтобы новый UA сразу применился.
-                playStream(url)
-            }
-            .setNegativeButton(R.string.cancel, null)
-            .show()
+        // FocusableDialog даёт ту же подсветку строк через bg_dialog_list_item
+        // что и в остальных диалогах настройки.
+        FocusableDialog.show(
+            this,
+            getString(R.string.user_agent),
+            labels.toList().toTypedArray(),
+            checkedIdx
+        ) { which ->
+            val (uaValue, _) = UA_PRESETS[which]
+            prefs.setChannelUserAgent(url, uaValue.ifEmpty { null })
+            Toast.makeText(
+                this,
+                getString(R.string.channel_ua_set, labels[which]),
+                Toast.LENGTH_SHORT
+            ).show()
+            // Перезапускаем стрим, чтобы новый UA сразу применился.
+            playStream(url)
+        }
     }
 
     private fun offerExternalPlayer(error: PlaybackException) {
