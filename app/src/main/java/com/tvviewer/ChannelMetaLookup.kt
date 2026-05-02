@@ -73,6 +73,15 @@ object ChannelMetaLookup {
     @Synchronized
     fun indexSize(): Int = byName.size
 
+    /** Первые N ключей byName для диагностики формата. */
+    @Synchronized
+    fun sampleKeys(n: Int = 10): List<String> = byName.keys.take(n).toList()
+
+    /** Проверяет конкретные ключи — есть ли точное совпадение в индексе. */
+    @Synchronized
+    fun hasKeys(keys: List<String>): List<Pair<String, Boolean>> =
+        keys.map { it to (it in byName) }
+
     /** Notify the caller (typically a RecyclerView adapter) once the
      *  database becomes available, so it can re-render channel rows
      *  with the freshly-found logos. */

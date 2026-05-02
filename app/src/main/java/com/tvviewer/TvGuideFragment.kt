@@ -226,6 +226,16 @@ class TvGuideFragment : Fragment() {
             ErrorLogger.info(ctx2, "TVGUIDE",
                 "logos: m3u=$logosFromM3U iptv-org=$logosFromIptvOrg none=$logosNone | " +
                 "iptv-org-loaded=${ChannelMetaLookup.isLoaded()} index=${ChannelMetaLookup.indexSize()}")
+            // Покажем образцы того что у iptv-org в индексе и сразу
+            // тест на конкретные имена пользователя.
+            if (ChannelMetaLookup.indexSize() > 0) {
+                ErrorLogger.info(ctx2, "TVGUIDE",
+                    "iptv-org sample keys: " + ChannelMetaLookup.sampleKeys(8).joinToString())
+                val testKeys = listOf("cartoonnetwork", "trt1", "cnnturk", "музтв", "muztv")
+                val hits = ChannelMetaLookup.hasKeys(testKeys)
+                    .joinToString { "${it.first}=${if (it.second) "✓" else "✗"}" }
+                ErrorLogger.info(ctx2, "TVGUIDE", "iptv-org hits: $hits")
+            }
             // Примеры каналов БЕЗ лого — поможет понять что в них особенного.
             val noLogoSample = channels.filter {
                 it.logoUrl == null && ChannelMetaLookup.lookup(it.name)?.logoUrl == null
