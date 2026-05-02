@@ -157,40 +157,40 @@ object EpgRepository {
         // ошибка молча проглатывалась → пользователь видел "загружено
         // 0" без объяснения. Теперь каждую ошибку логируем и кладём
         // в lastFetchErrors, чтобы UI мог показать.
-        val results = cleaned.map { u ->
-            async(Dispatchers.IO) {
-                try {
-                    // withTimeoutOrNull: жёсткий потолок 180 сек на
-                    // источник. iptvx.one 75MB → ~600K SAX-элементов,
-                    // на Redmi Note 9S при ~7K элементов/сек уходит
-                    // ~85с парса; 90с таймаута не хватало в логах
-                    // 159/160. 180с с запасом + параллельная загрузка
-                    // двух источников укладывается в ~3 мин.
-                    val data = kotlinx.coroutines.withTimeoutOrNull(180_000L) {
-                        fetchSingle(u, context)
-                    }
-                    if (data == null) {
-                        val msg = "Timeout (180 сек) — источник слишком медленный"
-                        Log.e(TAG, "EPG source timed out: $u")
-                        errors += u to msg
-                        summary += u to 0
-                        emptyMap()
-                    } else {
-                        summary += u to data.size
-                        data
-                    }
-                } catch (t: Throwable) {
-                    Log.e(TAG, "EPG source failed: $u", t)
-                    val msg = "${t.javaClass.simpleName}: ${t.message?.take(120)}"
+        // Серийный парсинг (один источник за раз). На X4 X4 (256MB
+        // heap) параллельный парсинг 1.1MB+44MB одновременно вылетал
+        // в OOM и BinderInternal$GcWatcher timeout. Серийно: парсим
+        // один, мержим, GC, переходим к следующему.
+        val results = mutableListOf<Map<String, List<Programme>>>()
+        for (u in cleaned) {
+            try {
+                val data = kotlinx.coroutines.withTimeoutOrNull(180_000L) {
+                    withContext(Dispatchers.IO) { fetchSingle(u, context) }
+                }
+                if (data == null) {
+                    val msg = "Timeout (180 сек) — источник слишком медленный"
+                    Log.e(TAG, "EPG source timed out: $u")
                     errors += u to msg
                     summary += u to 0
-                    if (context != null) {
-                        try { ErrorLogger.logException(context, t) } catch (_: Exception) {}
-                    }
-                    emptyMap()
+                    results += emptyMap()
+                } else {
+                    summary += u to data.size
+                    results += data
                 }
+            } catch (t: Throwable) {
+                Log.e(TAG, "EPG source failed: $u", t)
+                val msg = "${t.javaClass.simpleName}: ${t.message?.take(120)}"
+                errors += u to msg
+                summary += u to 0
+                if (context != null) {
+                    try { ErrorLogger.logException(context, t) } catch (_: Exception) {}
+                }
+                results += emptyMap()
             }
-        }.map { it.await() }
+            // Подсказка GC между источниками — на 256MB heap
+            // освобождаем гигабайты строк перед следующим парсом.
+            System.gc()
+        }
         lastFetchSummary = summary
         lastFetchErrors = errors
         val merged = mutableMapOf<String, List<Programme>>()
@@ -552,6 +552,14 @@ object EpgRepository {
         val tagDisplayNameOpen = "<display-name"
         val tagDisplayNameClose = "</display-name>"
 
+        // Время-фильтр: отбрасываем программы старше вчера и дальше
+        // чем +7 дней от сейчас. XMLTV-файлы обычно содержат архив
+        // на неделю назад/вперёд, нам нужна только текущая неделя.
+        // Вторая неделя = в 2 раза больше памяти зря.
+        val nowMillis = System.currentTimeMillis()
+        val keepFrom = nowMillis - 24L * 60 * 60 * 1000      // вчера
+        val keepTo = nowMillis + 7L * 24 * 60 * 60 * 1000    // +7 дней
+
         // Универсальный поиск открывающего тега: ищет "<name" + любой
         // whitespace ИЛИ ">". Раньше искал ровно "<programme " (с
         // пробелом) и пропускал файлы где после имени \n / \t / просто
@@ -649,6 +657,13 @@ object EpgRepository {
             val start = parseXmltvTime(rawStart)
             val end = parseXmltvTime(rawStop)
             if (start <= 0 || end <= 0) return
+            // Время-фильтр: только программы из окна [вчера, +7 дней].
+            // Архив старше дня и предсказания дальше недели — мусор
+            // на 256MB heap.
+            if (end < keepFrom || start > keepTo) {
+                skipCount++
+                return
+            }
             val title = extractTagContentSB(sb, headerEnd + 1, blockEnd, tagTitleOpen, tagTitleClose)?.trim()?.take(120) ?: return
             if (title.isEmpty()) return
             result.getOrPut(chId) { mutableListOf() }.add(Programme(start, end, title, ""))
