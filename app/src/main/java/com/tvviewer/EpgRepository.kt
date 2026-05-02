@@ -370,10 +370,26 @@ object EpgRepository {
                 return null
             }
 
+            // Защита от чудовищных кэшей: если файл больше 5 MB —
+            // он скорее всего от старой версии без time-фильтра и
+            // загрузка его в JSONObject вылетит в OOM на X4 X4.
+            // Удаляем и парсим заново при первом обновлении.
+            if (file.length() > 5L * 1024 * 1024) {
+                Log.w(TAG, "EPG cache too big (${file.length()} bytes), discarding")
+                file.delete()
+                return null
+            }
+
             val json = file.readText()
             return deserializeEpg(json)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Throwable: OOM включая. На X4 X4 (256MB) прошлый кэш
+            // валил приложение прямо на старте.
             Log.e(TAG, "EPG cache load error", e)
+            try {
+                val file = File(context.filesDir, EPG_CACHE_FILE)
+                if (file.exists()) file.delete()
+            } catch (_: Exception) {}
             return null
         }
     }
@@ -424,6 +440,13 @@ object EpgRepository {
 
     private fun deserializeEpg(json: String): Map<String, List<Programme>> {
         val result = mutableMapOf<String, MutableList<Programme>>()
+        // Тот же временной фильтр что и в parseXmltvFast: только
+        // программы из окна [вчера, +7 дней]. Без него старый кэш
+        // от полного XMLTV (108K программ) валит приложение в OOM
+        // прямо при загрузке плейлиста на 256MB heap.
+        val now = System.currentTimeMillis()
+        val keepFrom = now - 24L * 60 * 60 * 1000
+        val keepTo = now + 7L * 24 * 60 * 60 * 1000
         try {
             val obj = org.json.JSONObject(json)
             val keys = obj.keys()
@@ -433,17 +456,23 @@ object EpgRepository {
                 val programmes = mutableListOf<Programme>()
                 for (i in 0 until arr.length()) {
                     val pObj = arr.getJSONObject(i)
+                    val start = pObj.getLong("s")
+                    val end = pObj.getLong("e")
+                    if (end < keepFrom || start > keepTo) continue
                     programmes.add(Programme(
-                        start = pObj.getLong("s"),
-                        end = pObj.getLong("e"),
+                        start = start,
+                        end = end,
                         title = pObj.getString("t"),
-                        description = pObj.optString("d", "")
+                        description = ""  // description в кэше не храним
                     ))
                 }
-                result[channelId] = programmes
+                if (programmes.isNotEmpty()) result[channelId] = programmes
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Throwable, не Exception: ловим OOM в т.ч. Лучше иметь
+            // пустой EPG чем краш приложения при старте.
             Log.e(TAG, "EPG deserialize error", e)
+            return emptyMap()
         }
         return result
     }
