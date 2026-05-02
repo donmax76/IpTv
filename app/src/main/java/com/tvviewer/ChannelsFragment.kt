@@ -247,17 +247,27 @@ class ChannelsFragment : Fragment() {
                 recyclerView.visibility = View.VISIBLE
                 swipeRefresh.isRefreshing = false
 
-                // Load EPG - first from cache, then from network
+                // Load EPG - prefer in-memory ChannelDataHolder, fall back to disk.
                 lifecycleScope.launch {
                     try {
                         val ctx = context ?: return@launch
-                        // Try loading from cache first for instant display
-                        val cached = EpgRepository.loadFromCache(ctx)
-                        if (cached != null && cached.isNotEmpty() && epgData.isEmpty()) {
-                            epgData = cached
-                            ChannelDataHolder.epgData = epgData
+                        // 1. Если EPG уже в памяти — используем мгновенно,
+                        //    чтобы при переключении плейлистов не было
+                        //    повторного чтения с диска / парсинга.
+                        val global = ChannelDataHolder.epgData
+                        if (global.isNotEmpty() && epgData !== global) {
+                            epgData = global
                             adapter.updateEpg(epgData)
-                            Log.d("ChannelsFragment", "EPG loaded from cache: ${cached.size} channels")
+                            Log.d("ChannelsFragment", "EPG reused from memory: ${global.size} channels")
+                        } else if (epgData.isEmpty()) {
+                            // 2. Памяти нет — читаем диск (один раз за сессию).
+                            val cached = EpgRepository.loadFromCache(ctx)
+                            if (cached != null && cached.isNotEmpty()) {
+                                epgData = cached
+                                ChannelDataHolder.epgData = epgData
+                                adapter.updateEpg(epgData)
+                                Log.d("ChannelsFragment", "EPG loaded from cache: ${cached.size} channels")
+                            }
                         }
 
                         // Auto-fetch EPG здесь раньше запускался при КАЖДОЙ
