@@ -168,7 +168,12 @@ class TvGuideFragment : Fragment() {
         // нет), refresh идёт в фоне.
         if (prefs.allEpgUrls().isNotEmpty()) {
             val empty = ChannelDataHolder.epgData.isEmpty()
-            val sixHoursAgo = System.currentTimeMillis() - 6 * 60 * 60 * 1000L
+            // Раньше было 6 часов — но на X4 X4 парсинг 43 MB EPG
+            // занимает 30-60 сек CPU и бьёт по плееру (видео тормозит).
+            // Подняли до 24ч: достаточно для актуальности (XMLTV-файлы
+            // обычно содержат расписание на 3-7 дней вперёд), и
+            // тяжёлый парсинг не запускается каждые пару часов.
+            val sixHoursAgo = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
             val needFresh = !empty && prefs.epgLastUpdate < sixHoursAgo
             if ((empty && !triedAutoRefresh) || needFresh) {
                 triedAutoRefresh = true

@@ -352,10 +352,13 @@ class AppPreferences(context: Context) {
          *  Эти источники работают в OTT Navigator — значит сами по
          *  себе валидны. Round 59-62 настроили pipeline (download
          *  to disk + 3-min timeout + drop descriptions) так чтобы
-         *  они корректно парсились на TV-боксах с 256MB heap. */
+         *  они корректно парсились на TV-боксах с 256MB heap.
+         *  iptvx.one убран из дефолта: 75 MB compressed = ~375 MB
+         *  decompressed, на X4 X4 (256 MB heap) парсинг роняет
+         *  приложение в OOM. Юзер может добавить вручную в настройках
+         *  если железо позволяет. */
         val DEFAULT_EPG_URLS: List<String> = listOf(
             "http://epg.it999.ru/edem.xml.gz",
-            "https://iptvx.one/epg/epg.xml.gz",
         )
 
         private const val PREFS_NAME = "tvviewer_prefs"

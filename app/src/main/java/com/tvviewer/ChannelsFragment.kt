@@ -260,25 +260,17 @@ class ChannelsFragment : Fragment() {
                             Log.d("ChannelsFragment", "EPG loaded from cache: ${cached.size} channels")
                         }
 
-                        // Then fetch fresh data from network — combine playlist's own
-                        // x-tvg-url with user-configured URLs and fetch them in parallel.
+                        // Auto-fetch EPG здесь раньше запускался при КАЖДОЙ
+                        // загрузке плейлиста — параллельно с потенциальным
+                        // fetch'ем из TvGuideFragment. На X4 X4 это валило
+                        // приложение в OOM (два парсера 75+43 MB одновременно).
+                        // Запоминаем url-tvg плейлиста чтобы TvGuide мог им
+                        // воспользоваться, но НЕ дёргаем fetchAll — это
+                        // делает только TvGuideFragment, и не чаще раза в
+                        // 24 часа.
                         val playlistEpg = result.epgUrl
                         if (!playlistEpg.isNullOrBlank() && prefs.lastEpgUrl.isNullOrBlank()) {
                             prefs.lastEpgUrl = playlistEpg
-                        }
-                        val urls = buildList {
-                            playlistEpg?.takeIf { it.isNotBlank() }?.let { add(it) }
-                            addAll(prefs.allEpgUrls())
-                        }.distinct()
-                        if (urls.isNotEmpty()) {
-                            val freshData = EpgRepository.fetchAll(urls, ctx)
-                            if (freshData.isNotEmpty() && isAdded) {
-                                epgData = freshData
-                                ChannelDataHolder.epgData = epgData
-                                prefs.epgLastUpdate = System.currentTimeMillis()
-                                adapter.updateEpg(epgData)
-                                Log.d("ChannelsFragment", "EPG updated from network: ${freshData.size} channels (${urls.size} sources)")
-                            }
                         }
                     } catch (e: Exception) {
                         Log.e("ChannelsFragment", "EPG error", e)
