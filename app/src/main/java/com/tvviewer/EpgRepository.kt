@@ -582,7 +582,16 @@ object EpgRepository {
             if (acceptKeys == null) return true
             val cached = acceptCache[chId]
             if (cached != null) return cached
-            val ok = chId in acceptKeys || fuzzyKey(chId) in acceptKeys
+            // Также проверяем display-names этого канала. Иначе XMLTV
+            // c латинскими id (muztv) не матчатся с кириллическим
+            // плейлистом ("Муз ТВ" → музтв). К моменту разбора программы
+            // displayNamesById для текущего канала уже заполнен в
+            // phase 1 (XMLTV кладёт <channel> блоки до <programme>).
+            val ok = chId in acceptKeys ||
+                fuzzyKey(chId) in acceptKeys ||
+                (displayNamesById[chId]?.any {
+                    it in acceptKeys || fuzzyKey(it) in acceptKeys
+                } == true)
             acceptCache[chId] = ok
             return ok
         }
