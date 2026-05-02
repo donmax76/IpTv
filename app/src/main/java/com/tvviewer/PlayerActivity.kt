@@ -116,6 +116,9 @@ class PlayerActivity : BaseActivity() {
     // onDestroy для снятия ViewTreeObserver-listener (Round 129 audit).
     // Иначе lateinit-проверка в onDestroy не компилируется.
     private lateinit var overlayCategoriesList: RecyclerView
+    // Контейнер вертикального столбца категорий — показываем/скрываем
+    // в зависимости от наличия групп в плейлисте.
+    private lateinit var overlayCategoriesPanel: LinearLayout
     private lateinit var numberInputDisplay: TextView
     private lateinit var sleepTimerIndicator: TextView
     private lateinit var prefs: AppPreferences
@@ -515,24 +518,21 @@ class PlayerActivity : BaseActivity() {
             }
         })
 
-        // Category chips: одна горизонтальная строка с прокруткой
-        // (пользователь сказал что многострочный wrap неудобен — занимает
-        // слишком много места над списком каналов).
+        // Categories: ВЕРТИКАЛЬНЫЙ список слева от списка каналов.
+        // На пульте: 1-е DPAD_LEFT — открывает список каналов,
+        // 2-е DPAD_LEFT — переводит фокус в этот столбец категорий,
+        // 3-е — открывает левое боковое меню плеера. Если у плейлиста
+        // нет категорий — overlayCategoriesPanel скрыт, и 2-е DPAD_LEFT
+        // сразу открывает боковое меню.
+        overlayCategoriesPanel = findViewById(R.id.overlayCategoriesPanel)
         overlayCategoriesList = findViewById<RecyclerView>(R.id.overlayCategoriesList)
-        overlayCategoriesList.layoutManager =
-            LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+        overlayCategoriesList.layoutManager = LinearLayoutManager(this)
         val channels = ChannelDataHolder.allChannels
         val realCats = channels.mapNotNull { it.group?.split(';', ',', '|')?.firstOrNull()?.trim() }
             .filter { it.isNotEmpty() && it.length <= 30 }
             .distinct()
             .sorted()
-        // Если у плейлиста нет категорий — скрываем строку чипов
-        // целиком (не показываем единственную "Все").
-        if (realCats.isEmpty()) {
-            overlayCategoriesList.visibility = View.GONE
-        } else {
-            overlayCategoriesList.visibility = View.VISIBLE
-        }
+        overlayCategoriesPanel.visibility = if (realCats.isEmpty()) View.GONE else View.VISIBLE
         val cats = listOf(getString(R.string.all)) + realCats
         val catAdapter = CategoryAdapter(cats) { category ->
             overlaySelectedCategory = category
@@ -661,6 +661,17 @@ class PlayerActivity : BaseActivity() {
 
     private fun showChannelDetailsDialog(channel: Channel) {
         val panel = findViewById<View>(R.id.channelDetailsPanel) ?: return
+        // Сдвигаем details-панель ВПРАВО на ширину видимых левых
+        // панелей: если есть категории — 140 + 320 = 460dp, иначе
+        // только 320dp. Иначе она перекрывает список каналов.
+        val catsVisible = ::overlayCategoriesPanel.isInitialized &&
+            overlayCategoriesPanel.visibility == View.VISIBLE
+        val marginDp = if (catsVisible) 460 else 320
+        val lp = panel.layoutParams as? android.widget.FrameLayout.LayoutParams
+        lp?.let {
+            it.marginStart = (marginDp * resources.displayMetrics.density).toInt()
+            panel.layoutParams = it
+        }
         // Запомним кто сейчас в фокусе — обычно это сердечко "избранное"
         // конкретной строки. Туда же вернёмся при закрытии.
         detailsReturnFocus = currentFocus
@@ -1844,6 +1855,16 @@ class PlayerActivity : BaseActivity() {
         return false
     }
 
+    /** true если фокус сейчас внутри указанной View (или это сама она). */
+    private fun isFocusInside(target: View): Boolean {
+        var v: View? = currentFocus ?: return false
+        while (v != null) {
+            if (v === target) return true
+            v = (v.parent as? View)
+        }
+        return false
+    }
+
     private fun playerDrawerVisible(): Boolean =
         ::playerDrawerOverlay.isInitialized &&
             playerDrawerOverlay.visibility == View.VISIBLE
@@ -2150,18 +2171,38 @@ class PlayerActivity : BaseActivity() {
                 return true
             }
             // D-pad Left
-            //   1st press → show channel list
-            //   2nd press (channel list already visible AND focus already at
-            //              the leftmost item) → leave the player and surface
-            //              the side drawer in MainActivity
+            //   1st press        → открывает список каналов (фокус на первом канале)
+            //   2nd press (на канале)  → если есть категории, переводит фокус
+            //                            в вертикальный столбец категорий слева
+            //   3rd press (на категории) → открывает левое боковое меню плеера
+            //   Если категорий нет — после 2-го LEFT сразу открываем меню.
             KeyEvent.KEYCODE_DPAD_LEFT -> {
                 if (playerDrawerVisible()) {
                     return super.onKeyDown(keyCode, event)
                 }
                 if (channelListVisible) {
-                    // 2nd LEFT inside the channel list overlay → show
-                    // the in-player drawer ON TOP of the channel list,
-                    // without closing the player.
+                    val catsVisible = ::overlayCategoriesPanel.isInitialized &&
+                        overlayCategoriesPanel.visibility == View.VISIBLE
+                    val focusInChannels = isFocusInside(overlayChannelsList)
+                    val focusInCategories = catsVisible && isFocusInside(overlayCategoriesList)
+                    when {
+                        focusInChannels && catsVisible -> {
+                            // 2-е LEFT: переводим фокус в столбец категорий.
+                            overlayCategoriesList.requestFocus()
+                            val firstCat = overlayCategoriesList
+                                .findViewHolderForAdapterPosition(0)?.itemView
+                            firstCat?.requestFocus()
+                            bumpChannelListIdleTimer()
+                            return true
+                        }
+                        focusInCategories || !catsVisible -> {
+                            // 3-е LEFT (или 2-е без категорий) → меню плеера.
+                            showPlayerDrawer()
+                            return true
+                        }
+                    }
+                    // Всё остальное (фокус не на списках — например в поиске):
+                    // дефолт — открыть боковое меню как раньше.
                     showPlayerDrawer()
                     return true
                 }

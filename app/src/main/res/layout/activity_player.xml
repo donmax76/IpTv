@@ -275,81 +275,120 @@
             android:layout_height="match_parent"
             android:background="#60000000"/>
 
-        <!-- Channel list panel -->
+        <!-- Контейнер: вертикальный столбец категорий (слева) +
+             панель списка каналов (справа). Если у плейлиста нет
+             категорий — overlayCategoriesPanel скрывается, остаётся
+             только список каналов 320dp шириной. -->
         <LinearLayout
             android:id="@+id/channelListPanel"
-            android:layout_width="320dp"
+            android:layout_width="wrap_content"
             android:layout_height="match_parent"
             android:layout_gravity="start"
-            android:orientation="vertical"
-            android:background="@drawable/bg_overlay_panel"
-            android:paddingTop="8dp">
+            android:orientation="horizontal">
 
+            <!-- Вертикальный столбец категорий. Появляется слева от
+                 списка каналов когда они есть. На пульте: 2-е нажатие
+                 DPAD_LEFT (после открытия списка каналов) перемещает
+                 фокус сюда. 3-е нажатие открывает боковое меню плеера.
+                 Если у плейлиста нет категорий — visibility=gone. -->
             <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"
-                android:layout_marginBottom="6dp">
+                android:id="@+id/overlayCategoriesPanel"
+                android:layout_width="140dp"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:background="@drawable/bg_overlay_panel"
+                android:paddingTop="8dp"
+                android:visibility="gone">
 
                 <TextView
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/channels"
+                    android:gravity="center"
+                    android:paddingStart="6dp"
+                    android:paddingEnd="6dp"
+                    android:layout_marginBottom="6dp"
+                    android:text="@string/category"
                     android:textColor="@android:color/white"
-                    android:textSize="16sp"
+                    android:textSize="14sp"
                     android:textStyle="bold"/>
 
-                <TextView
-                    android:id="@+id/overlayChannelCount"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:textColor="#B0B0CC"
-                    android:textSize="12sp"/>
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/overlayCategoriesList"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clipToPadding="false"
+                    android:paddingStart="6dp"
+                    android:paddingEnd="6dp"
+                    android:paddingBottom="12dp"/>
 
             </LinearLayout>
 
-            <!-- Search in channel list -->
-            <EditText
-                android:id="@+id/overlaySearchEdit"
-                android:layout_width="match_parent"
-                android:layout_height="34dp"
-                android:layout_marginStart="10dp"
-                android:layout_marginEnd="10dp"
-                android:layout_marginBottom="6dp"
-                android:background="@drawable/bg_overlay_search"
-                android:hint="@string/search_channels"
-                android:textColor="@android:color/white"
-                android:textColorHint="#80FFFFFF"
-                android:textSize="12sp"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:singleLine="true"
-                android:imeOptions="actionDone"
-                android:inputType="text"/>
-
-            <!-- Category chips for quick filter -->
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/overlayCategoriesList"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="4dp"
-                android:clipToPadding="false"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"/>
-
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/overlayChannelsList"
-                android:layout_width="match_parent"
+            <!-- Список каналов. Раньше был LinearLayout, теперь
+                 содержит только заголовок + поиск + сам список. -->
+            <LinearLayout
+                android:layout_width="320dp"
                 android:layout_height="match_parent"
-                android:clipToPadding="false"
-                android:paddingBottom="12dp"
-                android:focusable="true"
-                android:focusableInTouchMode="false"
-                android:descendantFocusability="afterDescendants"/>
+                android:orientation="vertical"
+                android:background="@drawable/bg_overlay_panel"
+                android:paddingTop="8dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:layout_marginBottom="6dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/channels"
+                        android:textColor="@android:color/white"
+                        android:textSize="16sp"
+                        android:textStyle="bold"/>
+
+                    <TextView
+                        android:id="@+id/overlayChannelCount"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textColor="#B0B0CC"
+                        android:textSize="12sp"/>
+
+                </LinearLayout>
+
+                <!-- Search in channel list -->
+                <EditText
+                    android:id="@+id/overlaySearchEdit"
+                    android:layout_width="match_parent"
+                    android:layout_height="34dp"
+                    android:layout_marginStart="10dp"
+                    android:layout_marginEnd="10dp"
+                    android:layout_marginBottom="6dp"
+                    android:background="@drawable/bg_overlay_search"
+                    android:hint="@string/search_channels"
+                    android:textColor="@android:color/white"
+                    android:textColorHint="#80FFFFFF"
+                    android:textSize="12sp"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:singleLine="true"
+                    android:imeOptions="actionDone"
+                    android:inputType="text"/>
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/overlayChannelsList"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clipToPadding="false"
+                    android:paddingBottom="12dp"
+                    android:focusable="true"
+                    android:focusableInTouchMode="false"
+                    android:descendantFocusability="afterDescendants"/>
+
+            </LinearLayout>
 
         </LinearLayout>
 

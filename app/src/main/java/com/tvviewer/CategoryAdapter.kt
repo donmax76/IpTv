@@ -28,6 +28,22 @@ class CategoryAdapter(
         holder.categoryName.text = category
         holder.categoryName.isSelected = position == selectedPosition
 
+        // Если родительский RecyclerView вертикальный — растягиваем
+        // chip на всю ширину и убираем горизонтальный отступ. Так
+        // тот же CategoryAdapter работает и для горизонтальной
+        // ленты, и для вертикального столбца категорий в overlay.
+        val parent = holder.itemView.parent as? RecyclerView
+        val lm = parent?.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager
+        val vertical = lm?.orientation == androidx.recyclerview.widget.LinearLayoutManager.VERTICAL
+        val lp = holder.itemView.layoutParams as RecyclerView.LayoutParams
+        lp.width = if (vertical) ViewGroup.LayoutParams.MATCH_PARENT
+                   else ViewGroup.LayoutParams.WRAP_CONTENT
+        if (vertical) {
+            lp.bottomMargin = (6 * holder.itemView.resources.displayMetrics.density).toInt()
+            lp.marginEnd = 0
+        }
+        holder.itemView.layoutParams = lp
+
         // Make focusable for D-pad navigation
         holder.itemView.isFocusable = true
         holder.itemView.isFocusableInTouchMode = false
