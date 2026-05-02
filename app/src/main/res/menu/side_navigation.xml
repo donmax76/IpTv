@@ -9,10 +9,8 @@
             android:id="@+id/side_nav_channels"
             android:icon="@drawable/ic_channels"
             android:title="@string/channels"/>
-        <item
-            android:id="@+id/side_nav_tv_guide"
-            android:icon="@drawable/ic_tv_guide"
-            android:title="@string/tv_guide"/>
+        <!-- side_nav_tv_guide удалён: вкладка ТВ Гид больше не нужна,
+             программа показывается прямо в списке каналов. -->
         <item
             android:id="@+id/side_nav_favorites"
             android:icon="@drawable/ic_favorite"

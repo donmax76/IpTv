@@ -38,7 +38,6 @@ class MainActivity : BaseActivity() {
             when (item.itemId) {
                 R.id.nav_playlists -> showFragment(PlaylistsFragment.TAG, ::PlaylistsFragment)
                 R.id.nav_channels -> showFragment(ChannelsFragment.TAG, ::ChannelsFragment)
-                R.id.nav_tv_guide -> showFragment(TvGuideFragment.TAG, ::TvGuideFragment)
                 R.id.nav_favorites -> showFragment(FavoritesFragment.TAG, ::FavoritesFragment)
                 R.id.nav_settings -> { openSettings(); false /* don't actually select */ }
                 else -> false
@@ -100,10 +99,9 @@ class MainActivity : BaseActivity() {
                 when (tab) {
                     0 -> showFragment(PlaylistsFragment.TAG, ::PlaylistsFragment)
                     1 -> showFragment(ChannelsFragment.TAG, ::ChannelsFragment)
-                    2 -> showFragment(TvGuideFragment.TAG, ::TvGuideFragment)
-                    3 -> showFragment(FavoritesFragment.TAG, ::FavoritesFragment)
-                    4 -> showFragment(RecentFragment.TAG, ::RecentFragment)
-                    5 -> openSettings()
+                    2 -> showFragment(FavoritesFragment.TAG, ::FavoritesFragment)
+                    3 -> showFragment(RecentFragment.TAG, ::RecentFragment)
+                    4 -> openSettings()
                 }
             }
         }
@@ -259,7 +257,6 @@ class MainActivity : BaseActivity() {
     private val sideNavItemIds = intArrayOf(
         R.id.side_nav_playlists,
         R.id.side_nav_channels,
-        R.id.side_nav_tv_guide,
         R.id.side_nav_favorites,
         R.id.side_nav_recent,
         R.id.side_nav_settings,
@@ -291,10 +288,6 @@ class MainActivity : BaseActivity() {
             R.id.side_nav_channels -> {
                 showFragment(ChannelsFragment.TAG, ::ChannelsFragment)
                 bottomNav.selectedItemId = R.id.nav_channels
-            }
-            R.id.side_nav_tv_guide -> {
-                showFragment(TvGuideFragment.TAG, ::TvGuideFragment)
-                bottomNav.selectedItemId = R.id.nav_tv_guide
             }
             R.id.side_nav_favorites -> {
                 showFragment(FavoritesFragment.TAG, ::FavoritesFragment)
@@ -380,7 +373,6 @@ class MainActivity : BaseActivity() {
     private val tabIds = listOf(
         R.id.nav_playlists,
         R.id.nav_channels,
-        R.id.nav_tv_guide,
         R.id.nav_favorites,
         R.id.nav_settings
     )
