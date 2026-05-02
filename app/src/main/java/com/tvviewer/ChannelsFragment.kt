@@ -199,6 +199,10 @@ class ChannelsFragment : Fragment() {
                 val customChannels = prefs.customChannels.map { (n, u) -> Channel(name = n, url = u) }
                 allChannels = result.channels + customChannels
                 ChannelDataHolder.allChannels = allChannels
+                // Учим обучаемый кэш на парах (имя → лого) этого
+                // плейлиста. На следующем плейлисте без tvg-logo
+                // те же каналы получат лого из кэша.
+                context?.let { LearnedLogos.harvest(it.applicationContext, allChannels) }
 
                 // Extract categories. Multi-tag composites in iptv-org
                 // playlists ("Culture;Education;Lifestyle") are pure noise on

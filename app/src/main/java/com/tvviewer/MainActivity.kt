@@ -148,17 +148,18 @@ class MainActivity : BaseActivity() {
         startActivity(Intent(this, SettingsActivity::class.java))
     }
 
-    // D-pad / remote control navigation
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        // Drawer открыт — обрабатываем UP/DOWN/OK сами, чтобы
-        // навигация работала с первого открытия (родная фокус-логика
-        // NavigationView ненадёжна на первом разворачивании).
-        if (drawerLayout.isDrawerOpen(Gravity.START)) {
-            when (keyCode) {
+    // dispatchKeyEvent перехватывает кнопки ДО того как они дойдут до
+    // сфокусированного View. Без этого OK/Enter при открытом drawer'е
+    // активирует сначала ту кнопку которая была в фокусе ДО открытия
+    // drawer'а (например "назад" в ТВ Гиде), а не пункт меню.
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN &&
+            ::drawerLayout.isInitialized &&
+            drawerLayout.isDrawerOpen(Gravity.START)) {
+            when (event.keyCode) {
                 KeyEvent.KEYCODE_BACK,
                 KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                    drawerLayout.closeDrawer(Gravity.START)
-                    return true
+                    drawerLayout.closeDrawer(Gravity.START); return true
                 }
                 KeyEvent.KEYCODE_DPAD_DOWN -> {
                     moveSideNavSelection(+1); return true
@@ -172,6 +173,15 @@ class MainActivity : BaseActivity() {
                     return true
                 }
             }
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    // D-pad / remote control navigation
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        // dispatchKeyEvent уже разобрал кнопки drawer'а до нас, тут
+        // только обработка вне drawer'а.
+        if (::drawerLayout.isInitialized && drawerLayout.isDrawerOpen(Gravity.START)) {
             return super.onKeyDown(keyCode, event)
         }
         when (keyCode) {
@@ -257,6 +267,11 @@ class MainActivity : BaseActivity() {
     private var sideNavSelectedIdx = 0
 
     private fun openSideDrawer() {
+        // Очищаем фокус с того что было до — на TV-боксе иначе
+        // DPAD_CENTER в drawer'е активирует кнопку что была раньше
+        // (например "назад" в ТВ Гиде). dispatchKeyEvent теперь
+        // перехватывает кнопки drawer'а до фокуса, но это страховка.
+        currentFocus?.clearFocus()
         drawerLayout.openDrawer(Gravity.START)
         // Сбрасываем выбор на первый пункт. UP/DOWN перебирают пункты
         // через sideNav.setCheckedItem (визуальная подсветка), OK

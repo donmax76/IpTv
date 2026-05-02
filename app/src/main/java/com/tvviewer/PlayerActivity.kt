@@ -1700,7 +1700,17 @@ class PlayerActivity : BaseActivity() {
         val drawerWidth = (260 * resources.displayMetrics.density).toInt()
         findViewById<View>(R.id.channelListPanel)
             ?.animate()?.translationX(drawerWidth.toFloat())?.setDuration(150)?.start()
-        playerDrawerOverlay.findViewById<View>(R.id.playerDrawerPlaylists)?.requestFocus()
+        // Сначала очищаем фокус с того что было до открытия drawer'а,
+        // иначе на TV-боксе DPAD_CENTER в drawer'е активирует ту
+        // кнопку что была сфокусирована раньше (например "назад"
+        // в ТВ Гиде).
+        currentFocus?.clearFocus()
+        // post() чтобы фокус-запрос произошёл ПОСЛЕ того как drawer
+        // прошёл layout и его пункты стали focusable. Без этого
+        // requestFocus иногда возвращает false и фокус не переходит.
+        playerDrawerOverlay.post {
+            playerDrawerOverlay.findViewById<View>(R.id.playerDrawerPlaylists)?.requestFocus()
+        }
     }
 
     private fun hidePlayerDrawer() {
@@ -1830,6 +1840,18 @@ class PlayerActivity : BaseActivity() {
                 kc != KeyEvent.KEYCODE_POWER) {
                 android.util.Log.d("PlayerActivity",
                     "key down: $kc (${KeyEvent.keyCodeToString(kc)})")
+            }
+        }
+        // BACK / DPAD_RIGHT при открытом drawer'е — закрываем сами,
+        // ДО того как DPAD_CENTER / OK успеет кликнуть какую-то
+        // другую кнопку. Это страхует от багов когда drawer открыт
+        // но фокус не дошёл до его пункта (на TV-боксе бывает).
+        if (event.action == KeyEvent.ACTION_DOWN && playerDrawerVisible()) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_BACK,
+                KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                    hidePlayerDrawer(); return true
+                }
             }
         }
         return super.dispatchKeyEvent(event)

@@ -106,6 +106,10 @@ class TVViewerApp : Application(), ImageLoaderFactory {
         // Pre-warm the iptv-org channel database so logos / tvg-ids for
         // user-added channels become available a few seconds after launch.
         try { ChannelMetaLookup.ensureLoaded(applicationContext) } catch (_: Exception) {}
+        // Поднимаем обучаемый кэш логотипов (built up across all
+        // playlists ever loaded). Даёт лого каналам в плейлистах
+        // без tvg-logo если те же каналы встречались раньше с лого.
+        try { LearnedLogos.ensureLoaded(applicationContext) } catch (_: Exception) {}
         // IPTV-стримы часто живут на CDN'ах с несовпадающими сертами
         // (53be5ef2d13aa.streamlock.net показывает cert *.maksnet.tv
         // и пр.), и SSL-валидация их режет. Ослабляем глобально для
