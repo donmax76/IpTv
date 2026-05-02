@@ -37,6 +37,21 @@ class ChannelAdapter(
         return ViewHolder(view)
     }
 
+    override fun onBindViewHolder(holder: ViewHolder, position: Int, payloads: MutableList<Any>) {
+        // Если notify пришёл только с пометкой "epg" — обновляем
+        // ТОЛЬКО now/next текст и progress, НЕ дёргая Coil заново
+        // на лого. Это убирает мерцание лого при каждом обновлении
+        // EPG (Round 120's epgUpdateListener вызывал updateEpg ->
+        // notifyDataSetChanged -> .load() заново -> placeholder ->
+        // лого, что выглядит как "лого пропали и вернулись").
+        if (payloads.isNotEmpty() && payloads.contains(PAYLOAD_EPG)) {
+            val channel = channels.getOrNull(position) ?: return
+            bindEpgOnly(holder, channel)
+            return
+        }
+        onBindViewHolder(holder, position)
+    }
+
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val channel = channels[position]
         val context = holder.itemView.context
@@ -148,7 +163,27 @@ class ChannelAdapter(
 
     fun updateEpg(epg: Map<String, List<EpgRepository.Programme>>) {
         epgData = epg
-        notifyDataSetChanged()
+        // payload "epg" — onBindViewHolder с payloads обновит только
+        // EPG-текст, не перегружая лого через Coil. Без этого после
+        // каждого fetchAll в списке мерцали все логотипы.
+        notifyItemRangeChanged(0, channels.size, PAYLOAD_EPG)
+    }
+
+    /** Обновляет только EPG-зависимые view — без trogания логотипа. */
+    private fun bindEpgOnly(holder: ViewHolder, channel: Channel) {
+        val (now, next) = EpgRepository.getNowNext(epgData, channel.tvgId, channel.name)
+        holder.channelEpg?.let { epg ->
+            epg.text = when {
+                now != null -> now
+                next != null -> "-> $next"
+                else -> null
+            }
+            epg.visibility = if (epg.text.isNullOrEmpty()) View.GONE else View.VISIBLE
+        }
+    }
+
+    companion object {
+        private const val PAYLOAD_EPG = "epg"
     }
 
     fun updateFavorites(newFavorites: Set<String>) {
