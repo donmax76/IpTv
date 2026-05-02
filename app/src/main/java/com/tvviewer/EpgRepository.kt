@@ -109,24 +109,13 @@ object EpgRepository {
     suspend fun fetchAll(urls: List<String>, context: Context? = null): Map<String, List<Programme>> {
         val cleaned = urls.filter { it.isNotBlank() }.distinct()
         if (cleaned.isEmpty()) return loadFromCache(context) ?: emptyMap()
-        // Если фильтр не задан явно, авто-выводим из ChannelDataHolder.
-        // Без этого ChannelsFragment запускает fetchAll до того как
-        // TvGuideFragment установит channelFilter — парсер обрабатывает
-        // ВСЕ 5000+ каналов из XMLTV вместо ~200 нужных, и уходит в
-        // 3+ минутный парсинг 75MB iptvx.one на телефоне средней
-        // мощности. Юзер видит пустой ТВ Гид всё это время.
-        if (channelFilter.isNullOrEmpty()) {
-            val auto = mutableSetOf<String>()
-            for (ch in ChannelDataHolder.allChannels) {
-                ch.tvgId?.let { normalizeId(it).takeIf { k -> k.isNotEmpty() }?.let(auto::add) }
-                normalizeId(ch.name).takeIf { k -> k.isNotEmpty() }?.let(auto::add)
-            }
-            if (auto.isNotEmpty()) {
-                channelFilter = auto
-                if (context != null) ErrorLogger.info(context, "EPG",
-                    "fetchAll: auto-filter из плейлиста = ${auto.size} ключей")
-            }
-        }
+        // Auto-filter убран: при переключении плейлистов EPG-кэш
+        // оказывался отфильтрованным под предыдущий плейлист, и
+        // каналы из нового плейлиста не находили программу.
+        // Теперь парсер сохраняет ВСЕ каналы (с 7-дневным time-фильтром
+        // для экономии), и любой плейлист может из общего кэша достать
+        // свои программы.
+        channelFilter = null
         val deferred = synchronized(inFlightLock) {
             val existing = inFlight
             if (existing != null && !existing.isCompleted) {

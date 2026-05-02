@@ -355,19 +355,13 @@ class TvGuideFragment : Fragment() {
         debugStatus.text = "[$started] Запрашиваю ${urls.size} EPG-источник(ов)…"
         // Фильтр: парсим только программы каналов, что есть в текущем
         // плейлисте. Без этого парсер аллоцирует тысячи объектов
-        // Programme для каналов которые мы никогда не покажем — отсюда
-        // лаги UI и GC-паузы во время / после загрузки EPG.
-        fun norm(s: String?): String =
-            s?.lowercase()?.replace(Regex("[^\\p{L}\\p{N}]"), "") ?: ""
-        val playlistKeys = mutableSetOf<String>()
-        for (ch in ChannelDataHolder.allChannels) {
-            norm(ch.tvgId).takeIf { it.isNotEmpty() }?.let { playlistKeys += it }
-            norm(ch.name).takeIf { it.isNotEmpty() }?.let { playlistKeys += it }
-            ChannelMetaLookup.lookup(ch.name)?.tvgId?.let { tid ->
-                norm(tid).takeIf { it.isNotEmpty() }?.let { playlistKeys += it }
-            }
-        }
-        EpgRepository.channelFilter = playlistKeys
+        // Раньше тут устанавливали EpgRepository.channelFilter под
+        // текущий плейлист — это давало отфильтрованный кэш, и при
+        // переключении плейлиста его каналы не находили программу.
+        // Теперь парсер сохраняет ВСЕ каналы из EPG-источника,
+        // фильтрация происходит уже в loadEpgData при матчинге
+        // конкретного плейлиста с общим кэшем.
+        EpgRepository.channelFilter = null
         // Подписываемся на прогресс — без этого debugStatus не менялся
         // от "Запрашиваю…" до финального результата, юзер думал зависло.
         EpgRepository.onProgress = { stage ->
