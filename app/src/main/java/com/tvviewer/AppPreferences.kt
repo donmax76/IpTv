@@ -353,12 +353,49 @@ class AppPreferences(context: Context) {
          *  себе валидны. Round 59-62 настроили pipeline (download
          *  to disk + 3-min timeout + drop descriptions) так чтобы
          *  они корректно парсились на TV-боксах с 256MB heap.
-         *  iptvx.one убран из дефолта: 75 MB compressed = ~375 MB
-         *  decompressed, на X4 X4 (256 MB heap) парсинг роняет
-         *  приложение в OOM. Юзер может добавить вручную в настройках
-         *  если железо позволяет. */
+         *  Используем УПРОЩЁННЫЙ epg.xml (без gzip, программа только
+         *  на текущий день) — он специально сделан для слабых устройств
+         *  и парсится быстро без OOM. */
         val DEFAULT_EPG_URLS: List<String> = listOf(
-            "http://epg.it999.ru/edem.xml.gz",
+            "http://epg.it999.ru/epg.xml",
+        )
+
+        /** Готовый список EPG-источников для выбора в настройках. */
+        val SUGGESTED_EPG_URLS: List<Pair<String, String>> = listOf(
+            "epg.it999.ru/epg.xml — лёгкий, на сегодня (рекомендуется)" to
+                "http://epg.it999.ru/epg.xml",
+            "epg.it999.ru/edem.xml.gz — полный (Edem)" to
+                "http://epg.it999.ru/edem.xml.gz",
+            "epg.it999.ru/epg.xml.gz — полный (тёмный фон)" to
+                "http://epg.it999.ru/epg.xml.gz",
+            "epg.it999.ru/epg2.xml.gz — полный (прозрачный фон)" to
+                "http://epg.it999.ru/epg2.xml.gz",
+            "epg.it999.ru/pp.xml.gz — Perfect Player / ProgTV" to
+                "http://epg.it999.ru/pp.xml.gz",
+            "epg.it999.ru/ru.xml.gz — только русские каналы" to
+                "http://epg.it999.ru/ru.xml.gz",
+            "epg.it999.ru/ru2.xml.gz — русские (прозрачные пиконы)" to
+                "http://epg.it999.ru/ru2.xml.gz",
+            "epg.it999.ru/rupp.xml.gz — русские для Perfect Player" to
+                "http://epg.it999.ru/rupp.xml.gz",
+            "iptvx.one/epg/epg.xml.gz — мульти-регион (тяжёлый)" to
+                "https://iptvx.one/epg/epg.xml.gz",
+            "iptvx.one/epg/epg_lite.xml.gz — лёгкая версия iptvx" to
+                "http://iptvx.one/epg/epg_lite.xml.gz",
+            "teleguide.info — JTV формат (zip)" to
+                "http://www.teleguide.info/download/new3/jtv.zip",
+            "programtv.ru/xmltv.xml.gz" to
+                "http://programtv.ru/xmltv.xml.gz",
+            "ottepg.ru/ottepg.xml.gz" to
+                "https://ottepg.ru/ottepg.xml.gz",
+            "stb.shara-tv.org/epg/epgtv.xml.gz" to
+                "http://stb.shara-tv.org/epg/epgtv.xml.gz",
+            "st.kineskop.tv/epg.xml.gz" to
+                "http://st.kineskop.tv/epg.xml.gz",
+            "webarmen.com/my/iptv/xmltv.xml.gz" to
+                "https://webarmen.com/my/iptv/xmltv.xml.gz",
+            "static.mediatech.by/epg.xml" to
+                "https://static.mediatech.by/epg.xml",
         )
 
         private const val PREFS_NAME = "tvviewer_prefs"

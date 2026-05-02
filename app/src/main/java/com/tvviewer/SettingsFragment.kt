@@ -158,6 +158,26 @@ class SettingsFragment : Fragment() {
                 .show()
                 .installFocusListBackground()
         }
+        // Кнопка "Из списка": показывает готовые источники EPG.
+        builder.setNeutralButton("Из списка") { _, _ ->
+            val pairs = AppPreferences.SUGGESTED_EPG_URLS
+            val titles = pairs.map { it.first }.toTypedArray()
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
+                .setTitle("Готовые EPG-источники")
+                .setItems(titles) { _, which ->
+                    val url = pairs[which].second
+                    if (prefs.lastEpgUrl.isNullOrBlank()) {
+                        prefs.lastEpgUrl = url
+                    } else {
+                        prefs.addEpgUrl(url)
+                    }
+                    label?.text = epgUrlsSummary()
+                    Toast.makeText(requireContext(), "Добавлено: $url", Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton(R.string.cancel, null)
+                .show()
+                .installFocusListBackground()
+        }
         builder.setNegativeButton(R.string.cancel, null)
         builder.show()
     }

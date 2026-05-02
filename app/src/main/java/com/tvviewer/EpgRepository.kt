@@ -505,14 +505,33 @@ object EpgRepository {
         val needleStart = "start=\""
         val needleStop = "stop=\""
         val needleId = "id=\""
-        val tagProgrammeOpen = "<programme "
         val tagProgrammeClose = "</programme>"
-        val tagChannelOpen = "<channel "
         val tagChannelClose = "</channel>"
         val tagTitleOpen = "<title"
         val tagTitleClose = "</title>"
         val tagDisplayNameOpen = "<display-name"
         val tagDisplayNameClose = "</display-name>"
+
+        // Универсальный поиск открывающего тега: ищет "<name" + любой
+        // whitespace ИЛИ ">". Раньше искал ровно "<programme " (с
+        // пробелом) и пропускал файлы где после имени \n / \t / просто
+        // ">". Это и был баг: parsed 0 channels, 0 programmes на
+        // 43MB it999.ru — парсер 6 минут читал файл и ни одной
+        // программы не находил.
+        fun findOpenTag(name: String, from: Int): Int {
+            val needle = "<$name"
+            var p = from
+            while (p < sb.length) {
+                val idx = sb.indexOf(needle, p)
+                if (idx < 0) return -1
+                val nextPos = idx + needle.length
+                if (nextPos >= sb.length) return -1
+                val c = sb[nextPos]
+                if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '>') return idx
+                p = idx + 1
+            }
+            return -1
+        }
 
         // Кэш проверок accepted: для XMLTV с ~5000 каналами и 100 прог/канал
         // 500K программ → 5K уникальных id. Кэш экономит ~99% вызовов
@@ -579,7 +598,7 @@ object EpgRepository {
         fun processChannelsRange(rangeStart: Int, rangeEnd: Int) {
             var p = rangeStart
             while (p < rangeEnd) {
-                val cb = sb.indexOf(tagChannelOpen, p)
+                val cb = findOpenTag("channel", p)
                 if (cb < 0 || cb >= rangeEnd) break
                 val ce = sb.indexOf(tagChannelClose, cb)
                 if (ce < 0 || ce >= rangeEnd) break
@@ -608,6 +627,7 @@ object EpgRepository {
         }
 
         reportProgress("Парсю… запускаю")
+        var firstPeekLogged = false
 
         while (true) {
             val n = reader.read(buf)
@@ -618,8 +638,16 @@ object EpgRepository {
                 throw InterruptedException("EPG parser cancelled")
             }
 
+            // Один раз дамп первых 200 символов в trace — чтобы видеть
+            // реальный формат файла когда парсер не находит programmes.
+            if (!firstPeekLogged && sb.length >= 200) {
+                val peek = sb.substring(0, 200).replace('\n', ' ').replace('\r', ' ').take(180)
+                reportProgress("Peek: $peek")
+                firstPeekLogged = true
+            }
+
             if (!seenProgramme) {
-                val pIdx = sb.indexOf(tagProgrammeOpen, pos)
+                val pIdx = findOpenTag("programme", pos)
                 if (pIdx >= 0) {
                     processChannelsRange(pos, pIdx)
                     pos = pIdx
@@ -636,7 +664,7 @@ object EpgRepository {
 
             if (seenProgramme) {
                 while (true) {
-                    val pb = sb.indexOf(tagProgrammeOpen, pos)
+                    val pb = findOpenTag("programme", pos)
                     if (pb < 0) break
                     val pe = sb.indexOf(tagProgrammeClose, pb)
                     if (pe < 0) break
