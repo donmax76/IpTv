@@ -130,8 +130,10 @@ object EpgRepository {
             } else {
                 val newDeferred = fetchScope.async {
                     try {
+                        setRefreshing(true)
                         doFetchAll(cleaned, context)
                     } finally {
+                        setRefreshing(false)
                         synchronized(inFlightLock) { inFlight = null }
                     }
                 }
@@ -226,6 +228,38 @@ object EpgRepository {
      *  Не зависим от view lifecycle — фрагмент переустанавливает на null
      *  в onDestroy. */
     @Volatile var onProgress: ((String) -> Unit)? = null
+
+    /** Идёт ли в данный момент fetchAll (любой источник). UI может
+     *  смотреть это поле чтобы отрисовать индикатор "обновление в
+     *  фоне" даже когда юзер ушёл из Settings. */
+    @Volatile var isRefreshing: Boolean = false
+        private set
+
+    /** Список подписчиков на изменение isRefreshing. Срабатывает
+     *  когда обновление стартует и когда завершается. */
+    private val refreshStateListeners = mutableListOf<(Boolean) -> Unit>()
+
+    @Synchronized
+    fun addRefreshStateListener(l: (Boolean) -> Unit) {
+        refreshStateListeners += l
+        // Сразу даём текущее состояние, чтобы новый подписчик
+        // увидел что обновление уже идёт если оно идёт.
+        try { l(isRefreshing) } catch (_: Throwable) {}
+    }
+
+    @Synchronized
+    fun removeRefreshStateListener(l: (Boolean) -> Unit) {
+        refreshStateListeners -= l
+    }
+
+    private fun setRefreshing(value: Boolean) {
+        if (isRefreshing == value) return
+        isRefreshing = value
+        val handlers = synchronized(this) { refreshStateListeners.toList() }
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            handlers.forEach { try { it(value) } catch (_: Throwable) {} }
+        }
+    }
 
     /** Список подписчиков на обновление EPG-кэша. Каждый раз после
      *  успешного fetchAll вызываются на main thread с новой картой.

@@ -8,6 +8,22 @@
     android:focusableInTouchMode="true"
     android:descendantFocusability="beforeDescendants">
 
+    <!-- Тонкий статус-бар: видим когда идёт фоновое обновление EPG.
+         Юзер выходит из Settings → плейлист продолжает работать +
+         тут показывается "Обновляю ТВ Гид…" пока fetchAll бежит.
+         Когда обновление завершилось, бар скрывается автоматически. -->
+    <TextView
+        android:id="@+id/epgRefreshIndicator"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="6dp"
+        android:gravity="center"
+        android:textSize="12sp"
+        android:textColor="@android:color/white"
+        android:background="#4ECDC4"
+        android:text="Обновление ТВ Гида в фоне…"
+        android:visibility="gone"/>
+
     <!-- Header with playlist name -->
     <LinearLayout
         android:layout_width="match_parent"

@@ -109,6 +109,10 @@ class ChannelsFragment : Fragment() {
         // списке каналов всё равно нет программы пока не сменит
         // плейлист.
         EpgRepository.addEpgUpdateListener(epgUpdateListener)
+        // Подписываемся на флаг "обновление в процессе". Отрисовываем
+        // тонкую полоску сверху списка каналов когда fetchAll бежит
+        // в фоне (например после того как юзер вышел из Настроек).
+        EpgRepository.addRefreshStateListener(refreshStateListener)
 
         searchEditText.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -129,8 +133,16 @@ class ChannelsFragment : Fragment() {
         }
     }
 
+    private val refreshStateListener: (Boolean) -> Unit = { running ->
+        if (isAdded) {
+            view?.findViewById<TextView>(R.id.epgRefreshIndicator)
+                ?.visibility = if (running) View.VISIBLE else View.GONE
+        }
+    }
+
     override fun onDestroyView() {
         EpgRepository.removeEpgUpdateListener(epgUpdateListener)
+        EpgRepository.removeRefreshStateListener(refreshStateListener)
         super.onDestroyView()
     }
 
