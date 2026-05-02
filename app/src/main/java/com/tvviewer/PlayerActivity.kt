@@ -113,6 +113,10 @@ class PlayerActivity : BaseActivity() {
     private lateinit var playerRightMenuOverlay: FrameLayout
     private var streamDataFactory: androidx.media3.datasource.DataSource.Factory? = null
     private lateinit var overlayChannelsList: RecyclerView
+    // Поля overlayCategoriesList — нужны не только в setup но и в
+    // onDestroy для снятия ViewTreeObserver-listener (Round 129 audit).
+    // Иначе lateinit-проверка в onDestroy не компилируется.
+    private lateinit var overlayCategoriesList: RecyclerView
     private lateinit var numberInputDisplay: TextView
     private lateinit var sleepTimerIndicator: TextView
     private lateinit var prefs: AppPreferences
@@ -500,7 +504,7 @@ class PlayerActivity : BaseActivity() {
 
         // Category chips in overlay — FlowLayoutManager для wrap'а на
         // несколько строк, чтобы все категории видны сразу без скролла.
-        val overlayCategoriesList = findViewById<RecyclerView>(R.id.overlayCategoriesList)
+        overlayCategoriesList = findViewById<RecyclerView>(R.id.overlayCategoriesList)
         overlayCategoriesList.layoutManager = FlowLayoutManager()
         val channels = ChannelDataHolder.allChannels
         val realCats = channels.mapNotNull { it.group?.split(';', ',', '|')?.firstOrNull()?.trim() }
