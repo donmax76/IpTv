@@ -216,6 +216,11 @@ object EpgRepository {
     @Volatile var lastFetchPeek: String = ""
         private set
 
+    /** Отдельное поле для peek первых 200 байт когда парсер ничего не
+     *  нашёл. lastFetchPeek перетирается в parseXmltvStreaming, поэтому
+     *  диагностику храним отдельно. */
+    @Volatile var lastEmptyPeek: String? = null
+
     /** Колбэк прогресса (всегда вызывается с main thread). UI подписывается,
      *  чтобы юзер видел "скачал 8MB / парсю / готово" а не пустой спиннер.
      *  Не зависим от view lifecycle — фрагмент переустанавливает на null
@@ -329,8 +334,10 @@ object EpgRepository {
                 "${finalResult.values.sumOf { it.size }} programmes")
             // Если ничего не распарсилось — пишем peek в лог чтобы
             // увидеть формат файла (HTML, кириллица, бинарь и т.д.)
-            if (context != null && finalResult.isEmpty() && lastFetchPeek.startsWith("EMPTY parse")) {
-                ErrorLogger.info(context, "EPG", "fetchSingle($host) $lastFetchPeek")
+            val emptyPeek = lastEmptyPeek
+            if (context != null && finalResult.isEmpty() && emptyPeek != null) {
+                ErrorLogger.info(context, "EPG", "fetchSingle($host) $emptyPeek")
+                lastEmptyPeek = null
             }
             saveToCache(context, finalResult)
             finalResult
@@ -701,13 +708,12 @@ object EpgRepository {
         val sec = (System.currentTimeMillis() - tStart) / 1000
         val accepted = result.values.sumOf { it.size }
         reportProgress("Парсинг готов: ${pCount / 1000}K блоков, $accepted принято, $skipCount отброшено, ${sec}с")
-        // Если ничего не нашли — публикуем peek в lastFetchPeek чтобы
-        // fetchSingle мог записать его в trace-лог. Без этого мы не
-        // видим в чём проблема: какой формат у файла, кириллица ли,
-        // HTML 404 страница и т.д.
-        if (accepted == 0 && pCount == 0 && firstPeek != null) {
-            lastFetchPeek = "EMPTY parse, ${pCount} blocks, ${sec}s | peek: " + firstPeek!!.take(160)
-        }
+        // Если ничего не нашли — публикуем peek в отдельное поле
+        // lastEmptyPeek (lastFetchPeek перезатрётся 'Parsed: 0…').
+        // fetchSingle прочитает и запишет в trace-лог.
+        lastEmptyPeek = if (accepted == 0 && firstPeek != null)
+            "EMPTY, blocks=$pCount, sec=$sec, peek=" + firstPeek!!.take(160)
+        else null
 
         return Pair(result, displayNamesById)
     }
