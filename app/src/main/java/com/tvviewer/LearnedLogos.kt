@@ -34,16 +34,24 @@ object LearnedLogos {
             if (file.exists() && file.length() in 1..2_000_000) {
                 val obj = JSONObject(file.readText())
                 val keys = obj.keys()
+                var dropped = 0
                 while (keys.hasNext()) {
                     val k = keys.next()
                     val v = obj.optString(k, "")
-                    if (v.isNotEmpty()) {
-                        map[k] = v
-                        val fk = EpgRepository.fuzzyKey(k)
-                        if (fk.isNotEmpty()) fuzzyMap[fk] = v
+                    if (v.isEmpty()) continue
+                    // Чистим старый мусор: Google-фавиконы которые
+                    // попали сюда до Round 100. Они отображаются как
+                    // серая планетка 16px и хуже placeholder'а.
+                    if (v.contains("google.com/s2/favicons")) {
+                        dropped++
+                        continue
                     }
+                    map[k] = v
+                    val fk = EpgRepository.fuzzyKey(k)
+                    if (fk.isNotEmpty()) fuzzyMap[fk] = v
                 }
-                Log.d(TAG, "loaded ${map.size} learned logo entries")
+                Log.d(TAG, "loaded ${map.size} learned logo entries (dropped $dropped favicons)")
+                if (dropped > 0) persist(context)
             }
         } catch (e: Throwable) {
             Log.e(TAG, "load failed", e)

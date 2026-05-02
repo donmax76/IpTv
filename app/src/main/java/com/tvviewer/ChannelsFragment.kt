@@ -101,6 +101,29 @@ class ChannelsFragment : Fragment() {
             if (isAdded) adapter.notifyDataSetChanged()
         }
 
+        // Подписываемся на событие "EPG обновился". Когда юзер
+        // дёргает refresh из Settings (или auto-refresh завершается
+        // в фоне) — этот listener вызывается с новой картой, и мы
+        // тут же синкаем локальный epgData + перерисовываем адаптер.
+        // Без этого юзер видит "обновление прошло" в логах, но в
+        // списке каналов всё равно нет программы пока не сменит
+        // плейлист.
+        EpgRepository.addEpgUpdateListener(epgUpdateListener)
+    }
+
+    private val epgUpdateListener: (Map<String, List<EpgRepository.Programme>>) -> Unit = { newData ->
+        if (isAdded && newData.isNotEmpty()) {
+            epgData = newData
+            ChannelDataHolder.epgData = newData
+            adapter.updateEpg(newData)
+        }
+    }
+
+    override fun onDestroyView() {
+        EpgRepository.removeEpgUpdateListener(epgUpdateListener)
+        super.onDestroyView()
+    }
+
         searchEditText.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}

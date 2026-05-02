@@ -189,7 +189,13 @@ object EpgRepository {
         lastFetchErrors = errors
         val merged = mutableMapOf<String, List<Programme>>()
         for (r in results) merged.putAll(r)
-        if (merged.isNotEmpty()) saveToCache(context, merged)
+        if (merged.isNotEmpty()) {
+            saveToCache(context, merged)
+            // Уведомляем подписчиков (ChannelsFragment, FavoritesFragment...)
+            // чтобы их адаптеры подхватили свежий EPG автоматически —
+            // без ручной перезагрузки экрана.
+            fireEpgUpdated(merged)
+        }
         if (context != null) ErrorLogger.info(context, "EPG",
             "fetchAll done: merged=${merged.size} channels, " +
             "summary=${summary.joinToString { "${it.first.substringAfter("://").substringBefore("/").take(20)}=${it.second}" }}, " +
@@ -220,6 +226,30 @@ object EpgRepository {
      *  Не зависим от view lifecycle — фрагмент переустанавливает на null
      *  в onDestroy. */
     @Volatile var onProgress: ((String) -> Unit)? = null
+
+    /** Список подписчиков на обновление EPG-кэша. Каждый раз после
+     *  успешного fetchAll вызываются на main thread с новой картой.
+     *  ChannelsFragment подписывается чтобы обновить адаптеры в
+     *  списке каналов автоматически — без ручной перезагрузки. */
+    private val epgUpdateListeners = mutableListOf<(Map<String, List<Programme>>) -> Unit>()
+
+    @Synchronized
+    fun addEpgUpdateListener(l: (Map<String, List<Programme>>) -> Unit) {
+        epgUpdateListeners += l
+    }
+
+    @Synchronized
+    fun removeEpgUpdateListener(l: (Map<String, List<Programme>>) -> Unit) {
+        epgUpdateListeners -= l
+    }
+
+    @Synchronized
+    private fun fireEpgUpdated(data: Map<String, List<Programme>>) {
+        val handlers = epgUpdateListeners.toList()
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            handlers.forEach { try { it(data) } catch (_: Throwable) {} }
+        }
+    }
 
     private fun reportProgress(text: String) {
         val cb = onProgress ?: return
