@@ -105,13 +105,13 @@ object ChannelMetaLookup {
         if (!loaded || channelName.isBlank()) return null
         // 1. Точное совпадение по нормализованному имени.
         byName[normalize(channelName)]?.let { return it }
-        // 2. Fuzzy ОТКЛЮЧЕН для каналов с цифрой в конце имени:
-        //    "Amedia 2" → "amedia" коллапсирует с "Amedia 1" и
-        //    отдаёт чужие данные. Лучше null чем wrong-data.
-        val tail = channelName.trimEnd()
-        if (tail.isNotEmpty() && tail.last().isDigit()) return null
-        // 3. Fuzzy: убираем HD/SD/4K/UK/RU и т.д. Например
+        // 2. Fuzzy: убираем HD/SD/4K/UK/RU и т.д. Например
         //    "Cartoon Network HD" matches "Cartoon Network".
+        //    ambiguousFuzzy защищает от коллизий "Amedia 1"/"Amedia 2"
+        //    — оба сводятся к "amedia" и при индексации обе записи
+        //    удалены. Так что byFuzzy["amedia"] вернёт null, не чужой
+        //    канал. Это безопаснее чем глобальный блок цифровых
+        //    каналов (который ломал EPG для "Channel 1", "BBC 1").
         val fuzzy = EpgRepository.fuzzyKey(channelName)
         if (fuzzy.isNotEmpty()) byFuzzy[fuzzy]?.let { return it }
         return null

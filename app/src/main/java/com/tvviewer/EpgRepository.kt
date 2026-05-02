@@ -286,6 +286,10 @@ object EpgRepository {
         }
     }
 
+    /** Public alias для внешних вызывающих (TVViewerApp, грузящий
+     *  кэш на старте) — fireEpgUpdated приватный. */
+    fun notifyEpgUpdate(data: Map<String, List<Programme>>) = fireEpgUpdated(data)
+
     private fun reportProgress(text: String) {
         val cb = onProgress ?: return
         try {
@@ -1124,16 +1128,6 @@ object EpgRepository {
      *  обращения. Перебираем все возможные ключи в порядке от точного
      *  к фуззи, чтобы канал из любого плейлиста нашёл свою программу
      *  в общем кэше EPG. */
-    /** Канал с цифрой в конце имени ("Amedia 2", "ТНТ 4", "BBC 1"):
-     *  цифра — часть идентичности канала. Для таких пропускаем fuzzy
-     *  поиск, потому что fuzzyKey стрипает трейлинг-цифры и
-     *  "Amedia 1"/"Amedia 2" коллапсируют в один "amedia". */
-    private val numberedChannelRe = Regex("\\D\\s*\\d+\\s*$")
-    private fun isNumberedName(s: String?): Boolean {
-        if (s.isNullOrBlank()) return false
-        return numberedChannelRe.containsMatchIn(s)
-    }
-
     private fun lookupProgrammes(
         epg: Map<String, List<Programme>>,
         tvgId: String?,
@@ -1156,23 +1150,20 @@ object EpgRepository {
             }
         }
         // 3. Fuzzy-варианты (без HD/SD/UK/RU/(720p) и т.д.) — для
-        //    плейлистов с суффиксами имени. ОТКЛЮЧАЕМ для каналов с
-        //    цифрой в конце ("Amedia 2", "ТНТ 4") — иначе они оба
-        //    схлопнутся в "amedia"/"тнт" и подцепят одну и ту же
-        //    программу. Если точного матча нет — лучше показать
-        //    "программа недоступна" чем чужую.
-        val numbered = isNumberedName(tvgId) || isNumberedName(channelName)
-        if (!numbered) {
-            if (!tvgId.isNullOrBlank()) {
-                fuzzyKey(tvgId).takeIf { it.isNotEmpty() }?.let(keys::add)
-            }
-            if (!channelName.isNullOrBlank()) {
-                fuzzyKey(channelName).takeIf { it.isNotEmpty() }?.let(keys::add)
-            }
-            if (!channelName.isNullOrBlank()) {
-                ChannelMetaLookup.lookup(channelName)?.tvgId?.let {
-                    fuzzyKey(it).takeIf { k -> k.isNotEmpty() }?.let(keys::add)
-                }
+        //    плейлистов с суффиксами имени. Защита от Amedia 1/2
+        //    коллизии — на уровне CACHE: при сборке кэша мы НЕ создаём
+        //    fuzzy-зеркало если на тот же ключ претендуют несколько
+        //    разных id (см. parseXmltv). Так что fuzzy здесь безопасен:
+        //    либо матчит уникальный канал, либо ничего не матчит.
+        if (!tvgId.isNullOrBlank()) {
+            fuzzyKey(tvgId).takeIf { it.isNotEmpty() }?.let(keys::add)
+        }
+        if (!channelName.isNullOrBlank()) {
+            fuzzyKey(channelName).takeIf { it.isNotEmpty() }?.let(keys::add)
+        }
+        if (!channelName.isNullOrBlank()) {
+            ChannelMetaLookup.lookup(channelName)?.tvgId?.let {
+                fuzzyKey(it).takeIf { k -> k.isNotEmpty() }?.let(keys::add)
             }
         }
         return keys.firstNotNullOfOrNull { epg[it] }

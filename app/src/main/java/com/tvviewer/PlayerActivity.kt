@@ -63,7 +63,6 @@ class PlayerActivity : BaseActivity() {
 
         private val PLAYER_DRAWER_IDS = intArrayOf(
             R.id.playerDrawerPlaylists,
-            R.id.playerDrawerChannels,
             R.id.playerDrawerFavorites,
             R.id.playerDrawerRecent,
             R.id.playerDrawerSettings,
@@ -257,6 +256,11 @@ class PlayerActivity : BaseActivity() {
         scheduleHideControls()
         startClock()
 
+        // Подписываемся на EPG-обновления: если в момент старта плеера
+        // ChannelDataHolder.epgData ещё пустой (cache загружается в фоне),
+        // listener сработает позже и мы перерисуем баннер + epgNow.
+        EpgRepository.addEpgUpdateListener(playerEpgListener)
+
         // Save last channel + push to recent history
         prefs.lastChannelUrl = currentUrl
         currentUrl?.let { prefs.pushRecent(it) }
@@ -293,7 +297,7 @@ class PlayerActivity : BaseActivity() {
             finish()
         }
         findViewById<View>(R.id.playerDrawerPlaylists).setOnClickListener { gotoMain(0) }
-        findViewById<View>(R.id.playerDrawerChannels).setOnClickListener { gotoMain(1) }
+        // playerDrawerChannels удалён
         // playerDrawerTvGuide удалён вместе с вкладкой ТВ Гид.
         // Индексы gotoMain сдвинуты на -1 после удаления.
         findViewById<View>(R.id.playerDrawerFavorites).setOnClickListener { gotoMain(2) }
@@ -511,10 +515,12 @@ class PlayerActivity : BaseActivity() {
             }
         })
 
-        // Category chips in overlay — FlowLayoutManager для wrap'а на
-        // несколько строк, чтобы все категории видны сразу без скролла.
+        // Category chips: одна горизонтальная строка с прокруткой
+        // (пользователь сказал что многострочный wrap неудобен — занимает
+        // слишком много места над списком каналов).
         overlayCategoriesList = findViewById<RecyclerView>(R.id.overlayCategoriesList)
-        overlayCategoriesList.layoutManager = FlowLayoutManager()
+        overlayCategoriesList.layoutManager =
+            LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
         val channels = ChannelDataHolder.allChannels
         val realCats = channels.mapNotNull { it.group?.split(';', ',', '|')?.firstOrNull()?.trim() }
             .filter { it.isNotEmpty() && it.length <= 30 }
@@ -560,6 +566,22 @@ class PlayerActivity : BaseActivity() {
 
     private var overlaySelectedCategory: String = ""
 
+    /** Универсальный обработчик клика по строке overlay. Принимает
+     *  позицию из адаптера (позицию в overlayFilteredChannels) и
+     *  ищет реальный индекс в ChannelDataHolder.allChannels по URL.
+     *  Так работает корректно и для unfiltered, и для filtered
+     *  списка — даже если адаптер реюзается через updateChannels
+     *  (в Round 131 я этот случай упустил, и filtered click открывал
+     *  канал из общего плейлиста).  */
+    private fun handleOverlayClick(posInList: Int) {
+        val ch = overlayFilteredChannels.getOrNull(posInList) ?: return
+        val realIdx = ChannelDataHolder.allChannels.indexOfFirst { it.url == ch.url }
+        if (realIdx >= 0) {
+            switchToChannel(realIdx)
+            hideChannelList()
+        }
+    }
+
     private fun setupOverlayChannelList() {
         val channels = ChannelDataHolder.allChannels
         if (channels.isEmpty()) return
@@ -571,13 +593,8 @@ class PlayerActivity : BaseActivity() {
 
         overlayAdapter = OverlayChannelAdapter(channels, ChannelDataHolder.epgData, currentIndex,
             favorites = prefs.favorites,
-            onChannelClick = { index ->
-                switchToChannel(index)
-                hideChannelList()
-            },
-            onFavoriteClick = { channel ->
-                toggleFavorite(channel)
-            },
+            onChannelClick = { pos -> handleOverlayClick(pos) },
+            onFavoriteClick = { channel -> toggleFavorite(channel) },
             onShowDetailsClick = { channel -> showChannelDetailsDialog(channel) }
         )
         overlayChannelsList.adapter = overlayAdapter
@@ -626,16 +643,8 @@ class PlayerActivity : BaseActivity() {
         } else {
             overlayAdapter = OverlayChannelAdapter(overlayFilteredChannels, ChannelDataHolder.epgData, filteredCurrentIndex,
                 favorites = prefs.favorites,
-                onChannelClick = { filteredIndex ->
-                    if (filteredIndex in overlayFilteredIndices.indices) {
-                        val realIndex = overlayFilteredIndices[filteredIndex]
-                        switchToChannel(realIndex)
-                        hideChannelList()
-                    }
-                },
-                onFavoriteClick = { channel ->
-                    toggleFavorite(channel)
-                },
+                onChannelClick = { pos -> handleOverlayClick(pos) },
+                onFavoriteClick = { channel -> toggleFavorite(channel) },
                 onShowDetailsClick = { channel -> showChannelDetailsDialog(channel) }
             )
             overlayChannelsList.adapter = overlayAdapter
@@ -1408,6 +1417,15 @@ class PlayerActivity : BaseActivity() {
     // отсюда GC-паузы и зависания после долгого просмотра.
     private var pendingSeekListener: Player.Listener? = null
 
+    /** Listener для приёма EPG-апдейтов из фонового fetch / load.
+     *  Перерисовывает текущий баннер и epgNow когда данные приходят. */
+    private val playerEpgListener: (Map<String, List<EpgRepository.Programme>>) -> Unit = { _ ->
+        runOnUiThread {
+            updateEpg()
+            try { showChannelBanner() } catch (_: Throwable) {}
+        }
+    }
+
     private fun playStream(url: String) {
         loadingIndicator.visibility = View.VISIBLE
         errorLayout.visibility = View.GONE
@@ -1495,17 +1513,17 @@ class PlayerActivity : BaseActivity() {
             }
     }
 
-    /** Показывает разрешение текущего потока в нижнем info-bar
-     *  ("1920x1080" / "1280x720" / "720p" — в зависимости от высоты). */
+    /** Показывает разрешение текущего потока в нижней инфо-панели
+     *  (channelInfoBanner — там же где имя канала и часы).
+     *  "4K" / "1080p" / "720p" / "WxH" в зависимости от высоты. */
     private fun updateResolutionLabel(videoSize: androidx.media3.common.VideoSize) {
-        val tv = findViewById<TextView>(R.id.bottomResolutionLabel) ?: return
+        val tv = findViewById<TextView>(R.id.bannerResolution) ?: return
         if (videoSize.width <= 0 || videoSize.height <= 0) {
             tv.visibility = View.GONE
             return
         }
         val tag = when {
             videoSize.height >= 2000 -> "4K"
-            videoSize.height >= 1000 -> "${videoSize.height}p"
             videoSize.height >= 700 -> "${videoSize.height}p"
             else -> "${videoSize.width}x${videoSize.height}"
         }
@@ -1599,6 +1617,8 @@ class PlayerActivity : BaseActivity() {
         currentUrl = channel.url
         channelName.text = channel.name
         channelNumber.text = "${currentIndex + 1} / ${channels.size}"
+        // Скрываем резолюцию пока новый поток не отдаст VideoSize.
+        findViewById<View>(R.id.bannerResolution)?.visibility = View.GONE
         ChannelDataHolder.currentChannelIndex = currentIndex
 
         prefs.lastChannelUrl = currentUrl
@@ -2376,6 +2396,7 @@ class PlayerActivity : BaseActivity() {
 
     override fun onDestroy() {
         saveCurrentChannelState()
+        try { EpgRepository.removeEpgUpdateListener(playerEpgListener) } catch (_: Throwable) {}
         // Снимаем ViewTreeObserver-listeners чтобы Activity не утекала.
         try {
             controlsFocusListener?.let {

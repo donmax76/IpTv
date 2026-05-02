@@ -42,8 +42,15 @@ class HomeFragment : Fragment() {
         // ?random=N делает каждый запрос уникальным, чтобы Coil не
         // отдавал кэш одной и той же картинки. Размер 1920×1080 даёт
         // приличное качество и под 4K-экраном (scaleType centerCrop).
-        private const val PHOTO_URL_BASE = "https://picsum.photos/1920/1080?random="
-        private const val SLIDE_INTERVAL_MS = 12_000L
+        // 1280×720 хватает для full-HD дисплея с centerCrop, при этом
+        // в 2 раза легче по трафику (важно на слабом TV-боксе и при
+        // шумном Wi-Fi). picsum выдаёт уникальную картинку на каждый
+        // ?random=N — без него Coil отдавал бы кэш.
+        private const val PHOTO_URL_BASE = "https://picsum.photos/1280/720?random="
+        // Был 12 сек — оказалось слишком часто, юзер жаловался на лаг.
+        // 30 сек — щадящий ритм, не давит на сеть и GC, при этом фон
+        // всё равно выглядит «живым».
+        private const val SLIDE_INTERVAL_MS = 30_000L
         private const val FADE_DURATION_MS = 1_400L
     }
 
@@ -52,6 +59,11 @@ class HomeFragment : Fragment() {
     private var bgPhotoSeed = (System.currentTimeMillis() / 1000).toInt()
     private var fallbackIndex = 0
     private var showingA = true
+    /** Защита от двойного нажатия: пока fetchPlaylist в процессе,
+     *  игнорируем повторные клики. Иначе юзер тыкает 3-4 раза думая
+     *  что не отреагировало → запускается несколько fetch'ей в
+     *  параллель и это ещё больше тормозит. */
+    private var liveStarting = false
     private val bgRunnable = object : Runnable {
         override fun run() {
             cycleBackground()
@@ -137,12 +149,23 @@ class HomeFragment : Fragment() {
     }
 
     private fun onLiveClicked() {
+        if (liveStarting) return  // защита от двойного клика
         val url = prefs.lastPlaylistUrl
         if (url.isNullOrBlank()) {
             Toast.makeText(requireContext(), R.string.home_choose_playlist_first, Toast.LENGTH_SHORT).show()
             (activity as? MainActivity)?.openPlaylistsTab()
             return
         }
+        liveStarting = true
+        val v = view
+        // Мгновенный feedback: показываем индикатор поверх кнопки —
+        // юзер видит что приложение откликнулось на клик. Без этого
+        // он тыкал ещё пару раз, думая что не работает.
+        val progress = v?.findViewById<View>(R.id.homeLiveProgress)
+        progress?.visibility = View.VISIBLE
+        v?.findViewById<View>(R.id.btnHomeLive)?.isEnabled = false
+        v?.findViewById<View>(R.id.btnHomePlaylists)?.isEnabled = false
+
         val ctx = requireContext().applicationContext
         lifecycleScope.launch {
             try {
@@ -172,6 +195,11 @@ class HomeFragment : Fragment() {
             } catch (e: Exception) {
                 ErrorLogger.logException(ctx, e)
                 Toast.makeText(ctx, R.string.load_failed, Toast.LENGTH_SHORT).show()
+            } finally {
+                liveStarting = false
+                progress?.visibility = View.GONE
+                v?.findViewById<View>(R.id.btnHomeLive)?.isEnabled = true
+                v?.findViewById<View>(R.id.btnHomePlaylists)?.isEnabled = true
             }
         }
     }

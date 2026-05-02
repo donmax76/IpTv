@@ -28,6 +28,16 @@
         android:layout_height="match_parent"
         android:background="#40000000"/>
 
+    <!-- Индикатор загрузки плейлиста при клике "Прямой эфир".
+         Скрыт по умолчанию, показывается на время fetchPlaylist. -->
+    <ProgressBar
+        android:id="@+id/homeLiveProgress"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:layout_gravity="center"
+        android:indeterminateTint="@android:color/white"
+        android:visibility="gone"/>
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"

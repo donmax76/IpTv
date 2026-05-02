@@ -190,6 +190,18 @@ class TVViewerApp : Application(), ImageLoaderFactory {
     private fun scheduleEpgAutoRefresh() {
         applicationScope.launch {
             try {
+                // 1. Сначала тянем кэш с диска. Это критично: до Round 136
+                //    ChannelDataHolder.epgData оставался пустым после
+                //    cold-start пока юзер не зайдёт в TvGuide / Settings.
+                //    Раньше ChannelsFragment подгружал кэш, но мы его
+                //    удалили — теперь загрузка кэша делается на старте.
+                val cached = EpgRepository.loadFromCache(applicationContext)
+                if (cached != null && cached.isNotEmpty()) {
+                    ChannelDataHolder.epgData = cached
+                    EpgRepository.notifyEpgUpdate(cached)
+                    Log.d("TVViewer", "EPG cache loaded on app start: ${cached.size} channels")
+                }
+
                 kotlinx.coroutines.delay(30_000)        // прогреем CPU
                 val prefs = AppPreferences(applicationContext)
                 val urls = prefs.allEpgUrls()

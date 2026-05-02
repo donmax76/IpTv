@@ -124,23 +124,8 @@
                 android:background="@drawable/bg_live_badge"
                 android:layout_marginEnd="6dp"/>
 
-            <!-- Разрешение текущего потока (1080p / 720p / 4K).
-                 Заполняется из onVideoSizeChanged когда плеер
-                 узнаёт реальный размер кадра. -->
-            <TextView
-                android:id="@+id/bottomResolutionLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="@android:color/white"
-                android:textSize="10sp"
-                android:textStyle="bold"
-                android:background="@drawable/bg_live_badge"
-                android:paddingStart="6dp"
-                android:paddingEnd="6dp"
-                android:paddingTop="2dp"
-                android:paddingBottom="2dp"
-                android:layout_marginEnd="6dp"
-                android:visibility="gone"/>
+            <!-- Разрешение перенесено в нижнюю инфо-панель
+                 (см. bottomInfoBar внизу controlsOverlay). -->
 
             <!-- Audio track info (shows track count) -->
             <TextView
@@ -526,17 +511,9 @@
                 android:focusable="true"
                 app:icon="@drawable/ic_playlist"/>
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/playerDrawerChannels"
-                style="@style/PlayerDrawerItem"
-                android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:gravity="start|center_vertical"
-                android:padding="10dp"
-                android:text="@string/channels"
-                android:textColor="@color/text_primary"
-                android:focusable="true"
-                app:icon="@drawable/ic_channels"/>
+            <!-- playerDrawerChannels удалён: вкладка Каналы убрана из
+                 навигации, список каналов доступен через DPAD_LEFT
+                 в плеере (или кнопка ≡ слева в верхней панели). -->
 
             <!-- ТВ Гид удалён по просьбе пользователя — программа
                  показывается прямо в списке каналов. -->
@@ -802,6 +779,24 @@
                     android:visibility="gone"/>
 
             </LinearLayout>
+
+            <!-- Разрешение текущего потока (1080p / 720p / 4K).
+                 Заполняется из onVideoSizeChanged когда плеер
+                 узнаёт реальный размер кадра. -->
+            <TextView
+                android:id="@+id/bannerResolution"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@android:color/white"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:background="@drawable/bg_live_badge"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:layout_marginEnd="8dp"
+                android:visibility="gone"/>
 
             <TextView
                 android:id="@+id/bannerClock"
