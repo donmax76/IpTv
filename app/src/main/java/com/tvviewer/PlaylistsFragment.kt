@@ -162,6 +162,37 @@ class PlaylistsFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         refreshPlaylists()
+        moveFocusToFirstItem()
+    }
+
+    override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        if (!hidden) moveFocusToFirstItem()
+    }
+
+    /** Без явного requestFocus при открытии вкладки фокус остаётся в
+     *  bottom-nav — юзер не может выбрать плейлист пока не нажмёт
+     *  «назад». Переводим фокус на первый item-row, когда recycler
+     *  отрисовал свои view-holders. */
+    private fun moveFocusToFirstItem() {
+        val v = view ?: return
+        v.postDelayed({
+            if (!isAdded || !::recyclerView.isInitialized) return@postDelayed
+            // Первая попытка — сразу
+            val first = recyclerView.findViewHolderForAdapterPosition(0)?.itemView
+            if (first != null && first.isAttachedToWindow) {
+                first.requestFocus()
+                return@postDelayed
+            }
+            // Если view-holders ещё не выкатаны — фокусим сам recycler
+            recyclerView.requestFocus()
+            // И вторая попытка после ещё одного layout-цикла
+            recyclerView.postDelayed({
+                if (!isAdded) return@postDelayed
+                recyclerView.findViewHolderForAdapterPosition(0)
+                    ?.itemView?.requestFocus()
+            }, 100)
+        }, 50)
     }
 
     private fun refreshPlaylists() {
