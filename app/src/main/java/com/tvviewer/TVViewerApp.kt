@@ -102,6 +102,13 @@ class TVViewerApp : Application(), ImageLoaderFactory {
                     try { f.delete() } catch (_: Exception) {}
                 }
             }
+            // Старый _v2 кэш EPG (с playlist-фильтром) больше не
+            // используется — Round 101 хранит все каналы. Удаляем
+            // чтобы не занимал ~3 MB на диске.
+            try {
+                java.io.File(filesDir, "epg_cache_v2.json").delete()
+                java.io.File(filesDir, "epg_cache.json").delete()
+            } catch (_: Exception) {}
         } catch (_: Exception) {}
         // Pre-warm the iptv-org channel database so logos / tvg-ids for
         // user-added channels become available a few seconds after launch.

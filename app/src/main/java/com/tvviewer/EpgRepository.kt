@@ -31,7 +31,12 @@ object EpgRepository {
     // v2: ключи нормализуются Unicode-aware (\p{L}\p{N}) — кириллица
     // сохраняется. Старые кэши с пустыми ключами для русских каналов
     // больше не читаются (новая фабрика fetchAll создаёт v2 с нуля).
-    private const val EPG_CACHE_FILE = "epg_cache_v2.json"
+    // v3: кэш не фильтруется под конкретный плейлист (Round 101).
+    // Сохраняем все каналы из EPG-источника, чтобы любой плейлист
+    // мог достать свои программы из общего кэша. Старый _v2 файл
+    // содержал отфильтрованный кэш и его нужно выбросить — поэтому
+    // меняю имя.
+    private const val EPG_CACHE_FILE = "epg_cache_v3.json"
     private const val EPG_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000L // 6 hours
 
     private val client: OkHttpClient = run {
