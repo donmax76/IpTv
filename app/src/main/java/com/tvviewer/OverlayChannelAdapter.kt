@@ -19,7 +19,10 @@ class OverlayChannelAdapter(
     private var currentIndex: Int,
     private var favorites: Set<String> = emptySet(),
     private val onChannelClick: (Int) -> Unit,
-    private val onFavoriteClick: ((Channel) -> Unit)? = null
+    private val onFavoriteClick: ((Channel) -> Unit)? = null,
+    // DPAD_RIGHT после "избранное" — показываем детальную информацию
+    // о текущей программе на канале.
+    private val onShowDetailsClick: ((Channel) -> Unit)? = null
 ) : RecyclerView.Adapter<OverlayChannelAdapter.ViewHolder>() {
 
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
@@ -115,9 +118,17 @@ class OverlayChannelAdapter(
             } else false
         }
         holder.favoriteBtn.setOnKeyListener { _, keyCode, event ->
-            if (event.action == android.view.KeyEvent.ACTION_DOWN
-                && keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT) {
-                holder.itemView.requestFocus(); true
+            if (event.action == android.view.KeyEvent.ACTION_DOWN) {
+                when (keyCode) {
+                    android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
+                        holder.itemView.requestFocus(); true
+                    }
+                    // Ещё раз вправо после "избранное" — детальная инфа.
+                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                        onShowDetailsClick?.invoke(channel); true
+                    }
+                    else -> false
+                }
             } else false
         }
     }

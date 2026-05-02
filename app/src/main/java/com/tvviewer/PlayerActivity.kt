@@ -542,7 +542,8 @@ class PlayerActivity : BaseActivity() {
             },
             onFavoriteClick = { channel ->
                 toggleFavorite(channel)
-            }
+            },
+            onShowDetailsClick = { channel -> showChannelDetailsDialog(channel) }
         )
         overlayChannelsList.adapter = overlayAdapter
     }
@@ -588,9 +589,51 @@ class PlayerActivity : BaseActivity() {
             },
             onFavoriteClick = { channel ->
                 toggleFavorite(channel)
-            }
+            },
+            onShowDetailsClick = { channel -> showChannelDetailsDialog(channel) }
         )
         overlayChannelsList.adapter = overlayAdapter
+    }
+
+    /** Полупрозрачный диалог с детальной информацией о текущей и
+     *  следующей программе на канале. Вызывается из списка каналов
+     *  в плеере: фокус на сердечке → DPAD_RIGHT → этот диалог. */
+    private fun showChannelDetailsDialog(channel: Channel) {
+        val (now, next) = EpgRepository.getNowNextDetailed(
+            ChannelDataHolder.epgData, channel.tvgId, channel.name
+        )
+        val timeFmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+        val dateFmt = java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale.getDefault())
+        val message = buildString {
+            append(channel.name)
+            append("\n\n")
+            if (now != null) {
+                append("▶ Сейчас (")
+                append(timeFmt.format(java.util.Date(now.start)))
+                append("–")
+                append(timeFmt.format(java.util.Date(now.end)))
+                append(")\n")
+                append(now.title)
+                if (now.description.isNotEmpty()) {
+                    append("\n\n")
+                    append(now.description)
+                }
+            } else {
+                append("Нет данных о текущей программе.")
+            }
+            if (next != null) {
+                append("\n\n")
+                append("▷ Далее (")
+                append(dateFmt.format(java.util.Date(next.start)))
+                append(")\n")
+                append(next.title)
+            }
+        }
+        androidx.appcompat.app.AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
+            .setMessage(message)
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+            .window?.setBackgroundDrawableResource(R.drawable.bg_overlay_panel)
     }
 
     // === Gesture support (volume/brightness) ===

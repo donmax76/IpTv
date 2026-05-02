@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Alpha B3 = 70%: было E6 = 90% (почти непрозрачное). Юзер на
+     TV-боксе попросил полупрозрачную панель чтобы видеть видео
+     под ней при выборе канала. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="#E6242445"/>
+    <solid android:color="#B3242445"/>
     <corners android:topRightRadius="16dp" android:bottomRightRadius="16dp"/>
 </shape>
