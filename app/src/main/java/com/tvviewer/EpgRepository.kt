@@ -1030,17 +1030,7 @@ object EpgRepository {
         tvgId: String?,
         channelName: String?,
     ): Pair<Programme?, Programme?> {
-        if (epg.isEmpty()) return null to null
-        val keys = mutableListOf<String>()
-        if (!tvgId.isNullOrBlank()) keys += normalizeId(tvgId)
-        if (!channelName.isNullOrBlank()) keys += normalizeId(channelName)
-        // Try iptv-org's tvg-id for the same channel name as a last resort
-        if (!channelName.isNullOrBlank()) {
-            ChannelMetaLookup.lookup(channelName)?.tvgId?.let {
-                keys += normalizeId(it)
-            }
-        }
-        val programmes = keys.firstNotNullOfOrNull { epg[it] } ?: return null to null
+        val programmes = lookupProgrammes(epg, tvgId, channelName) ?: return null to null
         val now = System.currentTimeMillis()
         var nowProg: Programme? = null
         var nextProg: Programme? = null
@@ -1053,13 +1043,65 @@ object EpgRepository {
         return nowProg to nextProg
     }
 
+    /** Универсальный поиск programmes для канала. Применяется ко
+     *  всему: getNowNextDetailed, getProgrammesForDay, прямые
+     *  обращения. Перебираем все возможные ключи в порядке от точного
+     *  к фуззи, чтобы канал из любого плейлиста нашёл свою программу
+     *  в общем кэше EPG. */
+    private fun lookupProgrammes(
+        epg: Map<String, List<Programme>>,
+        tvgId: String?,
+        channelName: String?,
+    ): List<Programme>? {
+        if (epg.isEmpty()) return null
+        val keys = LinkedHashSet<String>()
+        // 1. Точный tvg-id и имя
+        if (!tvgId.isNullOrBlank()) {
+            normalizeId(tvgId).takeIf { it.isNotEmpty() }?.let(keys::add)
+        }
+        if (!channelName.isNullOrBlank()) {
+            normalizeId(channelName).takeIf { it.isNotEmpty() }?.let(keys::add)
+        }
+        // 2. iptv-org tvg-id для этого имени (на случай если playlist
+        //    использует только display-name)
+        if (!channelName.isNullOrBlank()) {
+            ChannelMetaLookup.lookup(channelName)?.tvgId?.let {
+                normalizeId(it).takeIf { k -> k.isNotEmpty() }?.let(keys::add)
+            }
+        }
+        // 3. Fuzzy-варианты (без HD/SD/UK/RU/(720p) и т.д.) — для
+        //    плейлистов с суффиксами имени.
+        if (!tvgId.isNullOrBlank()) {
+            fuzzyKey(tvgId).takeIf { it.isNotEmpty() }?.let(keys::add)
+        }
+        if (!channelName.isNullOrBlank()) {
+            fuzzyKey(channelName).takeIf { it.isNotEmpty() }?.let(keys::add)
+        }
+        if (!channelName.isNullOrBlank()) {
+            ChannelMetaLookup.lookup(channelName)?.tvgId?.let {
+                fuzzyKey(it).takeIf { k -> k.isNotEmpty() }?.let(keys::add)
+            }
+        }
+        return keys.firstNotNullOfOrNull { epg[it] }
+    }
+
     /**
      * Get all programmes for a channel on a specific day.
      */
-    fun getProgrammesForDay(epg: Map<String, List<Programme>>, tvgId: String?, dayStartMs: Long, dayEndMs: Long): List<Programme> {
-        if (tvgId.isNullOrBlank()) return emptyList()
-        val norm = normalizeId(tvgId)
-        val programmes = epg[norm] ?: return emptyList()
+    fun getProgrammesForDay(epg: Map<String, List<Programme>>, tvgId: String?, dayStartMs: Long, dayEndMs: Long): List<Programme> =
+        getProgrammesForDay(epg, tvgId, null, dayStartMs, dayEndMs)
+
+    /** Версия getProgrammesForDay с display-name fallback'ом. Принимает
+     *  имя канала чтобы попасть в кэш по name/fuzzy/iptv-org даже когда
+     *  tvg-id в плейлисте не задан или не совпадает с EPG. */
+    fun getProgrammesForDay(
+        epg: Map<String, List<Programme>>,
+        tvgId: String?,
+        channelName: String?,
+        dayStartMs: Long,
+        dayEndMs: Long,
+    ): List<Programme> {
+        val programmes = lookupProgrammes(epg, tvgId, channelName) ?: return emptyList()
         return programmes.filter { it.start <= dayEndMs && it.end >= dayStartMs }
     }
 
