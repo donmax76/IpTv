@@ -195,22 +195,30 @@ class SettingsFragment : Fragment() {
                         statusView?.text = "Готово: ${data.size} каналов, " +
                             SimpleDateFormat("HH:mm", Locale.getDefault()).format(java.util.Date())
                     }
-                    Toast.makeText(ctx, "ТВ Гид обновлён: ${data.size} каналов", Toast.LENGTH_SHORT).show()
+                    showToast(ctx, "ТВ Гид обновлён: ${data.size} каналов")
                 } else {
                     view?.post { statusView?.text = "Источники пустые — попробуйте другой EPG" }
-                    Toast.makeText(ctx,
-                        "Источники не отдали программу. Проверьте URL в настройках.",
-                        Toast.LENGTH_LONG).show()
+                    showToast(ctx, "Источники не отдали программу. Проверьте URL.", Toast.LENGTH_LONG)
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // Юзер ушёл из настроек, но fetchAll сам по себе
                 // продолжается в fetchScope — не показываем ошибку.
             } catch (t: Throwable) {
                 view?.post { statusView?.text = "Ошибка: ${t.javaClass.simpleName}" }
-                Toast.makeText(ctx, "Ошибка обновления: ${t.message?.take(80)}", Toast.LENGTH_LONG).show()
+                showToast(ctx, "Ошибка обновления: ${t.message?.take(80)}", Toast.LENGTH_LONG)
             } finally {
                 EpgRepository.onProgress = null
             }
+        }
+    }
+
+    /** Toast с background-thread можно показывать ТОЛЬКО через main
+     *  looper. Прямой вызов Toast.makeText из Dispatchers.IO падает с
+     *  NullPointerException ("Can't toast on a thread that has not
+     *  called Looper.prepare()"). */
+    private fun showToast(ctx: android.content.Context, text: String, length: Int = Toast.LENGTH_SHORT) {
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            Toast.makeText(ctx, text, length).show()
         }
     }
 
