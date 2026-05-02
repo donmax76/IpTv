@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.json.JSONArray
 import java.io.File
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -169,50 +168,82 @@ object ChannelMetaLookup {
         }
     }
 
+    /** Стриминг-парсер logos.json через JsonReader. JSONArray
+     *  загружает 5MB в DOM-дерево разом и держит всё в памяти —
+     *  на X4 X4 это занимает 30+ секунд. JsonReader идёт по байтам
+     *  без промежуточных JSONObject — в 3-5x быстрее. */
     private fun parseLogos(text: String?): Map<String, String> {
         if (text.isNullOrBlank()) return emptyMap()
         return try {
             val out = HashMap<String, String>(8000)
-            val arr = JSONArray(text)
-            for (i in 0 until arr.length()) {
-                val o = arr.optJSONObject(i) ?: continue
-                val ch = o.optString("channel", "").takeIf { it.isNotEmpty() } ?: continue
-                val u = o.optString("url", "").takeIf { it.isNotEmpty() } ?: continue
-                // Берём первое лого встретившееся для канала. У iptv-org
-                // часто несколько вариантов (square, horizontal etc),
-                // выбираем какой первый попался.
-                if (ch !in out) out[ch] = u
+            val r = android.util.JsonReader(java.io.StringReader(text))
+            r.beginArray()
+            while (r.hasNext()) {
+                r.beginObject()
+                var ch: String? = null
+                var u: String? = null
+                while (r.hasNext()) {
+                    when (r.nextName()) {
+                        "channel" -> ch = r.nextString()
+                        "url" -> u = r.nextString()
+                        else -> r.skipValue()
+                    }
+                }
+                r.endObject()
+                if (!ch.isNullOrEmpty() && !u.isNullOrEmpty() && ch !in out) {
+                    out[ch] = u
+                }
             }
+            r.endArray()
+            r.close()
             out
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "parseLogos failed", e)
             emptyMap()
         }
     }
 
+    /** Стриминг-парсер channels.json через JsonReader. */
     private fun parseAndIndex(text: String, logosByChannel: Map<String, String>) {
         try {
-            val arr = JSONArray(text)
-            for (i in 0 until arr.length()) {
-                val o = arr.optJSONObject(i) ?: continue
-                val name = o.optString("name", "").takeIf { it.isNotEmpty() } ?: continue
-                val tvgId = o.optString("id", "").takeIf { it.isNotEmpty() }
-                // Сначала пробуем поле "logo" (старая схема), потом
-                // подтягиваем из карты logos.json по channel id.
-                val logo = o.optString("logo", "").takeIf { it.isNotEmpty() }
+            val r = android.util.JsonReader(java.io.StringReader(text))
+            r.beginArray()
+            while (r.hasNext()) {
+                r.beginObject()
+                var name: String? = null
+                var tvgId: String? = null
+                var logo: String? = null
+                val altNames = ArrayList<String>(4)
+                while (r.hasNext()) {
+                    when (r.nextName()) {
+                        "name" -> name = r.nextString()
+                        "id" -> tvgId = if (r.peek() == android.util.JsonToken.NULL) {
+                            r.nextNull(); null
+                        } else r.nextString()
+                        "logo" -> logo = if (r.peek() == android.util.JsonToken.NULL) {
+                            r.nextNull(); null
+                        } else r.nextString()
+                        "alt_names" -> {
+                            r.beginArray()
+                            while (r.hasNext()) altNames.add(r.nextString())
+                            r.endArray()
+                        }
+                        else -> r.skipValue()
+                    }
+                }
+                r.endObject()
+                if (name.isNullOrEmpty()) continue
+                val finalLogo = logo?.takeIf { it.isNotEmpty() }
                     ?: tvgId?.let { logosByChannel[it] }
-                if (logo == null && tvgId == null) continue
+                if (finalLogo == null && tvgId == null) continue
                 val key = normalize(name)
-                val meta = Meta(logo, tvgId)
+                val meta = Meta(finalLogo, tvgId)
                 if (key.isNotEmpty() && key !in byName) {
                     byName[key] = meta
                     val fk = EpgRepository.fuzzyKey(name)
                     if (fk.isNotEmpty() && fk !in byFuzzy) byFuzzy[fk] = meta
                 }
-                // Also index alternative names
-                val alt = o.optJSONArray("alt_names") ?: continue
-                for (j in 0 until alt.length()) {
-                    val altName = alt.optString(j, "")
+                for (altName in altNames) {
                     val k = normalize(altName)
                     if (k.isNotEmpty() && k !in byName) {
                         byName[k] = meta
@@ -221,8 +252,10 @@ object ChannelMetaLookup {
                     }
                 }
             }
+            r.endArray()
+            r.close()
             Log.d(TAG, "indexed ${byName.size} channels")
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "parseAndIndex failed", e)
         }
     }
