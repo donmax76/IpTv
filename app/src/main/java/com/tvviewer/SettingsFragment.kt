@@ -134,6 +134,15 @@ class SettingsFragment : Fragment() {
 
     private var manualRefreshJob: kotlinx.coroutines.Job? = null
 
+    override fun onDestroyView() {
+        // Job НЕ отменяем — fetchAll в applicationScope, должен
+        // дописать кэш в фоне (Round 117). Но обнуляем onProgress
+        // чтобы лямбда не держала ссылку на этот View и не пыталась
+        // постить апдейты в уничтоженный statusView.
+        EpgRepository.onProgress = null
+        super.onDestroyView()
+    }
+
     private fun triggerManualEpgRefresh(statusView: TextView?) {
         if (manualRefreshJob?.isActive == true) {
             Toast.makeText(requireContext(), "Обновление уже идёт", Toast.LENGTH_SHORT).show()
