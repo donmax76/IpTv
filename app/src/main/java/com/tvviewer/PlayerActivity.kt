@@ -253,6 +253,22 @@ class PlayerActivity : BaseActivity() {
         channelName.text = name
         channelNumber.text = "${currentIndex + 1} / ${ChannelDataHolder.allChannels.size}"
 
+        // Подгружаем EPG-кэш с диска прямо здесь, если в памяти пусто.
+        // Раньше полагались на TVViewerApp.scheduleEpgAutoRefresh
+        // который грузит кэш на старте процесса. Но если listener
+        // зарегистрировался ПОСЛЕ его notifyEpgUpdate — событие
+        // упускалось, юзер видел пустую программу пока не сменил канал.
+        if (ChannelDataHolder.epgData.isEmpty()) {
+            try {
+                val cached = EpgRepository.loadFromCache(this)
+                if (cached != null && cached.isNotEmpty()) {
+                    ChannelDataHolder.epgData = cached
+                    android.util.Log.d("PlayerActivity",
+                        "EPG cache loaded synchronously on player start: ${cached.size} channels")
+                }
+            } catch (_: Throwable) {}
+        }
+
         updateEpg()
         initPlayer()
         playStream(currentUrl!!)
@@ -260,9 +276,10 @@ class PlayerActivity : BaseActivity() {
         scheduleHideControls()
         startClock()
 
-        // Подписываемся на EPG-обновления: если в момент старта плеера
-        // ChannelDataHolder.epgData ещё пустой (cache загружается в фоне),
-        // listener сработает позже и мы перерисуем баннер + epgNow.
+        // Подписываемся на EPG-обновления: если EPG ещё догружается
+        // (cold start, network fetch в applicationScope), listener
+        // сработает когда данные придут — мы перерисуем баннер + EPG
+        // в текущей строке + во всём overlay-списке.
         EpgRepository.addEpgUpdateListener(playerEpgListener)
 
         // Save last channel + push to recent history
@@ -2315,7 +2332,12 @@ class PlayerActivity : BaseActivity() {
                     val focusInCategories = catsShown && isFocusInside(overlayCategoriesList)
                     when {
                         focusInCategories -> {
-                            // 3-е LEFT (фокус уже на категории) → боковое меню.
+                            // 3-е LEFT (фокус на категории) → закрываем
+                            // overlay ПОЛНОСТЬЮ (категории + список) и
+                            // открываем drawer. Раньше категории
+                            // оставались видны рядом с drawer-ом —
+                            // юзер хотел чтобы они тоже исчезали.
+                            hideChannelList()
                             showPlayerDrawer()
                             return true
                         }
