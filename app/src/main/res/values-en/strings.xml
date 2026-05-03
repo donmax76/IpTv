@@ -26,7 +26,7 @@
     <string name="epg_urls">EPG sources (XMLTV)</string>
     <string name="user_agent">HTTP User-Agent</string>
     <string name="report_problem">Report a problem</string>
-    <string name="report_problem_hint">Send log to developer's server</string>
+    <string name="report_problem_hint">Send log to developer\'s server</string>
     <string name="quality_filter">Quality filter</string>
     <string name="filter_all">All</string>
     <string name="filter_4k">4K</string>
