@@ -27,6 +27,9 @@
     <string name="crash_report_header">Otomatik hata raporu.\n\n</string>
     <string name="copy_and_close">Kopyala ve kapat</string>
     <string name="copied_paste_in_chat">Kopyalandı! Sohbete yapıştırın.</string>
+    <string name="unfavorite">Favorilerden çıkar</string>
+    <string name="favorite_added">Favorilere eklendi</string>
+    <string name="favorite_removed">Favorilerden çıkarıldı</string>
     <string name="home_live">Canlı TV</string>
     <string name="home_default_playlist_format">Varsayılan oynatma listesi: %1$s</string>
     <string name="home_no_default_playlist">«Oynatma listeleri»ni açın ve birini seçin — varsayılan olur</string>

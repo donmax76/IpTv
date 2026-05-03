@@ -27,6 +27,9 @@
     <string name="crash_report_header">Rapporto automatico di errore.\n\n</string>
     <string name="copy_and_close">Copia e chiudi</string>
     <string name="copied_paste_in_chat">Copiato! Incolla nella chat.</string>
+    <string name="unfavorite">Rimuovi dai preferiti</string>
+    <string name="favorite_added">Aggiunto ai preferiti</string>
+    <string name="favorite_removed">Rimosso dai preferiti</string>
     <string name="home_live">TV in diretta</string>
     <string name="home_default_playlist_format">Playlist predefinita: %1$s</string>
     <string name="home_no_default_playlist">Apri «Playlist» e scegline una — sarà quella predefinita</string>

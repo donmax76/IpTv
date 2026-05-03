@@ -27,6 +27,9 @@
     <string name="crash_report_header">自动错误报告。\n\n</string>
     <string name="copy_and_close">复制并关闭</string>
     <string name="copied_paste_in_chat">已复制!粘贴到聊天中。</string>
+    <string name="unfavorite">从收藏中移除</string>
+    <string name="favorite_added">已添加到收藏</string>
+    <string name="favorite_removed">已从收藏中移除</string>
     <string name="home_live">直播</string>
     <string name="home_default_playlist_format">默认播放列表:%1$s</string>
     <string name="home_no_default_playlist">打开「播放列表」并选择一个,它将成为默认</string>

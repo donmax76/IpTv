@@ -2026,9 +2026,21 @@ class PlayerActivity : BaseActivity() {
             playerDrawerOverlay.visibility = View.GONE
             findViewById<View>(R.id.channelListPanel)
                 ?.animate()?.translationX(0f)?.setDuration(150)?.start()
-            // Return focus to the channel list so the user can keep navigating
-            findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.overlayChannelsList)
-                ?.requestFocus()
+            // Возвращаем фокус: если открыты категории — на первую
+            // категорию (юзер пришёл из них через 3-й LEFT, RIGHT
+            // должен вернуть туда же). Иначе — в список каналов.
+            val catsShown = ::overlayCategoriesPanel.isInitialized &&
+                overlayCategoriesPanel.visibility == View.VISIBLE
+            if (catsShown) {
+                overlayCategoriesList.post {
+                    overlayCategoriesList.requestFocus()
+                    overlayCategoriesList.findViewHolderForAdapterPosition(0)
+                        ?.itemView?.requestFocus()
+                }
+            } else {
+                findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.overlayChannelsList)
+                    ?.requestFocus()
+            }
         }
     }
 
@@ -2332,12 +2344,13 @@ class PlayerActivity : BaseActivity() {
                     val focusInCategories = catsShown && isFocusInside(overlayCategoriesList)
                     when {
                         focusInCategories -> {
-                            // 3-е LEFT (фокус на категории) → закрываем
-                            // overlay ПОЛНОСТЬЮ (категории + список) и
-                            // открываем drawer. Раньше категории
-                            // оставались видны рядом с drawer-ом —
-                            // юзер хотел чтобы они тоже исчезали.
-                            hideChannelList()
+                            // 3-е LEFT (фокус на категории) → открываем
+                            // drawer, но категории и overlay НЕ скрываем —
+                            // юзер хочет видеть их рядом. Из drawer'а
+                            // первый RIGHT вернёт фокус в категории,
+                            // следующий RIGHT покажет список каналов
+                            // (категории скрываются), ещё RIGHT — закроет
+                            // overlay полностью.
                             showPlayerDrawer()
                             return true
                         }
