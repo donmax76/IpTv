@@ -1983,6 +1983,17 @@ class PlayerActivity : BaseActivity() {
     }
 
     /** true если фокус сейчас внутри указанной View (или это сама она). */
+    /** Уникальные keycode'ы за сессию — чтобы не спамить лог одной
+     *  и той же кнопкой много раз. */
+    private val seenKeyCodes = HashSet<Int>()
+    private fun logKeyOnce(keyCode: Int) {
+        if (!seenKeyCodes.add(keyCode)) return
+        try {
+            ErrorLogger.info(this, "KEY",
+                "code=$keyCode name=${KeyEvent.keyCodeToString(keyCode)}")
+        } catch (_: Throwable) {}
+    }
+
     private fun isFocusInside(target: View): Boolean {
         var v: View? = currentFocus ?: return false
         while (v != null) {
@@ -2172,6 +2183,9 @@ class PlayerActivity : BaseActivity() {
                 kc != KeyEvent.KEYCODE_POWER) {
                 android.util.Log.d("PlayerActivity",
                     "key down: $kc (${KeyEvent.keyCodeToString(kc)})")
+                // Сохраняем уникальные keycode'ы в файл-лог чтобы юзер
+                // мог отправить его и я увидел какие кнопки шлёт пульт.
+                logKeyOnce(kc)
             }
         }
         // Любое нажатие при открытом списке каналов / категорий —
