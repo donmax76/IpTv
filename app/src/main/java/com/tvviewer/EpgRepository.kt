@@ -470,10 +470,15 @@ object EpgRepository {
     }
 
     /**
-     * Save EPG data to disk cache.
+     * Save EPG data to disk cache. ВАЖНО: пустую карту НЕ сохраняем —
+     * иначе неудачный fetch затирает существующий рабочий кэш.
      */
     private fun saveToCache(context: Context?, data: Map<String, List<Programme>>) {
         if (context == null) return
+        if (data.isEmpty()) {
+            Log.d(TAG, "EPG saveToCache skipped — empty map (preserving existing cache)")
+            return
+        }
         try {
             val json = serializeEpg(data)
             val file = File(context.filesDir, EPG_CACHE_FILE)

@@ -550,6 +550,21 @@ class PlayerActivity : BaseActivity() {
         val catAdapter = CategoryAdapter(cats) { category ->
             overlaySelectedCategory = category
             filterOverlayChannels()
+            // После выбора категории — скрываем панель категорий и
+            // возвращаем список каналов с применённым фильтром.
+            // Юзер видит "только подходящие каналы" сразу после выбора.
+            overlayCategoriesPanel.visibility = View.GONE
+            // Возвращаем категориям дефолтную ширину (могла быть 240dp).
+            val lpCats = overlayCategoriesPanel.layoutParams
+            lpCats.width = (140 * resources.displayMetrics.density).toInt()
+            overlayCategoriesPanel.layoutParams = lpCats
+            findViewById<View>(R.id.overlayChannelsPanel)?.visibility = View.VISIBLE
+            // Переводим фокус на первый канал в отфильтрованном списке.
+            overlayChannelsList.post {
+                overlayChannelsList.requestFocus()
+                overlayChannelsList.findViewHolderForAdapterPosition(0)
+                    ?.itemView?.requestFocus()
+            }
             bumpChannelListIdleTimer()
         }
         overlayCategoriesList.adapter = catAdapter
@@ -1876,11 +1891,16 @@ class PlayerActivity : BaseActivity() {
     private fun hideChannelList() {
         channelListOverlay.visibility = View.GONE
         channelListVisible = false
-        // Сбрасываем панель категорий чтобы при следующем открытии
-        // (1-й DPAD_LEFT) был ТОЛЬКО список каналов, без категорий.
+        // Сбрасываем панель категорий и возвращаем список каналов в
+        // visible-состояние. Так при следующем открытии (1-й DPAD_LEFT)
+        // юзер увидит ТОЛЬКО список каналов, без категорий.
         if (::overlayCategoriesPanel.isInitialized) {
             overlayCategoriesPanel.visibility = View.GONE
+            val lpCats = overlayCategoriesPanel.layoutParams
+            lpCats.width = (140 * resources.displayMetrics.density).toInt()
+            overlayCategoriesPanel.layoutParams = lpCats
         }
+        findViewById<View>(R.id.overlayChannelsPanel)?.visibility = View.VISIBLE
         // Возвращаем details-панель к стандартной margin (320dp).
         findViewById<View>(R.id.channelDetailsPanel)?.let { p ->
             val lp = p.layoutParams as? android.widget.FrameLayout.LayoutParams
@@ -2269,25 +2289,26 @@ class PlayerActivity : BaseActivity() {
                             return true
                         }
                         !catsShown && hasCategories -> {
-                            // 2-е LEFT: показываем панель категорий и
-                            // переводим туда фокус. До этого её не было.
+                            // 2-е LEFT: СКРЫВАЕМ список каналов, показываем
+                            // ТОЛЬКО панель категорий. Фокус — на первой
+                            // категории. Юзер выбирает категорию → возврат
+                            // делается автоматически в filterOverlayChannels.
+                            findViewById<View>(R.id.overlayChannelsPanel)?.visibility = View.GONE
                             overlayCategoriesPanel.visibility = View.VISIBLE
+                            // Расширяем панель категорий чтобы заполнила
+                            // освободившееся место.
+                            val lpCats = overlayCategoriesPanel.layoutParams
+                            lpCats.width = (240 * resources.displayMetrics.density).toInt()
+                            overlayCategoriesPanel.layoutParams = lpCats
                             overlayCategoriesPanel.post {
                                 overlayCategoriesList.requestFocus()
                                 overlayCategoriesList
                                     .findViewHolderForAdapterPosition(0)
                                     ?.itemView?.requestFocus()
                             }
-                            // Сдвигаем details-панель если она открыта.
-                            findViewById<View>(R.id.channelDetailsPanel)?.let { p ->
-                                if (p.visibility == View.VISIBLE) {
-                                    val lp = p.layoutParams as? android.widget.FrameLayout.LayoutParams
-                                    lp?.let {
-                                        it.marginStart = (460 * resources.displayMetrics.density).toInt()
-                                        p.layoutParams = it
-                                    }
-                                }
-                            }
+                            // Скрываем details-панель если она была открыта —
+                            // её содержимое не имеет смысла без списка.
+                            findViewById<View>(R.id.channelDetailsPanel)?.visibility = View.GONE
                             bumpChannelListIdleTimer()
                             return true
                         }

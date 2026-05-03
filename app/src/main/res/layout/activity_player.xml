@@ -324,8 +324,10 @@
             </LinearLayout>
 
             <!-- Список каналов. Раньше был LinearLayout, теперь
-                 содержит только заголовок + поиск + сам список. -->
+                 содержит только заголовок + поиск + сам список.
+                 Скрывается на 2-м DPAD_LEFT когда показываем категории. -->
             <LinearLayout
+                android:id="@+id/overlayChannelsPanel"
                 android:layout_width="320dp"
                 android:layout_height="match_parent"
                 android:orientation="vertical"
