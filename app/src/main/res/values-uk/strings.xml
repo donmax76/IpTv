@@ -98,9 +98,9 @@
     <string name="update_latest">Встановлено останню версію</string>
     <string name="update_check_failed">Помилка перевірки оновлень</string>
     <string name="update_downloading">Завантаження оновлення…</string>
-    <string name="update_url_hint">URL version.json. За замовчуванням: github.com/donmax76/IpTv</string>
+    <string name="update_url_hint">URL version.json (порожнє — стандартне)</string>
     <string name="update_url_hint_placeholder">Залиште порожнім для стандартного URL</string>
-    <string name="update_404_hint">Створіть Gist на gist.github.com з version.json, вставте raw URL вище</string>
+    <string name="update_404_hint">Створіть файл version.json та вставте його URL вище</string>
 
     <string name="epg_click_to_refresh">Натисніть, щоб оновити зараз</string>
     <string name="epg_last_update_prefix">Останнє оновлення: %1$s</string>

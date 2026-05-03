@@ -502,6 +502,13 @@ class PlayerActivity : BaseActivity() {
         overlaySearchEdit = findViewById(R.id.overlaySearchEdit)
         overlayChannelCount = findViewById(R.id.overlayChannelCount)
 
+        overlaySearchEdit?.setOnFocusChangeListener { _, hasFocus ->
+            // Когда юзер уходит из поиска — возобновляем idle-таймер.
+            // Когда заходит — таймер сам отключится в scheduleHideChannelList.
+            if (!hasFocus && channelListVisible) scheduleHideChannelList()
+            else if (hasFocus) channelListHideHandler.removeCallbacks(channelListHideRunnable)
+        }
+
         overlaySearchEdit?.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -527,12 +534,11 @@ class PlayerActivity : BaseActivity() {
         overlayCategoriesPanel = findViewById(R.id.overlayCategoriesPanel)
         overlayCategoriesList = findViewById<RecyclerView>(R.id.overlayCategoriesList)
         overlayCategoriesList.layoutManager = LinearLayoutManager(this)
-        val channels = ChannelDataHolder.allChannels
-        val realCats = channels.mapNotNull { it.group?.split(';', ',', '|')?.firstOrNull()?.trim() }
-            .filter { it.isNotEmpty() && it.length <= 30 }
-            .distinct()
-            .sorted()
-        overlayCategoriesPanel.visibility = if (realCats.isEmpty()) View.GONE else View.VISIBLE
+        // Категории по умолчанию СКРЫТЫ. Появляются только после
+        // второго DPAD_LEFT (если у плейлиста они есть). Раньше панель
+        // была сразу видна вместе со списком каналов, что юзер посчитал
+        // лишним: первое LEFT должно показывать ТОЛЬКО список каналов.
+        overlayCategoriesPanel.visibility = View.GONE
         val cats = listOf(getString(R.string.all)) + realCats
         val catAdapter = CategoryAdapter(cats) { category ->
             overlaySelectedCategory = category
@@ -1429,11 +1435,15 @@ class PlayerActivity : BaseActivity() {
     private var pendingSeekListener: Player.Listener? = null
 
     /** Listener для приёма EPG-апдейтов из фонового fetch / load.
-     *  Перерисовывает текущий баннер и epgNow когда данные приходят. */
-    private val playerEpgListener: (Map<String, List<EpgRepository.Programme>>) -> Unit = { _ ->
+     *  Перерисовывает текущий баннер, epgNow в верхней панели И
+     *  всю overlay-ленту каналов чтобы у каждого появилась программа. */
+    private val playerEpgListener: (Map<String, List<EpgRepository.Programme>>) -> Unit = { newData ->
         runOnUiThread {
             updateEpg()
             try { showChannelBanner() } catch (_: Throwable) {}
+            // Без этого overlay-список оставался без EPG если был
+            // создан до того как fetchAll/loadFromCache закончил.
+            try { overlayAdapter?.updateEpg(newData) } catch (_: Throwable) {}
         }
     }
 
@@ -1829,12 +1839,30 @@ class PlayerActivity : BaseActivity() {
     private fun hideChannelList() {
         channelListOverlay.visibility = View.GONE
         channelListVisible = false
+        // Сбрасываем панель категорий чтобы при следующем открытии
+        // (1-й DPAD_LEFT) был ТОЛЬКО список каналов, без категорий.
+        if (::overlayCategoriesPanel.isInitialized) {
+            overlayCategoriesPanel.visibility = View.GONE
+        }
+        // Возвращаем details-панель к стандартной margin (320dp).
+        findViewById<View>(R.id.channelDetailsPanel)?.let { p ->
+            val lp = p.layoutParams as? android.widget.FrameLayout.LayoutParams
+            lp?.let {
+                it.marginStart = (320 * resources.displayMetrics.density).toInt()
+                p.layoutParams = it
+            }
+        }
         channelListHideHandler.removeCallbacks(channelListHideRunnable)
         scheduleHideControls()
     }
 
     private fun scheduleHideChannelList() {
         channelListHideHandler.removeCallbacks(channelListHideRunnable)
+        // Пока пользователь пишет в поиск — НЕ запускаем таймер
+        // автоскрытия. Иначе панель закрывается посреди ввода и
+        // введённое теряется. Авто-hide возобновится когда EditText
+        // потеряет фокус (через onFocusChange listener).
+        if (overlaySearchEdit?.hasFocus() == true) return
         val seconds = prefs.channelListAutoHideSeconds
         if (seconds > 0) {
             channelListHideHandler.postDelayed(channelListHideRunnable, seconds * 1000L)
@@ -1863,6 +1891,12 @@ class PlayerActivity : BaseActivity() {
             v = (v.parent as? View)
         }
         return false
+    }
+
+    /** У текущего плейлиста есть реальные категории кроме "Все"? */
+    private fun hasOverlayCategories(): Boolean {
+        val adapter = overlayCategoriesList.adapter ?: return false
+        return adapter.itemCount > 1  // 1 = только "Все"
     }
 
     private fun playerDrawerVisible(): Boolean =
@@ -2128,10 +2162,16 @@ class PlayerActivity : BaseActivity() {
         }
 
         when (keyCode) {
-            // D-pad center / Enter — без полноэкранной панели управления
-            // (с кнопкой паузы); показываем нижний инфо-бар: имя канала,
-            // что идёт сейчас, часы. Повторное нажатие — скрыть.
-            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+            // D-pad center / Enter — показываем нижний инфо-бар
+            // (channelInfoBanner): имя канала, что идёт сейчас, часы,
+            // разрешение. Повторное нажатие — скрыть. Список keycodes
+            // расширен для разных ТВ-боксов: BUTTON_A, NUMPAD_ENTER,
+            // SPACE — все они обычно мапятся на ОК на пульте.
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_ENTER,
+            KeyEvent.KEYCODE_NUMPAD_ENTER,
+            KeyEvent.KEYCODE_BUTTON_A,
+            KeyEvent.KEYCODE_SPACE -> {
                 if (channelListVisible) return super.onKeyDown(keyCode, event)
                 if (channelInfoBanner.visibility == View.VISIBLE) {
                     bannerHandler.removeCallbacks(bannerHideRunnable)
@@ -2181,30 +2221,45 @@ class PlayerActivity : BaseActivity() {
                     return super.onKeyDown(keyCode, event)
                 }
                 if (channelListVisible) {
-                    val catsVisible = ::overlayCategoriesPanel.isInitialized &&
+                    val hasCategories = hasOverlayCategories()
+                    val catsShown = ::overlayCategoriesPanel.isInitialized &&
                         overlayCategoriesPanel.visibility == View.VISIBLE
-                    val focusInChannels = isFocusInside(overlayChannelsList)
-                    val focusInCategories = catsVisible && isFocusInside(overlayCategoriesList)
+                    val focusInCategories = catsShown && isFocusInside(overlayCategoriesList)
                     when {
-                        focusInChannels && catsVisible -> {
-                            // 2-е LEFT: переводим фокус в столбец категорий.
-                            overlayCategoriesList.requestFocus()
-                            val firstCat = overlayCategoriesList
-                                .findViewHolderForAdapterPosition(0)?.itemView
-                            firstCat?.requestFocus()
+                        focusInCategories -> {
+                            // 3-е LEFT (фокус уже на категории) → боковое меню.
+                            showPlayerDrawer()
+                            return true
+                        }
+                        !catsShown && hasCategories -> {
+                            // 2-е LEFT: показываем панель категорий и
+                            // переводим туда фокус. До этого её не было.
+                            overlayCategoriesPanel.visibility = View.VISIBLE
+                            overlayCategoriesPanel.post {
+                                overlayCategoriesList.requestFocus()
+                                overlayCategoriesList
+                                    .findViewHolderForAdapterPosition(0)
+                                    ?.itemView?.requestFocus()
+                            }
+                            // Сдвигаем details-панель если она открыта.
+                            findViewById<View>(R.id.channelDetailsPanel)?.let { p ->
+                                if (p.visibility == View.VISIBLE) {
+                                    val lp = p.layoutParams as? android.widget.FrameLayout.LayoutParams
+                                    lp?.let {
+                                        it.marginStart = (460 * resources.displayMetrics.density).toInt()
+                                        p.layoutParams = it
+                                    }
+                                }
+                            }
                             bumpChannelListIdleTimer()
                             return true
                         }
-                        focusInCategories || !catsVisible -> {
-                            // 3-е LEFT (или 2-е без категорий) → меню плеера.
+                        else -> {
+                            // 2-е LEFT без категорий → сразу меню плеера.
                             showPlayerDrawer()
                             return true
                         }
                     }
-                    // Всё остальное (фокус не на списках — например в поиске):
-                    // дефолт — открыть боковое меню как раньше.
-                    showPlayerDrawer()
-                    return true
                 }
                 toggleChannelList()
                 return true
@@ -2433,6 +2488,20 @@ class PlayerActivity : BaseActivity() {
         keepPlayingInBackground = false
         player?.play()
         hideSystemUI()
+        // Перечитываем настройку показа часов: юзер мог открыть
+        // Settings, включить часы и вернуться — без этого persistentClock
+        // оставался скрытым до перезапуска плеера.
+        applyClockVisibility()
+    }
+
+    private fun applyClockVisibility() {
+        val on = prefs.timeDisplayPosition != "off"
+        if (::clockDisplay.isInitialized) {
+            clockDisplay.visibility = if (on) View.VISIBLE else View.GONE
+        }
+        if (::persistentClock.isInitialized) {
+            persistentClock.visibility = if (on) View.VISIBLE else View.GONE
+        }
     }
 
     override fun onDestroy() {

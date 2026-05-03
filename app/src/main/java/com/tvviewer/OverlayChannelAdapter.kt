@@ -36,6 +36,16 @@ class OverlayChannelAdapter(
         notifyDataSetChanged()
     }
 
+    /** Подменяет EPG-карту и перерисовывает все строки. Вызывается когда
+     *  фоновый fetchAll / loadFromCache принёс свежие данные — без этого
+     *  список открытый ДО прихода EPG так и оставался без программы
+     *  (детали в боковой панели появлялись потому что они дёргают
+     *  EpgRepository.getNowNextDetailed заново при открытии). */
+    fun updateEpg(newEpg: Map<String, List<EpgRepository.Programme>>) {
+        epgData = newEpg
+        notifyDataSetChanged()
+    }
+
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {

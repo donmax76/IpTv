@@ -96,9 +96,9 @@
     <string name="update_latest">Ən son versiya quraşdırılıb</string>
     <string name="update_check_failed">Yeniləmə yoxlaması uğursuz oldu</string>
     <string name="update_downloading">Yeniləmə yüklənir…</string>
-    <string name="update_url_hint">version.json URL. Varsayılan: github.com/donmax76/IpTv</string>
+    <string name="update_url_hint">version.json URL (boş — standart)</string>
     <string name="update_url_hint_placeholder">Standart URL üçün boş buraxın</string>
-    <string name="update_404_hint">gist.github.com-da version.json ilə Gist yaradın, raw URL-i yuxarıya yapışdırın</string>
+    <string name="update_404_hint">version.json yaradın və URL-ni yuxarıya yapışdırın</string>
 
     <string name="epg_click_to_refresh">İndi yeniləmək üçün toxunun</string>
     <string name="epg_last_update_prefix">Son yenilənmə: %1$s</string>

@@ -153,34 +153,22 @@ class SettingsFragment : Fragment() {
             Toast.makeText(requireContext(), getString(R.string.epg_add_source_first), Toast.LENGTH_SHORT).show()
             return
         }
-        // Защита "уже обновлено сегодня" срабатывает ТОЛЬКО когда у нас
-        // действительно есть данные в кэше. Если ChannelDataHolder.epgData
-        // пуст (а lastUpdate был выставлен от неуспешного refresh'а) —
-        // даём свободно повторить. Плюс показываем диалог "Yes/No"
-        // на случай если юзер всё равно хочет принудительно обновить.
-        val last = prefs.epgLastUpdate
-        val ageMs = System.currentTimeMillis() - last
-        val cacheEmpty = ChannelDataHolder.epgData.isEmpty()
-        if (last > 0 && ageMs < 24L * 60 * 60 * 1000 && !cacheEmpty) {
-            val ts = SimpleDateFormat("HH:mm dd.MM", Locale.getDefault())
-                .format(java.util.Date(last))
-            android.app.AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
-                .setTitle(getString(R.string.epg_already_updated, ts))
-                .setMessage(R.string.epg_refresh_again_confirm)
-                .setPositiveButton(R.string.epg_refresh_button) { _, _ ->
-                    runEpgRefresh(statusView, urls)
-                }
-                .setNegativeButton(R.string.cancel, null)
-                .show()
-                .installFocusListBackground()
-            return
-        }
+        // Юзер хочет фоновое обновление без модальных диалогов:
+        // дёрнул кнопку → сразу запускаем fetchAll в applicationScope
+        // и показываем короткий toast "Обновление в фоне". Само
+        // приложение не блокируется. Старая логика "уже обновлено
+        // сегодня — Y/N подтвердить" удалена.
         runEpgRefresh(statusView, urls)
     }
 
     private fun runEpgRefresh(statusView: TextView?, urls: List<String>) {
         statusView?.text = getString(R.string.epg_starting_update)
         val ctx = requireContext().applicationContext
+        // Сразу показываем toast чтобы юзер мог уйти из настроек —
+        // обновление продолжится в applicationScope в фоне, и
+        // ChannelsFragment / PlayerActivity подхватят новые данные
+        // через addEpgUpdateListener.
+        showToast(ctx, ctx.getString(R.string.epg_refresh_running_banner))
         // Подписываемся на live-прогресс из EpgRepository, чтобы
         // отображать "скачиваю / парсю / готово" в этой же строке.
         EpgRepository.onProgress = { stage ->

@@ -160,15 +160,29 @@ object EpgRepository {
         val results = mutableListOf<Map<String, List<Programme>>>()
         for (u in cleaned) {
             try {
-                val data = kotlinx.coroutines.withTimeoutOrNull(180_000L) {
+                // 600s (10 мин) — поднял с 180с потому что на X4 X4
+                // парсинг 6500 каналов занимает ~5 мин, и таймаут
+                // обрывал корутину раньше чем parser закончил. Сам
+                // parser продолжал работать (не проверяет cancel),
+                // дописывал результат на диск, но fireEpgUpdated
+                // никогда не вызывался → юзер видел "EPG нет".
+                val data = kotlinx.coroutines.withTimeoutOrNull(600_000L) {
                     withContext(Dispatchers.IO) { fetchSingle(u, context) }
                 }
                 if (data == null) {
-                    val msg = "Timeout (180 сек) — источник слишком медленный"
+                    val msg = "Timeout (600 сек) — источник слишком медленный"
                     Log.e(TAG, "EPG source timed out: $u")
                     errors += u to msg
                     summary += u to 0
-                    results += emptyMap()
+                    // Парсер мог дойти до конца после cancel и записать
+                    // результат в кэш — пробуем поднять его.
+                    val cached = loadFromCache(context)
+                    if (cached != null && cached.isNotEmpty()) {
+                        Log.d(TAG, "EPG timeout but cache has ${cached.size} entries — using")
+                        results += cached
+                    } else {
+                        results += emptyMap()
+                    }
                 } else {
                     summary += u to data.size
                     results += data
@@ -181,12 +195,10 @@ object EpgRepository {
                 if (context != null) {
                     try { ErrorLogger.logException(context, t) } catch (_: Exception) {}
                 }
-                results += emptyMap()
+                // То же что и при timeout — пробуем cache fallback.
+                val cached = loadFromCache(context)
+                results += if (cached != null && cached.isNotEmpty()) cached else emptyMap()
             }
-            // System.gc() убран: на ARM-CPU X4 X4 он блокирует main
-            // thread на 100+мс и часто срабатывает как ANR
-            // (audit Round 129). JVM-GC сам справится с давлением,
-            // его подсказки только мешают.
         }
         lastFetchSummary = summary
         lastFetchErrors = errors
