@@ -68,6 +68,7 @@ class PlayerActivity : BaseActivity() {
             R.id.playerDrawerSettings,
         )
         private val RIGHT_MENU_IDS = intArrayOf(
+            R.id.rightMenuFavorite,
             R.id.rightMenuChannelList,
             R.id.rightMenuLastChannel,
             R.id.rightMenuAudio,
@@ -327,6 +328,18 @@ class PlayerActivity : BaseActivity() {
         }
         findViewById<View>(R.id.btnTouchRightMenu)?.setOnClickListener {
             showPlayerRightMenu()
+        }
+        // Избранное: добавить/убрать ТЕКУЩИЙ канал. Кнопка-toggle —
+        // текст и иконка меняются в showPlayerRightMenu в зависимости
+        // от того, в избранном ли канал сейчас.
+        findViewById<View>(R.id.rightMenuFavorite).setOnClickListener {
+            val ch = ChannelDataHolder.allChannels.getOrNull(currentIndex) ?: return@setOnClickListener
+            val wasFav = prefs.isFavorite(ch.url)
+            if (wasFav) prefs.removeFavorite(ch.url) else prefs.addFavorite(ch.url)
+            overlayAdapter?.updateFavorites(prefs.favorites)
+            val msgRes = if (wasFav) R.string.favorite_removed else R.string.favorite_added
+            Toast.makeText(this, getString(msgRes), Toast.LENGTH_SHORT).show()
+            hidePlayerRightMenu()
         }
         findViewById<View>(R.id.rightMenuChannelList).setOnClickListener {
             hidePlayerRightMenu()
@@ -2015,7 +2028,16 @@ class PlayerActivity : BaseActivity() {
     private fun showPlayerRightMenu() {
         playerRightMenuOverlay.visibility = View.VISIBLE
         playerRightMenuOverlay.bringToFront()
-        playerRightMenuOverlay.findViewById<View>(R.id.rightMenuChannelList)?.requestFocus()
+        // Toggle-надпись на кнопке "Избранное": если канал уже в
+        // избранном — "Убрать из избранного", иначе "В избранное".
+        val ch = ChannelDataHolder.allChannels.getOrNull(currentIndex)
+        val favBtn = playerRightMenuOverlay
+            .findViewById<com.google.android.material.button.MaterialButton>(R.id.rightMenuFavorite)
+        if (ch != null) {
+            val isFav = prefs.isFavorite(ch.url)
+            favBtn?.text = getString(if (isFav) R.string.unfavorite else R.string.favorite)
+        }
+        playerRightMenuOverlay.findViewById<View>(R.id.rightMenuFavorite)?.requestFocus()
     }
 
     private fun hidePlayerRightMenu() {

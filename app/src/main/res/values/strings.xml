@@ -53,6 +53,9 @@
     <string name="all">Все</string>
     <string name="favorites">Избранное</string>
     <string name="favorite">В избранное</string>
+    <string name="unfavorite">Убрать из избранного</string>
+    <string name="favorite_added">Добавлено в избранное</string>
+    <string name="favorite_removed">Убрано из избранного</string>
     <string name="show_all">Показать все</string>
     <string name="player">Плеер</string>
     <string name="player_internal">Встроенный</string>

@@ -49,7 +49,10 @@
     <string name="category">Category</string>
     <string name="all">All</string>
     <string name="favorites">Favorites</string>
-    <string name="favorite">Favorite</string>
+    <string name="favorite">Add to favorites</string>
+    <string name="unfavorite">Remove from favorites</string>
+    <string name="favorite_added">Added to favorites</string>
+    <string name="favorite_removed">Removed from favorites</string>
     <string name="show_all">Show all</string>
     <string name="player">Player</string>
     <string name="player_internal">Built-in</string>
