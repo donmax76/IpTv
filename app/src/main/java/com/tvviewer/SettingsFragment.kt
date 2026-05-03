@@ -118,10 +118,29 @@ class SettingsFragment : Fragment() {
         view.findViewById<LinearLayout>(R.id.epgManualRefreshLayout)?.setOnClickListener {
             triggerManualEpgRefresh(epgManualStatus)
         }
+        // Подписываемся на флаг "идёт ли refresh". Если юзер запустил
+        // обновление, ушёл из настроек, вернулся обратно — статус
+        // пере-рисовывается автоматически. Без этого приходилось
+        // выйти и зайти, и всё равно ничего не показывалось.
+        EpgRepository.addRefreshStateListener(refreshStateListenerSettings)
+    }
+
+    private val refreshStateListenerSettings: (Boolean) -> Unit = { _ ->
+        view?.post {
+            view?.findViewById<TextView>(R.id.epgManualRefreshStatus)
+                ?.let { updateEpgManualStatus(it) }
+        }
     }
 
     private fun updateEpgManualStatus(statusView: TextView?) {
         statusView ?: return
+        // Если в фоне сейчас идёт fetch (юзер запустил вручную, ушёл из
+        // Settings, вернулся обратно — fetch ещё не закончился) —
+        // показываем "идёт обновление" вместо устаревшей даты.
+        if (EpgRepository.isRefreshing) {
+            statusView.text = getString(R.string.epg_update_in_progress)
+            return
+        }
         val last = prefs.epgLastUpdate
         if (last <= 0) {
             statusView.text = getString(R.string.epg_click_to_refresh)
@@ -140,6 +159,7 @@ class SettingsFragment : Fragment() {
         // чтобы лямбда не держала ссылку на этот View и не пыталась
         // постить апдейты в уничтоженный statusView.
         EpgRepository.onProgress = null
+        EpgRepository.removeRefreshStateListener(refreshStateListenerSettings)
         super.onDestroyView()
     }
 
