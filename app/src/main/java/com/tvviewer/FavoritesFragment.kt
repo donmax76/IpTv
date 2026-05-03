@@ -83,16 +83,14 @@ class FavoritesFragment : Fragment() {
 
     private fun playChannel(channel: Channel) {
         // ВСЕГДА подменяем allChannels на список избранных при
-        // запуске из Favorites: пользователь хочет переключаться
-        // CH+/CH- ИМЕННО по избранным, и видеть нумерацию "X из N
-        // избранных", а не "153 из 6361 канала плейлиста". Раньше
-        // подмена работала только если канал был не из текущего
-        // плейлиста — пользователь жаловался.
+        // запуске из Favorites.
         val favs = prefs.favoriteChannels
         ChannelDataHolder.allChannels = favs
-        // Сбрасываем loadedPlaylistUrl, иначе HomeFragment.onLiveClicked
-        // подумает что плейлист загружен и не сделает свежий fetch.
         ChannelDataHolder.loadedPlaylistUrl = null
+        // Помечаем что последний контекст — избранные. При следующем
+        // запуске приложения "Прямой эфир" откроет именно избранные,
+        // а не последний плейлист.
+        prefs.lastWasFavorites = true
         val idx = favs.indexOfFirst { it.url == channel.url }.coerceAtLeast(0)
         ChannelDataHolder.currentChannelIndex = idx
         prefs.pushRecent(channel.url)

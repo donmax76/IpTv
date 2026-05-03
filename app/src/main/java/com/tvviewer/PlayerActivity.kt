@@ -144,6 +144,13 @@ class PlayerActivity : BaseActivity() {
     private lateinit var audioTrackInfo: TextView
 
     private var player: ExoPlayer? = null
+    /** MediaSession ловит медиа-кнопки (CH+/CH-/PRE-CH/play/pause/etc.)
+     *  которые TV-бокс роутит через dispatchMediaKeyEvent а не через
+     *  обычный dispatchKeyEvent. Без этого CH+/CH- на пультах X-боксов
+     *  не доходили до приложения — система отдавала их активной
+     *  media session, а у нас её не было. Создаём в onCreate и
+     *  освобождаем в onDestroy. */
+    private var mediaSession: android.media.session.MediaSession? = null
     private var currentUrl: String? = null
     private var currentIndex: Int = 0
     // Индекс предыдущего просмотренного канала, чтобы по кнопке Recall /
@@ -268,6 +275,7 @@ class PlayerActivity : BaseActivity() {
         showChannelBanner()
         scheduleHideControls()
         startClock()
+        setupMediaSession()
 
         // Если EPG-кэш ещё не подтянут TVViewerApp — грузим в фоне.
         // НЕ синхронно: deserialize 6361 канала на X4 X4 блокирует
@@ -2670,8 +2678,87 @@ class PlayerActivity : BaseActivity() {
         }
     }
 
+    private fun setupMediaSession() {
+        if (mediaSession != null) return
+        try {
+            val ms = android.media.session.MediaSession(this, "TVViewer")
+            ms.setFlags(
+                android.media.session.MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or
+                android.media.session.MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS
+            )
+            ms.setCallback(object : android.media.session.MediaSession.Callback() {
+                override fun onMediaButtonEvent(intent: Intent): Boolean {
+                    val event: KeyEvent? = if (Build.VERSION.SDK_INT >= 33) {
+                        intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT)
+                    }
+                    if (event == null || event.action != KeyEvent.ACTION_DOWN) {
+                        return super.onMediaButtonEvent(intent)
+                    }
+                    // Логируем все полученные через MediaSession кнопки —
+                    // они часто отличаются от dispatchKeyEvent на TV-боксах.
+                    try {
+                        ErrorLogger.info(this@PlayerActivity, "MEDIA_KEY",
+                            "code=${event.keyCode} name=${KeyEvent.keyCodeToString(event.keyCode)}")
+                    } catch (_: Throwable) {}
+                    return when (event.keyCode) {
+                        KeyEvent.KEYCODE_MEDIA_NEXT,
+                        KeyEvent.KEYCODE_CHANNEL_UP -> { runOnUiThread { switchChannel(-1) }; true }
+                        KeyEvent.KEYCODE_MEDIA_PREVIOUS,
+                        KeyEvent.KEYCODE_CHANNEL_DOWN -> { runOnUiThread { switchChannel(1) }; true }
+                        KeyEvent.KEYCODE_LAST_CHANNEL -> { runOnUiThread { switchToPreviousChannel() }; true }
+                        KeyEvent.KEYCODE_MEDIA_PLAY,
+                        KeyEvent.KEYCODE_MEDIA_PAUSE,
+                        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+                            runOnUiThread {
+                                player?.let { p -> if (p.isPlaying) p.pause() else p.play() }
+                            }
+                            true
+                        }
+                        else -> super.onMediaButtonEvent(intent)
+                    }
+                }
+                // Стандартные media-callback'и: skipToNext/Prev часто
+                // вызываются TV-системой при нажатии CH+ / CH-.
+                override fun onSkipToNext() { runOnUiThread { switchChannel(-1) } }
+                override fun onSkipToPrevious() { runOnUiThread { switchChannel(1) } }
+                override fun onPlay() { runOnUiThread { player?.play() } }
+                override fun onPause() { runOnUiThread { player?.pause() } }
+            })
+            // Без setPlaybackState=PLAYING система не считает session
+            // активной → не маршрутизирует медиа-кнопки в неё.
+            val state = android.media.session.PlaybackState.Builder()
+                .setActions(
+                    android.media.session.PlaybackState.ACTION_PLAY or
+                    android.media.session.PlaybackState.ACTION_PAUSE or
+                    android.media.session.PlaybackState.ACTION_PLAY_PAUSE or
+                    android.media.session.PlaybackState.ACTION_SKIP_TO_NEXT or
+                    android.media.session.PlaybackState.ACTION_SKIP_TO_PREVIOUS or
+                    android.media.session.PlaybackState.ACTION_STOP
+                )
+                .setState(
+                    android.media.session.PlaybackState.STATE_PLAYING,
+                    android.media.session.PlaybackState.PLAYBACK_POSITION_UNKNOWN,
+                    1.0f
+                )
+                .build()
+            ms.setPlaybackState(state)
+            ms.isActive = true
+            mediaSession = ms
+        } catch (e: Throwable) {
+            android.util.Log.e("PlayerActivity", "MediaSession setup failed", e)
+        }
+    }
+
     override fun onDestroy() {
         saveCurrentChannelState()
+        try {
+            mediaSession?.isActive = false
+            mediaSession?.release()
+            mediaSession = null
+        } catch (_: Throwable) {}
         try { EpgRepository.removeEpgUpdateListener(playerEpgListener) } catch (_: Throwable) {}
         // Снимаем ViewTreeObserver-listeners чтобы Activity не утекала.
         try {

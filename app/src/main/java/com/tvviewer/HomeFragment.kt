@@ -150,6 +150,18 @@ class HomeFragment : Fragment() {
 
     private fun onLiveClicked() {
         if (liveStarting) return  // защита от двойного клика
+        // Если последний контекст был "Избранные" — открываем избранные
+        // вместо плейлиста. CH+/CH- продолжит листать по избранным,
+        // юзер не теряет контекст после перезапуска приложения.
+        if (prefs.lastWasFavorites) {
+            val favs = prefs.favoriteChannels
+            if (favs.isNotEmpty()) {
+                openFavoritesPlayer(favs)
+                return
+            }
+            // Если избранных не осталось — fallback на плейлист.
+            prefs.lastWasFavorites = false
+        }
         val url = prefs.lastPlaylistUrl
         if (url.isNullOrBlank()) {
             Toast.makeText(requireContext(), R.string.home_choose_playlist_first, Toast.LENGTH_SHORT).show()
@@ -186,11 +198,11 @@ class HomeFragment : Fragment() {
                     }
                     ChannelDataHolder.allChannels = merged
                     ChannelDataHolder.loadedPlaylistUrl = url
-                    // Подтянем нормальные имена / лого для favorite'ов
-                    // которые мигрированы со старого формата (где было только URL).
                     prefs.enrichFavorites(merged)
                     merged
                 }
+                // Открываем плейлист → сбрасываем флаг "избранные".
+                prefs.lastWasFavorites = false
                 val lastChan = prefs.lastChannelUrl
                 val idx = all.indexOfFirst { it.url == lastChan }.let { if (it < 0) 0 else it }
                 ChannelDataHolder.currentChannelIndex = idx
@@ -216,5 +228,24 @@ class HomeFragment : Fragment() {
                 v?.findViewById<View>(R.id.btnHomePlaylists)?.isEnabled = true
             }
         }
+    }
+
+    /** Открывает плеер с избранными как активным списком. Используется
+     *  когда юзер раньше смотрел из Favorites — после перезапуска
+     *  приложения "Прямой эфир" вернёт его туда же. */
+    private fun openFavoritesPlayer(favs: List<Channel>) {
+        ChannelDataHolder.allChannels = favs
+        ChannelDataHolder.loadedPlaylistUrl = null
+        val lastChan = prefs.lastChannelUrl
+        val idx = favs.indexOfFirst { it.url == lastChan }.let { if (it < 0) 0 else it }
+        ChannelDataHolder.currentChannelIndex = idx
+        val target = favs[idx]
+        prefs.pushRecent(target.url)
+        val intent = Intent(requireContext(), PlayerActivity::class.java).apply {
+            putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, target.name)
+            putExtra(PlayerActivity.EXTRA_CHANNEL_URL, target.url)
+            putExtra(PlayerActivity.EXTRA_CHANNEL_INDEX, idx)
+        }
+        startActivity(intent)
     }
 }

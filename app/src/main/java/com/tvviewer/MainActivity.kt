@@ -185,6 +185,8 @@ class MainActivity : BaseActivity() {
                     prefs.enrichFavorites(merged)
                     merged
                 }
+                // Контекст — плейлист, не избранное.
+                prefs.lastWasFavorites = false
                 val lastChan = prefs.lastChannelUrl
                 val idx = all.indexOfFirst { it.url == lastChan }.let { if (it < 0) 0 else it }
                 ChannelDataHolder.currentChannelIndex = idx

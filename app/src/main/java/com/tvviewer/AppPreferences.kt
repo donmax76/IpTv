@@ -217,6 +217,14 @@ class AppPreferences(context: Context) {
         get() = prefs.getString(KEY_LAST_CHANNEL, null)
         set(value) = prefs.edit().putString(KEY_LAST_CHANNEL, value).apply()
 
+    /** True если последний просмотр шёл через вкладку "Избранные".
+     *  Кнопка "Прямой эфир" при перезапуске открывает их (а не
+     *  последний плейлист). Сбрасывается когда юзер открывает
+     *  плейлист или включает канал из плейлиста. */
+    var lastWasFavorites: Boolean
+        get() = prefs.getBoolean("last_was_favorites", false)
+        set(value) = prefs.edit().putBoolean("last_was_favorites", value).apply()
+
     var isFullscreen: Boolean
         get() = prefs.getBoolean(KEY_FULLSCREEN, false)
         set(value) = prefs.edit().putBoolean(KEY_FULLSCREEN, value).apply()
