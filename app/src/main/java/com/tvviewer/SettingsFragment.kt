@@ -788,10 +788,10 @@ class SettingsFragment : Fragment() {
                         .installFocusListBackground()
                 } else {
                     val msg = if (updateInfo != null) {
-                        // Found a release but it's not newer — show both versions
+                        // Релиз найден, но не новее — показываем обе версии.
                         "${getString(R.string.update_latest)}\n\n" +
                         "${getString(R.string.current_version)}: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\n" +
-                        "GitHub: ${updateInfo.versionName} (${updateInfo.versionCode})"
+                        "${getString(R.string.update_server_version)}: ${updateInfo.versionName} (${updateInfo.versionCode})"
                     } else {
                         "${getString(R.string.update_latest)}\n\n" +
                         "${getString(R.string.current_version)}: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"

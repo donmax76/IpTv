@@ -130,6 +130,7 @@
     <string name="list_display_grid">Сетка</string>
     <string name="version_format">Версия %1$s (%2$d)</string>
     <string name="check_for_updates">Проверить обновления</string>
+    <string name="update_server_version">На сервере</string>
     <string name="update_available">Доступна версия %1$s</string>
     <string name="update_download">Скачать</string>
     <string name="update_latest">Последняя версия</string>
