@@ -335,7 +335,10 @@ class PlayerActivity : BaseActivity() {
         findViewById<View>(R.id.rightMenuFavorite).setOnClickListener {
             val ch = ChannelDataHolder.allChannels.getOrNull(currentIndex) ?: return@setOnClickListener
             val wasFav = prefs.isFavorite(ch.url)
-            if (wasFav) prefs.removeFavorite(ch.url) else prefs.addFavorite(ch.url)
+            // Передаём ВЕСЬ Channel (не только url) — так в избранных
+            // сохраняются имя/лого/группа из текущего плейлиста, и
+            // канал виден в Favorites даже после смены плейлиста.
+            if (wasFav) prefs.removeFavorite(ch.url) else prefs.addFavorite(ch)
             overlayAdapter?.updateFavorites(prefs.favorites)
             val msgRes = if (wasFav) R.string.favorite_removed else R.string.favorite_added
             Toast.makeText(this, getString(msgRes), Toast.LENGTH_SHORT).show()
@@ -652,7 +655,7 @@ class PlayerActivity : BaseActivity() {
         if (prefs.isFavorite(channel.url)) {
             prefs.removeFavorite(channel.url)
         } else {
-            prefs.addFavorite(channel.url)
+            prefs.addFavorite(channel)  // полный Channel, не только URL
         }
         overlayAdapter?.updateFavorites(prefs.favorites)
     }

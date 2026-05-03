@@ -62,19 +62,102 @@ class AppPreferences(context: Context) {
         }
     }
 
+    /** Set избранных URL-адресов. Старый API (используется адаптерами
+     *  для проверки "это сердечко закрашено?"). Деривится из
+     *  favoriteChannels. */
     var favorites: Set<String>
-        get() = prefs.getStringSet(KEY_FAVORITES, emptySet()) ?: emptySet()
-        set(value) = prefs.edit().putStringSet(KEY_FAVORITES, value).apply()
+        get() = favoriteChannels.map { it.url }.toSet()
+        set(value) {
+            // Старый API set'тер использовался крайне редко (только в
+            // одном месте после миграции). Удаляем те что не в value;
+            // Channel-данные для НОВЫХ url не сохраняем (их и не должно
+            // быть — set'тер служит только удалению).
+            val current = favoriteChannels.toMutableList()
+            current.removeAll { it.url !in value }
+            favoriteChannels = current
+        }
 
+    /** Список избранных каналов с полными данными (name + url + logo +
+     *  group + tvgId). Хранится как JSON. Так избранные сохраняются
+     *  ВО ВСЕХ ПЛЕЙЛИСТАХ — после смены плейлиста ты не теряешь
+     *  предыдущие избранные. */
+    var favoriteChannels: List<Channel>
+        get() {
+            return try {
+                val json = prefs.getString(KEY_FAVORITE_CHANNELS, null) ?: run {
+                    // Миграция со старого формата (Set<String> URLs):
+                    // создаём Channel с минимальными данными чтобы хоть
+                    // что-то показать. Имя по умолчанию = последняя
+                    // часть URL.
+                    val legacy = prefs.getStringSet(KEY_FAVORITES, null) ?: return@run null
+                    if (legacy.isEmpty()) return@run "[]"
+                    val arr = JSONArray()
+                    legacy.forEach { url ->
+                        arr.put(JSONObject().apply {
+                            put("name", url.substringAfterLast('/').take(50))
+                            put("url", url)
+                        })
+                    }
+                    val text = arr.toString()
+                    prefs.edit().putString(KEY_FAVORITE_CHANNELS, text).apply()
+                    text
+                }
+                val arr = JSONArray(json)
+                (0 until arr.length()).map {
+                    val obj = arr.getJSONObject(it)
+                    Channel(
+                        name = obj.optString("name"),
+                        url = obj.optString("url"),
+                        logoUrl = obj.optString("logo").ifBlank { null },
+                        group = obj.optString("group").ifBlank { null },
+                        tvgId = obj.optString("tvgId").ifBlank { null }
+                    )
+                }
+            } catch (_: Exception) { emptyList() }
+        }
+        set(value) {
+            val arr = JSONArray()
+            value.forEach { ch ->
+                arr.put(JSONObject().apply {
+                    put("name", ch.name)
+                    put("url", ch.url)
+                    if (!ch.logoUrl.isNullOrBlank()) put("logo", ch.logoUrl)
+                    if (!ch.group.isNullOrBlank()) put("group", ch.group)
+                    if (!ch.tvgId.isNullOrBlank()) put("tvgId", ch.tvgId)
+                })
+            }
+            prefs.edit().putString(KEY_FAVORITE_CHANNELS, arr.toString()).apply()
+        }
+
+    fun addFavorite(channel: Channel) {
+        if (channel.url.isBlank()) return
+        val list = favoriteChannels.toMutableList()
+        if (list.none { it.url == channel.url }) {
+            list.add(channel)
+            favoriteChannels = list
+        }
+    }
+
+    /** Старая сигнатура — оставлена для обратной совместимости.
+     *  Используется когда у нас только URL под рукой. Имя берём как
+     *  fallback. */
     fun addFavorite(url: String) {
-        favorites = favorites + url
+        if (url.isBlank()) return
+        val list = favoriteChannels.toMutableList()
+        if (list.none { it.url == url }) {
+            list.add(Channel(
+                name = url.substringAfterLast('/').take(50),
+                url = url
+            ))
+            favoriteChannels = list
+        }
     }
 
     fun removeFavorite(url: String) {
-        favorites = favorites - url
+        favoriteChannels = favoriteChannels.filterNot { it.url == url }
     }
 
-    fun isFavorite(url: String) = url in favorites
+    fun isFavorite(url: String) = favoriteChannels.any { it.url == url }
 
     var crashReportUrl: String?
         get() = prefs.getString(KEY_CRASH_URL, null)
@@ -403,6 +486,7 @@ class AppPreferences(context: Context) {
         private const val KEY_LANGUAGE = "language"
         private const val KEY_CUSTOM_PLAYLISTS = "custom_playlists"
         private const val KEY_FAVORITES = "favorites"
+        private const val KEY_FAVORITE_CHANNELS = "favorite_channels"
         private const val KEY_CRASH_URL = "crash_report_url"
         private const val KEY_CRASH_FIREBASE = "crash_report_firebase"
         private const val KEY_LAST_PLAYLIST = "last_playlist_url"

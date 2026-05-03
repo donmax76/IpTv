@@ -61,8 +61,15 @@ class FavoritesFragment : Fragment() {
     }
 
     private fun refreshFavorites() {
-        val favorites = prefs.favorites
-        val favoriteChannels = ChannelDataHolder.allChannels.filter { it.url in favorites }
+        // Раньше брали favorites из prefs.favorites (Set<URL>) и
+        // ФИЛЬТРОВАЛИ ChannelDataHolder.allChannels — но это содержит
+        // только текущий плейлист. После смены плейлиста избранные
+        // из других плейлистов терялись из вида.
+        // Теперь берём ПОЛНЫЕ данные канала из prefs.favoriteChannels —
+        // они сохранены при добавлении в избранное и видны независимо
+        // от текущего загруженного плейлиста.
+        val favoriteChannels = prefs.favoriteChannels
+        val favorites = favoriteChannels.map { it.url }.toSet()
 
         adapter.updateChannels(favoriteChannels)
         adapter.updateFavorites(favorites)
@@ -75,14 +82,25 @@ class FavoritesFragment : Fragment() {
     }
 
     private fun playChannel(channel: Channel) {
-        val index = ChannelDataHolder.allChannels.indexOf(channel)
-        ChannelDataHolder.currentChannelIndex = if (index >= 0) index else 0
+        // Канал может быть из ДРУГОГО плейлиста (не текущего). Для
+        // плеера в этом случае подменяем allChannels на список
+        // избранных целиком — иначе UP/DOWN на пульте переключал бы
+        // на каналы текущего плейлиста, не имеющие отношения к
+        // избранным.
+        val favs = prefs.favoriteChannels
+        val urlMatchInCurrent = ChannelDataHolder.allChannels.indexOfFirst { it.url == channel.url }
+        if (urlMatchInCurrent < 0) {
+            ChannelDataHolder.allChannels = favs
+        }
+        val list = ChannelDataHolder.allChannels
+        val idx = list.indexOfFirst { it.url == channel.url }.coerceAtLeast(0)
+        ChannelDataHolder.currentChannelIndex = idx
         prefs.pushRecent(channel.url)
 
         val intent = Intent(requireContext(), PlayerActivity::class.java).apply {
             putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, channel.name)
             putExtra(PlayerActivity.EXTRA_CHANNEL_URL, channel.url)
-            putExtra(PlayerActivity.EXTRA_CHANNEL_INDEX, ChannelDataHolder.currentChannelIndex)
+            putExtra(PlayerActivity.EXTRA_CHANNEL_INDEX, idx)
         }
         startActivity(intent)
     }
@@ -91,7 +109,7 @@ class FavoritesFragment : Fragment() {
         if (prefs.isFavorite(channel.url)) {
             prefs.removeFavorite(channel.url)
         } else {
-            prefs.addFavorite(channel.url)
+            prefs.addFavorite(channel)  // полный snapshot
         }
         refreshFavorites()
     }
