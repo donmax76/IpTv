@@ -12,6 +12,9 @@
     <string name="all">Hamısı</string>
     <string name="favorites">Sevimlilər</string>
     <string name="favorite">Sevimlilərə əlavə et</string>
+    <string name="unfavorite">Sevimlilərdən çıxar</string>
+    <string name="favorite_added">Sevimlilərə əlavə edildi</string>
+    <string name="favorite_removed">Sevimlilərdən çıxarıldı</string>
     <string name="show_all">Hamısını göstər</string>
     <string name="player">Pleyer</string>
     <string name="player_internal">Daxili</string>

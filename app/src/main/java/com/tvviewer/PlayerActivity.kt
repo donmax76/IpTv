@@ -1936,6 +1936,12 @@ class PlayerActivity : BaseActivity() {
         // введённое теряется. Авто-hide возобновится когда EditText
         // потеряет фокус (через onFocusChange listener).
         if (overlaySearchEdit?.hasFocus() == true) return
+        // Пока показывается панель категорий — auto-hide ОТКЛЮЧЕН.
+        // Юзер вручную закрывает её клавишей RIGHT или выбором
+        // категории. Без этого через 5 сек панель закрывалась пока
+        // юзер ещё листал категории, и фокус терялся.
+        if (::overlayCategoriesPanel.isInitialized &&
+            overlayCategoriesPanel.visibility == View.VISIBLE) return
         val seconds = prefs.channelListAutoHideSeconds
         if (seconds > 0) {
             channelListHideHandler.postDelayed(channelListHideRunnable, seconds * 1000L)
@@ -2355,6 +2361,28 @@ class PlayerActivity : BaseActivity() {
             //     правом углу — теперь убраны и доступны только отсюда.
             KeyEvent.KEYCODE_DPAD_RIGHT -> {
                 if (channelListVisible) {
+                    val catsShown = ::overlayCategoriesPanel.isInitialized &&
+                        overlayCategoriesPanel.visibility == View.VISIBLE
+                    val focusInCategories = catsShown && isFocusInside(overlayCategoriesList)
+                    if (focusInCategories) {
+                        // RIGHT в столбце категорий → возвращаем список
+                        // каналов (с фильтром по выделенной категории),
+                        // фокус на первом канале. Юзер сможет листать
+                        // отфильтрованный список, а если хочет вернуться
+                        // в категории — снова DPAD_LEFT.
+                        overlayCategoriesPanel.visibility = View.GONE
+                        val lpCats = overlayCategoriesPanel.layoutParams
+                        lpCats.width = (140 * resources.displayMetrics.density).toInt()
+                        overlayCategoriesPanel.layoutParams = lpCats
+                        findViewById<View>(R.id.overlayChannelsPanel)?.visibility = View.VISIBLE
+                        overlayChannelsList.post {
+                            overlayChannelsList.requestFocus()
+                            overlayChannelsList.findViewHolderForAdapterPosition(0)
+                                ?.itemView?.requestFocus()
+                        }
+                        bumpChannelListIdleTimer()
+                        return true
+                    }
                     hideChannelList()
                     return true
                 }
