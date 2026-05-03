@@ -177,6 +177,7 @@ class MainActivity : BaseActivity() {
                     return@launch
                 }
                 ChannelDataHolder.allChannels = all
+                prefs.enrichFavorites(all)
                 val lastChan = prefs.lastChannelUrl
                 val idx = all.indexOfFirst { it.url == lastChan }.let { if (it < 0) 0 else it }
                 ChannelDataHolder.currentChannelIndex = idx

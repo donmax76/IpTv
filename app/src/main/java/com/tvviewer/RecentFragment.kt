@@ -97,7 +97,7 @@ class RecentFragment : Fragment() {
         if (prefs.isFavorite(channel.url)) {
             prefs.removeFavorite(channel.url)
         } else {
-            prefs.addFavorite(channel.url)
+            prefs.addFavorite(channel)  // полный snapshot, не только URL
         }
         refreshRecent()
     }

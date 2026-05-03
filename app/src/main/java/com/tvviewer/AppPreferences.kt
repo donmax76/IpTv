@@ -132,10 +132,42 @@ class AppPreferences(context: Context) {
     fun addFavorite(channel: Channel) {
         if (channel.url.isBlank()) return
         val list = favoriteChannels.toMutableList()
-        if (list.none { it.url == channel.url }) {
+        val existingIdx = list.indexOfFirst { it.url == channel.url }
+        if (existingIdx < 0) {
             list.add(channel)
-            favoriteChannels = list
+        } else {
+            // Перезаписываем существующую запись свежими данными.
+            // Кейс: миграция со старого формата создавала запись где
+            // name == URL fragment. Когда юзер заново добавит канал
+            // (с полным Channel из плейлиста) — имя/лого/группа
+            // обновятся на нормальные. Без этого фикса юзеру нужно
+            // было бы вручную удалить и заново добавить.
+            list[existingIdx] = channel
         }
+        favoriteChannels = list
+    }
+
+    /** Enrich существующую favorite-запись данными из текущего
+     *  плейлиста. Используется когда плейлист загружен и в нём
+     *  есть канал с URL который уже в favorite, но с плохим именем
+     *  (миграция). Тогда мы автоматически проапгрейдим запись. */
+    fun enrichFavorites(channels: List<Channel>) {
+        if (channels.isEmpty()) return
+        val list = favoriteChannels.toMutableList()
+        var changed = false
+        for (i in list.indices) {
+            val fav = list[i]
+            // Считаем что имя "плохое" если оно равно URL целиком,
+            // содержит / или ., или оканчивается на .ts/.m3u8/etc.
+            val nameLooksLikeUrl = fav.name.contains('/') ||
+                fav.name.startsWith("http", true) ||
+                fav.name == fav.url
+            if (!nameLooksLikeUrl && !fav.logoUrl.isNullOrBlank()) continue
+            val match = channels.firstOrNull { it.url == fav.url } ?: continue
+            list[i] = match
+            changed = true
+        }
+        if (changed) favoriteChannels = list
     }
 
     /** Старая сигнатура — оставлена для обратной совместимости.

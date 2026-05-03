@@ -177,6 +177,9 @@ class HomeFragment : Fragment() {
                     return@launch
                 }
                 ChannelDataHolder.allChannels = all
+                // Подтянем нормальные имена / лого для favorite'ов
+                // которые мигрированы со старого формата (где было только URL).
+                prefs.enrichFavorites(all)
                 val lastChan = prefs.lastChannelUrl
                 val idx = all.indexOfFirst { it.url == lastChan }.let { if (it < 0) 0 else it }
                 ChannelDataHolder.currentChannelIndex = idx
