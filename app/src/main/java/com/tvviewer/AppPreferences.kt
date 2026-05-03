@@ -110,7 +110,8 @@ class AppPreferences(context: Context) {
                         url = obj.optString("url"),
                         logoUrl = obj.optString("logo").ifBlank { null },
                         group = obj.optString("group").ifBlank { null },
-                        tvgId = obj.optString("tvgId").ifBlank { null }
+                        tvgId = obj.optString("tvgId").ifBlank { null },
+                        sourcePlaylist = obj.optString("src").ifBlank { null }
                     )
                 }
             } catch (_: Exception) { emptyList() }
@@ -124,6 +125,7 @@ class AppPreferences(context: Context) {
                     if (!ch.logoUrl.isNullOrBlank()) put("logo", ch.logoUrl)
                     if (!ch.group.isNullOrBlank()) put("group", ch.group)
                     if (!ch.tvgId.isNullOrBlank()) put("tvgId", ch.tvgId)
+                    if (!ch.sourcePlaylist.isNullOrBlank()) put("src", ch.sourcePlaylist)
                 })
             }
             prefs.edit().putString(KEY_FAVORITE_CHANNELS, arr.toString()).apply()
@@ -131,18 +133,22 @@ class AppPreferences(context: Context) {
 
     fun addFavorite(channel: Channel) {
         if (channel.url.isBlank()) return
+        // Если sourcePlaylist не передан — берём текущий открытый плейлист.
+        // Так в Favorites будет видно из какого плейлиста канал.
+        val withSource = if (channel.sourcePlaylist.isNullOrBlank()) {
+            channel.copy(sourcePlaylist = lastPlaylistName?.takeIf { it.isNotBlank() })
+        } else channel
         val list = favoriteChannels.toMutableList()
-        val existingIdx = list.indexOfFirst { it.url == channel.url }
+        val existingIdx = list.indexOfFirst { it.url == withSource.url }
         if (existingIdx < 0) {
-            list.add(channel)
+            list.add(withSource)
         } else {
             // Перезаписываем существующую запись свежими данными.
             // Кейс: миграция со старого формата создавала запись где
             // name == URL fragment. Когда юзер заново добавит канал
             // (с полным Channel из плейлиста) — имя/лого/группа
-            // обновятся на нормальные. Без этого фикса юзеру нужно
-            // было бы вручную удалить и заново добавить.
-            list[existingIdx] = channel
+            // обновятся на нормальные.
+            list[existingIdx] = withSource
         }
         favoriteChannels = list
     }

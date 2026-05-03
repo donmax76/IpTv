@@ -65,6 +65,20 @@ class ChannelAdapter(
             holder.itemView.context, channel.name
         )
 
+        // Имя плейлиста-источника (только для избранных — у других
+        // каналов sourcePlaylist == null и подпись скрыта).
+        // Юзер видит "1+1 · Украина" вместо просто "1+1" и понимает
+        // из какого плейлиста этот канал.
+        holder.channelGroup?.let { tv ->
+            val src = channel.sourcePlaylist
+            if (!src.isNullOrBlank()) {
+                tv.text = "▸ $src"
+                tv.visibility = View.VISIBLE
+            } else {
+                tv.visibility = View.GONE
+            }
+        }
+
         // Logo priority: tvg-logo > learned cache > iptv-org name lookup.
         // LearnedLogos накапливает (имя→лого) из всех когда-либо
         // открытых плейлистов, чтобы лого с одного плейлиста

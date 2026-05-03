@@ -253,21 +253,11 @@ class PlayerActivity : BaseActivity() {
         channelName.text = name
         channelNumber.text = "${currentIndex + 1} / ${ChannelDataHolder.allChannels.size}"
 
-        // Подгружаем EPG-кэш с диска прямо здесь, если в памяти пусто.
-        // Раньше полагались на TVViewerApp.scheduleEpgAutoRefresh
-        // который грузит кэш на старте процесса. Но если listener
-        // зарегистрировался ПОСЛЕ его notifyEpgUpdate — событие
-        // упускалось, юзер видел пустую программу пока не сменил канал.
-        if (ChannelDataHolder.epgData.isEmpty()) {
-            try {
-                val cached = EpgRepository.loadFromCache(this)
-                if (cached != null && cached.isNotEmpty()) {
-                    ChannelDataHolder.epgData = cached
-                    android.util.Log.d("PlayerActivity",
-                        "EPG cache loaded synchronously on player start: ${cached.size} channels")
-                }
-            } catch (_: Throwable) {}
-        }
+        // СНАЧАЛА подписываемся на EPG-апдейты — ДО updateEpg.
+        // Без этого был race: если cache из TVViewerApp загрузился
+        // и notifyEpgUpdate уже выстрелил до register'а — событие
+        // терялось. Теперь listener подписан раньше → ловим всё.
+        EpgRepository.addEpgUpdateListener(playerEpgListener)
 
         updateEpg()
         initPlayer()
@@ -276,11 +266,24 @@ class PlayerActivity : BaseActivity() {
         scheduleHideControls()
         startClock()
 
-        // Подписываемся на EPG-обновления: если EPG ещё догружается
-        // (cold start, network fetch в applicationScope), listener
-        // сработает когда данные придут — мы перерисуем баннер + EPG
-        // в текущей строке + во всём overlay-списке.
-        EpgRepository.addEpgUpdateListener(playerEpgListener)
+        // Если EPG-кэш ещё не подтянут TVViewerApp — грузим в фоне.
+        // НЕ синхронно: deserialize 6361 канала на X4 X4 блокирует
+        // UI thread на 1-3 сек, в это время пульт игнорирует клавиши
+        // (в т.ч. CH+/CH−). После загрузки playerEpgListener сам
+        // перерисует UI.
+        if (ChannelDataHolder.epgData.isEmpty()) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    val cached = EpgRepository.loadFromCache(this@PlayerActivity)
+                    if (cached != null && cached.isNotEmpty()) {
+                        ChannelDataHolder.epgData = cached
+                        EpgRepository.notifyEpgUpdate(cached)
+                        android.util.Log.d("PlayerActivity",
+                            "EPG cache loaded async on player start: ${cached.size} channels")
+                    }
+                } catch (_: Throwable) {}
+            }
+        }
 
         // Save last channel + push to recent history
         prefs.lastChannelUrl = currentUrl
