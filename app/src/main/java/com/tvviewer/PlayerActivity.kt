@@ -539,6 +539,13 @@ class PlayerActivity : BaseActivity() {
         // была сразу видна вместе со списком каналов, что юзер посчитал
         // лишним: первое LEFT должно показывать ТОЛЬКО список каналов.
         overlayCategoriesPanel.visibility = View.GONE
+        // Собираем категории из текущего плейлиста: первый сегмент
+        // group-tag (до ; , |), уникальные, отсортированные.
+        val channels = ChannelDataHolder.allChannels
+        val realCats = channels.mapNotNull { it.group?.split(';', ',', '|')?.firstOrNull()?.trim() }
+            .filter { it.isNotEmpty() && it.length <= 30 }
+            .distinct()
+            .sorted()
         val cats = listOf(getString(R.string.all)) + realCats
         val catAdapter = CategoryAdapter(cats) { category ->
             overlaySelectedCategory = category
