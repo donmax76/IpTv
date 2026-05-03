@@ -1994,17 +1994,6 @@ class PlayerActivity : BaseActivity() {
     }
 
     /** true если фокус сейчас внутри указанной View (или это сама она). */
-    /** Уникальные keycode'ы за сессию — чтобы не спамить лог одной
-     *  и той же кнопкой много раз. */
-    private val seenKeyCodes = HashSet<Int>()
-    private fun logKeyOnce(keyCode: Int) {
-        if (!seenKeyCodes.add(keyCode)) return
-        try {
-            ErrorLogger.info(this, "KEY",
-                "code=$keyCode name=${KeyEvent.keyCodeToString(keyCode)}")
-        } catch (_: Throwable) {}
-    }
-
     private fun isFocusInside(target: View): Boolean {
         var v: View? = currentFocus ?: return false
         while (v != null) {
@@ -2194,9 +2183,6 @@ class PlayerActivity : BaseActivity() {
                 kc != KeyEvent.KEYCODE_POWER) {
                 android.util.Log.d("PlayerActivity",
                     "key down: $kc (${KeyEvent.keyCodeToString(kc)})")
-                // Сохраняем уникальные keycode'ы в файл-лог чтобы юзер
-                // мог отправить его и я увидел какие кнопки шлёт пульт.
-                logKeyOnce(kc)
             }
         }
         // Любое нажатие при открытом списке каналов / категорий —
@@ -2697,12 +2683,6 @@ class PlayerActivity : BaseActivity() {
                     if (event == null || event.action != KeyEvent.ACTION_DOWN) {
                         return super.onMediaButtonEvent(intent)
                     }
-                    // Логируем все полученные через MediaSession кнопки —
-                    // они часто отличаются от dispatchKeyEvent на TV-боксах.
-                    try {
-                        ErrorLogger.info(this@PlayerActivity, "MEDIA_KEY",
-                            "code=${event.keyCode} name=${KeyEvent.keyCodeToString(event.keyCode)}")
-                    } catch (_: Throwable) {}
                     return when (event.keyCode) {
                         KeyEvent.KEYCODE_MEDIA_NEXT,
                         KeyEvent.KEYCODE_CHANNEL_UP -> { runOnUiThread { switchChannel(-1) }; true }
