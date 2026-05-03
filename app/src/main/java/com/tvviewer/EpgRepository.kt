@@ -448,11 +448,13 @@ object EpgRepository {
             // только текущие/будущие на 7 дней). Удаляем cache только
             // если он реально битый (>5MB) или невалидный JSON (catch).
 
-            // Защита от чудовищных кэшей: если файл больше 5 MB —
-            // он скорее всего от старой версии без time-фильтра и
-            // загрузка его в JSONObject вылетит в OOM на X4 X4.
-            // Удаляем и парсим заново при первом обновлении.
-            if (file.length() > 5L * 1024 * 1024) {
+            // Защита от чудовищных кэшей: если файл больше 25 MB —
+            // он скорее всего от старой версии без time-фильтра.
+            // Старый порог был 5 MB, но при 6300 каналах + display-name
+            // зеркала + fuzzy ключи легко выходит 8-15 MB JSON → файл
+            // удалялся, EPG показывался пустой пока не переобновишь.
+            // 25 MB должно покрывать все нормальные cache-варианты.
+            if (file.length() > 25L * 1024 * 1024) {
                 Log.w(TAG, "EPG cache too big (${file.length()} bytes), discarding")
                 file.delete()
                 return null
@@ -493,26 +495,45 @@ object EpgRepository {
     }
 
     private fun serializeEpg(data: Map<String, List<Programme>>): String {
+        // В data часто одна и та же List<Programme> присутствует под
+        // несколькими ключами (display-name + fuzzy зеркала). Раньше
+        // мы писали программы в JSON под КАЖДЫМ ключом → файл рос в
+        // 2-3 раза, выходил за лимит и удалялся.
+        // Теперь: первый ключ для конкретного List получает массив
+        // программ, остальные пишут строку-алиас вида "@первый_ключ".
+        // Десериализатор увидит "@..." и вместо парсинга подставит
+        // ссылку на уже распарсенный массив.
         val sb = StringBuilder()
         sb.append("{")
         var first = true
+        // identityHashMap чтобы корректно сравнивать ССЫЛКИ списков,
+        // а не их .equals() (две разных List могут быть .equals).
+        val seen = java.util.IdentityHashMap<List<Programme>, String>()
         for ((channelId, programmes) in data) {
             if (!first) sb.append(",")
             first = false
-            sb.append("\"").append(escapeJson(channelId)).append("\":[")
-            var pFirst = true
-            for (p in programmes) {
-                if (!pFirst) sb.append(",")
-                pFirst = false
-                sb.append("{\"s\":").append(p.start)
-                sb.append(",\"e\":").append(p.end)
-                sb.append(",\"t\":\"").append(escapeJson(p.title)).append("\"")
-                if (p.description.isNotEmpty()) {
-                    sb.append(",\"d\":\"").append(escapeJson(p.description)).append("\"")
+            sb.append("\"").append(escapeJson(channelId)).append("\":")
+            val firstKeyForList = seen[programmes]
+            if (firstKeyForList != null) {
+                // Алиас. Префикс @ — маркер, не используется в ID.
+                sb.append("\"@").append(escapeJson(firstKeyForList)).append("\"")
+            } else {
+                seen[programmes] = channelId
+                sb.append("[")
+                var pFirst = true
+                for (p in programmes) {
+                    if (!pFirst) sb.append(",")
+                    pFirst = false
+                    sb.append("{\"s\":").append(p.start)
+                    sb.append(",\"e\":").append(p.end)
+                    sb.append(",\"t\":\"").append(escapeJson(p.title)).append("\"")
+                    if (p.description.isNotEmpty()) {
+                        sb.append(",\"d\":\"").append(escapeJson(p.description)).append("\"")
+                    }
+                    sb.append("}")
                 }
-                sb.append("}")
+                sb.append("]")
             }
-            sb.append("]")
         }
         sb.append("}")
         return sb.toString()
@@ -522,23 +543,29 @@ object EpgRepository {
         s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")
 
     private fun deserializeEpg(json: String): Map<String, List<Programme>> {
-        val result = mutableMapOf<String, MutableList<Programme>>()
+        val result = mutableMapOf<String, List<Programme>>()
         // Тот же временной фильтр что и в parseXmltvFast: только
-        // программы из окна [вчера, +7 дней]. Без него старый кэш
-        // от полного XMLTV (108K программ) валит приложение в OOM
-        // прямо при загрузке плейлиста на 256MB heap.
+        // программы из окна [вчера, +7 дней].
         val now = System.currentTimeMillis()
         val keepFrom = now - 24L * 60 * 60 * 1000
         val keepTo = now + 7L * 24 * 60 * 60 * 1000
         try {
             val obj = org.json.JSONObject(json)
-            val keys = obj.keys()
-            while (keys.hasNext()) {
-                val channelId = keys.next()
-                val arr = obj.getJSONArray(channelId)
+            // Двухпроходный обход: сначала собираем все ключи с
+            // массивами (реальные данные), потом обрабатываем алиасы
+            // ("@key" вместо массива) — алиасы могут ссылаться на
+            // ключи которые встречаются позже в JSON.
+            val keys = mutableListOf<String>()
+            val iter = obj.keys()
+            while (iter.hasNext()) keys.add(iter.next())
+
+            // Pass 1: реальные массивы программ.
+            for (channelId in keys) {
+                val v = obj.opt(channelId)
+                if (v !is org.json.JSONArray) continue
                 val programmes = mutableListOf<Programme>()
-                for (i in 0 until arr.length()) {
-                    val pObj = arr.getJSONObject(i)
+                for (i in 0 until v.length()) {
+                    val pObj = v.getJSONObject(i)
                     val start = pObj.getLong("s")
                     val end = pObj.getLong("e")
                     if (end < keepFrom || start > keepTo) continue
@@ -546,14 +573,21 @@ object EpgRepository {
                         start = start,
                         end = end,
                         title = pObj.getString("t"),
-                        description = ""  // description в кэше не храним
+                        description = ""
                     ))
                 }
                 if (programmes.isNotEmpty()) result[channelId] = programmes
             }
+            // Pass 2: алиасы "@first_key" → подставляем ту же List<Programme>.
+            for (channelId in keys) {
+                val v = obj.opt(channelId)
+                if (v !is String) continue
+                if (!v.startsWith("@")) continue
+                val target = v.substring(1)
+                val progs = result[target] ?: continue
+                result[channelId] = progs
+            }
         } catch (e: Throwable) {
-            // Throwable, не Exception: ловим OOM в т.ч. Лучше иметь
-            // пустой EPG чем краш приложения при старте.
             Log.e(TAG, "EPG deserialize error", e)
             return emptyMap()
         }
