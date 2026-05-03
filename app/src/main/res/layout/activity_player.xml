@@ -335,27 +335,53 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
+                    android:orientation="vertical"
                     android:paddingStart="14dp"
                     android:paddingEnd="14dp"
                     android:layout_marginBottom="6dp">
 
-                    <TextView
-                        android:layout_width="0dp"
+                    <!-- Имя плейлиста. Заполняется из prefs.lastPlaylistName
+                         в коде. Если пусто — показываем "Каналы". -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/channels"
-                        android:textColor="@android:color/white"
-                        android:textSize="16sp"
-                        android:textStyle="bold"/>
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
 
+                        <TextView
+                            android:id="@+id/overlayPlaylistName"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/channels"
+                            android:textColor="@android:color/white"
+                            android:textSize="15sp"
+                            android:textStyle="bold"
+                            android:singleLine="true"
+                            android:ellipsize="end"/>
+
+                        <TextView
+                            android:id="@+id/overlayChannelCount"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textColor="#B0B0CC"
+                            android:textSize="12sp"/>
+
+                    </LinearLayout>
+
+                    <!-- Выбранная категория. Показывается только когда
+                         выбрана конкретная (не "Все"). -->
                     <TextView
-                        android:id="@+id/overlayChannelCount"
+                        android:id="@+id/overlaySelectedCategoryLabel"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textColor="#B0B0CC"
-                        android:textSize="12sp"/>
+                        android:textColor="#7C6CF7"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:singleLine="true"
+                        android:ellipsize="end"
+                        android:layout_marginTop="2dp"
+                        android:visibility="gone"/>
 
                 </LinearLayout>
 

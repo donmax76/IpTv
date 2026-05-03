@@ -596,6 +596,13 @@ class PlayerActivity : BaseActivity() {
         overlayFilteredChannels = channels
         overlayFilteredIndices = channels.indices.toList()
         overlayChannelCount?.text = "${channels.size}"
+        // Имя плейлиста над списком каналов: если есть — показываем,
+        // иначе "Каналы" из шаблона. Имя категории — только когда
+        // выбрана конкретная (не "Все"); ставится в filterOverlayChannels.
+        findViewById<TextView>(R.id.overlayPlaylistName)?.text =
+            prefs.lastPlaylistName?.takeIf { it.isNotBlank() }
+                ?: getString(R.string.channels)
+        findViewById<TextView>(R.id.overlaySelectedCategoryLabel)?.visibility = View.GONE
 
         overlayAdapter = OverlayChannelAdapter(channels, ChannelDataHolder.epgData, currentIndex,
             favorites = prefs.favorites,
@@ -635,6 +642,16 @@ class PlayerActivity : BaseActivity() {
         overlayFilteredChannels = filtered.map { it.value }
         overlayFilteredIndices = filtered.map { it.index }
         overlayChannelCount?.text = "${overlayFilteredChannels.size}"
+
+        // Показываем выбранную категорию под именем плейлиста.
+        // Когда "Все" — скрываем, чтобы не было лишнего текста.
+        val catLabel = findViewById<TextView>(R.id.overlaySelectedCategoryLabel)
+        if (overlaySelectedCategory.isNotEmpty() && overlaySelectedCategory != allLabel) {
+            catLabel?.text = "▸ $overlaySelectedCategory"
+            catLabel?.visibility = View.VISIBLE
+        } else {
+            catLabel?.visibility = View.GONE
+        }
 
         // Find current channel position in filtered list
         val filteredCurrentIndex = overlayFilteredIndices.indexOf(currentIndex)
@@ -1816,6 +1833,19 @@ class PlayerActivity : BaseActivity() {
         channelListOverlay.visibility = View.VISIBLE
         channelListVisible = true
         hideHandler.removeCallbacks(hideRunnable)
+        // Обновляем имя плейлиста (вдруг поменялся за время сессии) и
+        // подпись категории (могла быть "Кино" в прошлый раз).
+        findViewById<TextView>(R.id.overlayPlaylistName)?.text =
+            prefs.lastPlaylistName?.takeIf { it.isNotBlank() }
+                ?: getString(R.string.channels)
+        val catLabel = findViewById<TextView>(R.id.overlaySelectedCategoryLabel)
+        val allLabel = getString(R.string.all)
+        if (overlaySelectedCategory.isNotEmpty() && overlaySelectedCategory != allLabel) {
+            catLabel?.text = "▸ $overlaySelectedCategory"
+            catLabel?.visibility = View.VISIBLE
+        } else {
+            catLabel?.visibility = View.GONE
+        }
 
         // Scroll to current channel and focus it so the D-pad immediately
         // navigates inside the list (otherwise the user is stuck on the
