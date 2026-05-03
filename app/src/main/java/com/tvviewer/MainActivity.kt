@@ -169,15 +169,22 @@ class MainActivity : BaseActivity() {
         val ctx = applicationContext
         lifecycleScope.launch {
             try {
-                val res = PlaylistRepository.fetchPlaylist(url, ctx)
-                val custom = prefs.customChannels.map { (n, u) -> Channel(name = n, url = u) }
-                val all = res.channels + custom
-                if (all.isEmpty()) {
-                    android.widget.Toast.makeText(ctx, R.string.load_failed, android.widget.Toast.LENGTH_SHORT).show()
-                    return@launch
+                // Если этот плейлист уже загружен — не качаем повторно.
+                val cached = ChannelDataHolder.loadedPlaylistUrl == url &&
+                    ChannelDataHolder.allChannels.isNotEmpty()
+                val all = if (cached) ChannelDataHolder.allChannels else {
+                    val res = PlaylistRepository.fetchPlaylist(url, ctx)
+                    val custom = prefs.customChannels.map { (n, u) -> Channel(name = n, url = u) }
+                    val merged = res.channels + custom
+                    if (merged.isEmpty()) {
+                        android.widget.Toast.makeText(ctx, R.string.load_failed, android.widget.Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+                    ChannelDataHolder.allChannels = merged
+                    ChannelDataHolder.loadedPlaylistUrl = url
+                    prefs.enrichFavorites(merged)
+                    merged
                 }
-                ChannelDataHolder.allChannels = all
-                prefs.enrichFavorites(all)
                 val lastChan = prefs.lastChannelUrl
                 val idx = all.indexOfFirst { it.url == lastChan }.let { if (it < 0) 0 else it }
                 ChannelDataHolder.currentChannelIndex = idx

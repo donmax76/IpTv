@@ -169,17 +169,28 @@ class HomeFragment : Fragment() {
         val ctx = requireContext().applicationContext
         lifecycleScope.launch {
             try {
-                val res = PlaylistRepository.fetchPlaylist(url, ctx)
-                val custom = prefs.customChannels.map { (n, u) -> Channel(name = n, url = u) }
-                val all = res.channels + custom
-                if (all.isEmpty()) {
-                    Toast.makeText(ctx, R.string.load_failed, Toast.LENGTH_SHORT).show()
-                    return@launch
+                // Если плейлист с этим URL уже загружен — не качаем
+                // повторно. Экономит 3-10 сек на TV-боксе с медленным
+                // Wi-Fi / у плохо работающих хостеров.
+                val cached = ChannelDataHolder.loadedPlaylistUrl == url &&
+                    ChannelDataHolder.allChannels.isNotEmpty()
+                val all = if (cached) {
+                    ChannelDataHolder.allChannels
+                } else {
+                    val res = PlaylistRepository.fetchPlaylist(url, ctx)
+                    val custom = prefs.customChannels.map { (n, u) -> Channel(name = n, url = u) }
+                    val merged = res.channels + custom
+                    if (merged.isEmpty()) {
+                        Toast.makeText(ctx, R.string.load_failed, Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+                    ChannelDataHolder.allChannels = merged
+                    ChannelDataHolder.loadedPlaylistUrl = url
+                    // Подтянем нормальные имена / лого для favorite'ов
+                    // которые мигрированы со старого формата (где было только URL).
+                    prefs.enrichFavorites(merged)
+                    merged
                 }
-                ChannelDataHolder.allChannels = all
-                // Подтянем нормальные имена / лого для favorite'ов
-                // которые мигрированы со старого формата (где было только URL).
-                prefs.enrichFavorites(all)
                 val lastChan = prefs.lastChannelUrl
                 val idx = all.indexOfFirst { it.url == lastChan }.let { if (it < 0) 0 else it }
                 ChannelDataHolder.currentChannelIndex = idx

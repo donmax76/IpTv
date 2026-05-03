@@ -694,6 +694,7 @@ class SettingsFragment : Fragment() {
                 .setPositiveButton(R.string.ok) { _, _ ->
                     ChannelDataHolder.epgData = emptyMap()
                     ChannelDataHolder.allChannels = emptyList()
+                    ChannelDataHolder.loadedPlaylistUrl = null
                     requireContext().imageLoader.memoryCache?.clear()
                     // Delete EPG cache file
                     try {
