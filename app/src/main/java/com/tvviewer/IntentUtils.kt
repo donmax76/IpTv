@@ -5,6 +5,36 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 
+/** Открывает канал с использованием выбранного в Settings плеера.
+ *  - PLAYER_INTERNAL → ExoPlayer (PlayerActivity)
+ *  - PLAYER_MPV      → libmpv/MPV (MpvPlayerActivity)
+ *  - PLAYER_EXTERNAL → внешнее приложение (VLC/MX/Vimu) через ACTION_VIEW
+ *  Используется во всех точках запуска плеера. */
+fun Context.launchPreferredPlayer(channel: Channel, channelIndex: Int = 0) {
+    val prefs = AppPreferences(this)
+    when (prefs.playerType) {
+        AppPreferences.PLAYER_EXTERNAL -> launchExternalVideo(channel.url)
+        AppPreferences.PLAYER_MPV -> {
+            val intent = Intent(this, MpvPlayerActivity::class.java).apply {
+                putExtra(MpvPlayerActivity.EXTRA_CHANNEL_NAME, channel.name)
+                putExtra(MpvPlayerActivity.EXTRA_CHANNEL_URL, channel.url)
+                putExtra(MpvPlayerActivity.EXTRA_CHANNEL_INDEX, channelIndex)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        }
+        else -> {
+            val intent = Intent(this, PlayerActivity::class.java).apply {
+                putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, channel.name)
+                putExtra(PlayerActivity.EXTRA_CHANNEL_URL, channel.url)
+                putExtra(PlayerActivity.EXTRA_CHANNEL_INDEX, channelIndex)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        }
+    }
+}
+
 /**
  * Запускает URL во внешнем видеоплеере (VLC / MX). Возвращает true,
  * если внешний плеер найден и стартанул, иначе false (показывает

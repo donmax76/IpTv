@@ -670,5 +670,8 @@ class AppPreferences(context: Context) {
 
         const val PLAYER_INTERNAL = "internal"
         const val PLAYER_EXTERNAL = "external"
+        // libmpv плеер — тот же движок что в Vimu Player. Тащит
+        // проблемные HEVC/HLS которые ExoPlayer + nextlib не вывозит.
+        const val PLAYER_MPV = "mpv"
     }
 }

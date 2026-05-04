@@ -390,14 +390,25 @@ class SettingsFragment : Fragment() {
 
     private fun setupPlayerType(view: View) {
         val playerTypeValue = view.findViewById<TextView>(R.id.playerTypeValue)
-        playerTypeValue.text = if (prefs.playerType == AppPreferences.PLAYER_INTERNAL)
-            getString(R.string.player_internal) else getString(R.string.player_external)
+        val labelFor = { type: String ->
+            when (type) {
+                AppPreferences.PLAYER_INTERNAL -> getString(R.string.player_internal)
+                AppPreferences.PLAYER_MPV      -> getString(R.string.player_mpv)
+                else                            -> getString(R.string.player_external)
+            }
+        }
+        playerTypeValue.text = labelFor(prefs.playerType)
 
         view.findViewById<LinearLayout>(R.id.playerTypeLayout).setOnClickListener {
-            val options = arrayOf(getString(R.string.player_internal), getString(R.string.player_external))
-            val current = if (prefs.playerType == AppPreferences.PLAYER_INTERNAL) 0 else 1
+            val values = arrayOf(
+                AppPreferences.PLAYER_INTERNAL,
+                AppPreferences.PLAYER_MPV,
+                AppPreferences.PLAYER_EXTERNAL,
+            )
+            val options = values.map { labelFor(it) }.toTypedArray()
+            val current = values.indexOf(prefs.playerType).coerceAtLeast(0)
             FocusableDialog.show(requireContext(), getString(R.string.player), options, current) { which ->
-                    prefs.playerType = if (which == 0) AppPreferences.PLAYER_INTERNAL else AppPreferences.PLAYER_EXTERNAL
+                    prefs.playerType = values[which]
                     playerTypeValue.text = options[which]
                 }
         }
