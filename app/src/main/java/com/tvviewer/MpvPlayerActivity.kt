@@ -87,7 +87,9 @@ class MpvPlayerActivity : BaseActivity(), SurfaceHolder.Callback {
         try {
             val configDir = filesDir.absolutePath
             // libmpv API: create() → setOptionString*() → init().
-            MPVLib.create(this, "v")  // 'v' = verbose log level
+            // dev.jdtech.mpv:libmpv API: create(Context) — единственный аргумент.
+            MPVLib.create(this)
+            MPVLib.setOptionString("msg-level", "all=info")
             MPVLib.setOptionString("config", "yes")
             MPVLib.setOptionString("config-dir", configDir)
             // hwdec auto-safe: пытается аппаратный декодер где безопасно,
