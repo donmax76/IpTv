@@ -301,4 +301,9 @@
     <string name="home_default_playlist_format">Плейлист по умолчанию: %1$s</string>
     <string name="home_no_default_playlist">Откройте «Плейлисты» и выберите один — он станет плейлистом по умолчанию</string>
     <string name="home_choose_playlist_first">Сначала выберите плейлист</string>
+    <string name="enabled">Включено</string>
+    <string name="disabled">Выключено</string>
+    <string name="software_decoder_title">Программный декодер видео</string>
+    <string name="software_decoder_hint">Включи если канал тормозит / пропадают кадры (например HEVC/H.265 каналы на слабом боксе). Применяется при следующем переключении канала.</string>
+    <string name="software_decoder_changed_hint">Изменения применятся при следующем переключении канала</string>
 </resources>

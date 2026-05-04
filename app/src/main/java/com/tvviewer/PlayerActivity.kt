@@ -1222,7 +1222,12 @@ class PlayerActivity : BaseActivity() {
         // получить звук на DVB / izone-каналах.
         val renderersFactory = io.github.anilbeesetti.nextlib.media3ext.ffdecoder
             .NextRenderersFactory(this)
-            .setEnableDecoderFallback(true)
+            // Force-software: если включено в Settings, отключаем
+            // fallback на hardware декодер. extension (FFmpeg) renderer
+            // обработает всё, hardware-декодер не выбирается. Решает
+            // случай X4 X4: hw H.265 декодер врёт что умеет, но реально
+            // запинается на 1080p HEVC потоках (например ARB).
+            .setEnableDecoderFallback(!prefs.forceSoftwareDecoder)
             .setExtensionRendererMode(
                 DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
             )

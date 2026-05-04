@@ -350,6 +350,41 @@
             </LinearLayout>
 
             <LinearLayout
+                android:id="@+id/softwareDecoderLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginBottom="4dp"
+                android:padding="8dp"
+                android:minHeight="48dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="@drawable/settings_item_focused">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/software_decoder_title"
+                    android:textColor="@color/text_primary"
+                    android:textSize="16sp"/>
+
+                <TextView
+                    android:id="@+id/softwareDecoderValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/software_decoder_hint"
+                    android:textColor="@color/text_hint"
+                    android:textSize="11sp"/>
+
+            </LinearLayout>
+
+            <LinearLayout
                 android:id="@+id/sortLayout"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

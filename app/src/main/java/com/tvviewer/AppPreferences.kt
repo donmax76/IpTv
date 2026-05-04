@@ -306,6 +306,14 @@ class AppPreferences(context: Context) {
         get() = prefs.getString(KEY_BUFFER, "normal") ?: "normal"
         set(value) = prefs.edit().putString(KEY_BUFFER, value).apply()
 
+    /** Принудительно использовать software-декодер для видео. Помогает
+     *  на TV-боксах где hardware-декодер заявляет поддержку HEVC/H.265
+     *  но реально не вытягивает (X4 X4 — типичный кейс). При включении
+     *  ExoPlayer берёт FFmpeg-декодер из nextlib даже когда hw "поддерживает". */
+    var forceSoftwareDecoder: Boolean
+        get() = prefs.getBoolean("force_software_decoder", false)
+        set(value) = prefs.edit().putBoolean("force_software_decoder", value).apply()
+
     var listDisplayMode: String
         get() = prefs.getString(KEY_LIST_DISPLAY, "list") ?: "list"
         set(value) = prefs.edit().putString(KEY_LIST_DISPLAY, value).apply()

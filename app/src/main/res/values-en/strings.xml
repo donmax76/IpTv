@@ -200,4 +200,9 @@
     <string name="home_default_playlist_format">Default playlist: %1$s</string>
     <string name="home_no_default_playlist">Open «Playlists» and pick one — it becomes your default</string>
     <string name="home_choose_playlist_first">Choose a playlist first</string>
+    <string name="enabled">Enabled</string>
+    <string name="disabled">Disabled</string>
+    <string name="software_decoder_title">Software video decoder</string>
+    <string name="software_decoder_hint">Enable if a channel stutters / drops frames (e.g. HEVC/H.265 channels on a weak box). Applies on next channel switch.</string>
+    <string name="software_decoder_changed_hint">Change applies on next channel switch</string>
 </resources>
