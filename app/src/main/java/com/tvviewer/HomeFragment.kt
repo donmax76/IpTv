@@ -187,6 +187,10 @@ class HomeFragment : Fragment() {
                 val cached = ChannelDataHolder.loadedPlaylistUrl == url &&
                     ChannelDataHolder.allChannels.isNotEmpty()
                 val all = if (cached) {
+                    // Даже если плейлист уже загружен, прогоняем enrichFavorites
+                    // на случай если у юзера есть избранные без sourcePlaylist
+                    // которые матчатся с этим плейлистом.
+                    prefs.enrichFavorites(ChannelDataHolder.allChannels)
                     ChannelDataHolder.allChannels
                 } else {
                     val res = PlaylistRepository.fetchPlaylist(url, ctx)

@@ -199,6 +199,7 @@ class MainActivity : BaseActivity() {
                 // Если этот плейлист уже загружен — не качаем повторно.
                 val cached = ChannelDataHolder.loadedPlaylistUrl == url &&
                     ChannelDataHolder.allChannels.isNotEmpty()
+                if (cached) prefs.enrichFavorites(ChannelDataHolder.allChannels)
                 val all = if (cached) ChannelDataHolder.allChannels else {
                     val res = PlaylistRepository.fetchPlaylist(url, ctx)
                     val custom = prefs.customChannels.map { (n, u) -> Channel(name = n, url = u) }
