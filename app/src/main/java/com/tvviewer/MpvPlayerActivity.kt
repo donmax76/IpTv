@@ -104,15 +104,33 @@ class MpvPlayerActivity : BaseActivity(), SurfaceHolder.Callback {
 
     private fun initMpv() {
         try {
-            logStep("initMpv: loadLibrary mpv")
-            // Ручной load на случай auto-load не сработал (тесты на X4 X4
-            // показали что иногда static init MPVLib не загружает .so).
-            try { System.loadLibrary("mpv") } catch (e: Throwable) {
-                logError("loadLibrary mpv", e)
-                throw e
-            }
-            try { System.loadLibrary("player") } catch (_: Throwable) {
-                // 'player' — JNI bridge, бывает называется иначе. Не критично.
+            logStep("initMpv: preload FFmpeg deps + mpv")
+            // Round 172: явная предзагрузка зависимостей libmpv.so в порядке
+            // dlopen-цепочки. Без этого 32-битный bionic-линкер на X4 X4 не
+            // разрешал GNU-version-симвоы (av_default_item_name@LIBAVUTIL_59
+            // → libavutil.so), хотя символ присутствует. Загрузка по одной
+            // .so заставляет линкер кешировать каждую как RTLD_GLOBAL.
+            for (lib in listOf(
+                "c++_shared", "avutil", "swresample", "swscale",
+                "avcodec", "avformat", "avfilter", "avdevice", "postproc",
+                "mpv", "player",
+            )) {
+                try {
+                    System.loadLibrary(lib)
+                    logStep("loaded $lib")
+                } catch (e: UnsatisfiedLinkError) {
+                    if (lib == "player") {
+                        // JNI-bridge не критичен — MPVLib статически грузит сам.
+                        logStep("skip optional $lib: ${e.message?.take(80)}")
+                    } else if (lib == "mpv") {
+                        logError("loadLibrary $lib", e)
+                        throw e
+                    } else {
+                        // Остальные .so могут не быть прямыми зависимостями
+                        // на других ABI — не валим.
+                        logStep("skip $lib: ${e.message?.take(80)}")
+                    }
+                }
             }
             val configDir = filesDir.absolutePath
             logStep("MPVLib.create(this), configDir=$configDir")
@@ -122,7 +140,11 @@ class MpvPlayerActivity : BaseActivity(), SurfaceHolder.Callback {
             MPVLib.setOptionString("config", "yes")
             MPVLib.setOptionString("config-dir", configDir)
             MPVLib.setOptionString("hwdec", "auto-safe")
-            MPVLib.setOptionString("vo", "gpu")
+            // Стартуем БЕЗ видеовыхода — переключим на gpu в surfaceCreated
+            // когда уже есть валидный Surface. Иначе MPV пытается
+            // инициализировать gpu-renderer на null-surface и навсегда
+            // остаётся в "audio-only" состоянии, как сейчас у юзера.
+            MPVLib.setOptionString("vo", "null")
             MPVLib.setOptionString("gpu-context", "android")
             MPVLib.setOptionString("ao", "audiotrack,opensles")
             MPVLib.setOptionString("force-window", "no")
@@ -135,10 +157,29 @@ class MpvPlayerActivity : BaseActivity(), SurfaceHolder.Callback {
         } catch (e: Throwable) {
             logError("initMpv", e)
             android.widget.Toast.makeText(this,
-                "MPV init failed: ${e.javaClass.simpleName}",
+                "MPV не работает, использую встроенный плеер",
                 android.widget.Toast.LENGTH_LONG).show()
-            finish()
+            // Round 172: автофоллбек на ExoPlayer если libmpv не загружается
+            // (старый bionic не понимает GNU symbol versioning, etc).
+            // Юзер не остаётся со сломанным экраном.
+            fallbackToExoPlayer()
         }
+    }
+
+    private fun fallbackToExoPlayer() {
+        try {
+            val src = intent
+            val target = android.content.Intent(this, PlayerActivity::class.java)
+            target.putExtra(PlayerActivity.EXTRA_CHANNEL_NAME,
+                src.getStringExtra(EXTRA_CHANNEL_NAME))
+            target.putExtra(PlayerActivity.EXTRA_CHANNEL_URL,
+                src.getStringExtra(EXTRA_CHANNEL_URL))
+            target.putExtra(PlayerActivity.EXTRA_CHANNEL_INDEX,
+                src.getIntExtra(EXTRA_CHANNEL_INDEX, 0))
+            target.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(target)
+        } catch (_: Throwable) {}
+        finish()
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
@@ -146,6 +187,13 @@ class MpvPlayerActivity : BaseActivity(), SurfaceHolder.Callback {
         if (!mpvInitialized) return
         try {
             MPVLib.attachSurface(holder.surface)
+            // Включаем видеовыход теперь, когда у нас есть валидный Surface.
+            // Это тот самый момент когда MPV может инициализировать
+            // gpu-renderer и начать показывать видео (звук уже работал
+            // через ao=audiotrack независимо от vo).
+            MPVLib.setOptionString("force-window", "yes")
+            MPVLib.setOptionString("vo", "gpu")
+            logStep("vo=gpu attached")
             currentUrl?.let { url ->
                 logStep("loadfile $url")
                 MPVLib.command(arrayOf("loadfile", url))
@@ -156,6 +204,7 @@ class MpvPlayerActivity : BaseActivity(), SurfaceHolder.Callback {
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+        logStep("surfaceChanged ${width}x${height}")
         try {
             MPVLib.setPropertyString("android-surface-size", "${width}x${height}")
         } catch (_: Throwable) {}
@@ -163,7 +212,14 @@ class MpvPlayerActivity : BaseActivity(), SurfaceHolder.Callback {
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         if (!mpvInitialized) return
-        try { MPVLib.detachSurface() } catch (_: Throwable) {}
+        try {
+            // Безопасное отсоединение по канону mpv-android: сначала
+            // глушим vo, потом detach. Иначе MPV может попытаться отрисовать
+            // в уже разрушенный Surface и упасть.
+            MPVLib.setOptionString("vo", "null")
+            MPVLib.setOptionString("force-window", "no")
+            MPVLib.detachSurface()
+        } catch (_: Throwable) {}
     }
 
     override fun onDestroy() {
