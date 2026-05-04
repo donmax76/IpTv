@@ -84,16 +84,7 @@ class MainActivity : BaseActivity() {
                         val index = ChannelDataHolder.allChannels.indexOf(channel)
                         ChannelDataHolder.currentChannelIndex = index
                         prefs.pushRecentChannel(channel)
-                        if (prefs.playerType == AppPreferences.PLAYER_EXTERNAL) {
-                            this.launchExternalVideo(channel.url)
-                        } else {
-                            val intent = Intent(this, PlayerActivity::class.java).apply {
-                                putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, channel.name)
-                                putExtra(PlayerActivity.EXTRA_CHANNEL_URL, channel.url)
-                                putExtra(PlayerActivity.EXTRA_CHANNEL_INDEX, index)
-                            }
-                            startActivity(intent)
-                        }
+                        this.launchPreferredPlayer(channel, index)
                     }
                 }
             }
@@ -220,16 +211,7 @@ class MainActivity : BaseActivity() {
                 ChannelDataHolder.currentChannelIndex = idx
                 val target = all[idx]
                 prefs.pushRecentChannel(target)
-                val intent = Intent(this@MainActivity, PlayerActivity::class.java).apply {
-                    putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, target.name)
-                    putExtra(PlayerActivity.EXTRA_CHANNEL_URL, target.url)
-                    putExtra(PlayerActivity.EXTRA_CHANNEL_INDEX, idx)
-                }
-                if (prefs.playerType == AppPreferences.PLAYER_EXTERNAL) {
-                    ctx.launchExternalVideo(target.url)
-                } else {
-                    startActivity(intent)
-                }
+                this@MainActivity.launchPreferredPlayer(target, idx)
             } catch (e: Exception) {
                 ErrorLogger.logException(ctx, e)
                 android.widget.Toast.makeText(ctx, R.string.load_failed, android.widget.Toast.LENGTH_SHORT).show()

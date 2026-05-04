@@ -212,16 +212,7 @@ class HomeFragment : Fragment() {
                 ChannelDataHolder.currentChannelIndex = idx
                 val target = all[idx]
                 prefs.pushRecentChannel(target)
-                val intent = Intent(requireContext(), PlayerActivity::class.java).apply {
-                    putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, target.name)
-                    putExtra(PlayerActivity.EXTRA_CHANNEL_URL, target.url)
-                    putExtra(PlayerActivity.EXTRA_CHANNEL_INDEX, idx)
-                }
-                if (prefs.playerType == AppPreferences.PLAYER_EXTERNAL) {
-                    requireContext().launchExternalVideo(target.url)
-                } else {
-                    startActivity(intent)
-                }
+                requireContext().launchPreferredPlayer(target, idx)
             } catch (e: Exception) {
                 ErrorLogger.logException(ctx, e)
                 Toast.makeText(ctx, R.string.load_failed, Toast.LENGTH_SHORT).show()
@@ -245,16 +236,6 @@ class HomeFragment : Fragment() {
         ChannelDataHolder.currentChannelIndex = idx
         val target = favs[idx]
         prefs.pushRecentChannel(target)
-        // Уважаем выбор плеера в Settings (внешний vs встроенный).
-        if (prefs.playerType == AppPreferences.PLAYER_EXTERNAL) {
-            requireContext().launchExternalVideo(target.url)
-            return
-        }
-        val intent = Intent(requireContext(), PlayerActivity::class.java).apply {
-            putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, target.name)
-            putExtra(PlayerActivity.EXTRA_CHANNEL_URL, target.url)
-            putExtra(PlayerActivity.EXTRA_CHANNEL_INDEX, idx)
-        }
-        startActivity(intent)
+        requireContext().launchPreferredPlayer(target, idx)
     }
 }

@@ -91,18 +91,7 @@ class RecentFragment : Fragment() {
         val index = ChannelDataHolder.allChannels.indexOf(channel)
         ChannelDataHolder.currentChannelIndex = if (index >= 0) index else 0
         prefs.pushRecentChannel(channel)
-
-        // Уважаем выбор плеера в Settings (внешний vs встроенный).
-        if (prefs.playerType == AppPreferences.PLAYER_EXTERNAL) {
-            requireContext().launchExternalVideo(channel.url)
-            return
-        }
-        val intent = Intent(requireContext(), PlayerActivity::class.java).apply {
-            putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, channel.name)
-            putExtra(PlayerActivity.EXTRA_CHANNEL_URL, channel.url)
-            putExtra(PlayerActivity.EXTRA_CHANNEL_INDEX, ChannelDataHolder.currentChannelIndex)
-        }
-        startActivity(intent)
+        requireContext().launchPreferredPlayer(channel, ChannelDataHolder.currentChannelIndex)
     }
 
     private fun toggleFavorite(channel: Channel) {
