@@ -1231,12 +1231,28 @@ class PlayerActivity : BaseActivity() {
         // максимального видео-битрейта чтобы железо X4 X4 не пыталось
         // декодить 4K-чанки которые не вытянет → залипания.
         // 1080p VP9/H.264 ~6 Mbps — потолок для большинства TV-боксов.
+        // Track-selection: ограничение максимального разрешения видео
+        // в зависимости от prefs.preferredQuality. Это основная защита
+        // от запинающихся каналов на слабом железе X4 X4: если стрим
+        // имеет 4K-вариант а декодер его не вытягивает, ABR держит
+        // 4K и кадры пропускаются. Лимит МАКСИМАЛЬНОЙ высоты заставит
+        // ExoPlayer выбрать 1080p (или 720p) и стрим будет ровный.
+        val trackSelector = androidx.media3.exoplayer.trackselection.DefaultTrackSelector(this)
+        val (maxW, maxH) = when (prefs.preferredQuality) {
+            "1080p" -> 1920 to 1080
+            "720p"  -> 1280 to 720
+            "4k"    -> 3840 to 2160
+            else    -> 1920 to 1080  // auto = по умолчанию ограничиваем 1080p
+                                      // на X4 X4 чтобы не было stutter'ов на 4K
+        }
+        trackSelector.parameters = trackSelector.buildUponParameters()
+            .setMaxVideoSize(maxW, maxH)
+            .build()
+
         player = ExoPlayer.Builder(this, renderersFactory)
             .setLoadControl(loadControl)
             .setMediaSourceFactory(mediaSourceFactory)
-            // Aggressive seek-back / forward отключаем — на IPTV-стриме
-            // (live HLS) seek всё равно ломается, а они держат
-            // дополнительный буфер.
+            .setTrackSelector(trackSelector)
             .setSeekBackIncrementMs(10_000)
             .setSeekForwardIncrementMs(10_000)
             .build().also { p ->
