@@ -93,7 +93,7 @@ class FavoritesFragment : Fragment() {
         prefs.lastWasFavorites = true
         val idx = favs.indexOfFirst { it.url == channel.url }.coerceAtLeast(0)
         ChannelDataHolder.currentChannelIndex = idx
-        prefs.pushRecent(channel.url)
+        prefs.pushRecentChannel(channel)
 
         val intent = Intent(requireContext(), PlayerActivity::class.java).apply {
             putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, channel.name)

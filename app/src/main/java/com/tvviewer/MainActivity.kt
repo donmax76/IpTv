@@ -23,6 +23,15 @@ class MainActivity : BaseActivity() {
     private lateinit var prefs: AppPreferences
     private var currentFragmentTag: String? = null
 
+    /** Слушатель состояния EPG-refresh — показывает / скрывает
+     *  верхний баннер "Обновляю программу". Снимается в onPause. */
+    private val epgRefreshStateListener: (Boolean) -> Unit = { running ->
+        runOnUiThread {
+            findViewById<View>(R.id.epgRefreshBanner)?.visibility =
+                if (running) View.VISIBLE else View.GONE
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -74,7 +83,7 @@ class MainActivity : BaseActivity() {
                     if (channel != null) {
                         val index = ChannelDataHolder.allChannels.indexOf(channel)
                         ChannelDataHolder.currentChannelIndex = index
-                        prefs.pushRecent(channel.url)
+                        prefs.pushRecentChannel(channel)
                         val intent = Intent(this, PlayerActivity::class.java).apply {
                             putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, channel.name)
                             putExtra(PlayerActivity.EXTRA_CHANNEL_URL, channel.url)
@@ -96,6 +105,9 @@ class MainActivity : BaseActivity() {
         // на следующий день программа осталась старой — раньше
         // refresh был только в TVViewerApp.onCreate (раз за процесс).
         try { TVViewerApp.triggerEpgAutoRefresh(this) } catch (_: Throwable) {}
+        // Подписываемся на state-listener чтобы показать баннер
+        // "идёт обновление" сразу при старте если refresh в процессе.
+        EpgRepository.addRefreshStateListener(epgRefreshStateListener)
         // PlayerActivity sets this when the user presses LEFT twice from
         // the channel list overlay — meaning they want the side menu.
         if (ChannelDataHolder.openDrawerOnReturn) {
@@ -119,6 +131,11 @@ class MainActivity : BaseActivity() {
                 }
             }
         }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        EpgRepository.removeRefreshStateListener(epgRefreshStateListener)
     }
 
     private fun applyOrientation() {
@@ -197,7 +214,7 @@ class MainActivity : BaseActivity() {
                 val idx = all.indexOfFirst { it.url == lastChan }.let { if (it < 0) 0 else it }
                 ChannelDataHolder.currentChannelIndex = idx
                 val target = all[idx]
-                prefs.pushRecent(target.url)
+                prefs.pushRecentChannel(target)
                 val intent = Intent(this@MainActivity, PlayerActivity::class.java).apply {
                     putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, target.name)
                     putExtra(PlayerActivity.EXTRA_CHANNEL_URL, target.url)

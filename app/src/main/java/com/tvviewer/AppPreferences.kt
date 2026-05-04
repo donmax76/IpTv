@@ -217,6 +217,25 @@ class AppPreferences(context: Context) {
         get() = prefs.getString(KEY_LAST_CHANNEL, null)
         set(value) = prefs.edit().putString(KEY_LAST_CHANNEL, value).apply()
 
+    /** Кэш разрешений каналов: url → height. Заполняется PlayerActivity
+     *  через onVideoSizeChanged когда юзер реально открывает канал.
+     *  Адаптеры списка читают это и показывают точный бейдж качества
+     *  (а не только из имени канала, которое может врать). */
+    fun getChannelHeight(url: String): Int {
+        if (url.isBlank()) return 0
+        val state = getChannelState(url)
+        return state.optInt("h", 0)
+    }
+
+    fun setChannelHeight(url: String, height: Int) {
+        if (url.isBlank() || height <= 0) return
+        val state = getChannelState(url)
+        // Не обновляем если значение почти то же (избежать лишних writes).
+        if (state.optInt("h", 0) == height) return
+        state.put("h", height)
+        saveChannelState(url, state)
+    }
+
     /** True если последний просмотр шёл через вкладку "Избранные".
      *  Кнопка "Прямой эфир" при перезапуске открывает их (а не
      *  последний плейлист). Сбрасывается когда юзер открывает
@@ -370,8 +389,64 @@ class AppPreferences(context: Context) {
         recentUrls = list.take(MAX_RECENT)
     }
 
+    /** Расширенная версия pushRecent: запоминает не только URL но и
+     *  полный Channel (имя, лого, группа, sourcePlaylist). Так
+     *  RecentFragment видит каналы даже из других плейлистов. */
+    fun pushRecentChannel(channel: Channel) {
+        if (channel.url.isBlank()) return
+        // Старый Set<URL> для обратной совместимости.
+        pushRecent(channel.url)
+        // Новый снапшот.
+        val withSrc = if (channel.sourcePlaylist.isNullOrBlank()) {
+            channel.copy(sourcePlaylist = lastPlaylistName?.takeIf { it.isNotBlank() })
+        } else channel
+        val list = recentChannels.toMutableList()
+        list.removeAll { it.url == channel.url }
+        list.add(0, withSrc)
+        recentChannels = list.take(MAX_RECENT)
+    }
+
+    /** Снапшоты последних просмотренных каналов с полными данными.
+     *  Раньше был только Set<URL> и при просмотре из другого плейлиста
+     *  канал в Recent отображался URL'ом без имени. */
+    var recentChannels: List<Channel>
+        get() {
+            return try {
+                val json = prefs.getString(KEY_RECENT_CHANNELS, null) ?: return emptyList()
+                val arr = JSONArray(json)
+                (0 until arr.length()).map {
+                    val obj = arr.getJSONObject(it)
+                    Channel(
+                        name = obj.optString("name"),
+                        url = obj.optString("url"),
+                        logoUrl = obj.optString("logo").ifBlank { null },
+                        group = obj.optString("group").ifBlank { null },
+                        tvgId = obj.optString("tvgId").ifBlank { null },
+                        sourcePlaylist = obj.optString("src").ifBlank { null }
+                    )
+                }
+            } catch (_: Exception) { emptyList() }
+        }
+        set(value) {
+            val arr = JSONArray()
+            value.take(MAX_RECENT).forEach { ch ->
+                arr.put(JSONObject().apply {
+                    put("name", ch.name)
+                    put("url", ch.url)
+                    if (!ch.logoUrl.isNullOrBlank()) put("logo", ch.logoUrl)
+                    if (!ch.group.isNullOrBlank()) put("group", ch.group)
+                    if (!ch.tvgId.isNullOrBlank()) put("tvgId", ch.tvgId)
+                    if (!ch.sourcePlaylist.isNullOrBlank()) put("src", ch.sourcePlaylist)
+                })
+            }
+            prefs.edit().putString(KEY_RECENT_CHANNELS, arr.toString()).apply()
+        }
+
     fun clearRecent() {
-        prefs.edit().remove(KEY_RECENT_URLS).apply()
+        prefs.edit()
+            .remove(KEY_RECENT_URLS)
+            .remove(KEY_RECENT_CHANNELS)
+            .apply()
     }
 
     // HD/4K filter chip selection: "all", "4K", "FHD", "HD", "SD"
@@ -558,6 +633,7 @@ class AppPreferences(context: Context) {
         private const val KEY_LAST_GROUP = "last_selected_group"
         private const val KEY_LAST_PLAYLIST_NAME = "last_playlist_name"
         private const val KEY_RECENT_URLS = "recent_urls"
+        private const val KEY_RECENT_CHANNELS = "recent_channels"
         private const val KEY_QUALITY_FILTER = "quality_filter"
         private const val KEY_PER_CHANNEL_STATE = "per_channel_state"
         private const val KEY_ADDITIONAL_EPG_URLS = "additional_epg_urls"

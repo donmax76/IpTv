@@ -66,9 +66,16 @@ class RecentFragment : Fragment() {
     }
 
     private fun refreshRecent() {
-        val urls = prefs.recentUrls
-        val byUrl = ChannelDataHolder.allChannels.associateBy { it.url }
-        val recentChannels = urls.mapNotNull { byUrl[it] }
+        // Сначала пробуем prefs.recentChannels (новый snapshot список с
+        // именами и source playlist). Если он пустой (юзер ещё не
+        // просматривал каналов в новой версии) — fallback на старый
+        // urls + lookup в текущем плейлисте.
+        var recentChannels: List<Channel> = prefs.recentChannels
+        if (recentChannels.isEmpty()) {
+            val urls = prefs.recentUrls
+            val byUrl = ChannelDataHolder.allChannels.associateBy { it.url }
+            recentChannels = urls.mapNotNull { byUrl[it] }
+        }
 
         adapter.updateChannels(recentChannels)
         adapter.updateFavorites(prefs.favorites)
@@ -83,7 +90,7 @@ class RecentFragment : Fragment() {
     private fun playChannel(channel: Channel) {
         val index = ChannelDataHolder.allChannels.indexOf(channel)
         ChannelDataHolder.currentChannelIndex = if (index >= 0) index else 0
-        prefs.pushRecent(channel.url)
+        prefs.pushRecentChannel(channel)
 
         val intent = Intent(requireContext(), PlayerActivity::class.java).apply {
             putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, channel.name)

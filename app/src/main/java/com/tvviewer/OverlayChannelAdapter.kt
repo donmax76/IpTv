@@ -65,8 +65,11 @@ class OverlayChannelAdapter(
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val channel = channels[position]
         holder.number.text = "${position + 1}"
+        val ctx = holder.itemView.context
+        val knownH = AppPreferences(ctx).getChannelHeight(channel.url)
+        val realLabel = QualityUtil.detectByHeight(knownH)
         holder.name.text = QualityUtil.formatNameWithQualityBadge(
-            holder.itemView.context, channel.name
+            ctx, channel.name, realLabel
         )
 
         // Лого: tvg-logo → обучаемый кэш → iptv-org.

@@ -61,21 +61,31 @@ class ChannelAdapter(
         // Render the channel name with the quality token (HD / FHD / 4K /
         // SD / 1080p …) coloured so it pops out without being mistaken for
         // part of the channel name.
+        // Бейдж качества: сначала фактическая высота из prefs (если канал
+        // когда-то открывался), иначе парсинг имени канала.
+        val knownH = AppPreferences(context).getChannelHeight(channel.url)
+        val realLabel = QualityUtil.detectByHeight(knownH)
         holder.channelName.text = QualityUtil.formatNameWithQualityBadge(
-            holder.itemView.context, channel.name
+            context, channel.name, realLabel
         )
 
-        // Имя плейлиста-источника (только для избранных — у других
-        // каналов sourcePlaylist == null и подпись скрыта).
-        // Юзер видит "1+1 · Украина" вместо просто "1+1" и понимает
-        // из какого плейлиста этот канал.
+        // Подзаголовок: для избранных каналов показываем имя
+        // плейлиста-источника (▸ Россия), для обычных — группу
+        // канала из плейлиста (если есть). sourcePlaylist имеет
+        // приоритет: для favorites юзеру важнее знать ОТКУДА канал.
         holder.channelGroup?.let { tv ->
             val src = channel.sourcePlaylist
-            if (!src.isNullOrBlank()) {
-                tv.text = "▸ $src"
-                tv.visibility = View.VISIBLE
-            } else {
-                tv.visibility = View.GONE
+            val grp = channel.group
+            when {
+                !src.isNullOrBlank() -> {
+                    tv.text = "▸ $src"
+                    tv.visibility = View.VISIBLE
+                }
+                !grp.isNullOrBlank() -> {
+                    tv.text = grp
+                    tv.visibility = View.VISIBLE
+                }
+                else -> tv.visibility = View.GONE
             }
         }
 
@@ -90,16 +100,6 @@ class ChannelAdapter(
             crossfade(true)
             error(R.drawable.ic_channel_placeholder)
             placeholder(R.drawable.ic_channel_placeholder)
-        }
-
-        // Group
-        holder.channelGroup?.let { groupView ->
-            if (channel.group != null) {
-                groupView.text = channel.group
-                groupView.visibility = View.VISIBLE
-            } else {
-                groupView.visibility = View.GONE
-            }
         }
 
         // EPG

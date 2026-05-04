@@ -34,6 +34,17 @@ object QualityUtil {
         return ""
     }
 
+    /** Маппит реальную высоту видео (из VideoSize плеера) в качество.
+     *  Используется когда канал реально проигрывается и мы знаем
+     *  фактическое разрешение — это точнее чем парсинг имени. */
+    fun detectByHeight(height: Int): String = when {
+        height >= 2000 -> "4K"
+        height >= 1000 -> "FHD"
+        height >= 700 -> "HD"
+        height in 1..699 -> "SD"
+        else -> ""
+    }
+
     /** Numeric rank used for "quality" sort. Higher = better. */
     fun rank(name: String): Int = when (detectQuality(name)) {
         "4K" -> 4
@@ -48,14 +59,39 @@ object QualityUtil {
      * "TNT HD") so the user can see at a glance what resolution the stream
      * is, while keeping the original name intact.
      */
-    fun formatNameWithQualityBadge(ctx: Context, name: String): CharSequence {
+    fun formatNameWithQualityBadge(ctx: Context, name: String): CharSequence =
+        formatNameWithQualityBadge(ctx, name, "")
+
+    /** Та же логика, но с приоритетом для override-бейджа из реальных
+     *  метаданных потока. Если override непустой — добавляем его в
+     *  начало имени цветным "[HD]". Иначе подсвечиваем токен из
+     *  имени как раньше. */
+    fun formatNameWithQualityBadge(ctx: Context, name: String, override: String): CharSequence {
         if (name.isBlank()) return name
+        if (override.isNotEmpty()) {
+            // Если в имени уже есть тот же токен — просто подсвечиваем
+            // его (не дублируем бейдж).
+            if (regex4k.containsMatchIn(name) || regexFhd.containsMatchIn(name) ||
+                regexHd.containsMatchIn(name) || regexSd.containsMatchIn(name)) {
+                return formatTokenInName(name, override)
+            }
+            // Иначе: префикс "[HD] " цветом качества.
+            val sb = SpannableStringBuilder("[$override] ").append(name)
+            sb.setSpan(ForegroundColorSpan(colorFor(override)), 0, override.length + 2,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            sb.setSpan(StyleSpan(Typeface.BOLD), 0, override.length + 2,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            return sb
+        }
+        return formatTokenInName(name, null)
+    }
+
+    private fun formatTokenInName(name: String, fallbackLabel: String?): CharSequence {
         val sb = SpannableStringBuilder(name)
         for ((label, rx) in ALL) {
             val m = rx.find(name) ?: continue
-            // Group 2 holds the actual token (4k / hd / 1080p …)
             val tok = m.groups[2] ?: m.groups[0] ?: continue
-            val color = colorFor(label)
+            val color = colorFor(fallbackLabel ?: label)
             sb.setSpan(ForegroundColorSpan(color), tok.range.first, tok.range.last + 1,
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             sb.setSpan(StyleSpan(Typeface.BOLD), tok.range.first, tok.range.last + 1,

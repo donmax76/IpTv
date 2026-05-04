@@ -1636,6 +1636,9 @@ class PlayerActivity : BaseActivity() {
         }
         tv.text = tag
         tv.visibility = View.VISIBLE
+        // Кэшируем фактическую высоту в prefs — адаптеры списка
+        // покажут точный бейдж качества при следующей отрисовке.
+        currentUrl?.let { prefs.setChannelHeight(it, videoSize.height) }
     }
 
     private fun saveCurrentChannelState() {
@@ -1729,7 +1732,10 @@ class PlayerActivity : BaseActivity() {
         ChannelDataHolder.currentChannelIndex = currentIndex
 
         prefs.lastChannelUrl = currentUrl
-        prefs.pushRecent(channel.url)
+        // pushRecentChannel вместо pushRecent — сохраняет snapshot
+        // канала (имя, лого, source playlist) чтобы RecentFragment
+        // видел канал даже из другого плейлиста.
+        prefs.pushRecentChannel(channel)
 
         overlayAdapter?.updateCurrentIndex(currentIndex)
 
