@@ -509,21 +509,12 @@ class SettingsFragment : Fragment() {
                 }
         }
 
-        // Software-only decoder: помогает когда hardware H.265 декодер
-        // заявляет поддержку но запинается (типично для X4 X4 на ARB
-        // и подобных HEVC-каналах). При включении ExoPlayer форсит
-        // FFmpeg-софтверный декодер из nextlib.
-        val softDecoderLayout = view.findViewById<LinearLayout>(R.id.softwareDecoderLayout)
-        val softDecoderValue = view.findViewById<TextView>(R.id.softwareDecoderValue)
-        softDecoderValue?.text = if (prefs.forceSoftwareDecoder)
-            getString(R.string.enabled) else getString(R.string.disabled)
-        softDecoderLayout?.setOnClickListener {
-            prefs.forceSoftwareDecoder = !prefs.forceSoftwareDecoder
-            softDecoderValue?.text = if (prefs.forceSoftwareDecoder)
-                getString(R.string.enabled) else getString(R.string.disabled)
-            Toast.makeText(requireContext(),
-                R.string.software_decoder_changed_hint, Toast.LENGTH_SHORT).show()
-        }
+        // Round 171: Software-only decoder убран из UI — он работал только
+        // через nextlib FFmpeg-расширение, которое конфликтовало с libmpv
+        // (символ av_default_item_name). Эквивалент теперь — Settings →
+        // Player → "MPV (как в Vimu)": там FFmpeg внутри libmpv покрывает
+        // и видео, и экзотические аудиокодеки.
+        view.findViewById<LinearLayout>(R.id.softwareDecoderLayout)?.visibility = View.GONE
 
         // Orientation
         val orientationValue = view.findViewById<TextView>(R.id.orientationValue)

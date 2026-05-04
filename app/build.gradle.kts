@@ -121,18 +121,15 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-rtsp:1.5.0")
     implementation("androidx.media3:media3-ui:1.5.0")
 
-    // FFmpeg-расширение для Media3: софтверные декодеры MP2 / AC3 /
-    // EAC3 / DTS / FLAC / Vorbis. Опубликован на Maven Central.
-    implementation("io.github.anilbeesetti.nextlib:nextlib-media3ext:0.8.3")
+    // FFmpeg-расширение для Media3 (nextlib) убрано в Round 171:
+    // конфликтовало с libmpv (старая версия FFmpeg vs новая, символ
+    // av_default_item_name отсутствовал). libmpv покрывает все
+    // экзотические аудио/видео-кодеки (MP2/AC3/EAC3/HEVC). Для
+    // таких каналов юзер переключается в Settings → "MPV (как в Vimu)".
+    // implementation("io.github.anilbeesetti.nextlib:nextlib-media3ext:0.8.3")
 
     // libmpv для Android — альтернативный плеер на базе MPV/FFmpeg.
-    // Тот же движок что в Vimu Player. Используется для проблемных
-    // каналов где ExoPlayer + nextlib запинается (например ARB на
-    // X4 X4: HEVC + специфический HLS-плейлист).
-    // dev.jdtech.mpv:libmpv от jarnedemeulemeester — поддерживаемый
-    // Android wrapper над libmpv с .so для всех архитектур (~28 MB).
-    // Опубликован на Maven Central, JitPack не нужен.
-    // Пакет в коде: dev.jdtech.mpv.MPVLib.
+    // Тот же движок что в Vimu Player.
     implementation("dev.jdtech.mpv:libmpv:0.5.1")
 
     // Coroutines

@@ -1215,22 +1215,14 @@ class PlayerActivity : BaseActivity() {
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
             .setDataSourceFactory(wrappedFactory)
 
-        // NextRenderersFactory: подкидывает софтверные FFmpeg-декодеры
-        // (MP2 / AC3 / EAC3 / DTS / FLAC / Vorbis) поверх стандартных,
-        // и предпочитает их когда аппаратный декодер не справляется. На
-        // дешёвых TV-боксах без MP2-MediaCodec это единственный способ
-        // получить звук на DVB / izone-каналах.
-        val renderersFactory = io.github.anilbeesetti.nextlib.media3ext.ffdecoder
-            .NextRenderersFactory(this)
-            // Force-software: если включено в Settings, отключаем
-            // fallback на hardware декодер. extension (FFmpeg) renderer
-            // обработает всё, hardware-декодер не выбирается. Решает
-            // случай X4 X4: hw H.265 декодер врёт что умеет, но реально
-            // запинается на 1080p HEVC потоках (например ARB).
-            .setEnableDecoderFallback(!prefs.forceSoftwareDecoder)
-            .setExtensionRendererMode(
-                DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
-            )
+        // Round 171: nextlib (FFmpeg-расширение для Media3) убрано —
+        // конфликтовало с libmpv по символам FFmpeg. Используем
+        // стандартный DefaultRenderersFactory с системными декодерами
+        // (H.264, HEVC, AAC). Для каналов с экзотическими аудио (MP2 /
+        // AC3 / EAC3) или плохо декодируемых HEVC юзер переключается в
+        // Settings → "MPV (как в Vimu)" — там FFmpeg внутри libmpv.
+        val renderersFactory = DefaultRenderersFactory(this)
+            .setEnableDecoderFallback(true)
 
         // Track-selection: предпочтительный язык + ограничение
         // максимального видео-битрейта чтобы железо X4 X4 не пыталось
