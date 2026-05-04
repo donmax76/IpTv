@@ -53,6 +53,19 @@
                 android:singleLine="true"
                 android:ellipsize="end"/>
 
+            <!-- Имя плейлиста-источника (для избранных) — фиолетовая
+                 подпись под именем канала, как в FavoritesFragment. -->
+            <TextView
+                android:id="@+id/overlayChannelSource"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#7C6CF7"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:singleLine="true"
+                android:ellipsize="end"
+                android:visibility="gone"/>
+
             <TextView
                 android:id="@+id/overlayChannelEpg"
                 android:layout_width="wrap_content"

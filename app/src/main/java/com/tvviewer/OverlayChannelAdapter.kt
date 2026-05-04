@@ -53,6 +53,7 @@ class OverlayChannelAdapter(
         val logo: ImageView = view.findViewById(R.id.overlayChannelLogo)
         val name: TextView = view.findViewById(R.id.overlayChannelName)
         val epg: TextView = view.findViewById(R.id.overlayChannelEpg)
+        val source: TextView = view.findViewById(R.id.overlayChannelSource)
         val favoriteBtn: ImageButton = view.findViewById(R.id.overlayFavoriteBtn)
         val epgProgress: ProgressBar = view.findViewById(R.id.overlayEpgProgress)
     }
@@ -71,6 +72,14 @@ class OverlayChannelAdapter(
         holder.name.text = QualityUtil.formatNameWithQualityBadge(
             ctx, channel.name, realLabel
         )
+        // Источник плейлиста (для избранных) — "▸ Россия".
+        val src = channel.sourcePlaylist
+        if (!src.isNullOrBlank()) {
+            holder.source.text = "▸ $src"
+            holder.source.visibility = View.VISIBLE
+        } else {
+            holder.source.visibility = View.GONE
+        }
 
         // Лого: tvg-logo → обучаемый кэш → iptv-org.
         val logoUrl = channel.logoUrl
