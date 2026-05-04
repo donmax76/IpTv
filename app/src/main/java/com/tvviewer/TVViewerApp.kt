@@ -22,6 +22,16 @@ class TVViewerApp : Application(), ImageLoaderFactory {
          *  авто-обновление в фоне. Использует SupervisorJob чтобы
          *  одна ошибка не валила соседние корутины. */
         val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+        /** Триггер EPG auto-refresh из любой Activity. Сама функция
+         *  имеет 30-сек delay + 24h gate, так что повторные вызовы
+         *  в течение дня — no-op. Используется MainActivity.onResume
+         *  чтобы поймать кейс "юзер не закрывал приложение пару дней"
+         *  — без этого scheduleEpgAutoRefresh вызывался один раз при
+         *  старте процесса и больше никогда. */
+        fun triggerEpgAutoRefresh(context: android.content.Context) {
+            (context.applicationContext as? TVViewerApp)?.scheduleEpgAutoRefresh()
+        }
     }
 
     override fun newImageLoader(): ImageLoader {
@@ -187,14 +197,16 @@ class TVViewerApp : Application(), ImageLoaderFactory {
      *  2. Прошло > 24 часов с последнего успешного fetchAll.
      *  Если refresh уже был сегодня — ничего не делаем, кэш остаётся.
      */
-    private fun scheduleEpgAutoRefresh() {
+    @Volatile private var autoRefreshScheduled = false
+
+    fun scheduleEpgAutoRefresh() {
+        // Дедуп: если уже запланирован — не дублируем. Иначе при
+        // каждом MainActivity.onResume запускалась новая корутина
+        // с 30-сек delay, кучка коррутин висела в памяти.
+        if (autoRefreshScheduled) return
+        autoRefreshScheduled = true
         applicationScope.launch {
             try {
-                // 1. Сначала тянем кэш с диска. Это критично: до Round 136
-                //    ChannelDataHolder.epgData оставался пустым после
-                //    cold-start пока юзер не зайдёт в TvGuide / Settings.
-                //    Раньше ChannelsFragment подгружал кэш, но мы его
-                //    удалили — теперь загрузка кэша делается на старте.
                 val cached = EpgRepository.loadFromCache(applicationContext)
                 if (cached != null && cached.isNotEmpty()) {
                     ChannelDataHolder.epgData = cached
@@ -222,6 +234,10 @@ class TVViewerApp : Application(), ImageLoaderFactory {
                 // Application scope не отменяется штатно, но вдруг.
             } catch (t: Throwable) {
                 Log.e("TVViewer", "EPG auto-refresh failed", t)
+            } finally {
+                // Сбрасываем флаг чтобы следующий вызов (например через
+                // 24 часа в onResume) опять запустил процесс.
+                autoRefreshScheduled = false
             }
         }
     }

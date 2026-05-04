@@ -90,6 +90,12 @@ class MainActivity : BaseActivity() {
     override fun onResume() {
         super.onResume()
         applyOrientation()
+        // Триггерим auto-refresh EPG. Сам fetcher имеет 24h gate, так
+        // что ничего не делает если refresh был сегодня. Кейс который
+        // фиксим: юзер открыл приложение, не закрывал его сутки,
+        // на следующий день программа осталась старой — раньше
+        // refresh был только в TVViewerApp.onCreate (раз за процесс).
+        try { TVViewerApp.triggerEpgAutoRefresh(this) } catch (_: Throwable) {}
         // PlayerActivity sets this when the user presses LEFT twice from
         // the channel list overlay — meaning they want the side menu.
         if (ChannelDataHolder.openDrawerOnReturn) {

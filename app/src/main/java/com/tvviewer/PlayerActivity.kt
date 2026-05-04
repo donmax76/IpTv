@@ -2174,17 +2174,6 @@ class PlayerActivity : BaseActivity() {
      * конкретный пульт. Toast только на ACTION_DOWN, не на REPEAT.
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-            val kc = event.keyCode
-            // Не спамим volume/power — слишком частые при просмотре.
-            if (kc != KeyEvent.KEYCODE_VOLUME_UP &&
-                kc != KeyEvent.KEYCODE_VOLUME_DOWN &&
-                kc != KeyEvent.KEYCODE_VOLUME_MUTE &&
-                kc != KeyEvent.KEYCODE_POWER) {
-                android.util.Log.d("PlayerActivity",
-                    "key down: $kc (${KeyEvent.keyCodeToString(kc)})")
-            }
-        }
         // Любое нажатие при открытом списке каналов / категорий —
         // продлевает таймер автоскрытия. Без этого пользователь
         // переходит на категории, нажимает влево-вправо чтобы выбрать,
