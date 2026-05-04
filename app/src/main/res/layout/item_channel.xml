@@ -62,8 +62,9 @@
                 android:id="@+id/channelGroup"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textColor="@color/text_hint"
+                android:textColor="#7C6CF7"
                 android:textSize="@dimen/channel_epg_text"
+                android:textStyle="bold"
                 android:singleLine="true"
                 android:visibility="gone"/>
 
