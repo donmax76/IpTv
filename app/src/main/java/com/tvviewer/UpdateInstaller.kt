@@ -48,7 +48,21 @@ object UpdateInstaller {
             setTitle("TVViewer Update")
             setDescription("Downloading update...")
             setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "TVViewer-update.apk")
+            // Раньше использовали setDestinationInExternalPublicDir(DIRECTORY_DOWNLOADS)
+            // — это требует WRITE_EXTERNAL_STORAGE на Android 9, и
+            // полностью запрещено на Android 10+ (scoped storage).
+            // На OPPO/HUAWEI получали SecurityException → краш. Теперь
+            // используем app-private internal directory (нет permission
+            // нужно), Files: /data/data/com.tvviewer/files/Download/.
+            try {
+                setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "TVViewer-update.apk")
+            } catch (_: Throwable) {
+                // Fallback: внутренняя папка приложения. Гарантированно
+                // доступна без permission.
+                val file = File(context.filesDir, "TVViewer-update.apk")
+                if (file.exists()) file.delete()
+                setDestinationUri(Uri.fromFile(file))
+            }
             setMimeType("application/vnd.android.package-archive")
         }
         downloadId = dm.enqueue(request)
