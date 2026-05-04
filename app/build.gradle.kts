@@ -78,6 +78,26 @@ android {
         viewBinding = true
         buildConfig = true
     }
+
+    // libmpv (FFmpeg внутри) и nextlib (тоже FFmpeg) тащат одинаковые
+    // .so файлы libavcodec/libavformat/etc. Берём один — из любого
+    // источника. Версии FFmpeg достаточно близкие чтобы оба плеера
+    // работали с любой из них.
+    packaging {
+        jniLibs {
+            pickFirsts += listOf(
+                "**/libavcodec.so",
+                "**/libavformat.so",
+                "**/libavutil.so",
+                "**/libswresample.so",
+                "**/libswscale.so",
+                "**/libavfilter.so",
+                "**/libavdevice.so",
+                "**/libpostproc.so",
+                "**/libc++_shared.so",
+            )
+        }
+    }
 }
 
 dependencies {
