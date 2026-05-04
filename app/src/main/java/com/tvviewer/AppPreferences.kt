@@ -156,21 +156,35 @@ class AppPreferences(context: Context) {
     /** Enrich существующую favorite-запись данными из текущего
      *  плейлиста. Используется когда плейлист загружен и в нём
      *  есть канал с URL который уже в favorite, но с плохим именем
-     *  (миграция). Тогда мы автоматически проапгрейдим запись. */
+     *  (миграция) или без sourcePlaylist (Round 152 ввёл это поле,
+     *  старые записи без него). Тогда мы автоматически проапгрейдим
+     *  запись. */
     fun enrichFavorites(channels: List<Channel>) {
         if (channels.isEmpty()) return
+        val playlistName = lastPlaylistName?.takeIf { it.isNotBlank() }
         val list = favoriteChannels.toMutableList()
         var changed = false
         for (i in list.indices) {
             val fav = list[i]
+            val match = channels.firstOrNull { it.url == fav.url } ?: continue
             // Считаем что имя "плохое" если оно равно URL целиком,
             // содержит / или ., или оканчивается на .ts/.m3u8/etc.
             val nameLooksLikeUrl = fav.name.contains('/') ||
                 fav.name.startsWith("http", true) ||
                 fav.name == fav.url
-            if (!nameLooksLikeUrl && !fav.logoUrl.isNullOrBlank()) continue
-            val match = channels.firstOrNull { it.url == fav.url } ?: continue
-            list[i] = match
+            val needName = nameLooksLikeUrl
+            val needLogo = fav.logoUrl.isNullOrBlank() && !match.logoUrl.isNullOrBlank()
+            val needGroup = fav.group.isNullOrBlank() && !match.group.isNullOrBlank()
+            val needTvgId = fav.tvgId.isNullOrBlank() && !match.tvgId.isNullOrBlank()
+            val needSource = fav.sourcePlaylist.isNullOrBlank() && playlistName != null
+            if (!needName && !needLogo && !needGroup && !needTvgId && !needSource) continue
+            list[i] = fav.copy(
+                name = if (needName) match.name else fav.name,
+                logoUrl = fav.logoUrl ?: match.logoUrl,
+                group = fav.group ?: match.group,
+                tvgId = fav.tvgId ?: match.tvgId,
+                sourcePlaylist = fav.sourcePlaylist ?: playlistName
+            )
             changed = true
         }
         if (changed) favoriteChannels = list
