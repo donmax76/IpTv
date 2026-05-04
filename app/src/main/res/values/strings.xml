@@ -60,7 +60,6 @@
     <string name="player">Плеер</string>
     <string name="player_internal">Встроенный</string>
     <string name="player_external">Внешний (VLC, MX Player)</string>
-    <string name="player_mpv">MPV (как в Vimu)</string>
     <string name="language">Язык</string>
     <string name="custom_playlists">Свои плейлисты</string>
     <string name="playlist_name">Название плейлиста</string>

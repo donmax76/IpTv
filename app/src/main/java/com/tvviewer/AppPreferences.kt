@@ -670,9 +670,5 @@ class AppPreferences(context: Context) {
 
         const val PLAYER_INTERNAL = "internal"
         const val PLAYER_EXTERNAL = "external"
-        // MPV/libmpv плеер — тот же движок что в Vimu Player.
-        // Используется для проблемных каналов где ExoPlayer запинается
-        // (HEVC, нестандартные HLS-плейлисты). Round 167.
-        const val PLAYER_MPV = "mpv"
     }
 }
