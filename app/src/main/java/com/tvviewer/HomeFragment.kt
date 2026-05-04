@@ -240,7 +240,12 @@ class HomeFragment : Fragment() {
         val idx = favs.indexOfFirst { it.url == lastChan }.let { if (it < 0) 0 else it }
         ChannelDataHolder.currentChannelIndex = idx
         val target = favs[idx]
-        prefs.pushRecent(target.url)
+        prefs.pushRecentChannel(target)
+        // Уважаем выбор плеера в Settings (внешний vs встроенный).
+        if (prefs.playerType == AppPreferences.PLAYER_EXTERNAL) {
+            requireContext().launchExternalVideo(target.url)
+            return
+        }
         val intent = Intent(requireContext(), PlayerActivity::class.java).apply {
             putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, target.name)
             putExtra(PlayerActivity.EXTRA_CHANNEL_URL, target.url)

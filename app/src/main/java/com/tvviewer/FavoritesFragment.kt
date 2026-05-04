@@ -95,6 +95,11 @@ class FavoritesFragment : Fragment() {
         ChannelDataHolder.currentChannelIndex = idx
         prefs.pushRecentChannel(channel)
 
+        // Уважаем выбор плеера в Settings (внешний vs встроенный).
+        if (prefs.playerType == AppPreferences.PLAYER_EXTERNAL) {
+            requireContext().launchExternalVideo(channel.url)
+            return
+        }
         val intent = Intent(requireContext(), PlayerActivity::class.java).apply {
             putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, channel.name)
             putExtra(PlayerActivity.EXTRA_CHANNEL_URL, channel.url)

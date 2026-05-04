@@ -84,12 +84,16 @@ class MainActivity : BaseActivity() {
                         val index = ChannelDataHolder.allChannels.indexOf(channel)
                         ChannelDataHolder.currentChannelIndex = index
                         prefs.pushRecentChannel(channel)
-                        val intent = Intent(this, PlayerActivity::class.java).apply {
-                            putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, channel.name)
-                            putExtra(PlayerActivity.EXTRA_CHANNEL_URL, channel.url)
-                            putExtra(PlayerActivity.EXTRA_CHANNEL_INDEX, index)
+                        if (prefs.playerType == AppPreferences.PLAYER_EXTERNAL) {
+                            this.launchExternalVideo(channel.url)
+                        } else {
+                            val intent = Intent(this, PlayerActivity::class.java).apply {
+                                putExtra(PlayerActivity.EXTRA_CHANNEL_NAME, channel.name)
+                                putExtra(PlayerActivity.EXTRA_CHANNEL_URL, channel.url)
+                                putExtra(PlayerActivity.EXTRA_CHANNEL_INDEX, index)
+                            }
+                            startActivity(intent)
                         }
-                        startActivity(intent)
                     }
                 }
             }
