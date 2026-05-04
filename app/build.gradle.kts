@@ -100,6 +100,14 @@ dependencies {
     // EAC3 / DTS / FLAC / Vorbis. Опубликован на Maven Central.
     implementation("io.github.anilbeesetti.nextlib:nextlib-media3ext:0.8.3")
 
+    // libmpv для Android — альтернативный плеер на базе MPV/FFmpeg.
+    // Тот же движок что в Vimu Player. Используется когда ExoPlayer +
+    // nextlib не справляется (например HEVC канал ARB, канал с
+    // нестандартным HLS-плейлистом, и т.п.).
+    // aniyomi-mpv-lib — поддерживаемый форк mpv-android с готовыми
+    // .so файлами для arm64-v8a + armeabi-v7a + x86_64 (~28 MB APK).
+    implementation("com.github.aniyomiorg:aniyomi-mpv-lib:1.13.7")
+
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
