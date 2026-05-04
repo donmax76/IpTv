@@ -12,7 +12,12 @@ android {
 
     defaultConfig {
         applicationId = "com.tvviewer"
-        minSdk = 21
+        // minSdk 26 (Android 8.0): требование dev.jdtech.mpv:libmpv —
+        // он использует API недоступные на 21-25. Раньше minSdk был 21,
+        // но реальные пользователи (по логам) — Android 9+ (X4 X4
+        // Android 11, OPPO Android 9, Huawei Android 9). Android 5-7
+        // на TV-боксах в 2026 практически не встречается.
+        minSdk = 26
         targetSdk = 34
         // versionCode mirrors the CI build number in the release tag
         // (`v5.4-build<run_number>`) so UpdateChecker, which extracts the
