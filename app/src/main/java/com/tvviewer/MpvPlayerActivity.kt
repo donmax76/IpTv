@@ -13,14 +13,9 @@ import dev.jdtech.mpv.MPVLib
 
 /**
  * Альтернативный плеер на libmpv (тот же движок что в Vimu Player).
- * Используется когда ExoPlayer + nextlib не вытягивает поток
- * (HEVC/H.265, нестандартный HLS, например ARB на X4 X4).
- *
- * Round A: минимальный скелет — открывает URL, играет на SurfaceView,
- * выход по BACK. Без overlay/EPG/переключения каналов. Достаточно
- * чтобы проверить вытягивает ли libmpv проблемные каналы.
- *
- * Дальнейшие раунды: оверлей со списком + EPG + CH+/CH- + gestures.
+ * Round A: минимальный скелет + диагностика — каждый шаг пишется
+ * в ErrorLogger ("Сообщить о проблеме" в Settings), чтобы юзер
+ * прислал лог если плеер не работает.
  */
 class MpvPlayerActivity : BaseActivity(), SurfaceHolder.Callback {
 
@@ -37,64 +32,95 @@ class MpvPlayerActivity : BaseActivity(), SurfaceHolder.Callback {
     private var currentUrl: String? = null
     private var mpvInitialized = false
 
+    private fun logStep(step: String) {
+        try { ErrorLogger.info(this, "MPV", step) } catch (_: Throwable) {}
+        Log.d(TAG, step)
+    }
+
+    private fun logError(step: String, e: Throwable) {
+        try {
+            ErrorLogger.info(this, "MPV", "ERROR at $step: " +
+                "${e.javaClass.simpleName}: ${e.message?.take(200)}")
+            ErrorLogger.logException(this, e)
+        } catch (_: Throwable) {}
+        Log.e(TAG, step, e)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        logStep("onCreate started")
+        try {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        val root = FrameLayout(this).apply {
-            setBackgroundColor(0xFF000000.toInt())
-        }
-        surfaceView = SurfaceView(this).apply {
-            holder.addCallback(this@MpvPlayerActivity)
-        }
-        root.addView(surfaceView, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
-        ))
-        loadingIndicator = ProgressBar(this).apply { isIndeterminate = true }
-        root.addView(loadingIndicator, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            android.view.Gravity.CENTER
-        ))
-        val labelHolder = LinearLayout(this).apply {
-            setBackgroundColor(0x80000000.toInt())
-            setPadding(24, 16, 24, 16)
-        }
-        nameLabel = TextView(this).apply {
-            textSize = 14f
-            setTextColor(0xFFFFFFFF.toInt())
-        }
-        labelHolder.addView(nameLabel)
-        root.addView(labelHolder, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            android.view.Gravity.TOP or android.view.Gravity.START
-        ))
-        setContentView(root)
+            val root = FrameLayout(this).apply {
+                setBackgroundColor(0xFF000000.toInt())
+            }
+            surfaceView = SurfaceView(this).apply {
+                holder.addCallback(this@MpvPlayerActivity)
+            }
+            root.addView(surfaceView, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            ))
+            loadingIndicator = ProgressBar(this).apply { isIndeterminate = true }
+            root.addView(loadingIndicator, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.view.Gravity.CENTER
+            ))
+            val labelHolder = LinearLayout(this).apply {
+                setBackgroundColor(0x80000000.toInt())
+                setPadding(24, 16, 24, 16)
+            }
+            nameLabel = TextView(this).apply {
+                textSize = 14f
+                setTextColor(0xFFFFFFFF.toInt())
+            }
+            labelHolder.addView(nameLabel)
+            root.addView(labelHolder, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.view.Gravity.TOP or android.view.Gravity.START
+            ))
+            setContentView(root)
 
-        nameLabel.text = intent.getStringExtra(EXTRA_CHANNEL_NAME) ?: ""
-        currentUrl = intent.getStringExtra(EXTRA_CHANNEL_URL)
-        if (currentUrl.isNullOrBlank()) {
-            Log.e(TAG, "No URL given")
+            nameLabel.text = intent.getStringExtra(EXTRA_CHANNEL_NAME) ?: ""
+            currentUrl = intent.getStringExtra(EXTRA_CHANNEL_URL)
+            logStep("intent url=${currentUrl?.take(80)} name=${nameLabel.text}")
+            if (currentUrl.isNullOrBlank()) {
+                logStep("No URL given - finishing")
+                finish()
+                return
+            }
+            initMpv()
+        } catch (e: Throwable) {
+            logError("onCreate", e)
+            android.widget.Toast.makeText(this,
+                "Ошибка MPV: ${e.javaClass.simpleName}: ${e.message?.take(80)}",
+                android.widget.Toast.LENGTH_LONG).show()
             finish()
-            return
         }
-        initMpv()
     }
 
     private fun initMpv() {
         try {
+            logStep("initMpv: loadLibrary mpv")
+            // Ручной load на случай auto-load не сработал (тесты на X4 X4
+            // показали что иногда static init MPVLib не загружает .so).
+            try { System.loadLibrary("mpv") } catch (e: Throwable) {
+                logError("loadLibrary mpv", e)
+                throw e
+            }
+            try { System.loadLibrary("player") } catch (_: Throwable) {
+                // 'player' — JNI bridge, бывает называется иначе. Не критично.
+            }
             val configDir = filesDir.absolutePath
-            // libmpv API: create() → setOptionString*() → init().
-            // dev.jdtech.mpv:libmpv API: create(Context) — единственный аргумент.
+            logStep("MPVLib.create(this), configDir=$configDir")
             MPVLib.create(this)
+            logStep("create OK, setting options")
             MPVLib.setOptionString("msg-level", "all=info")
             MPVLib.setOptionString("config", "yes")
             MPVLib.setOptionString("config-dir", configDir)
-            // hwdec auto-safe: пытается аппаратный декодер где безопасно,
-            // иначе software. На X4 X4 H.265 уйдёт в software FFmpeg
-            // (как в Vimu).
             MPVLib.setOptionString("hwdec", "auto-safe")
             MPVLib.setOptionString("vo", "gpu")
             MPVLib.setOptionString("gpu-context", "android")
@@ -102,24 +128,30 @@ class MpvPlayerActivity : BaseActivity(), SurfaceHolder.Callback {
             MPVLib.setOptionString("force-window", "no")
             MPVLib.setOptionString("idle", "yes")
             MPVLib.setOptionString("cache-secs", "10")
+            logStep("MPVLib.init()")
             MPVLib.init()
             mpvInitialized = true
-            Log.d(TAG, "MPV initialized")
+            logStep("MPV initialized OK")
         } catch (e: Throwable) {
-            Log.e(TAG, "MPV init failed", e)
+            logError("initMpv", e)
+            android.widget.Toast.makeText(this,
+                "MPV init failed: ${e.javaClass.simpleName}",
+                android.widget.Toast.LENGTH_LONG).show()
             finish()
         }
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
+        logStep("surfaceCreated mpv=$mpvInitialized")
         if (!mpvInitialized) return
         try {
             MPVLib.attachSurface(holder.surface)
             currentUrl?.let { url ->
+                logStep("loadfile $url")
                 MPVLib.command(arrayOf("loadfile", url))
             }
         } catch (e: Throwable) {
-            Log.e(TAG, "surfaceCreated failed", e)
+            logError("surfaceCreated", e)
         }
     }
 
