@@ -60,7 +60,7 @@
         <activity
             android:name=".SettingsActivity"
             android:exported="false"
-            android:theme="@style/Theme.TVViewer"
+            android:theme="@style/Theme.TVViewer.SettingsPanel"
             android:parentActivityName=".MainActivity" />
 
     </application>

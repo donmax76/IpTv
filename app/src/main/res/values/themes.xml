@@ -115,6 +115,18 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
 
+    <!-- Round 180: Settings рендерится как боковая панель на пол-экрана
+         поверх MainActivity. Прозрачный windowBackground +
+         windowIsTranslucent позволяют видеть MainActivity сквозь
+         dim-overlay; контент Settings рисуется в правой половине
+         (см. activity_settings.xml + SettingsActivity.onCreate). -->
+    <style name="Theme.TVViewer.SettingsPanel" parent="Theme.TVViewer.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
     <style name="CardStyle" parent="Widget.MaterialComponents.CardView">
         <item name="cardBackgroundColor">@color/card_background</item>
         <item name="cardCornerRadius">12dp</item>
