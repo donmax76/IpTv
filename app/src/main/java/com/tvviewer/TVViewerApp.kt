@@ -200,13 +200,15 @@ class TVViewerApp : Application(), ImageLoaderFactory {
     @Volatile private var autoRefreshScheduled = false
 
     fun scheduleEpgAutoRefresh() {
-        // Дедуп: если уже запланирован — не дублируем. Иначе при
-        // каждом MainActivity.onResume запускалась новая корутина
-        // с 30-сек delay, кучка коррутин висела в памяти.
+        // Запускаем ОДИН долгоживущий цикл на процесс. Дедуп: повторные
+        // вызовы (из onResume любой активности) проваливаются в no-op,
+        // потому что цикл уже крутится в applicationScope.
         if (autoRefreshScheduled) return
         autoRefreshScheduled = true
         applicationScope.launch {
             try {
+                // Шаг 1: подгружаем кеш в память — это даёт EPG в UI
+                // моментально пока сетевой fetch ещё не отработал.
                 val cached = EpgRepository.loadFromCache(applicationContext)
                 if (cached != null && cached.isNotEmpty()) {
                     ChannelDataHolder.epgData = cached
@@ -214,29 +216,46 @@ class TVViewerApp : Application(), ImageLoaderFactory {
                     Log.d("TVViewer", "EPG cache loaded on app start: ${cached.size} channels")
                 }
 
-                kotlinx.coroutines.delay(30_000)        // прогреем CPU
+                // Шаг 2: 30 сек на прогрев процесса перед первой
+                // сетевой попыткой (TV-боксы стартуют с холодным
+                // network stack-ом).
+                kotlinx.coroutines.delay(30_000)
+
+                // Шаг 3: бесконечный цикл проверки. Раз в час смотрим,
+                // прошло ли 24ч с последнего refresh; если да — качаем.
+                // Раньше функция была одноразовой и при долгоживущем
+                // процессе (TV-боксы держат активити сутками без
+                // перезапуска) EPG никогда не обновлялся "на следующий
+                // день", о чём жаловался юзер.
                 val prefs = AppPreferences(applicationContext)
-                val urls = prefs.allEpgUrls()
-                if (urls.isEmpty()) return@launch
-                val dayAgo = System.currentTimeMillis() - 24L * 60 * 60 * 1000
-                if (prefs.epgLastUpdate >= dayAgo) {
-                    Log.d("TVViewer", "EPG auto-refresh skipped — refresh < 24h ago")
-                    return@launch
-                }
-                Log.d("TVViewer", "EPG auto-refresh starting")
-                val data = EpgRepository.fetchAll(urls, applicationContext)
-                if (data.isNotEmpty()) {
-                    ChannelDataHolder.epgData = data
-                    prefs.epgLastUpdate = System.currentTimeMillis()
-                    Log.d("TVViewer", "EPG auto-refresh done: ${data.size} channels")
+                val checkInterval = 60L * 60 * 1000   // 1 час
+                while (true) {
+                    val urls = prefs.allEpgUrls()
+                    if (urls.isNotEmpty()) {
+                        val dayAgo = System.currentTimeMillis() - 24L * 60 * 60 * 1000
+                        if (prefs.epgLastUpdate < dayAgo) {
+                            Log.d("TVViewer", "EPG auto-refresh starting (last=${prefs.epgLastUpdate})")
+                            try {
+                                val data = EpgRepository.fetchAll(urls, applicationContext)
+                                if (data.isNotEmpty()) {
+                                    ChannelDataHolder.epgData = data
+                                    prefs.epgLastUpdate = System.currentTimeMillis()
+                                    Log.d("TVViewer", "EPG auto-refresh done: ${data.size} channels")
+                                }
+                            } catch (t: Throwable) {
+                                Log.e("TVViewer", "EPG fetch failed; retrying in 1h", t)
+                            }
+                        }
+                    }
+                    kotlinx.coroutines.delay(checkInterval)
                 }
             } catch (_: CancellationException) {
-                // Application scope не отменяется штатно, но вдруг.
+                // applicationScope обычно не отменяется, но на всякий
+                // случай — сбрасываем флаг чтобы следующая попытка
+                // запустить цикл снова сработала.
+                autoRefreshScheduled = false
             } catch (t: Throwable) {
-                Log.e("TVViewer", "EPG auto-refresh failed", t)
-            } finally {
-                // Сбрасываем флаг чтобы следующий вызов (например через
-                // 24 часа в onResume) опять запустил процесс.
+                Log.e("TVViewer", "EPG auto-refresh loop crashed", t)
                 autoRefreshScheduled = false
             }
         }

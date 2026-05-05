@@ -2659,6 +2659,14 @@ class PlayerActivity : BaseActivity() {
         // Settings, включить часы и вернуться — без этого persistentClock
         // оставался скрытым до перезапуска плеера.
         applyClockVisibility()
+        // Round 181: триггерим EPG auto-refresh ИЗ ПЛЕЕРА тоже. Раньше
+        // это делал только MainActivity.onResume — но на TV-боксах юзер
+        // обычно идёт через autoplay сразу в PlayerActivity и неделями
+        // не возвращается на главный экран. Сама функция имеет 24h gate,
+        // так что вызов дешёвый: fast-path выходит через 30 сек если
+        // refresh уже был сегодня. Решает кейс "ТВ-гид не обновляется
+        // на следующий день, пока я только смотрю каналы".
+        try { TVViewerApp.triggerEpgAutoRefresh(this) } catch (_: Throwable) {}
     }
 
     private fun applyClockVisibility() {
