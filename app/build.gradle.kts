@@ -97,6 +97,14 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-rtsp:1.5.0")
     implementation("androidx.media3:media3-ui:1.5.0")
 
+    // FFmpeg-расширение для Media3 (nextlib) — софтверные декодеры
+    // для MP2 / AC3 / EAC3 / DTS / FLAC / Vorbis. Без него на каналах
+    // с этим аудио (например DVB-стримы Round 183 user-report) плеер
+    // пишет "звук не поддерживается". Раньше Round 171 убрал nextlib
+    // из-за конфликта с libmpv по FFmpeg-символам — но libmpv тоже
+    // удалён (Round 175), конфликта больше нет.
+    implementation("io.github.anilbeesetti.nextlib:nextlib-media3ext:0.8.3")
+
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 

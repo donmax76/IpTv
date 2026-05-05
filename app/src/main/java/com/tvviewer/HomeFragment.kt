@@ -87,6 +87,16 @@ class HomeFragment : Fragment() {
         }
     }
 
+    override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        // Round 183: BottomNavigation использует show/hide, поэтому
+        // onResume срабатывает только при первом создании. После
+        // смены плейлиста через другой таб юзер возвращается на
+        // Home и видит СТАРОЕ имя плейлиста — пока не пересоздаст
+        // фрагмент. Перечитываем pref здесь.
+        if (!hidden) refreshDefaultLabel()
+    }
+
     override fun onResume() {
         super.onResume()
         refreshDefaultLabel()

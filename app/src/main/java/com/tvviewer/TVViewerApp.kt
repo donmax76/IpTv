@@ -216,35 +216,47 @@ class TVViewerApp : Application(), ImageLoaderFactory {
                     Log.d("TVViewer", "EPG cache loaded on app start: ${cached.size} channels")
                 }
 
-                // Шаг 2: 30 сек на прогрев процесса перед первой
-                // сетевой попыткой (TV-боксы стартуют с холодным
-                // network stack-ом).
-                kotlinx.coroutines.delay(30_000)
+                // Round 183: сократили warmup 30→5 сек. Раньше юзер
+                // успевал убить приложение ДО того как loop сделает
+                // первый check, и EPG не обновлялся.
+                kotlinx.coroutines.delay(5_000)
 
-                // Шаг 3: бесконечный цикл проверки. Раз в час смотрим,
-                // прошло ли 24ч с последнего refresh; если да — качаем.
-                // Раньше функция была одноразовой и при долгоживущем
-                // процессе (TV-боксы держат активити сутками без
-                // перезапуска) EPG никогда не обновлялся "на следующий
-                // день", о чём жаловался юзер.
+                // Бесконечный цикл проверки: раз в 30 мин смотрим, прошло
+                // ли 12 ч с последнего refresh; если да — качаем. Гейт
+                // снижен 24→12 ч и интервал 60→30 мин по жалобе юзера
+                // что EPG "сам не обновляется". Все шаги пишутся в
+                // ErrorLogger чтобы можно было прислать лог если ещё
+                // и эти параметры не помогут.
                 val prefs = AppPreferences(applicationContext)
-                val checkInterval = 60L * 60 * 1000   // 1 час
+                val checkInterval = 30L * 60 * 1000   // 30 мин
+                val staleAfter = 12L * 60 * 60 * 1000 // 12 ч
                 while (true) {
                     val urls = prefs.allEpgUrls()
-                    if (urls.isNotEmpty()) {
-                        val dayAgo = System.currentTimeMillis() - 24L * 60 * 60 * 1000
-                        if (prefs.epgLastUpdate < dayAgo) {
-                            Log.d("TVViewer", "EPG auto-refresh starting (last=${prefs.epgLastUpdate})")
-                            try {
-                                val data = EpgRepository.fetchAll(urls, applicationContext)
-                                if (data.isNotEmpty()) {
-                                    ChannelDataHolder.epgData = data
-                                    prefs.epgLastUpdate = System.currentTimeMillis()
-                                    Log.d("TVViewer", "EPG auto-refresh done: ${data.size} channels")
-                                }
-                            } catch (t: Throwable) {
-                                Log.e("TVViewer", "EPG fetch failed; retrying in 1h", t)
+                    val staleAt = System.currentTimeMillis() - staleAfter
+                    val needFetch = urls.isNotEmpty() && prefs.epgLastUpdate < staleAt
+                    try {
+                        ErrorLogger.info(applicationContext, "EPG",
+                            "auto-tick urls=${urls.size} lastUpdate=${prefs.epgLastUpdate} " +
+                            "stale=${prefs.epgLastUpdate < staleAt} needFetch=$needFetch")
+                    } catch (_: Throwable) {}
+                    if (needFetch) {
+                        Log.d("TVViewer", "EPG auto-refresh starting (last=${prefs.epgLastUpdate})")
+                        try {
+                            val data = EpgRepository.fetchAll(urls, applicationContext)
+                            if (data.isNotEmpty()) {
+                                ChannelDataHolder.epgData = data
+                                prefs.epgLastUpdate = System.currentTimeMillis()
+                                Log.d("TVViewer", "EPG auto-refresh done: ${data.size} channels")
+                                try { ErrorLogger.info(applicationContext, "EPG",
+                                    "auto-refresh ok: ${data.size} channels") } catch (_: Throwable) {}
+                            } else {
+                                try { ErrorLogger.info(applicationContext, "EPG",
+                                    "auto-refresh returned empty data") } catch (_: Throwable) {}
                             }
+                        } catch (t: Throwable) {
+                            Log.e("TVViewer", "EPG fetch failed; retrying in 30 min", t)
+                            try { ErrorLogger.info(applicationContext, "EPG",
+                                "auto-refresh failed: ${t.javaClass.simpleName}: ${t.message?.take(120)}") } catch (_: Throwable) {}
                         }
                     }
                     kotlinx.coroutines.delay(checkInterval)

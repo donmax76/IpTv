@@ -343,6 +343,13 @@ class PlayerActivity : BaseActivity() {
         findViewById<View>(R.id.playerDrawerSettings).setOnClickListener {
             keepPlayingInBackground = true
             hidePlayerDrawer()
+            // Round 183: закрываем overlay со списком каналов и категорий
+            // ПЕРЕД открытием Settings. Иначе после Back из Settings
+            // PlayerActivity показывает overlay с предыдущей категорией,
+            // и юзеру нужно нажать Back ещё раз чтобы попасть на видео
+            // (жаловался: "при возврате нажатии назад вкладка категория
+            // показывается а нужно сразу плеер").
+            if (channelListVisible) hideChannelList()
             startActivity(Intent(this, SettingsActivity::class.java))
         }
 
@@ -1215,13 +1222,18 @@ class PlayerActivity : BaseActivity() {
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
             .setDataSourceFactory(wrappedFactory)
 
-        // DefaultRenderersFactory с системными декодерами (H.264, HEVC,
-        // AAC). nextlib (FFmpeg-расширение) и libmpv пробовались но
-        // удалены: nextlib конфликтовал с libmpv по символам FFmpeg,
-        // а libmpv не запускался на тестовом железе. Системных
-        // декодеров достаточно для всех проверенных каналов.
-        val renderersFactory = DefaultRenderersFactory(this)
+        // Round 183: возвращаем NextRenderersFactory из nextlib —
+        // софтверные FFmpeg-декодеры для MP2 / AC3 / EAC3 / DTS / FLAC /
+        // Vorbis. Без них на DVB-каналах системный MediaCodec пишет
+        // "звук не поддерживается". EXTENSION_RENDERER_MODE_PREFER
+        // заставляет ExoPlayer выбирать FFmpeg-декодер ПЕРВЫМ когда тот
+        // умеет codec, и фолбэчиться на hardware MediaCodec иначе.
+        val renderersFactory = io.github.anilbeesetti.nextlib.media3ext.ffdecoder
+            .NextRenderersFactory(this)
             .setEnableDecoderFallback(true)
+            .setExtensionRendererMode(
+                DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
+            )
 
         // Track-selection: предпочтительный язык + ограничение
         // максимального видео-битрейта чтобы железо X4 X4 не пыталось
@@ -1251,6 +1263,19 @@ class PlayerActivity : BaseActivity() {
             .setTrackSelector(trackSelector)
             .setSeekBackIncrementMs(10_000)
             .setSeekForwardIncrementMs(10_000)
+            // Round 183: явный AudioAttributes + handleAudioFocus=true.
+            // Без них на некоторых TV-боксах Android AudioService не
+            // выдаёт audio focus автоматически и поток молчит. Также
+            // handleAudioBecomingNoisy: при отсоединении наушников/HDMI
+            // плеер ставится на паузу вместо продолжения "в воздух".
+            .setAudioAttributes(
+                androidx.media3.common.AudioAttributes.Builder()
+                    .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                    .build(),
+                /* handleAudioFocus = */ true
+            )
+            .setHandleAudioBecomingNoisy(true)
             .build().also { p ->
                 playerView.player = p
                 p.addListener(object : Player.Listener {
