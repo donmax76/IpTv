@@ -39,6 +39,15 @@ android {
         // long random string and the developer reads messages with:
         //   curl https://ntfy.sh/$NTFY_TOPIC/json?poll=1
         buildConfigField("String", "NTFY_TOPIC", "\"tvviewer-donmax76-50090885b4d9a5e0\"")
+
+        // Round 173: APK без libmpv был ~30 МБ, с libmpv стал 108 МБ —
+        // libmpv тащит FFmpeg-натив на 4 ABI (arm64-v8a + armeabi-v7a +
+        // x86 + x86_64, по ~22-26 МБ каждый). Реальных x86 TV-боксов /
+        // телефонов в 2026 практически нет. Оставляем только ARM,
+        // экономит ~52 МБ → APK становится ~56 МБ.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     // Stable debug keystore committed to the repo so every CI build is
