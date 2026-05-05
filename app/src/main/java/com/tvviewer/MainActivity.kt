@@ -206,10 +206,13 @@ class MainActivity : BaseActivity() {
                         android.widget.Toast.makeText(ctx, R.string.load_failed, android.widget.Toast.LENGTH_SHORT).show()
                         return@launch
                     }
-                    ChannelDataHolder.allChannels = merged
+                    // Round 194: применяем настройку Settings → "Сортировка
+                    // каналов". Раньше pref писалась но не читалась.
+                    val sorted = ChannelSorter.apply(prefs, merged)
+                    ChannelDataHolder.allChannels = sorted
                     ChannelDataHolder.loadedPlaylistUrl = url
-                    prefs.enrichFavorites(merged)
-                    merged
+                    prefs.enrichFavorites(sorted)
+                    sorted
                 }
                 // Контекст — плейлист, не избранное.
                 prefs.lastWasFavorites = false

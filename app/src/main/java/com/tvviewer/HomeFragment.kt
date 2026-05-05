@@ -210,10 +210,12 @@ class HomeFragment : Fragment() {
                         Toast.makeText(ctx, R.string.load_failed, Toast.LENGTH_SHORT).show()
                         return@launch
                     }
-                    ChannelDataHolder.allChannels = merged
+                    // Round 194: учитываем Settings → "Сортировка каналов".
+                    val sorted = ChannelSorter.apply(prefs, merged)
+                    ChannelDataHolder.allChannels = sorted
                     ChannelDataHolder.loadedPlaylistUrl = url
-                    prefs.enrichFavorites(merged)
-                    merged
+                    prefs.enrichFavorites(sorted)
+                    sorted
                 }
                 // Открываем плейлист → сбрасываем флаг "избранные".
                 prefs.lastWasFavorites = false

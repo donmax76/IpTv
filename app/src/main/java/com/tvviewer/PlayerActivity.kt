@@ -1293,12 +1293,15 @@ class PlayerActivity : BaseActivity() {
         // 4K и кадры пропускаются. Лимит МАКСИМАЛЬНОЙ высоты заставит
         // ExoPlayer выбрать 1080p (или 720p) и стрим будет ровный.
         val trackSelector = androidx.media3.exoplayer.trackselection.DefaultTrackSelector(this)
+        // Round 194: значения должны совпадать с тем что пишет
+        // SettingsFragment (auto/1080/4k). Раньше PlayerActivity ждал
+        // "1080p"/"720p" и всё валилось в else — настройка качества
+        // была частично декларативной.
         val (maxW, maxH) = when (prefs.preferredQuality) {
-            "1080p" -> 1920 to 1080
-            "720p"  -> 1280 to 720
-            "4k"    -> 3840 to 2160
-            else    -> 1920 to 1080  // auto = по умолчанию ограничиваем 1080p
-                                      // на X4 X4 чтобы не было stutter'ов на 4K
+            "1080" -> 1920 to 1080
+            "4k"   -> 3840 to 2160
+            else   -> 3840 to 2160  // "auto" = без верхнего лимита,
+                                     // ABR сам выберет лучший вариант
         }
         trackSelector.parameters = trackSelector.buildUponParameters()
             .setMaxVideoSize(maxW, maxH)

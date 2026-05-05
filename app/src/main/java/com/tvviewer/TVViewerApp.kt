@@ -241,7 +241,11 @@ class TVViewerApp : Application(), ImageLoaderFactory {
                 while (true) {
                     val urls = prefs.allEpgUrls()
                     val staleAt = System.currentTimeMillis() - staleAfter
-                    val needFetch = urls.isNotEmpty() && prefs.epgLastUpdate < staleAt
+                    // Round 194: учитываем флаг "EPG авто-обновление" из
+                    // Settings. Раньше он писался но не проверялся —
+                    // юзер не мог отключить автообновление.
+                    val needFetch = prefs.epgAutoUpdate &&
+                        urls.isNotEmpty() && prefs.epgLastUpdate < staleAt
                     try {
                         ErrorLogger.info(applicationContext, "EPG",
                             "auto-tick urls=${urls.size} lastUpdate=${prefs.epgLastUpdate} " +
