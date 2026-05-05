@@ -96,14 +96,12 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-dash:1.5.0")
     implementation("androidx.media3:media3-exoplayer-rtsp:1.5.0")
     implementation("androidx.media3:media3-ui:1.5.0")
-    // Round 190: ExoPlayer-датасорс через OkHttp вместо
-    // DefaultHttpDataSource. Главное преимущество — общий пул TCP/TLS
-    // соединений между HTTP-запросами: после переключения канала
-    // DNS, TLS-handshake и keep-alive переиспользуются если новый
-    // канал на том же CDN. Юзер просил мгновенного переключения —
-    // это самый прямой способ сократить latency без потери
-    // надёжности.
-    implementation("androidx.media3:media3-datasource-okhttp:1.5.0")
+    // Round 192: media3-datasource-okhttp откатили — Round 190 пытался
+    // использовать его для пула keep-alive соединений, но артефакт
+    // или несовместимо разрешался в нашем CI, билды 280/281 не
+    // собрались. Connection pooling — приятный бонус, а не killer
+    // фича; основные фиксы задержки (chunkless HLS prep + быстрый
+    // bufferForPlaybackMs) работают и без него.
 
     // FFmpeg-расширение для Media3 (nextlib) — софтверные декодеры
     // для MP2 / AC3 / EAC3 / DTS / FLAC / Vorbis. Без него на каналах

@@ -64,43 +64,8 @@ class PlayerActivity : BaseActivity() {
         const val EXTRA_CHANNEL_URL = "channel_url"
         const val EXTRA_CHANNEL_INDEX = "channel_index"
 
-        /** Round 190: общий OkHttpClient для всех ExoPlayer-запросов.
-         *  Connection pool с keep-alive живёт всё время процесса —
-         *  переключение каналов на одном CDN не требует нового
-         *  TCP+TLS handshake. Большое окно пула (32 idle соединения,
-         *  90 с) рассчитано на быстрое CH+/CH- между ~30 каналами
-         *  одного провайдера. trust-all: IPTV-CDN'ы часто отдают
-         *  несовпадающие сертификаты. */
-        private val sharedStreamHttpClient: okhttp3.OkHttpClient by lazy {
-            val trust = arrayOf<javax.net.ssl.TrustManager>(
-                object : javax.net.ssl.X509TrustManager {
-                    override fun checkClientTrusted(
-                        chain: Array<java.security.cert.X509Certificate>,
-                        authType: String) {}
-                    override fun checkServerTrusted(
-                        chain: Array<java.security.cert.X509Certificate>,
-                        authType: String) {}
-                    override fun getAcceptedIssuers():
-                        Array<java.security.cert.X509Certificate> = emptyArray()
-                }
-            )
-            val sslCtx = javax.net.ssl.SSLContext.getInstance("TLS")
-            sslCtx.init(null, trust, java.security.SecureRandom())
-            okhttp3.OkHttpClient.Builder()
-                .sslSocketFactory(sslCtx.socketFactory,
-                    trust[0] as javax.net.ssl.X509TrustManager)
-                .hostnameVerifier { _, _ -> true }
-                .connectionPool(okhttp3.ConnectionPool(
-                    /* maxIdleConnections = */ 32,
-                    /* keepAliveDuration = */ 90,
-                    java.util.concurrent.TimeUnit.SECONDS))
-                .connectTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
-                .followRedirects(true)
-                .followSslRedirects(true)
-                .retryOnConnectionFailure(true)
-                .build()
-        }
+        // Round 192: sharedStreamHttpClient (Round 190) удалён — он
+        // нужен был для OkHttpDataSource, который CI не смог собрать.
 
         private val PLAYER_DRAWER_IDS = intArrayOf(
             R.id.playerDrawerPlaylists,
@@ -1231,15 +1196,16 @@ class PlayerActivity : BaseActivity() {
         // reject the default ExoPlayer UA or require a same-origin
         // Referer; default Referer is derived from the stream URL's
         // origin so that case "just works" out of the box.
-        // Round 190: используем OkHttpDataSource поверх ОДНОГО общего
-        // OkHttpClient. Главный профит — TCP/TLS connection pool:
-        // переключение каналов на том же CDN переиспользует
-        // существующее keep-alive соединение → нет нового handshake →
-        // переключение почти мгновенное. DefaultHttpDataSource на
-        // каждый запрос открывал новый сокет.
-        val httpDataSourceFactory = androidx.media3.datasource.okhttp
-            .OkHttpDataSource.Factory(sharedStreamHttpClient)
+        // Round 192: вернули DefaultHttpDataSource (см. build.gradle.kts —
+        // OkHttp-датасорс не собрался в CI). Низкие connect/read
+        // тайм-ауты остаются — на медленных CDN это убирает 5+ секунд
+        // ожидания при переключении на дохлый канал.
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setUserAgent(prefs.userAgent)
+            .setAllowCrossProtocolRedirects(true)
+            .setKeepPostFor302Redirects(true)
+            .setConnectTimeoutMs(3000)
+            .setReadTimeoutMs(6000)
         val headers = HashMap<String, String>()
         prefs.httpReferer.takeIf { it.isNotBlank() }?.let { headers["Referer"] = it }
         if (headers.isNotEmpty()) httpDataSourceFactory.setDefaultRequestProperties(headers)
