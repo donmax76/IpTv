@@ -585,17 +585,20 @@ class FmRadioService : Service() {
                         .build()
                 )
                 .setOnAudioFocusChangeListener { focusChange ->
+                    DebugLog.log("SVC", "AudioFocus: $focusChange")
                     when (focusChange) {
                         AudioManager.AUDIOFOCUS_LOSS -> {
-                            audioPlayer?.setVolume(0f)
-                            // Auto-unmute after 3 seconds if GAIN not received
+                            // Duck to 10% instead of full mute — keeps DSP/AudioTrack
+                            // synchronized. Full mute caused buffer to fill with stale
+                            // audio → distortion on restore.
+                            audioPlayer?.setVolume(0.1f)
                             serviceScope.launch {
                                 delay(3000)
                                 if (isPlaying) audioPlayer?.setVolume(1f)
                             }
                         }
                         AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                            audioPlayer?.setVolume(0f)
+                            audioPlayer?.setVolume(0.1f)
                             serviceScope.launch {
                                 delay(5000)
                                 if (isPlaying) audioPlayer?.setVolume(1f)
