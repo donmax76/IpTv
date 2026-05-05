@@ -13,7 +13,6 @@ import android.view.SurfaceView
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
-import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -49,10 +48,6 @@ class MpvPlayerActivity : BaseActivity(),
     private lateinit var nameLabel: TextView
     private lateinit var epgLabel: TextView
     private lateinit var channelNumber: TextView
-    private lateinit var bottomOverlay: LinearLayout
-    private lateinit var btnPrev: TextView
-    private lateinit var btnPlayPause: ImageButton
-    private lateinit var btnNext: TextView
     private lateinit var bannerView: TextView
 
     private var channels: List<Channel> = emptyList()
@@ -168,31 +163,12 @@ class MpvPlayerActivity : BaseActivity(),
             FrameLayout.LayoutParams.WRAP_CONTENT,
             Gravity.TOP))
 
-        // Bottom overlay: prev / play-pause / next.
-        bottomOverlay = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setBackgroundColor(0xCC000000.toInt())
-            setPadding(dp(16), dp(8), dp(16), dp(8))
-        }
-        btnPrev = makeTextButton("CH-")
-        btnPrev.setOnClickListener { switchChannel(-1) }
-        btnPlayPause = ImageButton(this).apply {
-            setImageResource(R.drawable.ic_pause)
-            setBackgroundColor(Color.TRANSPARENT)
-            setColorFilter(Color.WHITE)
-            setPadding(dp(24), dp(8), dp(24), dp(8))
-            setOnClickListener { togglePause() }
-        }
-        btnNext = makeTextButton("CH+")
-        btnNext.setOnClickListener { switchChannel(1) }
-        bottomOverlay.addView(btnPrev)
-        bottomOverlay.addView(btnPlayPause)
-        bottomOverlay.addView(btnNext)
-        root.addView(bottomOverlay, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            Gravity.BOTTOM))
+        // Round 174: видимые кнопки prev/play/next/pause убраны по
+        // запросу юзера ("делай как на встроенном"). Управление —
+        // только через пульт/клавиатуру: DPAD ↑/↓ или CHANNEL+/− —
+        // переключение каналов; MEDIA_PLAY_PAUSE / SPACE / DPAD_CENTER —
+        // pause/play; BACK или DPAD_LEFT — выход. Тап по экрану
+        // показывает верхний overlay на 5 секунд.
 
         // Center banner for channel switch (number + name, brief).
         bannerView = TextView(this).apply {
@@ -211,15 +187,6 @@ class MpvPlayerActivity : BaseActivity(),
             })
 
         setContentView(root)
-    }
-
-    private fun makeTextButton(label: String): TextView = TextView(this).apply {
-        text = label
-        setTextColor(Color.WHITE)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-        setPadding(dp(20), dp(10), dp(20), dp(10))
-        setBackgroundColor(0x40FFFFFF)
-        gravity = Gravity.CENTER
     }
 
     private fun dp(v: Int): Int =
@@ -250,7 +217,16 @@ class MpvPlayerActivity : BaseActivity(),
             MPVLib.setOptionString("msg-level", "all=v")
             MPVLib.setOptionString("config", "yes")
             MPVLib.setOptionString("config-dir", configDir)
-            MPVLib.setOptionString("hwdec", "auto-safe")
+            // Round 174: hwdec=auto-safe выбирал "mediacodec" (прямой режим),
+            // которому нужен Surface ДО инициализации декодера, а libmpv
+            // получает его только в attachSurface — порядок ломался и
+            // h264_mediacodec падал с "Both surface and native_window are
+            // NULL". mediacodec-copy декодит через MediaCodec и копирует
+            // кадр в системную память — работает с любым vo и не требует
+            // Surface на стадии init. Если устройство не поддерживает
+            // mediacodec — софтверный fallback включён.
+            MPVLib.setOptionString("hwdec", "mediacodec-copy")
+            MPVLib.setOptionString("vd-lavc-software-fallback", "yes")
             // vo=null до прикрепления Surface (см. Round 172).
             MPVLib.setOptionString("vo", "null")
             MPVLib.setOptionString("gpu-context", "android")
@@ -258,6 +234,14 @@ class MpvPlayerActivity : BaseActivity(),
             MPVLib.setOptionString("force-window", "no")
             MPVLib.setOptionString("idle", "yes")
             MPVLib.setOptionString("cache-secs", "10")
+            // Round 174: HLS-каналы (типа izone.az / siauliairsavlt.pw)
+            // редиректят сегменты на разные хосты. FFmpeg по умолчанию
+            // переиспользует keepalive-соединение и падает с "Cannot
+            // reuse HTTP connection for different host". Отключаем
+            // keepalive и multiple_requests, тогда каждый сегмент
+            // открывает свой коннект — медленнее но надёжно.
+            MPVLib.setOptionString("demuxer-lavf-o",
+                "multiple_requests=0,reconnect=1,reconnect_streamed=1,reconnect_delay_max=5")
             logStep("MPVLib.init()")
             MPVLib.init()
             mpvInitialized = true
@@ -322,7 +306,6 @@ class MpvPlayerActivity : BaseActivity(),
                 loadingIndicator.visibility = View.VISIBLE
                 MPVLib.command(arrayOf("loadfile", channel.url))
                 isPaused = false
-                btnPlayPause.setImageResource(R.drawable.ic_pause)
             } catch (e: Throwable) { logError("loadChannel", e) }
         }
     }
@@ -342,8 +325,6 @@ class MpvPlayerActivity : BaseActivity(),
         try {
             isPaused = !isPaused
             MPVLib.setPropertyBoolean("pause", isPaused)
-            btnPlayPause.setImageResource(
-                if (isPaused) R.drawable.ic_play else R.drawable.ic_pause)
             showOverlay()
         } catch (e: Throwable) { logError("togglePause", e) }
     }
@@ -372,14 +353,12 @@ class MpvPlayerActivity : BaseActivity(),
 
     private fun showOverlay() {
         topOverlay.visibility = View.VISIBLE
-        bottomOverlay.visibility = View.VISIBLE
         mainHandler.removeCallbacks(hideOverlayRunnable)
         mainHandler.postDelayed(hideOverlayRunnable, OVERLAY_HIDE_MS)
     }
 
     private fun hideOverlay() {
         topOverlay.visibility = View.GONE
-        bottomOverlay.visibility = View.GONE
     }
 
     private fun showBanner(text: String) {
@@ -459,8 +438,6 @@ class MpvPlayerActivity : BaseActivity(),
                 }
                 "pause" -> {
                     isPaused = value
-                    btnPlayPause.setImageResource(
-                        if (value) R.drawable.ic_play else R.drawable.ic_pause)
                 }
             }
         }
