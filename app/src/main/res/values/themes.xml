@@ -51,15 +51,13 @@
          MaterialAlertDialog — у того есть windowMinWidthMajor (65%) и
          windowBackground с insets, из-за которых наш width=50% +
          gravity=END визуально превращался в обычный центрированный
-         диалог. Здесь все эти ограничения сняты. -->
+         диалог. Здесь мы используем простую AppCompat-Dialog тему и
+         перетираем оставшиеся ограничения программно через
+         window.attributes (см. FocusableDialog.show). -->
     <style name="Theme.TVViewer.SidePanel" parent="Theme.AppCompat.DayNight.Dialog">
         <item name="colorPrimary">#7C6CF7</item>
         <item name="colorAccent">#7C6CF7</item>
         <item name="android:windowBackground">@color/surface</item>
-        <item name="android:windowMinWidthMajor">0%</item>
-        <item name="android:windowMinWidthMinor">0%</item>
-        <item name="android:windowFixedHeightMajor">100%</item>
-        <item name="android:windowFixedHeightMinor">100%</item>
         <item name="android:textColor">@android:color/white</item>
         <item name="android:textColorPrimary">@android:color/white</item>
         <item name="android:textColorSecondary">#CCCCDD</item>
