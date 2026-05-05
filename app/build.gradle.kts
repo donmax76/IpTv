@@ -96,13 +96,12 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-dash:1.5.0")
     implementation("androidx.media3:media3-exoplayer-rtsp:1.5.0")
     implementation("androidx.media3:media3-ui:1.5.0")
-    // Round 193: media3-datasource-okhttp возвращён — оказалось CI
-    // build 280 (Round 190) собрался успешно. Сломал сборку
-    // не OkHttp, а что-то в Round 191 (chunkless prep + buffer mode
-    // recreate logic). OkHttp pool — главный профит для скорости
-    // переключения каналов: keep-alive переиспользует TCP/TLS
-    // соединение между запросами манифестов на одном CDN.
-    implementation("androidx.media3:media3-datasource-okhttp:1.5.0")
+    // Round 197: media3-datasource-okhttp снова откачен. После Round 193
+    // CI перестал публиковать билды (283+). Точная причина непонятна
+    // без логов, но Round 192 (без OkHttp datasource) последний раз
+    // зелёно собрался как build 282. Connection pooling в IPTV — приятный
+    // бонус, но не критичный; остальные фиксы (Settings audit + 11
+    // полных локалей + chunkless HLS prep) важнее.
 
     // FFmpeg-расширение для Media3 (nextlib) — софтверные декодеры
     // для MP2 / AC3 / EAC3 / DTS / FLAC / Vorbis. Без него на каналах
