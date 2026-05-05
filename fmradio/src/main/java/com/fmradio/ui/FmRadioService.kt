@@ -585,32 +585,10 @@ class FmRadioService : Service() {
                         .build()
                 )
                 .setOnAudioFocusChangeListener { focusChange ->
-                    DebugLog.log("SVC", "AudioFocus: $focusChange")
-                    when (focusChange) {
-                        AudioManager.AUDIOFOCUS_LOSS -> {
-                            // Duck to 10% instead of full mute — keeps DSP/AudioTrack
-                            // synchronized. Full mute caused buffer to fill with stale
-                            // audio → distortion on restore.
-                            audioPlayer?.setVolume(0.1f)
-                            serviceScope.launch {
-                                delay(3000)
-                                if (isPlaying) audioPlayer?.setVolume(1f)
-                            }
-                        }
-                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                            audioPlayer?.setVolume(0.1f)
-                            serviceScope.launch {
-                                delay(5000)
-                                if (isPlaying) audioPlayer?.setVolume(1f)
-                            }
-                        }
-                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                            audioPlayer?.setVolume(0.3f)
-                        }
-                        AudioManager.AUDIOFOCUS_GAIN -> {
-                            audioPlayer?.setVolume(1f)
-                        }
-                    }
+                    // Ignore all focus changes — keep playing at full volume.
+                    // FM radio should behave like a hardware tuner: always on,
+                    // regardless of what other apps are doing.
+                    DebugLog.log("SVC", "AudioFocus: $focusChange (ignored, keep playing)")
                 }
                 .build()
             audioFocusRequest = focusReq
@@ -790,6 +768,12 @@ class FmRadioService : Service() {
         } catch (e: Exception) {
             Log.w(TAG, "Failed to update notification", e)
         }
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // Keep playing when user swipes app from recents — FM radio is a
+        // background service, not tied to the UI lifecycle.
+        DebugLog.log("SVC", "onTaskRemoved — keeping playback alive")
     }
 
     override fun onDestroy() {
