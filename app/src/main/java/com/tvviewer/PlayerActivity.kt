@@ -1225,14 +1225,19 @@ class PlayerActivity : BaseActivity() {
         // Round 183: возвращаем NextRenderersFactory из nextlib —
         // софтверные FFmpeg-декодеры для MP2 / AC3 / EAC3 / DTS / FLAC /
         // Vorbis. Без них на DVB-каналах системный MediaCodec пишет
-        // "звук не поддерживается". EXTENSION_RENDERER_MODE_PREFER
-        // заставляет ExoPlayer выбирать FFmpeg-декодер ПЕРВЫМ когда тот
-        // умеет codec, и фолбэчиться на hardware MediaCodec иначе.
+        // "звук не поддерживается".
+        // Round 184: режим ON, не PREFER. PREFER заставлял ExoPlayer
+        // выбирать FFmpeg ПЕРВЫМ — в т.ч. для видео — отсюда возврат
+        // запинки ARB (HEVC 1080p на X4 X4 софтверно не вытягивает).
+        // ON: hardware MediaCodec выбирается первым; FFmpeg
+        // подключается ТОЛЬКО если MediaCodec.supportsFormat=false
+        // (т.е. MP2/AC3/EAC3 аудио на железе нет → fallback на FFmpeg).
+        // Видео всегда идёт через hardware-декодер.
         val renderersFactory = io.github.anilbeesetti.nextlib.media3ext.ffdecoder
             .NextRenderersFactory(this)
             .setEnableDecoderFallback(true)
             .setExtensionRendererMode(
-                DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
+                DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
             )
 
         // Track-selection: предпочтительный язык + ограничение
