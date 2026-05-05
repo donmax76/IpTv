@@ -1186,7 +1186,14 @@ class PlayerActivity : BaseActivity() {
         Toast.makeText(this, "${getString(R.string.playback_speed)}: ${speedLabels[currentSpeedIndex]}", Toast.LENGTH_SHORT).show()
     }
 
+    /** Round 191: запоминаем bufferMode с которым был создан текущий
+     *  ExoPlayer — onResume сравнивает, и если юзер поменял в Settings,
+     *  пересоздаёт плеер чтобы новый LoadControl действительно вступил
+     *  в силу. Раньше юзер жаловался "буфер не влияет ни на что". */
+    private var playerBufferModeAtInit: String? = null
+
     private fun initPlayer() {
+        playerBufferModeAtInit = prefs.bufferMode
         // На X4 X4 (256MB heap, слабый ARM) дефолтные буферы Media3
         // (50/50 сек) держат много декодированного видео, GC дёргает,
         // отсюда плеер залипает. Снижаем минимум до 8 сек, максимум
@@ -1201,15 +1208,12 @@ class PlayerActivity : BaseActivity() {
         // нужно чтобы продолжить ПОСЛЕ стagger'а. Ниже 1.5/2.5 сек
         // нельзя — на нестабильных IPTV-стримах уйдёт в постоянный
         // ребуфер.
-        // Round 189: ещё агрессивнее (юзер: "ещё уменьши задержку").
-        // bufferForPlaybackMs опускаем до 250-400 мс — на быстрой сети
-        // канал стартует почти моментально. На rebuffer оставляем
-        // 1500-2000 мс чтобы редкий разрыв не вызвал бесконечную
-        // ребуферизацию. minBufferMs / maxBufferMs не трогаем (они про
-        // стабильность steady-state).
+        // Round 191: режимы реально отличаются. "Низкий" — мгновенный
+        // старт ценой возможной редкой ребуферизации; "Обычный" —
+        // быстрый, чуть стабильнее; "Высокий" — для нестабильной сети.
         val loadControl = when (prefs.bufferMode) {
             "low" -> DefaultLoadControl.Builder()
-                .setBufferDurationsMs(5000, 12000, 250, 1500)
+                .setBufferDurationsMs(3000, 8000, 100, 800)
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
             "high" -> DefaultLoadControl.Builder()
@@ -1217,7 +1221,7 @@ class PlayerActivity : BaseActivity() {
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
             else -> DefaultLoadControl.Builder()
-                .setBufferDurationsMs(8000, 25000, 400, 2000)
+                .setBufferDurationsMs(6000, 18000, 200, 1500)
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
         }
@@ -1598,8 +1602,17 @@ class PlayerActivity : BaseActivity() {
                 // подгружаем все renditions сразу (включая отдельные
                 // аудио-дорожки), иначе на izone.az звуковая дорожка не
                 // обнаруживается до первого segment'а.
+                // Round 191: setAllowChunklessPreparation(true) —
+                // главный фикс задержки переключения каналов на HLS.
+                // Раньше false принудительно качал ПЕРВЫЙ медиа-чанк
+                // перед prepare() (нужно было для izone.az чтобы не
+                // потерять отдельную аудиодорожку), но это добавляло
+                // 2-10 сек на каждое переключение. Теперь играем сразу
+                // с манифеста; редкие каналы с отдельной audio
+                // rendition могут потерять её, но переключение идёт
+                // мгновенно — что и просил юзер.
                 androidx.media3.exoplayer.hls.HlsMediaSource.Factory(factory)
-                    .setAllowChunklessPreparation(false)
+                    .setAllowChunklessPreparation(true)
                     .createMediaSource(item)
         }
     }
@@ -2734,6 +2747,21 @@ class PlayerActivity : BaseActivity() {
         keepPlayingInBackground = false
         player?.play()
         hideSystemUI()
+        // Round 191: если юзер поменял "Буфер" в Settings, пересоздаём
+        // плеер — иначе новый LoadControl не применится (он задаётся
+        // только в ExoPlayer.Builder при initPlayer). Юзер жаловался
+        // "буфер не влияет".
+        val curBufferMode = prefs.bufferMode
+        if (player != null && playerBufferModeAtInit != null &&
+            playerBufferModeAtInit != curBufferMode) {
+            val keepUrl = currentUrl
+            try { player?.stop() } catch (_: Throwable) {}
+            try { player?.release() } catch (_: Throwable) {}
+            player = null
+            playerBufferModeAtInit = null
+            initPlayer()
+            keepUrl?.let { playStream(it) }
+        }
         // Перечитываем настройку показа часов: юзер мог открыть
         // Settings, включить часы и вернуться — без этого persistentClock
         // оставался скрытым до перезапуска плеера.
