@@ -3,10 +3,12 @@ package com.tvviewer
 import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Typeface
+import android.view.Gravity
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.ArrayAdapter
 import android.widget.ListView
 import android.widget.TextView
@@ -88,6 +90,20 @@ object FocusableDialog {
             }
         }
         dialog.show()
+        // Round 177: показываем как боковую панель на пол-экрана справа,
+        // а не как центральное всплывающее окно. На пульте всё по-прежнему
+        // работает (ListView сохраняет фокус), но визуально — выезжающее
+        // меню как в нативных Android Settings, а не модальный диалог.
+        dialog.window?.let { w ->
+            val screenW = context.resources.displayMetrics.widthPixels
+            val params = w.attributes
+            params.gravity = Gravity.END or Gravity.TOP
+            params.width = (screenW * 0.5f).toInt().coerceAtLeast(320)
+            params.height = WindowManager.LayoutParams.MATCH_PARENT
+            params.x = 0
+            params.y = 0
+            w.attributes = params
+        }
         return dialog
     }
 }

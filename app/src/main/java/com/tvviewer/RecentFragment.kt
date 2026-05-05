@@ -8,6 +8,7 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.fragment.app.Fragment
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 
@@ -39,12 +40,12 @@ class RecentFragment : Fragment() {
             channels = emptyList(),
             favorites = prefs.favorites,
             epgData = ChannelDataHolder.epgData,
-            isGridMode = { false },
+            isGridMode = { prefs.listDisplayMode == "grid" },
             onChannelClick = { channel -> playChannel(channel) },
             onFavoriteClick = { channel -> toggleFavorite(channel) }
         )
 
-        recyclerView.layoutManager = LinearLayoutManager(requireContext())
+        applyLayoutManager()
         recyclerView.adapter = adapter
 
         view.findViewById<View>(R.id.btnClearRecent)?.setOnClickListener {
@@ -62,7 +63,24 @@ class RecentFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
+        // Setting can change while fragment is hidden — re-apply layout
+        // manager and refresh in case the user switched list↔grid in
+        // Settings since the fragment was created.
+        applyLayoutManager()
         refreshRecent()
+    }
+
+    private fun applyLayoutManager() {
+        val grid = prefs.listDisplayMode == "grid"
+        val current = recyclerView.layoutManager
+        recyclerView.layoutManager = if (grid) {
+            if (current is GridLayoutManager) current
+            else GridLayoutManager(requireContext(), 2)
+        } else {
+            if (current is LinearLayoutManager && current !is GridLayoutManager) current
+            else LinearLayoutManager(requireContext())
+        }
+        adapter.notifyDataSetChanged()
     }
 
     private fun refreshRecent() {
