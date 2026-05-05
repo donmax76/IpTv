@@ -393,7 +393,6 @@ class SettingsFragment : Fragment() {
         val labelFor = { type: String ->
             when (type) {
                 AppPreferences.PLAYER_INTERNAL -> getString(R.string.player_internal)
-                AppPreferences.PLAYER_MPV      -> getString(R.string.player_mpv)
                 else                            -> getString(R.string.player_external)
             }
         }
@@ -402,7 +401,6 @@ class SettingsFragment : Fragment() {
         view.findViewById<LinearLayout>(R.id.playerTypeLayout).setOnClickListener {
             val values = arrayOf(
                 AppPreferences.PLAYER_INTERNAL,
-                AppPreferences.PLAYER_MPV,
                 AppPreferences.PLAYER_EXTERNAL,
             )
             val options = values.map { labelFor(it) }.toTypedArray()
@@ -509,11 +507,9 @@ class SettingsFragment : Fragment() {
                 }
         }
 
-        // Round 171: Software-only decoder убран из UI — он работал только
-        // через nextlib FFmpeg-расширение, которое конфликтовало с libmpv
-        // (символ av_default_item_name). Эквивалент теперь — Settings →
-        // Player → "MPV (как в Vimu)": там FFmpeg внутри libmpv покрывает
-        // и видео, и экзотические аудиокодеки.
+        // Round 175: Software-only decoder убран из UI — он работал только
+        // через nextlib FFmpeg-расширение. Сейчас и nextlib, и libmpv
+        // удалены из проекта; ExoPlayer использует системные декодеры.
         view.findViewById<LinearLayout>(R.id.softwareDecoderLayout)?.visibility = View.GONE
 
         // Orientation

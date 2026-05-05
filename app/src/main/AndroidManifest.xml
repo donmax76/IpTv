@@ -52,15 +52,6 @@
             android:parentActivityName=".MainActivity" />
 
         <activity
-            android:name=".MpvPlayerActivity"
-            android:exported="false"
-            android:theme="@style/Theme.TVViewer.Player"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
-            android:screenOrientation="sensorLandscape"
-            android:resizeableActivity="true"
-            android:parentActivityName=".MainActivity" />
-
-        <activity
             android:name=".AddPlaylistActivity"
             android:exported="false"
             android:theme="@style/Theme.TVViewer"

@@ -306,10 +306,9 @@ class AppPreferences(context: Context) {
         get() = prefs.getString(KEY_BUFFER, "normal") ?: "normal"
         set(value) = prefs.edit().putString(KEY_BUFFER, value).apply()
 
-    /** Round 171: больше не используется (nextlib убран из-за конфликта
-     *  с libmpv). Геттер/сеттер оставлены чтобы старые сохранённые
-     *  значения не ломали SharedPreferences. Эквивалент now — переключить
-     *  плеер в Settings на "MPV (как в Vimu)". */
+    /** Round 175: больше не используется (nextlib и libmpv удалены).
+     *  Геттер/сеттер оставлены чтобы старые сохранённые значения
+     *  не ломали SharedPreferences. */
     var forceSoftwareDecoder: Boolean
         get() = prefs.getBoolean("force_software_decoder", false)
         set(value) = prefs.edit().putBoolean("force_software_decoder", value).apply()
@@ -670,8 +669,5 @@ class AppPreferences(context: Context) {
 
         const val PLAYER_INTERNAL = "internal"
         const val PLAYER_EXTERNAL = "external"
-        // libmpv плеер — тот же движок что в Vimu Player. Тащит
-        // проблемные HEVC/HLS которые ExoPlayer + nextlib не вывозит.
-        const val PLAYER_MPV = "mpv"
     }
 }

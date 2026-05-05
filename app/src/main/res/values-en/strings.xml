@@ -57,7 +57,6 @@
     <string name="player">Player</string>
     <string name="player_internal">Built-in</string>
     <string name="player_external">External (VLC, MX Player)</string>
-    <string name="player_mpv">MPV (Vimu engine) — for HEVC / problem channels</string>
     <string name="language">Language</string>
     <string name="custom_playlists">Custom playlists</string>
     <string name="playlist_name">Playlist name</string>

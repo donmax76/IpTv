@@ -5,18 +5,15 @@ plugins {
 
 android {
     namespace = "com.tvviewer"
-    // compileSdk=35 нужен для зависимости nextlib-media3ext (тянет
-    // media3 1.5.x), которая даёт софтверные FFmpeg-декодеры для MP2 /
-    // AC3 / EAC3.
     compileSdk = 35
 
     defaultConfig {
         applicationId = "com.tvviewer"
-        // minSdk 26 (Android 8.0): требование dev.jdtech.mpv:libmpv —
-        // он использует API недоступные на 21-25. Раньше minSdk был 21,
-        // но реальные пользователи (по логам) — Android 9+ (X4 X4
-        // Android 11, OPPO Android 9, Huawei Android 9). Android 5-7
-        // на TV-боксах в 2026 практически не встречается.
+        // minSdk оставлен 26 (Android 8.0): код, написанный во время
+        // экспериментов с libmpv, использует API 26+, а реальные
+        // пользователи (по логам) — Android 9+ (X4 X4 Android 11,
+        // OPPO Android 9, Huawei Android 9). Возврат к 21 ничего не
+        // даст и потенциально сломает сборку.
         minSdk = 26
         targetSdk = 34
         // versionCode mirrors the CI build number in the release tag
@@ -39,15 +36,6 @@ android {
         // long random string and the developer reads messages with:
         //   curl https://ntfy.sh/$NTFY_TOPIC/json?poll=1
         buildConfigField("String", "NTFY_TOPIC", "\"tvviewer-donmax76-50090885b4d9a5e0\"")
-
-        // Round 173: APK без libmpv был ~30 МБ, с libmpv стал 108 МБ —
-        // libmpv тащит FFmpeg-натив на 4 ABI (arm64-v8a + armeabi-v7a +
-        // x86 + x86_64, по ~22-26 МБ каждый). Реальных x86 TV-боксов /
-        // телефонов в 2026 практически нет. Оставляем только ARM,
-        // экономит ~52 МБ → APK становится ~56 МБ.
-        ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
-        }
     }
 
     // Stable debug keystore committed to the repo so every CI build is
@@ -87,26 +75,6 @@ android {
         viewBinding = true
         buildConfig = true
     }
-
-    // libmpv (FFmpeg внутри) и nextlib (тоже FFmpeg) тащат одинаковые
-    // .so файлы libavcodec/libavformat/etc. Берём один — из любого
-    // источника. Версии FFmpeg достаточно близкие чтобы оба плеера
-    // работали с любой из них.
-    packaging {
-        jniLibs {
-            pickFirsts += listOf(
-                "**/libavcodec.so",
-                "**/libavformat.so",
-                "**/libavutil.so",
-                "**/libswresample.so",
-                "**/libswscale.so",
-                "**/libavfilter.so",
-                "**/libavdevice.so",
-                "**/libpostproc.so",
-                "**/libc++_shared.so",
-            )
-        }
-    }
 }
 
 dependencies {
@@ -123,23 +91,11 @@ dependencies {
     implementation("androidx.viewpager2:viewpager2:1.0.0")
 
     // ExoPlayer for streaming (HLS / DASH / RTSP).
-    // 1.5.0 — синхронизирована с nextlib-media3ext:0.8.3.
     implementation("androidx.media3:media3-exoplayer:1.5.0")
     implementation("androidx.media3:media3-exoplayer-hls:1.5.0")
     implementation("androidx.media3:media3-exoplayer-dash:1.5.0")
     implementation("androidx.media3:media3-exoplayer-rtsp:1.5.0")
     implementation("androidx.media3:media3-ui:1.5.0")
-
-    // FFmpeg-расширение для Media3 (nextlib) убрано в Round 171:
-    // конфликтовало с libmpv (старая версия FFmpeg vs новая, символ
-    // av_default_item_name отсутствовал). libmpv покрывает все
-    // экзотические аудио/видео-кодеки (MP2/AC3/EAC3/HEVC). Для
-    // таких каналов юзер переключается в Settings → "MPV (как в Vimu)".
-    // implementation("io.github.anilbeesetti.nextlib:nextlib-media3ext:0.8.3")
-
-    // libmpv для Android — альтернативный плеер на базе MPV/FFmpeg.
-    // Тот же движок что в Vimu Player.
-    implementation("dev.jdtech.mpv:libmpv:0.5.1")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")

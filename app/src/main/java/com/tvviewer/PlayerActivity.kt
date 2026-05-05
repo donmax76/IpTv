@@ -1215,12 +1215,11 @@ class PlayerActivity : BaseActivity() {
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
             .setDataSourceFactory(wrappedFactory)
 
-        // Round 171: nextlib (FFmpeg-расширение для Media3) убрано —
-        // конфликтовало с libmpv по символам FFmpeg. Используем
-        // стандартный DefaultRenderersFactory с системными декодерами
-        // (H.264, HEVC, AAC). Для каналов с экзотическими аудио (MP2 /
-        // AC3 / EAC3) или плохо декодируемых HEVC юзер переключается в
-        // Settings → "MPV (как в Vimu)" — там FFmpeg внутри libmpv.
+        // DefaultRenderersFactory с системными декодерами (H.264, HEVC,
+        // AAC). nextlib (FFmpeg-расширение) и libmpv пробовались но
+        // удалены: nextlib конфликтовал с libmpv по символам FFmpeg,
+        // а libmpv не запускался на тестовом железе. Системных
+        // декодеров достаточно для всех проверенных каналов.
         val renderersFactory = DefaultRenderersFactory(this)
             .setEnableDecoderFallback(true)
 
