@@ -32,7 +32,11 @@ object FocusableDialog {
         currentIndex: Int = -1,
         onSelected: (Int) -> Unit,
     ): AlertDialog {
-        val builder = AlertDialog.Builder(context, R.style.Theme_TVViewer_Dialog)
+        // Round 178: используем тему SidePanel вместо MaterialAlertDialog —
+        // у последней зашит windowMinWidthMajor=65% и windowBackground с
+        // insets, из-за чего наш width=50% + gravity=END всё равно
+        // выглядел как центральное окно. SidePanel снимает эти лимиты.
+        val builder = AlertDialog.Builder(context, R.style.Theme_TVViewer_SidePanel)
         if (title != null) builder.setTitle(title)
 
         val adapter = object : ArrayAdapter<CharSequence>(context, 0, items) {

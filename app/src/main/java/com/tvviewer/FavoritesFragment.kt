@@ -53,7 +53,10 @@ class FavoritesFragment : Fragment() {
 
     override fun onHiddenChanged(hidden: Boolean) {
         super.onHiddenChanged(hidden)
-        if (!hidden) refreshFavorites()
+        if (!hidden) {
+            applyLayoutManager()
+            refreshFavorites()
+        }
     }
 
     override fun onResume() {

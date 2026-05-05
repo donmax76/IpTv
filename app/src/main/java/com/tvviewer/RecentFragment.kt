@@ -58,7 +58,14 @@ class RecentFragment : Fragment() {
 
     override fun onHiddenChanged(hidden: Boolean) {
         super.onHiddenChanged(hidden)
-        if (!hidden) refreshRecent()
+        if (!hidden) {
+            // Tab switched back to us via BottomNavigation (show/hide,
+            // not replace) — onResume doesn't fire, so re-apply the
+            // layout manager too in case the user toggled list↔grid
+            // in Settings while we were hidden.
+            applyLayoutManager()
+            refreshRecent()
+        }
     }
 
     override fun onResume() {
