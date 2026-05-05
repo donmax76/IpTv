@@ -1163,9 +1163,16 @@ class PlayerActivity : BaseActivity() {
         // нужно чтобы продолжить ПОСЛЕ стagger'а. Ниже 1.5/2.5 сек
         // нельзя — на нестабильных IPTV-стримах уйдёт в постоянный
         // ребуфер.
+        // Round 188: уменьшили стартовый буфер во всех режимах. Юзер
+        // жаловался что после Round 184 (MODE_ON для FFmpeg fallback)
+        // переключение каналов медленнее. ExoPlayer теперь иногда
+        // спотыкается о MediaCodec на MP2/AC3, и пока он перейдёт на
+        // FFmpeg → каждый ms лишнего bufferForPlayback виден глазом.
+        // 1500→800 мс на старт даёт быстрый запуск; 2500→2000 ms на
+        // rebuffer оставляет запас для нестабильных IPTV потоков.
         val loadControl = when (prefs.bufferMode) {
             "low" -> DefaultLoadControl.Builder()
-                .setBufferDurationsMs(5000, 12000, 1000, 2000)
+                .setBufferDurationsMs(5000, 12000, 500, 1500)
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
             "high" -> DefaultLoadControl.Builder()
@@ -1173,7 +1180,7 @@ class PlayerActivity : BaseActivity() {
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
             else -> DefaultLoadControl.Builder()
-                .setBufferDurationsMs(8000, 25000, 1500, 2500)
+                .setBufferDurationsMs(8000, 25000, 800, 2000)
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
         }
