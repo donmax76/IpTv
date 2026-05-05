@@ -146,6 +146,14 @@ class TVViewerApp : Application(), ImageLoaderFactory {
         // Application.onCreate. Запуск отложен на 30 секунд чтобы не
         // конкурировать с iptv-org parse за CPU при холодном старте.
         try { scheduleEpgAutoRefresh() } catch (_: Exception) {}
+        // Round 187: чистим скачанный APK обновления при старте — если
+        // файл существует, значит предыдущий цикл "скачать → запустить
+        // установщик" уже завершился (установка прошла, новый APK
+        // запущен → этот код выполняется), мусор больше не нужен.
+        try {
+            val stale = java.io.File(cacheDir, "TVViewer-update.apk")
+            if (stale.exists()) stale.delete()
+        } catch (_: Exception) {}
         // IPTV-стримы часто живут на CDN'ах с несовпадающими сертами
         // (53be5ef2d13aa.streamlock.net показывает cert *.maksnet.tv
         // и пр.), и SSL-валидация их режет. Ослабляем глобально для
