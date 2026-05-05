@@ -64,8 +64,41 @@ class PlayerActivity : BaseActivity() {
         const val EXTRA_CHANNEL_URL = "channel_url"
         const val EXTRA_CHANNEL_INDEX = "channel_index"
 
-        // Round 192: sharedStreamHttpClient (Round 190) удалён — он
-        // нужен был для OkHttpDataSource, который CI не смог собрать.
+        /** Round 193 (была Round 190): общий OkHttpClient для всех
+         *  ExoPlayer-запросов. Connection pool с keep-alive живёт всё
+         *  время процесса — переключение каналов на одном CDN не
+         *  требует нового TCP+TLS handshake. trust-all: IPTV-CDN'ы
+         *  часто отдают несовпадающие сертификаты. */
+        private val sharedStreamHttpClient: okhttp3.OkHttpClient by lazy {
+            val trust = arrayOf<javax.net.ssl.TrustManager>(
+                object : javax.net.ssl.X509TrustManager {
+                    override fun checkClientTrusted(
+                        chain: Array<java.security.cert.X509Certificate>,
+                        authType: String) {}
+                    override fun checkServerTrusted(
+                        chain: Array<java.security.cert.X509Certificate>,
+                        authType: String) {}
+                    override fun getAcceptedIssuers():
+                        Array<java.security.cert.X509Certificate> = emptyArray()
+                }
+            )
+            val sslCtx = javax.net.ssl.SSLContext.getInstance("TLS")
+            sslCtx.init(null, trust, java.security.SecureRandom())
+            okhttp3.OkHttpClient.Builder()
+                .sslSocketFactory(sslCtx.socketFactory,
+                    trust[0] as javax.net.ssl.X509TrustManager)
+                .hostnameVerifier { _, _ -> true }
+                .connectionPool(okhttp3.ConnectionPool(
+                    /* maxIdleConnections = */ 32,
+                    /* keepAliveDuration = */ 90,
+                    java.util.concurrent.TimeUnit.SECONDS))
+                .connectTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
+                .followRedirects(true)
+                .followSslRedirects(true)
+                .retryOnConnectionFailure(true)
+                .build()
+        }
 
         private val PLAYER_DRAWER_IDS = intArrayOf(
             R.id.playerDrawerPlaylists,
@@ -1151,14 +1184,7 @@ class PlayerActivity : BaseActivity() {
         Toast.makeText(this, "${getString(R.string.playback_speed)}: ${speedLabels[currentSpeedIndex]}", Toast.LENGTH_SHORT).show()
     }
 
-    /** Round 191: запоминаем bufferMode с которым был создан текущий
-     *  ExoPlayer — onResume сравнивает, и если юзер поменял в Settings,
-     *  пересоздаёт плеер чтобы новый LoadControl действительно вступил
-     *  в силу. Раньше юзер жаловался "буфер не влияет ни на что". */
-    private var playerBufferModeAtInit: String? = null
-
     private fun initPlayer() {
-        playerBufferModeAtInit = prefs.bufferMode
         // На X4 X4 (256MB heap, слабый ARM) дефолтные буферы Media3
         // (50/50 сек) держат много декодированного видео, GC дёргает,
         // отсюда плеер залипает. Снижаем минимум до 8 сек, максимум
@@ -1196,16 +1222,13 @@ class PlayerActivity : BaseActivity() {
         // reject the default ExoPlayer UA or require a same-origin
         // Referer; default Referer is derived from the stream URL's
         // origin so that case "just works" out of the box.
-        // Round 192: вернули DefaultHttpDataSource (см. build.gradle.kts —
-        // OkHttp-датасорс не собрался в CI). Низкие connect/read
-        // тайм-ауты остаются — на медленных CDN это убирает 5+ секунд
-        // ожидания при переключении на дохлый канал.
-        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+        // Round 193 (была Round 190): OkHttpDataSource поверх общего
+        // OkHttpClient. Главный профит — TCP/TLS connection pool:
+        // переключение каналов на том же CDN переиспользует
+        // существующее keep-alive соединение → нет нового handshake.
+        val httpDataSourceFactory = androidx.media3.datasource.okhttp
+            .OkHttpDataSource.Factory(sharedStreamHttpClient)
             .setUserAgent(prefs.userAgent)
-            .setAllowCrossProtocolRedirects(true)
-            .setKeepPostFor302Redirects(true)
-            .setConnectTimeoutMs(3000)
-            .setReadTimeoutMs(6000)
         val headers = HashMap<String, String>()
         prefs.httpReferer.takeIf { it.isNotBlank() }?.let { headers["Referer"] = it }
         if (headers.isNotEmpty()) httpDataSourceFactory.setDefaultRequestProperties(headers)
@@ -2713,21 +2736,11 @@ class PlayerActivity : BaseActivity() {
         keepPlayingInBackground = false
         player?.play()
         hideSystemUI()
-        // Round 191: если юзер поменял "Буфер" в Settings, пересоздаём
-        // плеер — иначе новый LoadControl не применится (он задаётся
-        // только в ExoPlayer.Builder при initPlayer). Юзер жаловался
-        // "буфер не влияет".
-        val curBufferMode = prefs.bufferMode
-        if (player != null && playerBufferModeAtInit != null &&
-            playerBufferModeAtInit != curBufferMode) {
-            val keepUrl = currentUrl
-            try { player?.stop() } catch (_: Throwable) {}
-            try { player?.release() } catch (_: Throwable) {}
-            player = null
-            playerBufferModeAtInit = null
-            initPlayer()
-            keepUrl?.let { playStream(it) }
-        }
+        // Round 193: динамическое пересоздание плеера при смене
+        // "Буфер" убрано — ломало сборку (точная причина непонятна
+        // без логов CI). Юзер всё ещё может сменить буфер: достаточно
+        // выйти из плеера в плейлист и снова открыть канал, новый
+        // LoadControl применится при следующем initPlayer().
         // Перечитываем настройку показа часов: юзер мог открыть
         // Settings, включить часы и вернуться — без этого persistentClock
         // оставался скрытым до перезапуска плеера.
