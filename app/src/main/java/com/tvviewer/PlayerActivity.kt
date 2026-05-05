@@ -1163,16 +1163,15 @@ class PlayerActivity : BaseActivity() {
         // нужно чтобы продолжить ПОСЛЕ стagger'а. Ниже 1.5/2.5 сек
         // нельзя — на нестабильных IPTV-стримах уйдёт в постоянный
         // ребуфер.
-        // Round 188: уменьшили стартовый буфер во всех режимах. Юзер
-        // жаловался что после Round 184 (MODE_ON для FFmpeg fallback)
-        // переключение каналов медленнее. ExoPlayer теперь иногда
-        // спотыкается о MediaCodec на MP2/AC3, и пока он перейдёт на
-        // FFmpeg → каждый ms лишнего bufferForPlayback виден глазом.
-        // 1500→800 мс на старт даёт быстрый запуск; 2500→2000 ms на
-        // rebuffer оставляет запас для нестабильных IPTV потоков.
+        // Round 189: ещё агрессивнее (юзер: "ещё уменьши задержку").
+        // bufferForPlaybackMs опускаем до 250-400 мс — на быстрой сети
+        // канал стартует почти моментально. На rebuffer оставляем
+        // 1500-2000 мс чтобы редкий разрыв не вызвал бесконечную
+        // ребуферизацию. minBufferMs / maxBufferMs не трогаем (они про
+        // стабильность steady-state).
         val loadControl = when (prefs.bufferMode) {
             "low" -> DefaultLoadControl.Builder()
-                .setBufferDurationsMs(5000, 12000, 500, 1500)
+                .setBufferDurationsMs(5000, 12000, 250, 1500)
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
             "high" -> DefaultLoadControl.Builder()
@@ -1180,7 +1179,7 @@ class PlayerActivity : BaseActivity() {
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
             else -> DefaultLoadControl.Builder()
-                .setBufferDurationsMs(8000, 25000, 800, 2000)
+                .setBufferDurationsMs(8000, 25000, 400, 2000)
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build()
         }
@@ -1194,6 +1193,14 @@ class PlayerActivity : BaseActivity() {
             .setUserAgent(prefs.userAgent)
             .setAllowCrossProtocolRedirects(true)
             .setKeepPostFor302Redirects(true)
+            // Round 189: дефолтный connectTimeout — 8 сек. На медленных
+            // CDN это видимая задержка при переключении каналов: TCP
+            // SYN, TLS handshake, первый chunk манифеста — всё внутри
+            // этого окна. Снижаем connect 8→3 сек, read 8→6 сек —
+            // отказ от мёртвого CDN происходит быстрее, и ExoPlayer
+            // успевает упасть в reconnect-логику.
+            .setConnectTimeoutMs(3000)
+            .setReadTimeoutMs(6000)
         val headers = HashMap<String, String>()
         prefs.httpReferer.takeIf { it.isNotBlank() }?.let { headers["Referer"] = it }
         if (headers.isNotEmpty()) httpDataSourceFactory.setDefaultRequestProperties(headers)
