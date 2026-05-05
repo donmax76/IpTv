@@ -33,6 +33,12 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
     private var framesWritten = 0L
     private var preBufferDone = false
 
+    // Smooth volume ramping to avoid clicks on focus change
+    @Volatile
+    private var targetVolume = 1f
+    private var currentVolume = 1f
+    private val volumeRampStep = 1f / (sampleRate * 0.05f)  // 50ms ramp
+
     fun start() {
         if (isPlaying) return
 
@@ -88,10 +94,25 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             }
         }
 
+        // Apply smooth volume ramping per-sample to avoid clicks
+        val target = targetVolume
+        if (currentVolume != target) {
+            for (i in 0 until count step 2) {
+                if (currentVolume < target) {
+                    currentVolume = (currentVolume + volumeRampStep).coerceAtMost(target)
+                } else if (currentVolume > target) {
+                    currentVolume = (currentVolume - volumeRampStep).coerceAtLeast(target)
+                }
+                samples[i] = (samples[i] * currentVolume).toInt().coerceIn(-32767, 32767).toShort()
+                samples[i + 1] = (samples[i + 1] * currentVolume).toInt().coerceIn(-32767, 32767).toShort()
+            }
+        } else if (currentVolume < 1f) {
+            for (i in 0 until count) {
+                samples[i] = (samples[i] * currentVolume).toInt().coerceIn(-32767, 32767).toShort()
+            }
+        }
+
         try {
-            // Use BLOCKING write during pre-buffer (before play) to ensure all
-            // samples are accepted. Use NON-BLOCKING after play() to avoid
-            // stalling DSP when buffer is full during steady-state.
             val writeMode = if (preBufferDone)
                 AudioTrack.WRITE_NON_BLOCKING
             else
@@ -119,8 +140,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
     }
 
     fun setVolume(volume: Float) {
-        val vol = volume.coerceIn(0f, 1f)
-        audioTrack?.setVolume(vol)
+        targetVolume = volume.coerceIn(0f, 1f)
     }
 
     /** Flush buffer immediately (call on frequency change to stop old audio) */

@@ -126,13 +126,14 @@ struct DspState {
     // Raised thresholds: on pure atan2 noise the 19 kHz BPF output has
     // squared-mean around 0.008–0.010. A real broadcast pilot (10% AM
     // modulation on top of the FM deviation) gives ~0.025–0.035. Use
-    // 0.020 lock / 0.012 unlock to cleanly separate the two.
-    static constexpr float STEREO_LOCK = 0.020f;
-    static constexpr float STEREO_UNLOCK = 0.012f;
-    // Smooth blend
+    // higher thresholds for car use: weak/multipath signals produce noisy
+    // stereo that sounds much worse than clean mono.
+    static constexpr float STEREO_LOCK = 0.030f;
+    static constexpr float STEREO_UNLOCK = 0.020f;
+    // Smooth blend — slower attack to avoid popping in/out of stereo
     float stereoBlend = 0.0f;
-    static constexpr float STEREO_BLEND_ATTACK = 0.002f;
-    static constexpr float STEREO_BLEND_RELEASE = 0.0005f;
+    static constexpr float STEREO_BLEND_ATTACK = 0.0008f;
+    static constexpr float STEREO_BLEND_RELEASE = 0.0003f;
 
     // De-emphasis
     float deEmphAlpha;
@@ -265,7 +266,7 @@ struct DspState {
         squelchRelease = 1.0f / (0.3f * INTERMEDIATE_RATE);   // 300ms to close
         warmupThreshold = INTERMEDIATE_RATE / 10;
 
-        muteRampUp = 1.0f / (0.05f * AUDIO_RATE);
+        muteRampUp = 1.0f / (0.1f * AUDIO_RATE);  // 100ms ramp — avoids click on start
 
         LOGI("Native DSP initialized: rate=%d intermediate=%d audio=%d if_taps=%d audio_taps=%d",
              SAMPLE_RATE, INTERMEDIATE_RATE, AUDIO_RATE, IF_LPF_ORDER, AUDIO_LPF_ORDER);
@@ -531,12 +532,28 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
             d.sigPowerCount = 0;
         }
 
-        // Squelch DISABLED for FC0013 — causes amplitude trembling on
-        // weak/multipath signals. The squelch oscillates between open and
-        // close on marginal stations, modulating audio level → audible
-        // "дрожащий" (trembling) effect the user reported.
-        // TODO: re-enable with signal-quality based squelch instead of
-        // modulation-level based, or make it tuner-specific.
+        // Squelch based on signal power (not modulation level).
+        // Only mutes on truly empty frequencies (very low signal),
+        // not on weak/multipath stations.
+        d.sqQualityAcc += (double)(filtI*filtI + filtQ*filtQ);
+        if (++d.sqQualityCount >= d.sigPowerWindow) {
+            double sqAvg = d.sqQualityAcc / d.sqQualityCount;
+            float sqDb = (float)(10.0 * log10(sqAvg + 1e-10));
+            if (d.squelchOpen) {
+                if (sqDb < -45.0f) d.squelchOpen = false;
+            } else {
+                if (sqDb > -40.0f) d.squelchOpen = true;
+            }
+            d.sqQualityAcc = 0;
+            d.sqQualityCount = 0;
+        }
+        if (d.squelchOpen) {
+            if (d.squelchLevel < 1.0f) d.squelchLevel += d.squelchAttack;
+            if (d.squelchLevel > 1.0f) d.squelchLevel = 1.0f;
+        } else {
+            if (d.squelchLevel > 0.0f) d.squelchLevel -= d.squelchRelease;
+            if (d.squelchLevel < 0.0f) d.squelchLevel = 0.0f;
+        }
 
         // Wideband for RDS — capture pilot phase at first sample
         if (wb && d.wbCount < (int)wbLen) {
@@ -572,9 +589,12 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
             filtDiff += dB[p] * aC[j];
         }
 
-        // Stereo matrix with smooth blend
-        float left  = filtMono + filtDiff * d.stereoBlend * 0.5f;
-        float right = filtMono - filtDiff * d.stereoBlend * 0.5f;
+        // Stereo matrix — blend factor ramps smoothly based on pilot detection.
+        // Diff gain 0.7 for good stereo separation while avoiding excessive
+        // noise on marginal signals.
+        float diffGain = d.stereoBlend * 0.7f;
+        float left  = filtMono + filtDiff * diffGain;
+        float right = filtMono - filtDiff * diffGain;
 
         // 19 kHz notch DISABLED — even Q=6 caused ringing at 79% Nyquist.
         // The audio LPF at 15 kHz should be sufficient. If pilot leaks, it's
@@ -594,8 +614,9 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
             if (d.muteRamp > 1.0f) d.muteRamp = 1.0f;
         }
 
-        // Soft-clip + PCM scale
-        float gain = d.muteRamp * 28000.0f;
+        // Soft-clip + PCM scale — reduced from 28000 to 24000 to leave headroom
+        // for car audio systems that add their own gain stage
+        float gain = d.muteRamp * d.squelchLevel * 24000.0f;
         float clippedL = softClip(d.deEmphStateL * gain / 32767.0f) * 32767.0f;
         float clippedR = softClip(d.deEmphStateR * gain / 32767.0f) * 32767.0f;
         int sL = (int)clippedL;
