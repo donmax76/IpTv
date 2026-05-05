@@ -1,41 +1,56 @@
 package com.tvviewer
 
-import android.app.DownloadManager
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.net.Uri
-import android.os.Build
-import android.os.Environment
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
 import android.widget.Toast
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.File
+import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 /**
- * Downloads APK and triggers install. Uses DownloadManager + install intent.
+ * Round 186: ПОЛНЫЙ РЕРАЙТ. Раньше использовался Android DownloadManager —
+ * на Allwinner / Rockchip TV-боксах он принимает enqueue() но
+ * BroadcastReceiver на ACTION_DOWNLOAD_COMPLETE никогда не приходит,
+ * прогресс невидимый, юзер видит "Загрузка" в Toast и ничего больше не
+ * происходит. Жалоба: "загрузка пишет но ничего не качает".
+ *
+ * Теперь качаем напрямую через OkHttp, показываем процент в Toast,
+ * сохраняем в cacheDir, и запускаем установщик через FileProvider.
+ * Никаких системных сервисов, никаких permission'ов.
  */
 object UpdateInstaller {
 
-    private var downloadId: Long = -1
-    private var receiver: BroadcastReceiver? = null
+    private const val TAG = "UpdateInstaller"
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .build()
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile private var ongoing: Job? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     fun downloadAndInstall(context: Context, downloadUrl: String) {
-        // Guard against re-entry while a previous download is still pending
-        if (receiver != null) {
-            Toast.makeText(context, context.getString(R.string.update_downloading), Toast.LENGTH_SHORT).show()
+        if (ongoing?.isActive == true) {
+            Toast.makeText(context, R.string.update_downloading, Toast.LENGTH_SHORT).show()
             return
         }
-        // Refuse to "download" an HTML page — DownloadManager would just save
-        // markup, the install would fail, and we'd fall back to opening the
-        // page in a browser, which on the user's TV box is what shows the
-        // GitHub unicorn page when the network hiccups. Instead, point the
-        // user straight at the release page once.
         if (!downloadUrl.lowercase().endsWith(".apk")) {
-            // No APK asset in the release yet (build still uploading) or
-            // GitHub returned a non-asset URL. Don't open a browser — that
-            // is what shows the GitHub "unicorn" 502 page on slow
-            // networks. Just tell the user to retry.
             Toast.makeText(
                 context,
                 "Сборка ещё загружается на GitHub. Попробуйте через минуту.",
@@ -43,72 +58,106 @@ object UpdateInstaller {
             ).show()
             return
         }
-        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val request = DownloadManager.Request(Uri.parse(downloadUrl)).apply {
-            setTitle("TVViewer Update")
-            setDescription("Downloading update...")
-            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            // Раньше использовали setDestinationInExternalPublicDir(DIRECTORY_DOWNLOADS)
-            // — это требует WRITE_EXTERNAL_STORAGE на Android 9, и
-            // полностью запрещено на Android 10+ (scoped storage).
-            // На OPPO/HUAWEI получали SecurityException → краш. Теперь
-            // используем app-private internal directory (нет permission
-            // нужно), Files: /data/data/com.tvviewer/files/Download/.
-            try {
-                setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "TVViewer-update.apk")
-            } catch (_: Throwable) {
-                // Fallback: внутренняя папка приложения. Гарантированно
-                // доступна без permission.
-                val file = File(context.filesDir, "TVViewer-update.apk")
-                if (file.exists()) file.delete()
-                setDestinationUri(Uri.fromFile(file))
-            }
-            setMimeType("application/vnd.android.package-archive")
-        }
-        downloadId = dm.enqueue(request)
-        Toast.makeText(context, context.getString(R.string.update_downloading), Toast.LENGTH_LONG).show()
+        val appCtx = context.applicationContext
+        val outFile = File(appCtx.cacheDir, "TVViewer-update.apk")
+        if (outFile.exists()) outFile.delete()
 
-        receiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context, intent: Intent) {
-                val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
-                if (id != downloadId) return
-                try {
-                    val uri = dm.getUriForDownloadedFile(downloadId)
-                    if (uri != null) {
-                        installApk(ctx, uri)
-                    } else {
-                        openInBrowser(ctx, downloadUrl)
-                    }
-                } catch (e: Exception) {
-                    openInBrowser(ctx, downloadUrl)
+        toast(appCtx, "Загрузка обновления…")
+        ongoing = scope.launch {
+            val ok = try {
+                doDownload(downloadUrl, outFile, appCtx)
+            } catch (e: Exception) {
+                Log.e(TAG, "Download failed", e)
+                false
+            }
+            withContext(Dispatchers.Main) {
+                if (ok && outFile.exists() && outFile.length() > 0) {
+                    toast(appCtx, "Загружено, открываю установку")
+                    triggerInstall(appCtx, outFile)
+                } else {
+                    Toast.makeText(appCtx,
+                        "Не удалось скачать обновление. Откройте страницу релиза.",
+                        Toast.LENGTH_LONG).show()
+                    openInBrowser(appCtx, downloadUrl)
                 }
-                try { ctx.unregisterReceiver(this) } catch (_: Exception) {}
-                receiver = null
             }
         }
-        val flags = if (Build.VERSION.SDK_INT >= 33) Context.RECEIVER_NOT_EXPORTED else 0
-        context.registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), flags)
     }
 
-    private fun installApk(context: Context, uri: Uri) {
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    private fun doDownload(url: String, dest: File, ctx: Context): Boolean {
+        val req = Request.Builder()
+            .url(url)
+            .header("User-Agent", "TVViewer-App")
+            .build()
+        client.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) {
+                Log.e(TAG, "HTTP ${resp.code}")
+                return false
+            }
+            val body = resp.body ?: return false
+            val total = body.contentLength()
+            var lastReportedPct = -1
+            var written = 0L
+            body.byteStream().use { input ->
+                dest.outputStream().use { output ->
+                    val buf = ByteArray(64 * 1024)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n <= 0) break
+                        output.write(buf, 0, n)
+                        written += n
+                        if (total > 0) {
+                            val pct = ((written * 100) / total).toInt()
+                            // Только при изменении на 10% — иначе будет
+                            // 100 toast'ов спамить очередь.
+                            val bucket = (pct / 10) * 10
+                            if (bucket != lastReportedPct && bucket > 0 && bucket < 100) {
+                                lastReportedPct = bucket
+                                mainHandler.post {
+                                    Toast.makeText(ctx,
+                                        "Загрузка обновления: $bucket%",
+                                        Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    }
+                    output.flush()
+                }
+            }
         }
+        return true
+    }
+
+    private fun toast(ctx: Context, text: String) {
+        mainHandler.post {
+            Toast.makeText(ctx, text, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun triggerInstall(ctx: Context, apk: File) {
         try {
-            context.startActivity(intent)
+            val authority = "${ctx.packageName}.fileprovider"
+            val uri: Uri = FileProvider.getUriForFile(ctx, authority, apk)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            ctx.startActivity(intent)
         } catch (e: Exception) {
-            openInBrowser(context, uri.toString())
+            Log.e(TAG, "Install intent failed", e)
+            Toast.makeText(ctx,
+                "Не удалось запустить установку: ${e.message?.take(80)}",
+                Toast.LENGTH_LONG).show()
         }
     }
 
-    private fun openInBrowser(context: Context, url: String) {
+    private fun openInBrowser(ctx: Context, url: String) {
         try {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            context.startActivity(Intent.createChooser(intent, context.getString(R.string.update_download)))
+            ctx.startActivity(intent)
         } catch (_: Exception) {}
     }
 }

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Round 186: пути откуда FileProvider может выдавать content://
+         URI системному установщику. cacheDir хранит скачанный APK
+         обновления (не нужен после установки), filesDir — резерв. -->
+    <cache-path name="cache" path="." />
+    <files-path name="files" path="." />
+    <external-files-path name="external-files" path="." />
+</paths>

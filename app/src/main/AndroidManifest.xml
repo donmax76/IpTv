@@ -63,5 +63,20 @@
             android:theme="@style/Theme.TVViewer.SettingsPanel"
             android:parentActivityName=".MainActivity" />
 
+        <!-- Round 186: FileProvider нужен чтобы отдать content:// URI
+             на скачанный APK системному установщику (PackageInstaller на
+             Android 7+ не принимает file://). Authority совпадает с тем
+             что мы передаём в FileProvider.getUriForFile() в
+             UpdateInstaller. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_provider_paths" />
+        </provider>
+
     </application>
 </manifest>
