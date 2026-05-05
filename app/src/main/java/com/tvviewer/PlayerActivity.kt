@@ -2697,6 +2697,11 @@ class PlayerActivity : BaseActivity() {
         // refresh уже был сегодня. Решает кейс "ТВ-гид не обновляется
         // на следующий день, пока я только смотрю каналы".
         try { TVViewerApp.triggerEpgAutoRefresh(this) } catch (_: Throwable) {}
+        // Round 185: и проверку обновлений APK тоже из плеера —
+        // тот же кейс что с EPG: юзер не возвращается на главный
+        // экран → MainActivity.onResume не срабатывает →
+        // обновление не приходит. Жалоба "не видно 272, только 271".
+        try { UpdateCheckerHelper.maybeCheck(this) } catch (_: Throwable) {}
     }
 
     private fun applyClockVisibility() {
