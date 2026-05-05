@@ -72,8 +72,10 @@ class MainActivity : BaseActivity() {
         if (savedInstanceState == null) {
             bottomNav.selectedItemId = R.id.nav_home
 
-            // Auto-check for updates on start
-            checkForUpdatesOnStart()
+            // Auto-check for updates on cold start (throttle is bypassed
+            // here so cold start always tries; subsequent checks happen
+            // from onResume() with a 6 h throttle).
+            maybeCheckForUpdates(force = true)
 
             // Autoplay last channel if enabled
             if (prefs.autoplayLast) {
@@ -100,6 +102,12 @@ class MainActivity : BaseActivity() {
         // на следующий день программа осталась старой — раньше
         // refresh был только в TVViewerApp.onCreate (раз за процесс).
         try { TVViewerApp.triggerEpgAutoRefresh(this) } catch (_: Throwable) {}
+        // То же самое для авто-проверки обновлений: раньше она шла
+        // только в onCreate(savedInstanceState=null), а на TV-боксах
+        // активити часто живёт в памяти сутками — пользователь
+        // жаловался что "обновление само не приходит на следующий
+        // день". 6-часовой троттл, чтобы не хаммерить GitHub API.
+        maybeCheckForUpdates()
         // Подписываемся на state-listener чтобы показать баннер
         // "идёт обновление" сразу при старте если refresh в процессе.
         EpgRepository.addRefreshStateListener(epgRefreshStateListener)
@@ -471,7 +479,18 @@ class MainActivity : BaseActivity() {
         }
     }
 
-    private fun checkForUpdatesOnStart() {
+    /** Tracks whether we've already shown the update dialog during the
+     *  current activity instance, so onResume doesn't pop it again. */
+    private var updateDialogShownThisSession = false
+
+    private fun maybeCheckForUpdates(force: Boolean = false) {
+        if (updateDialogShownThisSession) return
+        val now = System.currentTimeMillis()
+        val sinceLast = now - prefs.lastUpdateCheckMs
+        // 6 hours throttle when called repeatedly (e.g. from onResume).
+        // Cold start uses force=true to skip the gate.
+        if (!force && sinceLast < 6 * 60 * 60 * 1000L) return
+        prefs.lastUpdateCheckMs = now
         lifecycleScope.launch {
             try {
                 val result = UpdateChecker.check(prefs.updateCheckUrl)
@@ -484,6 +503,7 @@ class MainActivity : BaseActivity() {
                             append("\n\n${updateInfo.releaseNotes.take(500)}")
                         }
                     }
+                    updateDialogShownThisSession = true
                     AlertDialog.Builder(this@MainActivity, R.style.Theme_TVViewer_Dialog)
                         .setTitle(getString(R.string.update_available, updateInfo.versionName))
                         .setMessage(message)

@@ -332,6 +332,18 @@ class AppPreferences(context: Context) {
 
     fun getUpdateCheckUrlRaw(): String? = prefs.getString(KEY_UPDATE_CHECK_URL, null)
 
+    /** Timestamp последнего УСПЕШНОГО запроса GitHub Releases API
+     *  (System.currentTimeMillis()). Используется для троттлинга авто-
+     *  проверки в MainActivity: если больше 6 часов с прошлой проверки,
+     *  пробуем снова при возврате в активити. Это нужно потому что
+     *  раньше проверка делалась только в onCreate(savedInstance==null),
+     *  а на TV-боксах активити часто не пересоздаётся между
+     *  background/foreground — пользователь жаловался что "обновление
+     *  не приходит само на следующий день". */
+    var lastUpdateCheckMs: Long
+        get() = prefs.getLong("last_update_check_ms", 0L)
+        set(value) = prefs.edit().putLong("last_update_check_ms", value).apply()
+
     var screenOrientation: String
         get() = prefs.getString(KEY_ORIENTATION, "auto") ?: "auto"
         set(value) = prefs.edit().putString(KEY_ORIENTATION, value).apply()
