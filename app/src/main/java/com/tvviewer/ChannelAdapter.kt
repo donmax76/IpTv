@@ -164,7 +164,11 @@ class ChannelAdapter(
             if (event.action == KeyEvent.ACTION_DOWN) {
                 when (keyCode) {
                     KeyEvent.KEYCODE_DPAD_LEFT -> {
-                        holder.itemView.requestFocus()
+                        // Round 200: clearFocus + post чтобы фокус
+                        // действительно переехал на строку (см. коммент
+                        // в OverlayChannelAdapter).
+                        holder.btnFavorite.clearFocus()
+                        holder.itemView.post { holder.itemView.requestFocus() }
                         return@setOnKeyListener true
                     }
                     KeyEvent.KEYCODE_DPAD_UP,

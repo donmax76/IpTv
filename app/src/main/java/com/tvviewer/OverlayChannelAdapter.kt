@@ -155,7 +155,16 @@ class OverlayChannelAdapter(
             if (event.action == android.view.KeyEvent.ACTION_DOWN) {
                 when (keyCode) {
                     android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
-                        holder.itemView.requestFocus(); true
+                        // Round 200: clearFocus + post() чтобы фокус
+                        // ГАРАНТИРОВАННО переехал на саму строку, а не
+                        // улетел в боковую панель категорий. Раньше
+                        // requestFocus() вызывался синхронно — на
+                        // некоторых TV-боксах фокус не успевал
+                        // переключиться, и нативный focus-search
+                        // отправлял ←-нажатие в overlayCategoriesPanel.
+                        holder.favoriteBtn.clearFocus()
+                        holder.itemView.post { holder.itemView.requestFocus() }
+                        true
                     }
                     // Ещё раз вправо после "избранное" — детальная инфа.
                     android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
