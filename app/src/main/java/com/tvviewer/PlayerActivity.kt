@@ -2118,8 +2118,14 @@ class PlayerActivity : BaseActivity() {
             if (catsShown) {
                 overlayCategoriesList.post {
                     overlayCategoriesList.requestFocus()
-                    overlayCategoriesList.findViewHolderForAdapterPosition(0)
-                        ?.itemView?.requestFocus()
+                    // Round 201: фокус на текущей категории, не на первой.
+                    val target = (overlayCategoriesList.adapter
+                        as? CategoryAdapter)?.selectedPosition() ?: 0
+                    overlayCategoriesList.scrollToPosition(target)
+                    overlayCategoriesList.post {
+                        overlayCategoriesList.findViewHolderForAdapterPosition(target)
+                            ?.itemView?.requestFocus()
+                    }
                 }
             } else {
                 findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.overlayChannelsList)
@@ -2441,9 +2447,19 @@ class PlayerActivity : BaseActivity() {
                             overlayCategoriesPanel.layoutParams = lpCats
                             overlayCategoriesPanel.post {
                                 overlayCategoriesList.requestFocus()
-                                overlayCategoriesList
-                                    .findViewHolderForAdapterPosition(0)
-                                    ?.itemView?.requestFocus()
+                                // Round 201: фокус на ВЫБРАННОЙ категории,
+                                // не на первой. Раньше юзер выбирал
+                                // "Спорт", уходил в каналы, нажимал ←
+                                // — категория "Спорт" подсвечивалась
+                                // цветом, но фокус прыгал на "Все".
+                                val target = (overlayCategoriesList.adapter
+                                    as? CategoryAdapter)?.selectedPosition() ?: 0
+                                overlayCategoriesList.scrollToPosition(target)
+                                overlayCategoriesList.post {
+                                    overlayCategoriesList
+                                        .findViewHolderForAdapterPosition(target)
+                                        ?.itemView?.requestFocus()
+                                }
                             }
                             // Скрываем details-панель если она была открыта —
                             // её содержимое не имеет смысла без списка.

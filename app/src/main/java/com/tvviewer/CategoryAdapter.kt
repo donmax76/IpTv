@@ -70,6 +70,12 @@ class CategoryAdapter(
 
     override fun getItemCount() = categories.size
 
+    /** Round 201: индекс категории, выбранной последний раз. Нужен
+     *  PlayerActivity'у чтобы при возврате в панель категорий
+     *  поставить фокус (а не только подсветку цветом) на текущую
+     *  выбранную, а не на первую. */
+    fun selectedPosition(): Int = selectedPosition
+
     fun updateCategories(newCategories: List<String>, selectedCategory: String? = null) {
         categories = newCategories
         selectedPosition = if (selectedCategory != null) {
