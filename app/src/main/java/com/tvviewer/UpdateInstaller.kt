@@ -58,6 +58,21 @@ object UpdateInstaller {
             ).show()
             return
         }
+        // Round 203: проверяем системное разрешение "Установка из
+        // неизвестных источников" ДО скачивания. Без него
+        // PackageInstaller игнорирует наш Intent и юзер видит "ничего
+        // не происходит" после загрузки. На Android 8+ это per-app
+        // permission (canRequestPackageInstalls), на 7 и ниже — system-
+        // wide setting в "Безопасности". Если выключено — отправляем
+        // юзера прямо в нужную страницу настроек.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val canInstall = try { context.packageManager.canRequestPackageInstalls() }
+                catch (_: Throwable) { true }  // some TV ROMs throw — assume ok
+            if (!canInstall) {
+                promptInstallPermission(context)
+                return
+            }
+        }
         val appCtx = context.applicationContext
         val outFile = File(appCtx.cacheDir, "TVViewer-update.apk")
         if (outFile.exists()) outFile.delete()
@@ -159,5 +174,39 @@ object UpdateInstaller {
             }
             ctx.startActivity(intent)
         } catch (_: Exception) {}
+    }
+
+    /** Round 203: открываем системную страницу "Установка из
+     *  неизвестных источников" для текущего приложения с пояснением
+     *  что нужно сделать. Без AlertDialog (нужен Activity-контекст,
+     *  а нас могут дёрнуть из applicationContext) — просто длинный
+     *  Toast + Intent. */
+    private fun promptInstallPermission(ctx: Context) {
+        Toast.makeText(
+            ctx,
+            "Включите «Установка из неизвестных источников» для TVViewer и нажмите «Обновить» снова.",
+            Toast.LENGTH_LONG
+        ).show()
+        try {
+            val intent = if (android.os.Build.VERSION.SDK_INT >=
+                    android.os.Build.VERSION_CODES.O) {
+                Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+                    .setData(Uri.parse("package:${ctx.packageName}"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            } else {
+                Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            ctx.startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Cannot open install-sources settings", e)
+            // Fallback: просто открываем общие настройки приложения.
+            try {
+                val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                    .setData(Uri.parse("package:${ctx.packageName}"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                ctx.startActivity(intent)
+            } catch (_: Exception) {}
+        }
     }
 }
