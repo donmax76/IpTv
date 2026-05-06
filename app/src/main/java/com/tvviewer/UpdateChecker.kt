@@ -15,7 +15,16 @@ import java.util.concurrent.TimeUnit
 object UpdateChecker {
 
     private const val TAG = "TVViewer"
-    private const val GITHUB_RELEASES_URL = "https://api.github.com/repos/donmax76/IpTv/releases/latest"
+    /** Round 204: переключились с /releases/latest на /releases (список).
+     *  В тот же репо публикуется FM Radio с тегом "latest", который
+     *  перебивает GitHub'овский флаг latest и заставлял extractVersionCode
+     *  вернуть 0 (тег "latest" не соответствует паттерну
+     *  "v5.4-buildN"). Юзер жаловался: "обновление не находит".
+     *  Теперь берём список (50 свежих релизов хватит надолго) и берём
+     *  первый matching по нашему паттерну. */
+    private const val GITHUB_RELEASES_URL =
+        "https://api.github.com/repos/donmax76/IpTv/releases?per_page=50"
+    private val OUR_TAG_REGEX = Regex("^v\\d+\\.\\d+-build\\d+$")
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -64,20 +73,37 @@ object UpdateChecker {
             }
 
             val body = response.body?.string() ?: return Result.failure(Exception("Empty response"))
-            val json = JSONObject(body)
+            val arr = JSONArray(body)
 
-            // Хелпер: optString возвращает строку "null" если поле в
-            // JSON имеет значение null. Используем isNull-проверку
-            // на каждом обращении.
             fun safeStr(o: JSONObject, key: String): String =
                 if (o.isNull(key)) "" else o.optString(key, "")
 
+            // Round 204: ищем самый свежий релиз с тегом vN.M-buildK,
+            // игнорируя посторонние теги ("latest" от FM Radio и т.п.).
+            // GitHub отдаёт релизы по убыванию created_at, поэтому
+            // первый matching = самый свежий.
+            var bestRelease: JSONObject? = null
+            var bestCode = 0
+            for (i in 0 until arr.length()) {
+                val rel = arr.getJSONObject(i)
+                val tag = safeStr(rel, "tag_name")
+                if (!OUR_TAG_REGEX.matches(tag)) continue
+                val code = extractVersionCode(tag)
+                if (code > bestCode) {
+                    bestCode = code
+                    bestRelease = rel
+                }
+            }
+            if (bestRelease == null || bestCode <= 0) {
+                Log.d(TAG, "No matching v*-buildN release found")
+                return Result.success(null)
+            }
+            val json = bestRelease
+
             val tagName = safeStr(json, "tag_name") // e.g. "v5.2-build27"
-            val releaseName = safeStr(json, "name") // e.g. "TVViewer v5.2 (Build 27)"
             val releaseNotes = safeStr(json, "body")
 
-            // Parse version from tag: "v5.2-build27" -> versionCode from build number
-            val versionCode = extractVersionCode(tagName)
+            val versionCode = bestCode
             val versionName = extractVersionName(tagName)
 
             // Find APK download URL from assets
@@ -93,17 +119,8 @@ object UpdateChecker {
             }
 
             if (downloadUrl.isBlank()) {
-                // No APK asset uploaded yet — treat as "no update".
-                // Falling back to html_url here used to show the user the
-                // GitHub release page (and on a slow TV connection,
-                // GitHub's "unicorn" 502 timeout page) instead of
-                // installing anything.
-                Log.d(TAG, "Release ${tagName} has no APK asset yet")
+                Log.d(TAG, "Release $tagName has no APK asset yet")
                 return Result.success(null)
-            }
-
-            if (versionCode <= 0) {
-                return Result.failure(Exception("Invalid release data"))
             }
 
             return Result.success(UpdateInfo(versionCode, versionName, downloadUrl, releaseNotes))
