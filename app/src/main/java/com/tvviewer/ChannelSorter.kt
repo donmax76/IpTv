@@ -20,7 +20,8 @@ object ChannelSorter {
             "name" -> list.sortedBy { it.name.lowercase() }
             "group" -> list.sortedWith(
                 compareBy(
-                    { it.group?.lowercase() ?: "￿" },
+                    // Channels without a group go to the bottom alphabetically.
+                    { it.group?.lowercase() ?: "zzzzzz" },
                     { it.name.lowercase() }
                 )
             )
