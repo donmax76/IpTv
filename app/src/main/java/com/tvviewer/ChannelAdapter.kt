@@ -155,14 +155,25 @@ class ChannelAdapter(
             } else false
         }
 
-        // D-pad on favorite button: left goes back to card
+        // D-pad on favorite button:
+        //   LEFT  — back to channel card
+        //   UP/DOWN — eaten so focus stays on the heart of the current row
+        //             (prevents accidentally favouriting the wrong channel
+        //             if user keeps the heart "armed" and nudges UP/DOWN).
         holder.btnFavorite.setOnKeyListener { _, keyCode, event ->
-            if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
-                holder.itemView.requestFocus()
-                true
-            } else {
-                false
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                when (keyCode) {
+                    KeyEvent.KEYCODE_DPAD_LEFT -> {
+                        holder.itemView.requestFocus()
+                        return@setOnKeyListener true
+                    }
+                    KeyEvent.KEYCODE_DPAD_UP,
+                    KeyEvent.KEYCODE_DPAD_DOWN -> {
+                        return@setOnKeyListener true
+                    }
+                }
             }
+            false
         }
     }
 

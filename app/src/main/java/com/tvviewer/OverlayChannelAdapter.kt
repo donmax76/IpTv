@@ -161,6 +161,11 @@ class OverlayChannelAdapter(
                     android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
                         onShowDetailsClick?.invoke(channel); true
                     }
+                    // Round 199: блокируем UP/DOWN на сердечке — фокус
+                    // должен оставаться на текущей строке, чтобы юзер
+                    // случайно не добавил в избранное соседний канал.
+                    android.view.KeyEvent.KEYCODE_DPAD_UP,
+                    android.view.KeyEvent.KEYCODE_DPAD_DOWN -> true
                     else -> false
                 }
             } else false
