@@ -56,6 +56,7 @@ class FavoritesFragment : Fragment() {
         if (!hidden) {
             applyLayoutManager()
             refreshFavorites()
+            focusFirstItem()
         }
     }
 
@@ -63,6 +64,19 @@ class FavoritesFragment : Fragment() {
         super.onResume()
         applyLayoutManager()
         refreshFavorites()
+        // Round 202: при возврате из плеера BACK'ом в эту вкладку юзер
+        // жаловался "не могу управлять с пульта, после долгих усилий
+        // выделяется строка". Фокус по дефолту улетал на bottom-nav.
+        // Явно ставим его на первую видимую строку списка.
+        focusFirstItem()
+    }
+
+    private fun focusFirstItem() {
+        if (!::recyclerView.isInitialized) return
+        recyclerView.post {
+            recyclerView.findViewHolderForAdapterPosition(0)
+                ?.itemView?.requestFocus()
+        }
     }
 
     private fun applyLayoutManager() {

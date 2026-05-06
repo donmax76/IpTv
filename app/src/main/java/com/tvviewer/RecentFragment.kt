@@ -59,22 +59,28 @@ class RecentFragment : Fragment() {
     override fun onHiddenChanged(hidden: Boolean) {
         super.onHiddenChanged(hidden)
         if (!hidden) {
-            // Tab switched back to us via BottomNavigation (show/hide,
-            // not replace) — onResume doesn't fire, so re-apply the
-            // layout manager too in case the user toggled list↔grid
-            // in Settings while we were hidden.
             applyLayoutManager()
             refreshRecent()
+            focusFirstItem()
         }
     }
 
     override fun onResume() {
         super.onResume()
-        // Setting can change while fragment is hidden — re-apply layout
-        // manager and refresh in case the user switched list↔grid in
-        // Settings since the fragment was created.
         applyLayoutManager()
         refreshRecent()
+        // Round 202: фокус на первой строке при возврате из плеера —
+        // иначе он застревает на bottom-nav и юзер не может
+        // навигироваться с пульта.
+        focusFirstItem()
+    }
+
+    private fun focusFirstItem() {
+        if (!::recyclerView.isInitialized) return
+        recyclerView.post {
+            recyclerView.findViewHolderForAdapterPosition(0)
+                ?.itemView?.requestFocus()
+        }
     }
 
     private fun applyLayoutManager() {
