@@ -192,13 +192,11 @@
     <string name="error_log_sent">Лог надіслано</string>
     <string name="errors_cleared">Помилки очищено</string>
     <string name="exit_app_confirm">Вийти із застосунку?</string>
-    <string name="exit_fullscreen">Вийти з повноекранного режиму</string>
     <string name="filter_4k">4K</string>
     <string name="filter_all">Всі</string>
     <string name="filter_fhd">FHD</string>
     <string name="filter_hd">HD</string>
     <string name="filter_sd">SD</string>
-    <string name="fullscreen">Повний екран</string>
     <string name="http_referer">HTTP Referer</string>
     <string name="import_file">Імпорт з файлу</string>
     <string name="last_channel">Останній канал</string>
@@ -230,10 +228,6 @@
     <string name="pin_set">PIN збережено</string>
     <string name="pin_wrong">Невірний PIN</string>
     <string name="prev_channel">Попередній канал</string>
-    <string name="quality">Якість</string>
-    <string name="quality_1080">1080p</string>
-    <string name="quality_4k">4K</string>
-    <string name="quality_auto">Авто</string>
     <string name="quality_filter">Фільтр якості</string>
     <string name="recent">Переглянуті</string>
     <string name="recording_hint">Запис не підтримується для прямих трансляцій</string>
@@ -281,8 +275,6 @@
     <string name="time_on">Увімкнено</string>
     <string name="today">Сьогодні</string>
     <string name="tomorrow">Завтра</string>
-    <string name="tv_guide">Програма передач</string>
-    <string name="tv_guide_unavailable">Програма недоступна</string>
     <string name="ua_android">Android</string>
     <string name="ua_chrome">Chrome</string>
     <string name="ua_default">За замовчуванням</string>
