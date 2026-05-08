@@ -358,6 +358,11 @@ jobs:
         with:
           path: artifacts
 
+      - name: List downloaded artifacts
+        run: |
+          echo "=== All artifacts ==="
+          find artifacts -type f 2>/dev/null || echo "No artifacts found"
+
       - name: Prepare release files
         run: |
           mkdir release
