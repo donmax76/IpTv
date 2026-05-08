@@ -10,7 +10,7 @@ import java.net.URL
 object UpdateChecker {
 
     private const val TAG = "UpdateChecker"
-    private const val VERSION_URL = "https://raw.githubusercontent.com/donmax76/IpTv/main/fmradio/version.json"
+    private const val VERSION_URL = "https://raw.githubusercontent.com/donmax76/IpTv/claude/rebuild-apk-sync-audio-qLxeF/fmradio/version.json"
 
     data class UpdateInfo(val versionCode: Int, val versionName: String, val downloadUrl: String)
 
