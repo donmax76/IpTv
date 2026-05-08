@@ -370,7 +370,10 @@ jobs:
           if [ -f artifacts/FmRadio-debug.apk/fmradio-debug.apk ]; then
             cp artifacts/FmRadio-debug.apk/fmradio-debug.apk release/FmRadio.apk
           fi
-          if [ -f artifacts/FmRadio-release.apk/fmradio-release-unsigned.apk ]; then
+          # Release APK — signed with debug key, so filename is fmradio-release.apk (not unsigned)
+          if [ -f artifacts/FmRadio-release.apk/fmradio-release.apk ]; then
+            cp artifacts/FmRadio-release.apk/fmradio-release.apk release/FmRadio-release.apk
+          elif [ -f artifacts/FmRadio-release.apk/fmradio-release-unsigned.apk ]; then
             cp artifacts/FmRadio-release.apk/fmradio-release-unsigned.apk release/FmRadio-release.apk
           fi
           if [ -f artifacts/TVViewer-debug.apk/app-debug.apk ]; then
