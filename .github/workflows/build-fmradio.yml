@@ -28,6 +28,8 @@ jobs:
           sdkmanager "ndk;26.1.10909125" "cmake;3.22.1"
 
       - name: Build FM Radio APK (debug + release)
+        env:
+          IPTV_ISSUE_TOKEN: ${{ secrets.IPTV_ISSUE_TOKEN }}
         run: |
           chmod +x gradlew
           ./gradlew :fmradio:assembleDebug :fmradio:assembleRelease :app:assembleDebug
