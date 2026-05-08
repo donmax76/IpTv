@@ -46,15 +46,29 @@ android {
     ndkVersion = "26.1.10909125"
 
     signingConfigs {
-        getByName("debug") {
-            // Use default debug keystore — consistent key for update installs
+        create("release") {
+            val ksFile = rootProject.file("fmradio/keystore/debug.keystore")
+            if (ksFile.exists()) {
+                storeFile = ksFile
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
         }
     }
 
     buildTypes {
+        debug {
+            val ks = signingConfigs.findByName("release")
+            if (ks?.storeFile?.exists() == true) {
+                signingConfig = ks
+            }
+        }
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
+            val ks = signingConfigs.findByName("release")
+            signingConfig = if (ks?.storeFile?.exists() == true) ks
+                else signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
