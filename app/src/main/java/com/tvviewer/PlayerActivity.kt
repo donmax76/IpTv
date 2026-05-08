@@ -1151,7 +1151,14 @@ class PlayerActivity : BaseActivity() {
         Toast.makeText(this, "${getString(R.string.playback_speed)}: ${speedLabels[currentSpeedIndex]}", Toast.LENGTH_SHORT).show()
     }
 
+    /** Round 210: bufferMode при котором был создан текущий ExoPlayer.
+     *  onResume сравнивает с актуальным prefs.bufferMode и пересоздаёт
+     *  плеер если юзер поменял в Settings — иначе LoadControl остаётся
+     *  старый и настройка ни на что не влияет. */
+    private var playerBufferModeAtInit: String? = null
+
     private fun initPlayer() {
+        playerBufferModeAtInit = prefs.bufferMode
         // На X4 X4 (256MB heap, слабый ARM) дефолтные буферы Media3
         // (50/50 сек) держат много декодированного видео, GC дёргает,
         // отсюда плеер залипает. Снижаем минимум до 8 сек, максимум
@@ -2722,11 +2729,21 @@ class PlayerActivity : BaseActivity() {
         keepPlayingInBackground = false
         player?.play()
         hideSystemUI()
-        // Round 193: динамическое пересоздание плеера при смене
-        // "Буфер" убрано — ломало сборку (точная причина непонятна
-        // без логов CI). Юзер всё ещё может сменить буфер: достаточно
-        // выйти из плеера в плейлист и снова открыть канал, новый
-        // LoadControl применится при следующем initPlayer().
+        // Round 210: пересоздаём плеер если юзер сменил «Буфер» в
+        // Settings — иначе LoadControl остаётся прежним и настройка
+        // не имеет эффекта. Раньше требовалось закрыть плеер и
+        // открыть канал заново.
+        val curBufferMode = prefs.bufferMode
+        if (player != null && playerBufferModeAtInit != null &&
+            playerBufferModeAtInit != curBufferMode) {
+            val keepUrl = currentUrl
+            try { player?.stop() } catch (_: Throwable) {}
+            try { player?.release() } catch (_: Throwable) {}
+            player = null
+            playerBufferModeAtInit = null
+            initPlayer()
+            keepUrl?.let { playStream(it) }
+        }
         // Перечитываем настройку показа часов: юзер мог открыть
         // Settings, включить часы и вернуться — без этого persistentClock
         // оставался скрытым до перезапуска плеера.
