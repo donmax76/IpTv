@@ -39,6 +39,12 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
     private var currentVolume = 1f
     private val volumeRampStep = 1f / (sampleRate * 0.05f)  // 50ms ramp
 
+    // Clock drift compensation: RTL-SDR crystal ≠ Android audio clock.
+    // When buf drops, duplicate frames; when buf rises, skip frames.
+    // One frame per ~240 is inaudible but prevents underrun/overflow.
+    private val paddingFrame = ShortArray(2)
+    private var driftCounter = 0
+
     fun start() {
         if (isPlaying) return
 
@@ -130,6 +136,30 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             }
 
             framesWritten += actualFrames
+
+            // Clock drift compensation: check buffer level every 64 writes
+            if (preBufferDone && ++driftCounter >= 64) {
+                driftCounter = 0
+                val track = audioTrack
+                if (track != null) {
+                    val headPos = track.playbackHeadPosition.toLong()
+                    val bufLevel = framesWritten - headPos
+                    val bufCap = track.bufferSizeInFrames.toLong()
+                    val target = bufCap / 2  // aim for 50% fill
+
+                    if (bufLevel < bufCap / 4) {
+                        // Buffer draining (DSP slower than AudioTrack) — pad with last frame
+                        paddingFrame[0] = samples[count - 2]
+                        paddingFrame[1] = samples[count - 1]
+                        val padCount = ((target - bufLevel) / 200).coerceIn(1, 50).toInt()
+                        for (p in 0 until padCount) {
+                            val pw = track.write(paddingFrame, 0, 2, AudioTrack.WRITE_NON_BLOCKING)
+                            if (pw == 2) framesWritten++
+                            else break
+                        }
+                    }
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error writing audio", e)
         }
@@ -148,9 +178,9 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
     fun flush() {
         audioTrack?.pause()
         audioTrack?.flush()
-        // Reset pre-buffer so new frequency accumulates 150ms before playing
         framesWritten = 0L
         preBufferDone = false
+        driftCounter = 0
         // play() will be called again from writeSamples when pre-buffer fills
     }
 
