@@ -24,7 +24,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
     companion object {
         private const val TAG = "AudioPlayer"
         private const val FADE_IN_FRAMES = 2400
-        private const val PRE_BUFFER_FRAMES = 7200  // 150ms — fast channel switch + enough headroom
+        private const val PRE_BUFFER_FRAMES = 24000  // 500ms — BYD DiLink needs large pre-buffer
     }
 
     private var audioTrack: AudioTrack? = null
@@ -47,10 +47,10 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             AudioFormat.CHANNEL_OUT_STEREO,
             AudioFormat.ENCODING_PCM_16BIT
         )
-        // At least 400ms buffer (19200 frames stereo = 76800 bytes) for car head units
-        // that report tiny minBufSize but have high scheduling jitter
-        val minDesired = sampleRate * 2 * 2 * 400 / 1000  // 400ms in bytes (stereo 16-bit)
-        val bufferSize = maxOf(minBufSize * 15, minDesired)
+        // BYD DiLink reports tiny minBufSize and has low-latency audio HAL.
+        // Need large buffer (1.5 sec) so buf headroom stays above 20K frames.
+        val minDesired = sampleRate * 2 * 2 * 3 / 2  // 1500ms in bytes (stereo 16-bit)
+        val bufferSize = maxOf(minBufSize * 30, minDesired)
 
         audioTrack = AudioTrack.Builder()
             .setAudioAttributes(
@@ -125,7 +125,8 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                 val track = audioTrack
                 val headPos = track?.playbackHeadPosition ?: 0
                 val bufDiff = framesWritten + actualFrames - headPos
-                DebugLog.log(TAG, "aud: w=$written/$count buf=$bufDiff head=$headPos total=${framesWritten + actualFrames}")
+                val bufSize = track?.bufferSizeInFrames ?: 0
+                DebugLog.log(TAG, "aud: w=$written/$count buf=$bufDiff head=$headPos total=${framesWritten + actualFrames} bufSize=$bufSize")
             }
 
             framesWritten += actualFrames
