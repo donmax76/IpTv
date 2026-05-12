@@ -356,6 +356,38 @@ class PlayerActivity : BaseActivity() {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
 
+        // Round 211: центральное popup-меню (фото 4 SS IPTV).
+        // Те же действия что и в side drawer'е, но визуально как
+        // модальное окно по центру экрана с яркими cyan-пунктами.
+        findViewById<View>(R.id.playerCenterMenuDimBg)?.setOnClickListener { hideCenterMenu() }
+        findViewById<View>(R.id.centerMenuPlaylistName)?.setOnClickListener {
+            ChannelDataHolder.openDrawerOnReturn = false
+            ChannelDataHolder.returnToTabIndex = 0  // Playlists tab
+            finish()
+        }
+        findViewById<View>(R.id.centerMenuSettings)?.setOnClickListener {
+            keepPlayingInBackground = true
+            hideCenterMenu()
+            if (channelListVisible) hideChannelList()
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
+        findViewById<View>(R.id.centerMenuFavorites)?.setOnClickListener {
+            ChannelDataHolder.openDrawerOnReturn = false
+            ChannelDataHolder.returnToTabIndex = 2  // Favorites
+            finish()
+        }
+        findViewById<View>(R.id.centerMenuRecent)?.setOnClickListener {
+            ChannelDataHolder.openDrawerOnReturn = false
+            ChannelDataHolder.returnToTabIndex = 3  // Recent
+            finish()
+        }
+        findViewById<View>(R.id.centerMenuSearch)?.setOnClickListener {
+            hideCenterMenu()
+            // Возврат в overlay со списком каналов с фокусом на поиск.
+            showChannelList()
+            findViewById<View>(R.id.overlaySearchEdit)?.requestFocus()
+        }
+
         // Правое выпадающее меню плеера (DPAD_RIGHT). Все эти действия
         // раньше торчали кнопками в верхнем правом углу — теперь они
         // спрятаны и доступны только из этого меню.
@@ -1975,9 +2007,17 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun showChannelList() {
+        val wasVisible = channelListOverlay.visibility == View.VISIBLE
         channelListOverlay.visibility = View.VISIBLE
         channelListVisible = true
         hideHandler.removeCallbacks(hideRunnable)
+        // Round 211: slide-in анимация панели каналов слева, dim-фон fade.
+        if (!wasVisible) {
+            findViewById<View>(R.id.channelListDimBg)?.startAnimation(
+                android.view.animation.AnimationUtils.loadAnimation(this, R.anim.fade_in))
+            findViewById<View>(R.id.channelListPanel)?.startAnimation(
+                android.view.animation.AnimationUtils.loadAnimation(this, R.anim.slide_in_left))
+        }
         // Обновляем имя плейлиста (вдруг поменялся за время сессии) и
         // подпись категории (могла быть "Кино" в прошлый раз).
         findViewById<TextView>(R.id.overlayPlaylistName)?.text =
@@ -2012,7 +2052,24 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun hideChannelList() {
-        channelListOverlay.visibility = View.GONE
+        if (channelListOverlay.visibility != View.VISIBLE) {
+            channelListVisible = false
+            return
+        }
+        // Round 211: slide-out анимация перед GONE.
+        val panel = findViewById<View>(R.id.channelListPanel)
+        val outAnim = android.view.animation.AnimationUtils.loadAnimation(
+            this, R.anim.slide_out_left)
+        outAnim.setAnimationListener(object : android.view.animation.Animation.AnimationListener {
+            override fun onAnimationStart(a: android.view.animation.Animation?) {}
+            override fun onAnimationRepeat(a: android.view.animation.Animation?) {}
+            override fun onAnimationEnd(a: android.view.animation.Animation?) {
+                channelListOverlay.visibility = View.GONE
+            }
+        })
+        findViewById<View>(R.id.channelListDimBg)?.startAnimation(
+            android.view.animation.AnimationUtils.loadAnimation(this, R.anim.fade_out))
+        panel?.startAnimation(outAnim)
         channelListVisible = false
         // Сбрасываем панель категорий и возвращаем список каналов в
         // visible-состояние. Так при следующем открытии (1-й DPAD_LEFT)
@@ -2089,23 +2146,64 @@ class PlayerActivity : BaseActivity() {
         ::playerDrawerOverlay.isInitialized &&
             playerDrawerOverlay.visibility == View.VISIBLE
 
-    private fun showPlayerDrawer() {
+    /** Round 211: центральное popup-меню в стиле SS IPTV (фото 4).
+     *  Заменяет showCenterMenu() для 3-го LEFT-нажатия — выглядит
+     *  как красочное модальное меню вместо боковой панели. */
+    private fun centerMenuVisible(): Boolean {
+        val v = findViewById<View>(R.id.playerCenterMenuOverlay) ?: return false
+        return v.visibility == View.VISIBLE
+    }
+
+    private fun showCenterMenu() {
+        val overlay = findViewById<FrameLayout>(R.id.playerCenterMenuOverlay) ?: return
+        val panel = findViewById<View>(R.id.playerCenterMenuPanel)
+        // Заполняем имя текущего плейлиста как «текущий выбор» в меню.
+        val playlistLabel = findViewById<TextView>(R.id.centerMenuPlaylistName)
+        playlistLabel?.text = prefs.lastPlaylistName?.takeIf { it.isNotBlank() }
+            ?: getString(R.string.no_playlist_url)
+        overlay.visibility = View.VISIBLE
+        overlay.bringToFront()
+        // Анимация: сначала тёмный фон fade-in, потом панель scale-in.
+        findViewById<View>(R.id.playerCenterMenuDimBg)?.startAnimation(
+            android.view.animation.AnimationUtils.loadAnimation(this, R.anim.fade_in))
+        panel?.startAnimation(
+            android.view.animation.AnimationUtils.loadAnimation(this, R.anim.popup_scale_in))
+        currentFocus?.clearFocus()
+        overlay.post {
+            findViewById<View>(R.id.centerMenuSettings)?.requestFocus()
+        }
+    }
+
+    private fun hideCenterMenu() {
+        val overlay = findViewById<FrameLayout>(R.id.playerCenterMenuOverlay) ?: return
+        if (overlay.visibility != View.VISIBLE) return
+        val panel = findViewById<View>(R.id.playerCenterMenuPanel)
+        val outAnim = android.view.animation.AnimationUtils.loadAnimation(
+            this, R.anim.popup_scale_out)
+        outAnim.setAnimationListener(object : android.view.animation.Animation.AnimationListener {
+            override fun onAnimationStart(a: android.view.animation.Animation?) {}
+            override fun onAnimationRepeat(a: android.view.animation.Animation?) {}
+            override fun onAnimationEnd(a: android.view.animation.Animation?) {
+                overlay.visibility = View.GONE
+            }
+        })
+        findViewById<View>(R.id.playerCenterMenuDimBg)?.startAnimation(
+            android.view.animation.AnimationUtils.loadAnimation(this, R.anim.fade_out))
+        panel?.startAnimation(outAnim)
+    }
+
+    /** Round 211: oригинальная функция showPlayerDrawer переименована
+     *  обратно — она больше не вызывается напрямую, но оставлена в
+     *  коде на случай отката. hidePlayerDrawer() / playerDrawerVisible()
+     *  всё ещё нужны: dim-фон и BACK-key обработка. */
+    @Suppress("unused")
+    private fun showPlayerDrawerLegacy() {
         playerDrawerOverlay.visibility = View.VISIBLE
         playerDrawerOverlay.bringToFront()
-        // Сдвигаем панель списка каналов вправо ровно на ширину выдвижного
-        // меню (260dp — см. activity_player.xml), чтобы оба элемента
-        // отображались рядом, а не перекрывали друг друга.
         val drawerWidth = (260 * resources.displayMetrics.density).toInt()
         findViewById<View>(R.id.channelListPanel)
             ?.animate()?.translationX(drawerWidth.toFloat())?.setDuration(150)?.start()
-        // Сначала очищаем фокус с того что было до открытия drawer'а,
-        // иначе на TV-боксе DPAD_CENTER в drawer'е активирует ту
-        // кнопку что была сфокусирована раньше (например "назад"
-        // в ТВ Гиде).
         currentFocus?.clearFocus()
-        // post() чтобы фокус-запрос произошёл ПОСЛЕ того как drawer
-        // прошёл layout и его пункты стали focusable. Без этого
-        // requestFocus иногда возвращает false и фокус не переходит.
         playerDrawerOverlay.post {
             playerDrawerOverlay.findViewById<View>(R.id.playerDrawerPlaylists)?.requestFocus()
         }
@@ -2160,10 +2258,9 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun showPlayerRightMenu() {
+        val wasVisible = playerRightMenuOverlay.visibility == View.VISIBLE
         playerRightMenuOverlay.visibility = View.VISIBLE
         playerRightMenuOverlay.bringToFront()
-        // Toggle-надпись на кнопке "Избранное": если канал уже в
-        // избранном — "Убрать из избранного", иначе "В избранное".
         val ch = ChannelDataHolder.allChannels.getOrNull(currentIndex)
         val favBtn = playerRightMenuOverlay
             .findViewById<com.google.android.material.button.MaterialButton>(R.id.rightMenuFavorite)
@@ -2171,13 +2268,32 @@ class PlayerActivity : BaseActivity() {
             val isFav = prefs.isFavorite(ch.url)
             favBtn?.text = getString(if (isFav) R.string.unfavorite else R.string.favorite)
         }
+        // Round 211: slide-in справа.
+        if (!wasVisible) {
+            findViewById<View>(R.id.playerRightMenuDimBg)?.startAnimation(
+                android.view.animation.AnimationUtils.loadAnimation(this, R.anim.fade_in))
+            findViewById<View>(R.id.playerRightMenuPanel)?.startAnimation(
+                android.view.animation.AnimationUtils.loadAnimation(this, R.anim.slide_in_right))
+        }
         playerRightMenuOverlay.findViewById<View>(R.id.rightMenuFavorite)?.requestFocus()
     }
 
     private fun hidePlayerRightMenu() {
-        if (::playerRightMenuOverlay.isInitialized) {
-            playerRightMenuOverlay.visibility = View.GONE
-        }
+        if (!::playerRightMenuOverlay.isInitialized) return
+        if (playerRightMenuOverlay.visibility != View.VISIBLE) return
+        // Round 211: slide-out вправо.
+        val outAnim = android.view.animation.AnimationUtils.loadAnimation(
+            this, R.anim.slide_out_right)
+        outAnim.setAnimationListener(object : android.view.animation.Animation.AnimationListener {
+            override fun onAnimationStart(a: android.view.animation.Animation?) {}
+            override fun onAnimationRepeat(a: android.view.animation.Animation?) {}
+            override fun onAnimationEnd(a: android.view.animation.Animation?) {
+                playerRightMenuOverlay.visibility = View.GONE
+            }
+        })
+        findViewById<View>(R.id.playerRightMenuDimBg)?.startAnimation(
+            android.view.animation.AnimationUtils.loadAnimation(this, R.anim.fade_out))
+        findViewById<View>(R.id.playerRightMenuPanel)?.startAnimation(outAnim)
     }
 
     private fun isInsideControlsOverlay(v: View): Boolean {
@@ -2263,6 +2379,15 @@ class PlayerActivity : BaseActivity() {
         // живёт пока юзер взаимодействует.
         if (event.action == KeyEvent.ACTION_DOWN && channelListVisible) {
             bumpChannelListIdleTimer()
+        }
+        // Round 211: BACK / RIGHT для центрального popup-меню.
+        if (event.action == KeyEvent.ACTION_DOWN && centerMenuVisible()) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_BACK,
+                KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                    hideCenterMenu(); return true
+                }
+            }
         }
         // BACK / DPAD_RIGHT при открытом drawer'е — закрываем сами,
         // ДО того как DPAD_CENTER / OK успеет кликнуть какую-то
@@ -2436,7 +2561,7 @@ class PlayerActivity : BaseActivity() {
                             // следующий RIGHT покажет список каналов
                             // (категории скрываются), ещё RIGHT — закроет
                             // overlay полностью.
-                            showPlayerDrawer()
+                            showCenterMenu()
                             return true
                         }
                         !catsShown && hasCategories -> {
@@ -2475,7 +2600,7 @@ class PlayerActivity : BaseActivity() {
                         }
                         else -> {
                             // 2-е LEFT без категорий → сразу меню плеера.
-                            showPlayerDrawer()
+                            showCenterMenu()
                             return true
                         }
                     }
