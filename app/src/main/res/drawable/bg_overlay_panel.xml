@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Alpha 80 = 50%: было B3 = 70%, до этого E6 = 90%. Юзер на
-     TV-боксе попросил ещё полупрозрачнее, чтобы видео нормально
-     просвечивало через список каналов. -->
+<!-- Round 217: ещё снизили прозрачность по жалобе "список каналов
+     не совсем прозрачный". Alpha 60 ≈ 38%, видео через панель видно
+     отчётливо. Цвет немного темнее (#1A1A30) чтобы текст всё ещё читался.
+     Раньше: 80 = 50%, 90 = 56%, B3 = 70%, E6 = 90%. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="#80242445"/>
+    <solid android:color="#601A1A30"/>
     <corners android:topRightRadius="16dp" android:bottomRightRadius="16dp"/>
 </shape>

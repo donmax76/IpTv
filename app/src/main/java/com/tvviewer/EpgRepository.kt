@@ -147,6 +147,24 @@ object EpgRepository {
     private suspend fun doFetchAll(cleaned: List<String>, context: Context?): Map<String, List<Programme>> = coroutineScope {
         if (context != null) ErrorLogger.info(context, "EPG",
             "fetchAll start: ${cleaned.size} sources, filter=${channelFilter?.size ?: 0} keys")
+
+        // Round 217: WakeLock на время парсинга. Юзер прислал лог с
+        // Xiaomi LEX820 — парсинг 6531 каналов занял 9.5 минут вместо
+        // 47 сек на другом телефоне. Причина: Android приморозил
+        // фоновый CPU когда юзер свернул приложение. WakeLock
+        // PARTIAL_WAKE_LOCK гарантирует что CPU не уйдёт в idle.
+        // Освобождается в finally независимо от исхода.
+        val wakeLock: android.os.PowerManager.WakeLock? = try {
+            val pm = context?.getSystemService(Context.POWER_SERVICE)
+                as? android.os.PowerManager
+            pm?.newWakeLock(
+                android.os.PowerManager.PARTIAL_WAKE_LOCK,
+                "TVViewer:EpgFetch"
+            )?.also {
+                it.setReferenceCounted(false)
+                it.acquire(15 * 60 * 1000L /* 15 min max */)
+            }
+        } catch (_: Throwable) { null }
         val summary = mutableListOf<Pair<String, Int>>()
         val errors = mutableListOf<Pair<String, String>>()
         // Раньше каждый fetchSingle оборачивался в runCatching и его
@@ -215,6 +233,9 @@ object EpgRepository {
             "fetchAll done: merged=${merged.size} channels, " +
             "summary=${summary.joinToString { "${it.first.substringAfter("://").substringBefore("/").take(20)}=${it.second}" }}, " +
             "errors=${errors.size}")
+        // Round 217: освобождаем WakeLock. У него 15-мин таймаут, так
+        // что даже при exception fileLock не висит навсегда.
+        try { wakeLock?.takeIf { it.isHeld }?.release() } catch (_: Throwable) {}
         merged.ifEmpty { loadFromCache(context) ?: emptyMap() }
     }
 
