@@ -545,10 +545,10 @@ object EpgRepository {
     private fun deserializeEpg(json: String): Map<String, List<Programme>> {
         val result = mutableMapOf<String, List<Programme>>()
         // Тот же временной фильтр что и в parseXmltvFast: только
-        // Round 216: окно сужено до 2 дней (см. parseXmltvFast).
+        // Round 216: окно сужено до 3 дней (см. parseXmltvFast).
         val now = System.currentTimeMillis()
         val keepFrom = now - 2L * 60 * 60 * 1000               // 2 часа назад
-        val keepTo = now + 48L * 60 * 60 * 1000                 // +48 часов
+        val keepTo = now + 72L * 60 * 60 * 1000                 // +72 часа (3 дня)
         try {
             val obj = org.json.JSONObject(json)
             // Двухпроходный обход: сначала собираем все ключи с
@@ -709,14 +709,14 @@ object EpgRepository {
         val tagDisplayNameOpen = "<display-name"
         val tagDisplayNameClose = "</display-name>"
 
-        // Round 216: время-фильтр сужен с 7 дней до 2 дней.
+        // Round 216: время-фильтр сужен с 7 дней до 3 дней.
         // XMLTV-файлы обычно содержат архив на неделю назад/вперёд,
-        // но юзеру видны только программы "Сейчас / Далее" + следующий
-        // день. Скидываем всё что > 48 часов вперёд и > 2 часов назад —
-        // парсер тратит меньше времени и меньше памяти.
+        // но юзеру видны только программы "Сейчас / Далее / завтра /
+        // послезавтра". Скидываем всё что > 72 часов вперёд и > 2
+        // часов назад — парсер быстрее, памяти меньше.
         val nowMillis = System.currentTimeMillis()
-        val keepFrom = nowMillis - 2L * 60 * 60 * 1000        // 2 часа назад
-        val keepTo = nowMillis + 48L * 60 * 60 * 1000          // +48 часов
+        val keepFrom = nowMillis - 2L * 60 * 60 * 1000         // 2 часа назад
+        val keepTo = nowMillis + 72L * 60 * 60 * 1000           // +72 часа (3 дня)
 
         // Универсальный поиск открывающего тега: ищет "<name" + любой
         // whitespace ИЛИ ">". Раньше искал ровно "<programme " (с
