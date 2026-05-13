@@ -350,6 +350,36 @@
                         android:orientation="horizontal"
                         android:gravity="center_vertical">
 
+                        <!-- Round 213: тач-кнопка «меню» слева — открывает
+                             центральное popup-меню (фото 4 SS IPTV). На пульте
+                             то же самое делает 3-е DPAD_LEFT. На телефоне
+                             без неё юзер не мог попасть в меню. -->
+                        <ImageButton
+                            android:id="@+id/btnTouchOpenMenu"
+                            android:layout_width="36dp"
+                            android:layout_height="36dp"
+                            android:src="@drawable/ic_menu"
+                            android:background="?attr/selectableItemBackgroundBorderless"
+                            android:tint="#FF09B8E5"
+                            android:padding="6dp"
+                            android:layout_marginEnd="8dp"
+                            android:contentDescription="@string/settings"
+                            android:focusable="false"/>
+
+                        <!-- Round 213: тач-кнопка категорий — открывает
+                             панель категорий. На пульте — 2-е DPAD_LEFT. -->
+                        <ImageButton
+                            android:id="@+id/btnTouchOpenCategories"
+                            android:layout_width="36dp"
+                            android:layout_height="36dp"
+                            android:src="@drawable/ic_channels"
+                            android:background="?attr/selectableItemBackgroundBorderless"
+                            android:tint="#FF09B8E5"
+                            android:padding="6dp"
+                            android:layout_marginEnd="8dp"
+                            android:contentDescription="@string/category"
+                            android:focusable="false"/>
+
                         <TextView
                             android:id="@+id/overlayPlaylistName"
                             android:layout_width="0dp"

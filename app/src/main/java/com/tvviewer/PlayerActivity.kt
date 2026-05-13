@@ -402,6 +402,34 @@ class PlayerActivity : BaseActivity() {
         findViewById<View>(R.id.btnTouchRightMenu)?.setOnClickListener {
             showPlayerRightMenu()
         }
+        // Round 213: тач-кнопки в верхней панели списка каналов —
+        // позволяют пользователю на ТЕЛЕФОНЕ (где нет DPAD) попасть
+        // в категории и центральное меню. На пульте те же действия —
+        // 2-е и 3-е DPAD_LEFT.
+        findViewById<View>(R.id.btnTouchOpenCategories)?.setOnClickListener {
+            // Имитируем 2-е LEFT: скрываем панель каналов, показываем
+            // ТОЛЬКО панель категорий, расширяем её до 240dp.
+            if (!::overlayCategoriesPanel.isInitialized) return@setOnClickListener
+            if (!hasOverlayCategories()) return@setOnClickListener
+            findViewById<View>(R.id.overlayChannelsPanel)?.visibility = View.GONE
+            overlayCategoriesPanel.visibility = View.VISIBLE
+            val lpCats = overlayCategoriesPanel.layoutParams
+            lpCats.width = (240 * resources.displayMetrics.density).toInt()
+            overlayCategoriesPanel.layoutParams = lpCats
+            overlayCategoriesPanel.post {
+                overlayCategoriesList.requestFocus()
+                val target = (overlayCategoriesList.adapter
+                    as? CategoryAdapter)?.selectedPosition() ?: 0
+                overlayCategoriesList.scrollToPosition(target)
+                overlayCategoriesList.post {
+                    overlayCategoriesList.findViewHolderForAdapterPosition(target)
+                        ?.itemView?.requestFocus()
+                }
+            }
+        }
+        findViewById<View>(R.id.btnTouchOpenMenu)?.setOnClickListener {
+            showCenterMenu()
+        }
         // Избранное: добавить/убрать ТЕКУЩИЙ канал. Кнопка-toggle —
         // текст и иконка меняются в showPlayerRightMenu в зависимости
         // от того, в избранном ли канал сейчас.
