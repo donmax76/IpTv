@@ -545,10 +545,10 @@ object EpgRepository {
     private fun deserializeEpg(json: String): Map<String, List<Programme>> {
         val result = mutableMapOf<String, List<Programme>>()
         // Тот же временной фильтр что и в parseXmltvFast: только
-        // программы из окна [вчера, +7 дней].
+        // Round 216: окно сужено до 2 дней (см. parseXmltvFast).
         val now = System.currentTimeMillis()
-        val keepFrom = now - 24L * 60 * 60 * 1000
-        val keepTo = now + 7L * 24 * 60 * 60 * 1000
+        val keepFrom = now - 2L * 60 * 60 * 1000               // 2 часа назад
+        val keepTo = now + 48L * 60 * 60 * 1000                 // +48 часов
         try {
             val obj = org.json.JSONObject(json)
             // Двухпроходный обход: сначала собираем все ключи с
@@ -709,13 +709,14 @@ object EpgRepository {
         val tagDisplayNameOpen = "<display-name"
         val tagDisplayNameClose = "</display-name>"
 
-        // Время-фильтр: отбрасываем программы старше вчера и дальше
-        // чем +7 дней от сейчас. XMLTV-файлы обычно содержат архив
-        // на неделю назад/вперёд, нам нужна только текущая неделя.
-        // Вторая неделя = в 2 раза больше памяти зря.
+        // Round 216: время-фильтр сужен с 7 дней до 2 дней.
+        // XMLTV-файлы обычно содержат архив на неделю назад/вперёд,
+        // но юзеру видны только программы "Сейчас / Далее" + следующий
+        // день. Скидываем всё что > 48 часов вперёд и > 2 часов назад —
+        // парсер тратит меньше времени и меньше памяти.
         val nowMillis = System.currentTimeMillis()
-        val keepFrom = nowMillis - 24L * 60 * 60 * 1000      // вчера
-        val keepTo = nowMillis + 7L * 24 * 60 * 60 * 1000    // +7 дней
+        val keepFrom = nowMillis - 2L * 60 * 60 * 1000        // 2 часа назад
+        val keepTo = nowMillis + 48L * 60 * 60 * 1000          // +48 часов
 
         // Универсальный поиск открывающего тега: ищет "<name" + любой
         // whitespace ИЛИ ">". Раньше искал ровно "<programme " (с
