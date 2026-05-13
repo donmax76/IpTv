@@ -15,15 +15,17 @@ import java.util.concurrent.TimeUnit
 object UpdateChecker {
 
     private const val TAG = "TVViewer"
-    /** Round 204: переключились с /releases/latest на /releases (список).
-     *  В тот же репо публикуется FM Radio с тегом "latest", который
-     *  перебивает GitHub'овский флаг latest и заставлял extractVersionCode
-     *  вернуть 0 (тег "latest" не соответствует паттерну
-     *  "v5.4-buildN"). Юзер жаловался: "обновление не находит".
-     *  Теперь берём список (50 свежих релизов хватит надолго) и берём
-     *  первый matching по нашему паттерну. */
-    private const val GITHUB_RELEASES_URL =
-        "https://api.github.com/repos/donmax76/IpTv/releases?per_page=50"
+    /** Round 215: GitHub API сортирует /releases по created_at DESC, но
+     *  у нашего репо все теги имеют одну и ту же created_at дату (дата
+     *  создания репо). При совпадающих created_at API возвращает
+     *  СТАРЕЙШИЕ первыми (по id ASC), и первая страница содержит билды
+     *  86-185 примерно — наши свежие 280+ не находились, авто-проверка
+     *  видела «На сервере: build 95».
+     *  Решение: пагинация. Перебираем до 20 страниц по 100 релизов
+     *  (2000 макс), фильтруем v*-buildN, берём максимальный билд. */
+    private const val GITHUB_API_BASE = "https://api.github.com/repos/donmax76/IpTv/releases"
+    private const val MAX_PAGES = 20
+    private const val PER_PAGE = 100
     private val OUR_TAG_REGEX = Regex("^v\\d+\\.\\d+-build\\d+$")
 
     private val client = OkHttpClient.Builder()
@@ -62,40 +64,50 @@ object UpdateChecker {
 
     private fun checkGitHubReleases(): Result<UpdateInfo?> {
         try {
-            val request = Request.Builder()
-                .url(GITHUB_RELEASES_URL)
-                .header("Accept", "application/vnd.github.v3+json")
-                .header("User-Agent", "TVViewer-App")
-                .build()
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                return Result.failure(Exception("GitHub API HTTP ${response.code}"))
-            }
-
-            val body = response.body?.string() ?: return Result.failure(Exception("Empty response"))
-            val arr = JSONArray(body)
-
             fun safeStr(o: JSONObject, key: String): String =
                 if (o.isNull(key)) "" else o.optString(key, "")
 
-            // Round 204: ищем самый свежий релиз с тегом vN.M-buildK,
-            // игнорируя посторонние теги ("latest" от FM Radio и т.п.).
-            // GitHub отдаёт релизы по убыванию created_at, поэтому
-            // первый matching = самый свежий.
+            // Round 215: пагинация. GitHub API возвращает наши релизы в
+            // непредсказуемом порядке (все имеют одинаковый created_at),
+            // поэтому первая страница не обязательно содержит самый
+            // свежий билд. Перебираем до MAX_PAGES страниц.
             var bestRelease: JSONObject? = null
             var bestCode = 0
-            for (i in 0 until arr.length()) {
-                val rel = arr.getJSONObject(i)
-                val tag = safeStr(rel, "tag_name")
-                if (!OUR_TAG_REGEX.matches(tag)) continue
-                val code = extractVersionCode(tag)
-                if (code > bestCode) {
-                    bestCode = code
-                    bestRelease = rel
+            var page = 1
+            while (page <= MAX_PAGES) {
+                val request = Request.Builder()
+                    .url("$GITHUB_API_BASE?per_page=$PER_PAGE&page=$page")
+                    .header("Accept", "application/vnd.github.v3+json")
+                    .header("User-Agent", "TVViewer-App")
+                    .build()
+                val response = client.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    if (page == 1) {
+                        return Result.failure(Exception("GitHub API HTTP ${response.code}"))
+                    }
+                    break  // rate limit или нет данных — используем то что собрали
                 }
+                val body = response.body?.string() ?: break
+                val arr = JSONArray(body)
+                if (arr.length() == 0) break  // конец страниц
+
+                for (i in 0 until arr.length()) {
+                    val rel = arr.getJSONObject(i)
+                    val tag = safeStr(rel, "tag_name")
+                    if (!OUR_TAG_REGEX.matches(tag)) continue
+                    val code = extractVersionCode(tag)
+                    if (code > bestCode) {
+                        bestCode = code
+                        bestRelease = rel
+                    }
+                }
+
+                if (arr.length() < PER_PAGE) break  // последняя страница
+                page++
             }
+
             if (bestRelease == null || bestCode <= 0) {
-                Log.d(TAG, "No matching v*-buildN release found")
+                Log.d(TAG, "No matching v*-buildN release found (scanned $page pages)")
                 return Result.success(null)
             }
             val json = bestRelease
