@@ -179,17 +179,22 @@
 
         </LinearLayout>
 
+        <!-- Round 218: сердечко скрыто по запросу юзера — «убери сердечки
+             из списка, добавить в избранное можно через правое меню».
+             Кнопка осталась в разметке (visibility=gone) ради ID-ссылок
+             в OverlayChannelAdapter — иначе ViewHolder.favoriteBtn падает
+             в NPE. -->
         <ImageButton
             android:id="@+id/overlayFavoriteBtn"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
             android:src="@drawable/ic_favorite_border"
             android:tint="#80FFFFFF"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:scaleType="center"
             android:contentDescription="@string/favorite"
-            android:focusable="true"
-            android:focusableInTouchMode="false"
+            android:focusable="false"
+            android:visibility="gone"
             android:layout_marginStart="6dp"/>
 
     </LinearLayout>
