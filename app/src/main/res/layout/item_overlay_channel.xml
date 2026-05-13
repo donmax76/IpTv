@@ -1,12 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Round 212: расширенный layout строки канала для overlay панели —
+     по образцу SS IPTV (фото 2). Слева: номер + лого + название.
+     Справа от названия — 3 ячейки с будущими программами (время + название).
+     Дальше — кнопка избранного. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:paddingStart="12dp"
     android:paddingEnd="12dp"
-    android:paddingTop="6dp"
-    android:paddingBottom="6dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="8dp"
     android:focusable="true"
     android:focusableInTouchMode="false"
     android:background="@drawable/bg_epg_item">
@@ -36,16 +40,18 @@
             android:adjustViewBounds="true"
             android:src="@drawable/ic_channel_placeholder"/>
 
+        <!-- Колонка названия канала: имя, источник (для favorites),
+             текущая программа (now). Фиксированная ширина 180dp чтобы
+             EPG-ячейки справа имели достаточно места. -->
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="180dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
             android:orientation="vertical"
             android:layout_marginStart="8dp">
 
             <TextView
                 android:id="@+id/overlayChannelName"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:textColor="@android:color/white"
                 android:textSize="@dimen/overlay_channel_name_text"
@@ -53,11 +59,9 @@
                 android:singleLine="true"
                 android:ellipsize="end"/>
 
-            <!-- Имя плейлиста-источника (для избранных) — фиолетовая
-                 подпись под именем канала, как в FavoritesFragment. -->
             <TextView
                 android:id="@+id/overlayChannelSource"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:textColor="#7C6CF7"
                 android:textSize="10sp"
@@ -68,13 +72,110 @@
 
             <TextView
                 android:id="@+id/overlayChannelEpg"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:textColor="#B0FFFFFF"
                 android:textSize="11sp"
                 android:singleLine="true"
                 android:ellipsize="end"
                 android:visibility="gone"/>
+
+        </LinearLayout>
+
+        <!-- Round 212: 3 ячейки EPG-расписания справа (как в SS IPTV).
+             Каждая ячейка: время (12 sp, cyan) сверху + название
+             программы (13 sp, белая) снизу. weight=1 поровну делит
+             остаток ширины. -->
+        <LinearLayout
+            android:id="@+id/overlayEpgSlot1"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="10dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/overlayEpgTime1"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#FF09B8E5"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:singleLine="true"/>
+
+            <TextView
+                android:id="@+id/overlayEpgTitle1"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@android:color/white"
+                android:textSize="12sp"
+                android:singleLine="true"
+                android:ellipsize="end"/>
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/overlayEpgSlot2"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="6dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/overlayEpgTime2"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#FF09B8E5"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:singleLine="true"/>
+
+            <TextView
+                android:id="@+id/overlayEpgTitle2"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@android:color/white"
+                android:textSize="12sp"
+                android:singleLine="true"
+                android:ellipsize="end"/>
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/overlayEpgSlot3"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="6dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/overlayEpgTime3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#FF09B8E5"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:singleLine="true"/>
+
+            <TextView
+                android:id="@+id/overlayEpgTitle3"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@android:color/white"
+                android:textSize="12sp"
+                android:singleLine="true"
+                android:ellipsize="end"/>
 
         </LinearLayout>
 
@@ -88,17 +189,19 @@
             android:scaleType="center"
             android:contentDescription="@string/favorite"
             android:focusable="true"
-            android:focusableInTouchMode="false"/>
+            android:focusableInTouchMode="false"
+            android:layout_marginStart="6dp"/>
 
     </LinearLayout>
 
-    <!-- EPG progress bar -->
+    <!-- EPG progress bar — индикатор прогресса ТЕКУЩЕЙ программы.
+         Виден только если EPG для канала найдено. -->
     <ProgressBar
         android:id="@+id/overlayEpgProgress"
         style="?android:attr/progressBarStyleHorizontal"
         android:layout_width="match_parent"
         android:layout_height="2dp"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="6dp"
         android:layout_marginStart="34dp"
         android:progressTint="@color/primary"
         android:progressBackgroundTint="#20FFFFFF"

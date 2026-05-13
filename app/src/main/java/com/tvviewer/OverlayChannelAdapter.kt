@@ -56,6 +56,16 @@ class OverlayChannelAdapter(
         val source: TextView = view.findViewById(R.id.overlayChannelSource)
         val favoriteBtn: ImageButton = view.findViewById(R.id.overlayFavoriteBtn)
         val epgProgress: ProgressBar = view.findViewById(R.id.overlayEpgProgress)
+        // Round 212: 3 ячейки EPG-расписания справа от названия канала.
+        val epgSlot1: View = view.findViewById(R.id.overlayEpgSlot1)
+        val epgSlot2: View = view.findViewById(R.id.overlayEpgSlot2)
+        val epgSlot3: View = view.findViewById(R.id.overlayEpgSlot3)
+        val epgTime1: TextView = view.findViewById(R.id.overlayEpgTime1)
+        val epgTime2: TextView = view.findViewById(R.id.overlayEpgTime2)
+        val epgTime3: TextView = view.findViewById(R.id.overlayEpgTime3)
+        val epgTitle1: TextView = view.findViewById(R.id.overlayEpgTitle1)
+        val epgTitle2: TextView = view.findViewById(R.id.overlayEpgTitle2)
+        val epgTitle3: TextView = view.findViewById(R.id.overlayEpgTitle3)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -92,7 +102,7 @@ class OverlayChannelAdapter(
         }
 
         // EPG now/next with time
-        val (nowProg, nextProg) = EpgRepository.getNowNextDetailed(epgData, channel.tvgId, channel.name)
+        val (nowProg, _) = EpgRepository.getNowNextDetailed(epgData, channel.tvgId, channel.name)
         if (nowProg != null) {
             val nowTime = timeFormat.format(Date(nowProg.start))
             val nowEndTime = timeFormat.format(Date(nowProg.end))
@@ -106,6 +116,27 @@ class OverlayChannelAdapter(
         } else {
             holder.epg.visibility = View.GONE
             holder.epgProgress.visibility = View.GONE
+        }
+
+        // Round 212: 3 ячейки расписания справа (SS IPTV-стиль).
+        // Получаем следующие 3 программы после "now" и подставляем.
+        val upcoming = EpgRepository.getUpcomingProgrammes(
+            epgData, channel.tvgId, channel.name, 3)
+        val slots = listOf(
+            Triple(holder.epgSlot1, holder.epgTime1, holder.epgTitle1),
+            Triple(holder.epgSlot2, holder.epgTime2, holder.epgTitle2),
+            Triple(holder.epgSlot3, holder.epgTime3, holder.epgTitle3),
+        )
+        for (i in slots.indices) {
+            val (slot, timeView, titleView) = slots[i]
+            val prog = upcoming.getOrNull(i)
+            if (prog != null) {
+                timeView.text = timeFormat.format(Date(prog.start))
+                titleView.text = prog.title
+                slot.visibility = View.VISIBLE
+            } else {
+                slot.visibility = View.GONE
+            }
         }
 
         // Highlight the currently-playing channel WITHOUT overriding the

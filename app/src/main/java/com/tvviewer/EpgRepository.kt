@@ -1177,6 +1177,24 @@ object EpgRepository {
         return nowProg to nextProg
     }
 
+    /** Round 212: вернуть N программ, которые НАЧИНАЮТСЯ ПОЗЖЕ
+     *  текущего времени (после "now"). Используется в OverlayChannelAdapter
+     *  для отрисовки следующих 2-3 программ в строке канала (стиль SS IPTV). */
+    fun getUpcomingProgrammes(
+        epg: Map<String, List<Programme>>,
+        tvgId: String?,
+        channelName: String?,
+        count: Int,
+    ): List<Programme> {
+        val programmes = lookupProgrammes(epg, tvgId, channelName) ?: return emptyList()
+        val now = System.currentTimeMillis()
+        return programmes.asSequence()
+            .filter { it.start > now }
+            .sortedBy { it.start }
+            .take(count)
+            .toList()
+    }
+
     /** Универсальный поиск programmes для канала. Применяется ко
      *  всему: getNowNextDetailed, getProgrammesForDay, прямые
      *  обращения. Перебираем все возможные ключи в порядке от точного

@@ -328,7 +328,7 @@
                  Скрывается на 2-м DPAD_LEFT когда показываем категории. -->
             <LinearLayout
                 android:id="@+id/overlayChannelsPanel"
-                android:layout_width="320dp"
+                android:layout_width="720dp"
                 android:layout_height="match_parent"
                 android:orientation="vertical"
                 android:background="@drawable/bg_overlay_panel"
@@ -429,7 +429,7 @@
             android:layout_width="380dp"
             android:layout_height="match_parent"
             android:layout_gravity="start"
-            android:layout_marginStart="320dp"
+            android:layout_marginStart="720dp"
             android:background="@drawable/bg_overlay_panel"
             android:padding="16dp"
             android:visibility="gone"
