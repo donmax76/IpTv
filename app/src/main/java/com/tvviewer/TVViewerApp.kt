@@ -236,8 +236,14 @@ class TVViewerApp : Application(), ImageLoaderFactory {
                 // ErrorLogger чтобы можно было прислать лог если ещё
                 // и эти параметры не помогут.
                 val prefs = AppPreferences(applicationContext)
-                val checkInterval = 30L * 60 * 1000   // 30 мин
-                val staleAfter = 12L * 60 * 60 * 1000 // 12 ч
+                val checkInterval = 30L * 60 * 1000    // 30 мин
+                // Round 219: staleAfter 12 ч → 48 ч. EPG-парсер сохраняет
+                // программы на 3 дня вперёд (Round 216b). Фетчить раз в
+                // 12 ч было пустой тратой — данные ещё свежие на 60 часов
+                // вперёд. 48 ч = когда остаётся ~24 ч данных (запас на
+                // случай сетевой ошибки). Юзер на 3-й день увидит свежий
+                // EPG автоматически.
+                val staleAfter = 48L * 60 * 60 * 1000  // 48 ч
                 while (true) {
                     val urls = prefs.allEpgUrls()
                     val staleAt = System.currentTimeMillis() - staleAfter
