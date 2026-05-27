@@ -121,8 +121,21 @@ class FmRadioService : Service() {
     var isPlaying = false
         private set
 
+    @Volatile
     var currentFrequency: Long = 100000000L
         private set
+
+    // Raw DSP thread reference so stopPlayback can join it (prevents a new
+    // dspThread starting while the old one still touches the shared native
+    // g_dsp state → filter corruption / distortion).
+    @Volatile
+    private var dspThread: Thread? = null
+
+    // Cross-thread native-DSP reset request. tuneToFrequency sets this; the DSP
+    // thread performs the actual reset() at a safe point in its loop, so we never
+    // memset filter buffers from the main thread while the DSP thread reads them.
+    @Volatile
+    private var pendingDspReset = false
 
     @Volatile
     private var rdsGeneration = 0  // increments on freq change, RDS thread checks this
@@ -304,19 +317,24 @@ class FmRadioService : Service() {
     fun tuneToFrequency(frequencyHz: Long) {
         currentFrequency = frequencyHz
 
+        rdsGeneration++  // invalidate any pending RDS data in queue
+
         if (isPlaying) {
             serviceScope.launch {
                 device?.setFrequency(frequencyHz)
                 delay(60)
                 device?.resetBuffer()
             }
-            // Flush old audio immediately so user hears new frequency right away
-            audioPlayer?.flush()
+            // Ask the DSP thread to reset native filters + flush audio at a safe
+            // point. Doing it here (main thread) would memset native buffers while
+            // the DSP thread reads them → NaN/distortion on channel change.
+            pendingDspReset = true
+        } else {
+            // Not playing — no DSP thread running, safe to reset directly.
+            demodulator?.reset()
+            nativeDsp?.reset()
         }
 
-        rdsGeneration++  // invalidate any pending RDS data in queue
-        demodulator?.reset()
-        nativeDsp?.reset()
         rdsDecoder?.reset()
         currentRdsData = RdsDecoder.RdsData()
 
@@ -458,12 +476,23 @@ class FmRadioService : Service() {
         var totalAudioSamples = 0L
         var lastDemodLog = System.currentTimeMillis()
 
-        val dspThread = Thread({
+        val thread = Thread({
             try {
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
             } catch (_: Throwable) {}
 
             while (isPlaying) {
+                // Perform a requested DSP reset HERE (on the DSP thread) rather than
+                // letting tuneToFrequency memset native filter buffers from the main
+                // thread under our feet → avoids NaN bursts / distortion on freq change.
+                if (pendingDspReset) {
+                    pendingDspReset = false
+                    ndsp?.reset()
+                    demodulator?.reset()
+                    iqQueue.clear()
+                    audioPlayer?.flush()
+                }
+
                 val iqData = iqQueue.poll()
                 if (iqData == null) {
                     // Yield instead of sleep(1) — Android sleep(1) actually sleeps 10-15ms
@@ -527,8 +556,9 @@ class FmRadioService : Service() {
                 }
             }
         }, "FmDspDirect")
-        dspThread.priority = Thread.MAX_PRIORITY
-        dspThread.start()
+        thread.priority = Thread.MAX_PRIORITY
+        dspThread = thread
+        thread.start()
 
         updateMediaSessionState()
         updateNotification()
@@ -551,6 +581,15 @@ class FmRadioService : Service() {
         dspJob = null
         sJob?.cancel()
         dJob?.cancel()
+
+        // Join the raw DSP thread before tearing down resources, so a new
+        // playback session can't start a second thread against the shared
+        // native g_dsp state (causes filter corruption / distortion).
+        val t = dspThread
+        dspThread = null
+        if (t != null && t != Thread.currentThread()) {
+            try { t.join(1500) } catch (_: InterruptedException) {}
+        }
 
         demodulator?.widebandListener = null
         val oldDemod = demodulator

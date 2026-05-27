@@ -349,7 +349,11 @@ class MainActivity : Activity() {
     }
 
     private fun restoreSettings() {
+        // Coerce into the restored band — a stale saved frequency from a
+        // different band would otherwise push seekbar progress out of range
+        // and tune out of band on startup.
         currentFrequency = stationStorage.lastFrequency
+            .coerceIn(currentBand.startHz, currentBand.endHz)
         updateFrequencyDisplay(currentFrequency)
         seekFrequency.progress = frequencyToProgress(currentFrequency)
 
@@ -1048,14 +1052,16 @@ class MainActivity : Activity() {
 
                 val update = UpdateChecker.check(versionCode)
                 if (update != null) {
-                    AlertDialog.Builder(this@MainActivity)
-                        .setTitle("Update Available")
-                        .setMessage("New version ${update.versionName} is available.\nCurrent version code: $versionCode\n\nUpdate now?")
-                        .setPositiveButton("Update") { _, _ ->
-                            UpdateInstaller.downloadAndInstall(this@MainActivity, update.downloadUrl)
-                        }
-                        .setNegativeButton("Later", null)
-                        .show()
+                    if (!isFinishing && !isDestroyed) {
+                        AlertDialog.Builder(this@MainActivity)
+                            .setTitle("Update Available")
+                            .setMessage("New version ${update.versionName} is available.\nCurrent version code: $versionCode\n\nUpdate now?")
+                            .setPositiveButton("Update") { _, _ ->
+                                UpdateInstaller.downloadAndInstall(this@MainActivity, update.downloadUrl)
+                            }
+                            .setNegativeButton("Later", null)
+                            .show()
+                    }
                 } else {
                     showToast("App is up to date")
                 }
@@ -1075,7 +1081,7 @@ class MainActivity : Activity() {
                 } catch (_: Exception) { 0 }
 
                 val update = UpdateChecker.check(versionCode)
-                if (update != null) {
+                if (update != null && !isFinishing && !isDestroyed) {
                     AlertDialog.Builder(this@MainActivity)
                         .setTitle("Update Available")
                         .setMessage("New version ${update.versionName} is available.\nCurrent build: $versionCode\n\nUpdate now?")
@@ -1164,6 +1170,19 @@ class MainActivity : Activity() {
         try { unregisterReceiver(usbDetachReceiver) } catch (_: IllegalArgumentException) {}
         try { unregisterReceiver(usbAttachReceiver) } catch (_: IllegalArgumentException) {}
         permissionHelper.unregister()
+        // Clear all service callbacks — they capture this Activity, and the
+        // foreground service outlives it. Leaving them set leaks the whole view
+        // tree on every recreate (rotation, theme/language change).
+        radioService?.let { svc ->
+            svc.onFrequencyChanged = null
+            svc.onRdsDataReceived = null
+            svc.onStereoChanged = null
+            svc.onSeekComplete = null
+            svc.onPlaybackStateChanged = null
+            svc.onSignalStrengthChanged = null
+            svc.onAudioData = null
+        }
+        DebugLog.onNewLine = null
         if (serviceBound) { unbindService(serviceConnection); serviceBound = false }
         rtlSdrDevice?.close()
         activityScope.cancel()

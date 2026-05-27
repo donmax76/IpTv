@@ -1039,6 +1039,27 @@ class RtlSdrDevice(private val context: Context) {
     }
 
     /**
+     * Recover a stalled bulk endpoint. When bulkTransfer returns -1 (EPIPE /
+     * endpoint halt — seen on BYD DiLink), the halt latches and every later read
+     * also returns -1 → permanent silent audio. Clearing the halt + resetting the
+     * FIFO unstalls it. Called from the streaming loop after repeated failed reads.
+     */
+    fun recoverEndpoint(): Boolean {
+        if (!isOpen) return false
+        if (!usbLock.tryLock()) return false  // a control transfer is in progress; skip
+        return try {
+            clearEndpointHalt()
+            resetBufferInternal()
+            DebugLog.log("USB", "recoverEndpoint: cleared halt + reset FIFO")
+            true
+        } catch (_: Exception) {
+            false
+        } finally {
+            usbLock.unlock()
+        }
+    }
+
+    /**
      * Send USB standard CLEAR_FEATURE(ENDPOINT_HALT) to unstall the bulk endpoint.
      * Android's UsbDeviceConnection doesn't provide clearHalt(), so we do it manually.
      * This is CRITICAL — without it, bulkTransfer returns -1 immediately (EPIPE).
@@ -1083,13 +1104,16 @@ class RtlSdrDevice(private val context: Context) {
                 buf.limit(length)
 
                 val request = UsbRequest()
+                var queuedOk = false
                 try {
                     if (request.initialize(conn, ep)) {
                         @Suppress("DEPRECATION")
                         val queued = request.queue(buf, length)
                         if (queued) {
+                            queuedOk = true
                             val response = conn.requestWait(timeoutMs.toLong())
                             if (response != null) {
+                                queuedOk = false  // completed normally, nothing to cancel
                                 buf.flip()
                                 val bytesRead = buf.remaining()
                                 if (bytesRead > 0) {
@@ -1102,6 +1126,10 @@ class RtlSdrDevice(private val context: Context) {
                         }
                     }
                 } finally {
+                    // On timeout the URB is still queued in the kernel — cancel it
+                    // before close(), otherwise the pending request leaks a native
+                    // handle on every timeout (slow USB death over time).
+                    if (queuedOk) try { request.cancel() } catch (_: Throwable) {}
                     request.close()
                 }
             } catch (e: Throwable) {
@@ -1243,6 +1271,12 @@ class RtlSdrDevice(private val context: Context) {
                         if (nullReads <= 3) {
                             DebugLog.log("USB", "readSamples returned null/empty (#$nullReads)")
                         }
+                        // Endpoint likely stalled (bulkTransfer=-1 / EPIPE). Try to
+                        // unstall it instead of looping forever on a dead endpoint.
+                        if (nullReads == 5 || (nullReads > 5 && nullReads % 20 == 0)) {
+                            recoverEndpoint()
+                            delay(20)
+                        }
                     }
                 } catch (e: Throwable) {
                     if (isStreaming) {
@@ -1342,10 +1376,12 @@ class RtlSdrDevice(private val context: Context) {
             // Reset EPA (endpoint) to stop any pending transfers
             try { writeReg(BLOCK_USB, USB_EPA_CTL, 0x0002, 2) } catch (_: Exception) {}
 
-            // Disable ADC (demod_ctl bit 5 = 0)
+            // Disable ADC (clear demod_ctl bit 5). 0xDF = ~0x20, masking off only
+            // bit 5 and keeping all other bits. (Was `0xDF.inv()` = 0x20, which
+            // wrongly cleared everything except bits 5 and 7.)
             try {
                 val demodCtl = readReg(BLOCK_SYS, SYS_DEMOD_CTL, 1)
-                writeReg(BLOCK_SYS, SYS_DEMOD_CTL, demodCtl and 0xDF.inv(), 1)
+                writeReg(BLOCK_SYS, SYS_DEMOD_CTL, demodCtl and 0xDF, 1)
             } catch (_: Exception) {}
 
             if (usbInterface != null) {

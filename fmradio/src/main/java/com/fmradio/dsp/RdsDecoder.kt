@@ -344,15 +344,20 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             processBit(decodedBit)
         }
 
-        // Clock recovery: track zero crossings on the magnitude-signed channel
-        // (use whichever of I/Q has larger magnitude — most of the signal energy)
-        val sample = if (abs(mI) >= abs(mQ)) mI else mQ
-        if ((sample > 0 && prevRdsSample <= 0) || (sample < 0 && prevRdsSample >= 0)) {
+        // Clock recovery: rotation-invariant timing.
+        // Project the current complex sample onto the PREVIOUS symbol's axis
+        // (prevSymI/Q). That axis is stable across a whole symbol period, so its
+        // sign only flips at genuine data transitions — giving clean symbol-edge
+        // timing. The old code picked max(|I|,|Q|) per sample, which switched
+        // channels sample-to-sample and injected spurious zero-crossings that
+        // corrupted the bit clock (root cause of "good=1 bad=4" / never syncing).
+        val proj = mI * prevSymI + mQ * prevSymQ
+        if ((proj > 0f && prevRdsSample <= 0f) || (proj < 0f && prevRdsSample >= 0f)) {
             val error = clockPhase - samplesPerBit / 2
             val correction = (error * 0.05f).coerceIn(-samplesPerBit * 0.1f, samplesPerBit * 0.1f)
             clockPhase -= correction
         }
-        prevRdsSample = sample
+        prevRdsSample = proj
     }
 
     private fun processBit(bit: Int) {
@@ -398,7 +403,12 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                     goodBlocks++
                     totalGoodBlocks++
                     badBlocks = (badBlocks - 1).coerceAtLeast(0)
-                    if (!syncConfirmed) syncConfirmGood++
+                    if (!syncConfirmed) {
+                        syncConfirmGood++
+                        // Decaying window: a good block forgives an earlier bad one,
+                        // so a real but noisy signal can still confirm.
+                        syncConfirmBad = (syncConfirmBad - 1).coerceAtLeast(0)
+                    }
                 } else {
                     groupValid[blockIndex] = false
                     badBlocks++
@@ -406,31 +416,31 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                     if (!syncConfirmed) syncConfirmBad++
                 }
 
-                // Sync confirmation: need 5 good blocks in the first 8 checked
+                // Sync confirmation: confirm at 3 good blocks; reject only after
+                // 6 bad (with decay above). Looser than before so FC0013's noisy
+                // RDS can lock instead of being rejected at the first bad block.
                 if (!syncConfirmed) {
-                    val totalChecked = syncConfirmGood + syncConfirmBad
-                    if (syncConfirmBad >= 4) {
-                        // Too many bad blocks — this was false sync
+                    if (syncConfirmBad >= 6) {
                         Log.d(TAG, "RDS sync REJECTED (good=$syncConfirmGood bad=$syncConfirmBad)")
                         DebugLog.log(TAG, "RDS sync REJECTED (good=$syncConfirmGood bad=$syncConfirmBad)")
                         synced = false
-                        bitCount = 0
+                        bitCount = 26  // resume syndrome search immediately, no 26-bit blind wait
                         return
                     }
-                    if (syncConfirmGood >= 5) {
+                    if (syncConfirmGood >= 3) {
                         syncConfirmed = true
                         Log.d(TAG, "RDS sync CONFIRMED at bit $totalBitsProcessed")
                         DebugLog.log(TAG, "RDS sync CONFIRMED at bit $totalBitsProcessed")
                     }
                 }
 
-                // Once confirmed, lose sync after 12 consecutive bad blocks
-                if (syncConfirmed && badBlocks > 12) {
+                // Once confirmed, lose sync after 20 consecutive bad blocks
+                if (syncConfirmed && badBlocks > 20) {
                     Log.d(TAG, "RDS sync LOST (badBlocks=$badBlocks)")
                     DebugLog.log(TAG, "RDS sync LOST (badBlocks=$badBlocks)")
                     synced = false
                     syncConfirmed = false
-                    bitCount = 0
+                    bitCount = 26  // resume search immediately
                     return
                 }
 
@@ -438,8 +448,11 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 bitCount = 0
 
                 if (blockIndex >= 4) {
-                    // Require both A and B valid for reliable group decode
-                    if (syncConfirmed && goodBlocks >= 2 && groupValid[0] && groupValid[1]) {
+                    // Require block B valid (it carries the group type — without it
+                    // we can't interpret C/D). Block A (PI) and data blocks C/D are
+                    // checked individually inside decodeGroup via groupValid[], so a
+                    // group with a corrupt A but good B+D can still yield PS text.
+                    if (syncConfirmed && groupValid[1]) {
                         decodeGroup()
                     }
                     blockIndex = 0
@@ -605,9 +618,11 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             msFlag = (blockB and 0x0008) != 0
         }
 
+        val cValid = groupValid[2]
+        val dValid = groupValid[3]
         when (groupType) {
-            0 -> decodeGroup0(blockB, blockC, blockD, versionB)  // PS name + AF
-            2 -> decodeGroup2(blockB, blockC, blockD, versionB)  // RadioText
+            0 -> decodeGroup0(blockB, blockC, blockD, versionB, cValid, dValid)  // PS name + AF
+            2 -> decodeGroup2(blockB, blockC, blockD, versionB, cValid, dValid)  // RadioText
         }
 
         // Notify listener
@@ -619,10 +634,14 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
 
     // Group 0: Programme Service name (2 chars per group) + Alternative Frequencies
     // Uses consistency checking: character pair must be received identically twice
-    private fun decodeGroup0(blockB: Int, blockC: Int, blockD: Int, versionB: Boolean) {
+    private fun decodeGroup0(blockB: Int, blockC: Int, blockD: Int, versionB: Boolean,
+                             cValid: Boolean, dValid: Boolean) {
         val segmentAddr = blockB and 0x03
         val pos = segmentAddr * 2
 
+        // PS characters come from block D — skip if that block failed CRC,
+        // otherwise garbage chars would poison the PS consistency buffer.
+        if (dValid) {
         val c1 = rdsCharToUnicode((blockD shr 8) and 0xFF)
         val c2 = rdsCharToUnicode(blockD and 0xFF)
 
@@ -647,9 +666,10 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 }
             }
         }
+        }
 
         // AF (Alternative Frequencies) from block C in version A
-        if (!versionB) {
+        if (!versionB && cValid) {
             decodeAfCode((blockC shr 8) and 0xFF)
             decodeAfCode(blockC and 0xFF)
         }
@@ -668,7 +688,8 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
 
     // Group 2: RadioText (4 chars per group in version A, 2 in version B)
     // Only triggers dataChanged when at least one valid character is found
-    private fun decodeGroup2(blockB: Int, blockC: Int, blockD: Int, versionB: Boolean) {
+    private fun decodeGroup2(blockB: Int, blockC: Int, blockD: Int, versionB: Boolean,
+                             cValid: Boolean, dValid: Boolean) {
         // RT A/B flag (bit 4 of blockB): when it toggles, station changed the
         // text → clear the entire RT buffer so old chars don't mix with new.
         val abFlag = (blockB shr 4) and 0x01
@@ -682,6 +703,8 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         val segmentAddr = blockB and 0x0F
 
         if (!versionB) {
+            // Version A RT needs both C and D (4 chars). Skip if either failed CRC.
+            if (!cValid || !dValid) return
             val pos = segmentAddr * 4
             if (pos + 3 < rtChars.size) {
                 val chars = intArrayOf(
@@ -707,6 +730,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             }
         } else {
             // Version B: 2 chars per segment from block D
+            if (!dValid) return
             val pos = segmentAddr * 2
             if (pos + 1 < rtChars.size) {
                 val chars = intArrayOf((blockD shr 8) and 0xFF, blockD and 0xFF)
