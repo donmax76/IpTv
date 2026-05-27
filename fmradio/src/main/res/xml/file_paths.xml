@@ -2,4 +2,5 @@
 <paths>
     <external-files-path name="logs" path="logs/" />
     <external-files-path name="backup" path="backup/" />
+    <external-files-path name="updates" path="updates/" />
 </paths>

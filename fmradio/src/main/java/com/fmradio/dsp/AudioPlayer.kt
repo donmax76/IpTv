@@ -3,6 +3,7 @@ package com.fmradio.dsp
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.os.Build
 import android.util.Log
 
 /**
@@ -39,11 +40,9 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
     private var currentVolume = 1f
     private val volumeRampStep = 1f / (sampleRate * 0.05f)  // 50ms ramp
 
-    // Clock drift compensation: RTL-SDR crystal ≠ Android audio clock.
-    // When buf drops, duplicate frames; when buf rises, skip frames.
-    // One frame per ~240 is inaudible but prevents underrun/overflow.
-    private val paddingFrame = ShortArray(2)
+    // Adaptive clock-drift correction via playback speed.
     private var driftCounter = 0
+    private var currentSpeed = 1.0f
 
     fun start() {
         if (isPlaying) return
@@ -132,31 +131,32 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                 val headPos = track?.playbackHeadPosition ?: 0
                 val bufDiff = framesWritten + actualFrames - headPos
                 val bufSize = track?.bufferSizeInFrames ?: 0
-                DebugLog.log(TAG, "aud: w=$written/$count buf=$bufDiff head=$headPos total=${framesWritten + actualFrames} bufSize=$bufSize")
+                DebugLog.log(TAG, "aud: w=$written/$count buf=$bufDiff bufSize=$bufSize spd=${"%.3f".format(currentSpeed)}")
             }
 
             framesWritten += actualFrames
 
-            // Clock drift compensation: check buffer level every 64 writes
-            if (preBufferDone && ++driftCounter >= 64) {
+            // Adaptive clock-drift correction via playback speed (API 23+).
+            // RTL-SDR crystal ≠ Android audio clock → buffer drifts. Instead of
+            // duplicating/dropping frames (audible clicks), we nudge AudioTrack's
+            // playback speed by a tiny amount to hold the buffer at ~50%. A ±few %
+            // continuous speed change is inaudible; no glitches.
+            if (preBufferDone && Build.VERSION.SDK_INT >= 23 && ++driftCounter >= 48) {
                 driftCounter = 0
                 val track = audioTrack
                 if (track != null) {
                     val headPos = track.playbackHeadPosition.toLong()
                     val bufLevel = framesWritten - headPos
-                    val bufCap = track.bufferSizeInFrames.toLong()
-                    val target = bufCap / 2  // aim for 50% fill
-
-                    if (bufLevel < bufCap / 4) {
-                        // Buffer draining (DSP slower than AudioTrack) — pad with last frame
-                        paddingFrame[0] = samples[count - 2]
-                        paddingFrame[1] = samples[count - 1]
-                        val padCount = ((target - bufLevel) / 200).coerceIn(1, 50).toInt()
-                        for (p in 0 until padCount) {
-                            val pw = track.write(paddingFrame, 0, 2, AudioTrack.WRITE_NON_BLOCKING)
-                            if (pw == 2) framesWritten++
-                            else break
-                        }
+                    val bufCap = track.bufferSizeInFrames.toLong().coerceAtLeast(1)
+                    // error: -0.5 (empty) .. +0.5 (full), 0 at target 50%
+                    val error = (bufLevel.toFloat() / bufCap) - 0.5f
+                    // Proportional control: full buffer → play faster, empty → slower
+                    val newSpeed = (1.0f + error * 0.12f).coerceIn(0.93f, 1.07f)
+                    if (kotlin.math.abs(newSpeed - currentSpeed) > 0.005f) {
+                        currentSpeed = newSpeed
+                        try {
+                            track.playbackParams = track.playbackParams.setSpeed(newSpeed)
+                        } catch (_: Exception) {}
                     }
                 }
             }
@@ -181,6 +181,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         framesWritten = 0L
         preBufferDone = false
         driftCounter = 0
+        currentSpeed = 1.0f
         // play() will be called again from writeSamples when pre-buffer fills
     }
 
