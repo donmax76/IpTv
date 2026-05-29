@@ -495,9 +495,7 @@ class FmRadioService : Service() {
 
                 val iqData = iqQueue.poll()
                 if (iqData == null) {
-                    // Yield instead of sleep(1) — Android sleep(1) actually sleeps 10-15ms
-                    // due to scheduler granularity, wasting 1.5% throughput → buf drains.
-                    Thread.yield()
+                    java.util.concurrent.locks.LockSupport.parkNanos(100_000L) // 100µs
                     continue
                 }
 
@@ -822,6 +820,7 @@ class FmRadioService : Service() {
         serviceScope.cancel()
         usbDispatcher.close()
         dspDispatcher.close()
+        rdsDispatcher.close()
         super.onDestroy()
     }
 }

@@ -100,6 +100,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     // Complex differential decoding — stores previous symbol's I/Q for phase-agnostic detection
     private var prevSymI = 0f
     private var prevSymQ = 0f
+    private var prevSymValid = false  // false until first symbol captured
 
     // Bit stream buffer for group assembly
     private var bitBuffer = 0L
@@ -134,6 +135,9 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
 
     // RDS decoded fields
     private var piCode = 0
+    private var piConfirmCount = 0   // how many groups confirmed the current PI
+    private var piCandidate = 0      // candidate PI awaiting confirmation
+    private var piCandidateCount = 0
     private var ptyCode = 0
     private var tpFlag = false
     private var taFlag = false
@@ -336,6 +340,16 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         if (clockPhase >= samplesPerBit) {
             clockPhase -= samplesPerBit
 
+            if (!prevSymValid) {
+                // First symbol — just capture the reference, don't decode.
+                // With prevSymI/Q both 0, the dot product and projection would
+                // be 0 → wrong bit decision + clock hammered by false crossings.
+                prevSymI = mI
+                prevSymQ = mQ
+                prevSymValid = true
+                return
+            }
+
             val dot = mI * prevSymI + mQ * prevSymQ
             val decodedBit = if (dot > 0f) 0 else 1
             prevSymI = mI
@@ -344,13 +358,8 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             processBit(decodedBit)
         }
 
-        // Clock recovery: rotation-invariant timing.
-        // Project the current complex sample onto the PREVIOUS symbol's axis
-        // (prevSymI/Q). That axis is stable across a whole symbol period, so its
-        // sign only flips at genuine data transitions — giving clean symbol-edge
-        // timing. The old code picked max(|I|,|Q|) per sample, which switched
-        // channels sample-to-sample and injected spurious zero-crossings that
-        // corrupted the bit clock (root cause of "good=1 bad=4" / never syncing).
+        // Clock recovery: project onto previous symbol's axis for stable timing.
+        if (!prevSymValid) return
         val proj = mI * prevSymI + mQ * prevSymQ
         if ((proj > 0f && prevRdsSample <= 0f) || (proj < 0f && prevRdsSample >= 0f)) {
             val error = clockPhase - samplesPerBit / 2
@@ -402,7 +411,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                     groupValid[blockIndex] = true
                     goodBlocks++
                     totalGoodBlocks++
-                    badBlocks = (badBlocks - 1).coerceAtLeast(0)
+                    badBlocks = 0  // reset: truly consecutive bad counter
                     if (!syncConfirmed) {
                         syncConfirmGood++
                         // Decaying window: a good block forgives an earlier bad one,
@@ -565,20 +574,29 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         val blockA = groupData[0]
         val blockB = groupData[1]
 
-        // Validate PI code consistency: if PI changes from a known-good value,
-        // this group is likely from false sync or corrupted block A → skip it.
-        // Allows first PI to set, then rejects different PI codes.
-        if (blockA != 0 && piCode != 0 && blockA != piCode && groupValid[0]) {
-            // PI mismatch with previously established station → skip garbage
-            return
+        // PI code confirmation: require 3 identical PI codes before locking.
+        // Prevents a single false-sync group from setting a wrong PI that
+        // rejects all subsequent real groups.
+        if (groupValid[0] && blockA != 0) {
+            if (piCode == 0) {
+                // No PI yet — use candidate tracking
+                if (blockA == piCandidate) {
+                    piCandidateCount++
+                    if (piCandidateCount >= 3) {
+                        piCode = blockA
+                        piConfirmCount = 3
+                    }
+                } else {
+                    piCandidate = blockA
+                    piCandidateCount = 1
+                }
+            } else if (blockA != piCode) {
+                // Mismatch with confirmed PI — skip this group
+                return
+            }
         }
         val blockC = groupData[2]
         val blockD = groupData[3]
-
-        // PI code from block A
-        if (blockA != 0) {
-            piCode = blockA
-        }
 
         // Group type and version
         val groupType = (blockB shr 12) and 0x0F
@@ -797,6 +815,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         prevRdsSample = 0f
         prevSymI = 0f
         prevSymQ = 0f
+        prevSymValid = false
         bitBuffer = 0L
         bitCount = 0
         synced = false
@@ -818,6 +837,9 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         rtConfirmedLength = 0
         rtAbFlag = -1
         piCode = 0
+        piConfirmCount = 0
+        piCandidate = 0
+        piCandidateCount = 0
         ptyCode = 0
         tpFlag = false
         taFlag = false

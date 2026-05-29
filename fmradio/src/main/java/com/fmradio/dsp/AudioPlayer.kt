@@ -43,6 +43,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
     // Adaptive clock-drift correction via playback speed.
     private var driftCounter = 0
     private var currentSpeed = 1.0f
+    private var smoothedBufLevel = 0.5f  // EMA of buffer fill ratio
 
     fun start() {
         if (isPlaying) return
@@ -141,22 +142,24 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             // duplicating/dropping frames (audible clicks), we nudge AudioTrack's
             // playback speed by a tiny amount to hold the buffer at ~50%. A ±few %
             // continuous speed change is inaudible; no glitches.
-            if (preBufferDone && Build.VERSION.SDK_INT >= 23 && ++driftCounter >= 48) {
+            if (preBufferDone && Build.VERSION.SDK_INT >= 23 && ++driftCounter >= 128) {
                 driftCounter = 0
                 val track = audioTrack
                 if (track != null) {
-                    val headPos = track.playbackHeadPosition.toLong()
+                    val headPos = track.playbackHeadPosition.toLong() and 0xFFFFFFFFL
                     val bufLevel = framesWritten - headPos
                     val bufCap = track.bufferSizeInFrames.toLong().coerceAtLeast(1)
-                    // error: -0.5 (empty) .. +0.5 (full), 0 at target 50%
-                    val error = (bufLevel.toFloat() / bufCap) - 0.5f
-                    // Proportional control: full buffer → play faster, empty → slower
-                    val newSpeed = (1.0f + error * 0.12f).coerceIn(0.93f, 1.07f)
-                    if (kotlin.math.abs(newSpeed - currentSpeed) > 0.005f) {
-                        currentSpeed = newSpeed
-                        try {
-                            track.playbackParams = track.playbackParams.setSpeed(newSpeed)
-                        } catch (_: Exception) {}
+                    if (bufLevel in 0..bufCap * 2) {
+                        val ratio = (bufLevel.toFloat() / bufCap).coerceIn(0f, 1f)
+                        smoothedBufLevel = smoothedBufLevel * 0.85f + ratio * 0.15f
+                        val error = smoothedBufLevel - 0.5f
+                        val newSpeed = (1.0f + error * 0.04f).coerceIn(0.97f, 1.03f)
+                        if (kotlin.math.abs(newSpeed - currentSpeed) > 0.002f) {
+                            currentSpeed = newSpeed
+                            try {
+                                track.playbackParams = track.playbackParams.setSpeed(newSpeed)
+                            } catch (_: Exception) {}
+                        }
                     }
                 }
             }
@@ -182,7 +185,8 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         preBufferDone = false
         driftCounter = 0
         currentSpeed = 1.0f
-        // play() will be called again from writeSamples when pre-buffer fills
+        smoothedBufLevel = 0.5f
+        try { audioTrack?.playbackParams = audioTrack?.playbackParams?.setSpeed(1.0f)!! } catch (_: Exception) {}
     }
 
     fun stop() {
