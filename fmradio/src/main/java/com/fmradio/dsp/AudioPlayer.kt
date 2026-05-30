@@ -142,7 +142,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             // duplicating/dropping frames (audible clicks), we nudge AudioTrack's
             // playback speed by a tiny amount to hold the buffer at ~50%. A ±few %
             // continuous speed change is inaudible; no glitches.
-            if (preBufferDone && Build.VERSION.SDK_INT >= 23 && ++driftCounter >= 128) {
+            if (preBufferDone && Build.VERSION.SDK_INT >= 23 && ++driftCounter >= 32) {
                 driftCounter = 0
                 val track = audioTrack
                 if (track != null) {
@@ -151,15 +151,16 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                     val bufCap = track.bufferSizeInFrames.toLong().coerceAtLeast(1)
                     if (bufLevel in 0..bufCap * 2) {
                         val ratio = (bufLevel.toFloat() / bufCap).coerceIn(0f, 1f)
-                        smoothedBufLevel = smoothedBufLevel * 0.85f + ratio * 0.15f
+                        // Fast-tracking EMA: alpha=0.5 for quick response to drift
+                        smoothedBufLevel = smoothedBufLevel * 0.5f + ratio * 0.5f
+                        // error>0 = buffer above 50% → speed up playback to drain
+                        // error<0 = buffer below 50% → slow down playback to fill
                         val error = smoothedBufLevel - 0.5f
-                        val newSpeed = (1.0f + error * 0.04f).coerceIn(0.97f, 1.03f)
-                        if (kotlin.math.abs(newSpeed - currentSpeed) > 0.002f) {
-                            currentSpeed = newSpeed
-                            try {
-                                track.playbackParams = track.playbackParams.setSpeed(newSpeed)
-                            } catch (_: Exception) {}
-                        }
+                        val newSpeed = (1.0f + error * 0.10f).coerceIn(0.92f, 1.08f)
+                        currentSpeed = newSpeed
+                        try {
+                            track.playbackParams = track.playbackParams.setSpeed(newSpeed)
+                        } catch (_: Exception) {}
                     }
                 }
             }
