@@ -191,9 +191,16 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         framesWritten = 0L
         preBufferDone = false
         driftCounter = 0
-        currentSpeed = 1.0f
-        smoothedBufLevel = 0.5f
-        try { audioTrack?.playbackRate = sampleRate } catch (_: Exception) {}
+        // Keep currentSpeed and smoothedBufLevel — the clock drift is a hardware
+        // property that doesn't change between stations. Resetting to 1.0 caused
+        // the buffer to overflow immediately after channel switch (DSP produces at
+        // 0.96x rate but AudioTrack consumed at 1.0x → buffer full in 1 sec →
+        // non-blocking write dropped samples → audible clicks).
+        // Re-apply the learned playback rate so the new pre-buffer fills at the
+        // correct rate from the start.
+        val rate = (sampleRate * currentSpeed).toInt()
+            .coerceIn(sampleRate * 9 / 10, sampleRate * 11 / 10)
+        try { audioTrack?.playbackRate = rate } catch (_: Exception) {}
     }
 
     fun stop() {
