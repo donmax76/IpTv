@@ -3,7 +3,6 @@ package com.fmradio.dsp
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
-import android.os.Build
 import android.util.Log
 
 /**
@@ -142,7 +141,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             // duplicating/dropping frames (audible clicks), we nudge AudioTrack's
             // playback speed by a tiny amount to hold the buffer at ~50%. A ±few %
             // continuous speed change is inaudible; no glitches.
-            if (preBufferDone && Build.VERSION.SDK_INT >= 23 && ++driftCounter >= 32) {
+            if (preBufferDone && ++driftCounter >= 32) {
                 driftCounter = 0
                 val track = audioTrack
                 if (track != null) {
@@ -151,15 +150,22 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                     val bufCap = track.bufferSizeInFrames.toLong().coerceAtLeast(1)
                     if (bufLevel in 0..bufCap * 2) {
                         val ratio = (bufLevel.toFloat() / bufCap).coerceIn(0f, 1f)
-                        // Fast-tracking EMA: alpha=0.5 for quick response to drift
                         smoothedBufLevel = smoothedBufLevel * 0.5f + ratio * 0.5f
-                        // error>0 = buffer above 50% → speed up playback to drain
-                        // error<0 = buffer below 50% → slow down playback to fill
+                        // error>0 = buffer above 50% → speed up playback
+                        // error<0 = buffer below 50% → slow down playback
+                        // Gain 0.5: reaches ±25% correction at extremes.
+                        // BYD needs ~4% correction → ratio settles at ~42%.
                         val error = smoothedBufLevel - 0.5f
-                        val newSpeed = (1.0f + error * 0.10f).coerceIn(0.92f, 1.08f)
+                        val newSpeed = (1.0f + error * 0.5f).coerceIn(0.90f, 1.10f)
                         currentSpeed = newSpeed
+                        // Use setPlaybackRate for direct sample-rate change.
+                        // setPlaybackParams().setSpeed() may do time-stretching on
+                        // some devices (BYD DiLink) which doesn't actually change
+                        // the consumption rate — it just stretches audio.
+                        val newRate = (sampleRate * newSpeed).toInt()
+                            .coerceIn(sampleRate * 9 / 10, sampleRate * 11 / 10)
                         try {
-                            track.playbackParams = track.playbackParams.setSpeed(newSpeed)
+                            track.playbackRate = newRate
                         } catch (_: Exception) {}
                     }
                 }
@@ -187,7 +193,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         driftCounter = 0
         currentSpeed = 1.0f
         smoothedBufLevel = 0.5f
-        try { audioTrack?.playbackParams = audioTrack?.playbackParams?.setSpeed(1.0f)!! } catch (_: Exception) {}
+        try { audioTrack?.playbackRate = sampleRate } catch (_: Exception) {}
     }
 
     fun stop() {
