@@ -11,7 +11,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         private const val TAG = "AudioPlayer"
         private const val FADE_IN_FRAMES = 2400
         private const val PRE_BUFFER_FRAMES = 24000
-        private const val CALIBRATION_SECONDS = 3
+        private const val CALIBRATION_SECONDS = 5  // longer = more accurate rate measurement
     }
 
     private var audioTrack: AudioTrack? = null
@@ -94,8 +94,13 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             if (elapsed >= CALIBRATION_SECONDS && calibrationFrames > sampleRate) {
                 val measured = (calibrationFrames / elapsed).toInt()
                 if (measured in (sampleRate * 85 / 100)..(sampleRate * 100 / 100)) {
-                    measuredRate = measured
-                    actualRate = measured
+                    // Subtract 0.3% to intentionally undershoot — buffer slowly
+                    // fills (safe, non-blocking write drops excess) instead of
+                    // draining (causes underrun gaps). Compensates for measurement
+                    // jitter during the calibration window.
+                    val adjusted = (measured * 997L / 1000L).toInt()
+                    measuredRate = adjusted
+                    actualRate = adjusted
                     // Recreate AudioTrack at the measured rate
                     val oldTrack = audioTrack
                     oldTrack?.pause()

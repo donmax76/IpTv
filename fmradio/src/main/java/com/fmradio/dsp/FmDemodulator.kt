@@ -107,11 +107,11 @@ class FmDemodulator(
     // a real broadcast pilot (10% AM modulation) gives ~0.025-0.035. Use
     // 0.020 lock / 0.012 unlock to keep the gap clean and avoid false stereo
     // on dead frequencies.
-    private val stereoLockThreshold = 0.018f     // match C++ — lower for FC0013
-    private val stereoUnlockThreshold = 0.012f   // match C++
+    private val stereoLockThreshold = 0.016f     // match C++ — FC0013 weak pilot
+    private val stereoUnlockThreshold = 0.006f   // match C++ — wide hysteresis
     private var stereoBlend = 0f                // 0 = mono, 1 = full stereo
-    private val stereoBlendAttack = 0.001f      // match C++
-    private val stereoBlendRelease = 0.0005f    // match C++
+    private val stereoBlendAttack = 0.0003f     // match C++ — 70ms to stereo
+    private val stereoBlendRelease = 0.0001f    // match C++ — 210ms to mono
 
     @Volatile
     var isStereo = false

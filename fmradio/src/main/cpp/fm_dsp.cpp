@@ -124,14 +124,15 @@ struct DspState {
     float pilotStrength = 0;
     bool isStereo = false;
     int pilotDetectWindow;
-    // FC0013 has weaker pilot output than R820T. Lower thresholds so
-    // strong stations get stereo. Noise floor pilot energy ~0.008-0.010,
-    // real pilot ~0.015-0.025 on FC0013.
-    static constexpr float STEREO_LOCK = 0.018f;
-    static constexpr float STEREO_UNLOCK = 0.012f;
+    // FC0013 has weaker pilot output than R820T. Lock at 0.016 catches
+    // real stations, unlock at 0.006 prevents flicker on fading signals.
+    // Wide hysteresis = once stereo locks, it stays locked.
+    static constexpr float STEREO_LOCK = 0.016f;
+    static constexpr float STEREO_UNLOCK = 0.006f;
     float stereoBlend = 0.0f;
-    static constexpr float STEREO_BLEND_ATTACK = 0.001f;
-    static constexpr float STEREO_BLEND_RELEASE = 0.0005f;
+    // Slow blend transitions prevent audible "pumping" on marginal signals
+    static constexpr float STEREO_BLEND_ATTACK = 0.0003f;   // ~70ms to full stereo
+    static constexpr float STEREO_BLEND_RELEASE = 0.0001f;  // ~210ms to mono
 
     // De-emphasis
     float deEmphAlpha;
@@ -252,7 +253,7 @@ struct DspState {
         pilotFreqMin = 2.0 * PI_D * 18500.0 / INTERMEDIATE_RATE;
         pilotFreqMax = 2.0 * PI_D * 19500.0 / INTERMEDIATE_RATE;
 
-        pilotDetectWindow = INTERMEDIATE_RATE / 4;
+        pilotDetectWindow = INTERMEDIATE_RATE / 2;  // 500ms averaging — more stable stereo detection
 
         // De-emphasis 50µs (Europe/Russia)
         float tau = 50e-6f;
