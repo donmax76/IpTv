@@ -87,7 +87,8 @@ struct DspState {
 
     // DC removal
     float dcI = 0, dcQ = 0;
-    static constexpr float dcAlpha = 0.99997f;  // ~5.5 Hz cutoff — preserves full bass
+    // DC alpha: actual value used is 0.999995 (~0.9 Hz cutoff), set in demodulate()
+    // via dcA variable (TEST_DC flag selects between 0.999995 and 0.99995).
 
     // FM discriminator
     float prevI = 0, prevQ = 0;

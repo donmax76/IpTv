@@ -32,7 +32,7 @@ class FmDemodulator(
     // Use faster alpha for quicker convergence on frequency change
     private var dcI = 0f
     private var dcQ = 0f
-    private val dcAlpha = 0.99997f  // ~5.5 Hz cutoff — preserves full bass, matches C++ DSP
+    private val dcAlpha = 0.999995f  // ~0.9 Hz cutoff — matches actual C++ DSP value
 
     // FM discriminator state
     private var prevI = 0f
@@ -107,11 +107,11 @@ class FmDemodulator(
     // a real broadcast pilot (10% AM modulation) gives ~0.025-0.035. Use
     // 0.020 lock / 0.012 unlock to keep the gap clean and avoid false stereo
     // on dead frequencies.
-    private val stereoLockThreshold = 0.020f
-    private val stereoUnlockThreshold = 0.012f
+    private val stereoLockThreshold = 0.030f     // match C++ native DSP
+    private val stereoUnlockThreshold = 0.020f   // match C++ native DSP
     private var stereoBlend = 0f                // 0 = mono, 1 = full stereo
-    private val stereoBlendAttack = 0.002f      // ~500 samples to reach full stereo (~10ms)
-    private val stereoBlendRelease = 0.0005f    // ~2000 samples to go mono (~40ms)
+    private val stereoBlendAttack = 0.0008f     // match C++ — slower, avoids stereo pop
+    private val stereoBlendRelease = 0.0003f    // match C++
 
     @Volatile
     var isStereo = false
@@ -432,8 +432,9 @@ class FmDemodulator(
 
             // Stereo matrix with smooth blend (prevents pops on stereo/mono switch)
             // blend=0: mono (L=R=filtMono), blend=1: full stereo
-            val left = filtMono + filtDiff * stereoBlend * 0.5f
-            val right = filtMono - filtDiff * stereoBlend * 0.5f
+            val diffGain = stereoBlend * 0.7f  // match C++ native DSP
+            val left = filtMono + filtDiff * diffGain
+            val right = filtMono - filtDiff * diffGain
 
             // De-emphasis filter (50µs) — separate state for L and R
             deEmphasisStateL += deEmphasisAlpha * (left - deEmphasisStateL)
@@ -451,7 +452,7 @@ class FmDemodulator(
             // Scale to 16-bit PCM with soft-clip limiter (eliminates harsh hard-clip artifacts
             // on deep-modulated peaks). Uses a cubic soft-knee that is transparent below
             // 0.8 full-scale and rolls off smoothly toward ±1.0.
-            val gain = muteRamp * 28000f
+            val gain = muteRamp * 24000f  // match C++ native DSP
             val sampleL = (softClip(outL * gain / 32767f) * 32767f).toInt()
             val sampleR = (softClip(outR * gain / 32767f) * 32767f).toInt()
 
