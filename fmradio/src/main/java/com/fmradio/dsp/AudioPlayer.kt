@@ -94,11 +94,12 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             if (elapsed >= CALIBRATION_SECONDS && calibrationFrames > sampleRate) {
                 val measured = (calibrationFrames / elapsed).toInt()
                 if (measured in (sampleRate * 85 / 100)..(sampleRate * 100 / 100)) {
-                    // Subtract 0.3% to intentionally undershoot — buffer slowly
-                    // fills (safe, non-blocking write drops excess) instead of
-                    // draining (causes underrun gaps). Compensates for measurement
-                    // jitter during the calibration window.
-                    val adjusted = (measured * 997L / 1000L).toInt()
+                    // Subtract 1.5% from measured rate. The calibration over-estimates
+                    // because it counts frames WRITTEN (including pre-buffer burst)
+                    // rather than frames consumed. 1.5% undershoot ensures buffer
+                    // slowly fills (safe — non-blocking write drops excess) instead
+                    // of draining (causes underrun → clicks).
+                    val adjusted = (measured * 985L / 1000L).toInt()
                     measuredRate = adjusted
                     actualRate = adjusted
                     // Recreate AudioTrack at the measured rate
