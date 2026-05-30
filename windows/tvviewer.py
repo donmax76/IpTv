@@ -44,10 +44,29 @@ from PyQt5.QtGui import QFont, QColor, QPalette, QIcon, QPixmap, QKeySequence
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 import hashlib
 
+# Round 220a: автономная сборка под Windows.
+# PyInstaller --onedir сборка кладёт libvlc.dll / libvlccore.dll / папку
+# plugins/ рядом с TVViewer.exe (через --add-binary в workflow). Чтобы
+# python-vlc нашёл их, до его импорта добавляем директорию EXE в DLL
+# search path и выставляем VLC_PLUGIN_PATH. Без этого юзер видел
+# FileNotFoundError: Could not find module 'libvlc.dll'.
+if getattr(sys, 'frozen', False):
+    _bundle_dir = os.path.dirname(sys.executable)
+    _plugins_dir = os.path.join(_bundle_dir, 'plugins')
+    if os.path.isdir(_plugins_dir):
+        os.environ['VLC_PLUGIN_PATH'] = _plugins_dir
+    if hasattr(os, 'add_dll_directory'):
+        try:
+            os.add_dll_directory(_bundle_dir)
+        except (OSError, FileNotFoundError):
+            pass
+    # PATH fallback for older Python and dependencies of libvlc.dll
+    os.environ['PATH'] = _bundle_dir + os.pathsep + os.environ.get('PATH', '')
+
 try:
     import vlc
     HAS_VLC = True
-except ImportError:
+except (ImportError, OSError, FileNotFoundError):
     HAS_VLC = False
 
 from m3u_parser import fetch_playlist, load_playlist_file, Channel, PlaylistResult
