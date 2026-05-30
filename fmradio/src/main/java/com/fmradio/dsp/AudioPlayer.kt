@@ -39,10 +39,13 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
     private var currentVolume = 1f
     private val volumeRampStep = 1f / (sampleRate * 0.05f)  // 50ms ramp
 
-    // Adaptive clock-drift correction via playback speed.
+    // Clock-drift compensation via frame duplication/skipping.
+    // Keeps AudioTrack at native 48kHz (no pitch change). When buffer is
+    // low, duplicate a few frames per write; when high, skip a few.
     private var driftCounter = 0
-    private var currentSpeed = 1.0f
-    private var smoothedBufLevel = 0.5f  // EMA of buffer fill ratio
+    private var currentSpeed = 1.0f  // for logging only
+    private var smoothedBufLevel = 0.5f
+    private val padBuf = ShortArray(200)  // max 100 stereo frames of padding per check
 
     fun start() {
         if (isPlaying) return
@@ -136,12 +139,12 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
 
             framesWritten += actualFrames
 
-            // Adaptive clock-drift correction via playback speed (API 23+).
-            // RTL-SDR crystal ≠ Android audio clock → buffer drifts. Instead of
-            // duplicating/dropping frames (audible clicks), we nudge AudioTrack's
-            // playback speed by a tiny amount to hold the buffer at ~50%. A ±few %
-            // continuous speed change is inaudible; no glitches.
-            if (preBufferDone && ++driftCounter >= 32) {
+            // Clock-drift compensation: duplicate or skip frames to hold buf at ~50%.
+            // AudioTrack stays at native 48kHz — no pitch change.
+            // DSP on BYD produces ~46K frames/sec (4% deficit). We insert ~2000
+            // extra frames/sec by duplicating the last stereo frame from each write.
+            // One dup per ~24 frames is inaudible. Checked every 16 writes (~230ms).
+            if (preBufferDone && count >= 4 && ++driftCounter >= 16) {
                 driftCounter = 0
                 val track = audioTrack
                 if (track != null) {
@@ -151,22 +154,25 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                     if (bufLevel in 0..bufCap * 2) {
                         val ratio = (bufLevel.toFloat() / bufCap).coerceIn(0f, 1f)
                         smoothedBufLevel = smoothedBufLevel * 0.5f + ratio * 0.5f
-                        // error>0 = buffer above 50% → speed up playback
-                        // error<0 = buffer below 50% → slow down playback
-                        // Gain 0.5: reaches ±25% correction at extremes.
-                        // BYD needs ~4% correction → ratio settles at ~42%.
-                        val error = smoothedBufLevel - 0.5f
-                        val newSpeed = (1.0f + error * 0.5f).coerceIn(0.90f, 1.10f)
-                        currentSpeed = newSpeed
-                        // Use setPlaybackRate for direct sample-rate change.
-                        // setPlaybackParams().setSpeed() may do time-stretching on
-                        // some devices (BYD DiLink) which doesn't actually change
-                        // the consumption rate — it just stretches audio.
-                        val newRate = (sampleRate * newSpeed).toInt()
-                            .coerceIn(sampleRate * 9 / 10, sampleRate * 11 / 10)
-                        try {
-                            track.playbackRate = newRate
-                        } catch (_: Exception) {}
+                        currentSpeed = smoothedBufLevel  // log as fill ratio
+
+                        if (smoothedBufLevel < 0.45f) {
+                            // Buffer draining → insert duplicate frames
+                            val deficit = ((0.5f - smoothedBufLevel) * bufCap * 0.05f)
+                                .toInt().coerceIn(1, 80)
+                            // Fill padBuf with last stereo frame from the write
+                            val lastL = samples[count - 2]
+                            val lastR = samples[count - 1]
+                            for (p in 0 until deficit * 2 step 2) {
+                                padBuf[p] = lastL
+                                padBuf[p + 1] = lastR
+                            }
+                            val padWritten = track.write(padBuf, 0, deficit * 2,
+                                AudioTrack.WRITE_NON_BLOCKING)
+                            if (padWritten > 0) framesWritten += padWritten / 2
+                        }
+                        // Buffer too full → just let non-blocking write naturally
+                        // drop excess (no action needed, AudioTrack handles it)
                     }
                 }
             }
@@ -191,16 +197,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         framesWritten = 0L
         preBufferDone = false
         driftCounter = 0
-        // Keep currentSpeed and smoothedBufLevel — the clock drift is a hardware
-        // property that doesn't change between stations. Resetting to 1.0 caused
-        // the buffer to overflow immediately after channel switch (DSP produces at
-        // 0.96x rate but AudioTrack consumed at 1.0x → buffer full in 1 sec →
-        // non-blocking write dropped samples → audible clicks).
-        // Re-apply the learned playback rate so the new pre-buffer fills at the
-        // correct rate from the start.
-        val rate = (sampleRate * currentSpeed).toInt()
-            .coerceIn(sampleRate * 9 / 10, sampleRate * 11 / 10)
-        try { audioTrack?.playbackRate = rate } catch (_: Exception) {}
+        // Keep smoothedBufLevel — drift is a hardware constant across stations.
     }
 
     fun stop() {
