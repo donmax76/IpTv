@@ -147,6 +147,11 @@
     <string name="bottom_nav_shortcut">MENU düyməsi — aşağı naviqasiyanı açır</string>
     <string name="brightness">Parlaqlıq</string>
     <string name="builtin_playlists">Daxili pleylistlər</string>
+    <string name="by_language">Dilə görə</string>
+    <string name="by_category">Kateqoriyaya görə</string>
+    <string name="by_country">Ölkəyə görə</string>
+    <string name="by_region">Regiona görə</string>
+    <string name="choose_builtin">— Seçin —</string>
     <string name="cache_cleared">Keş təmizləndi</string>
     <string name="cancel">Ləğv et</string>
     <string name="channel_http_headers">HTTP başlıqları</string>

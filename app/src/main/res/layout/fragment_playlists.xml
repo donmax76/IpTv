@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:orientation="vertical"
     android:background="@color/background">
 
     <LinearLayout
@@ -38,8 +39,6 @@
 
         </LinearLayout>
 
-        <!-- Big remote-friendly Add button (replaces the FAB which D-pad
-             couldn't reach behind the bottom nav). -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnAddPlaylist"
             android:layout_width="wrap_content"
@@ -52,38 +51,188 @@
 
     </LinearLayout>
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/playlistsRecyclerView"
+    <!-- Round 220: встроенные плейлисты теперь в 4 комбобоксах вместо
+         длинного списка строк. Сэкономлено ~30 строк в RecyclerView,
+         список своих плейлистов снова виден сразу. -->
+    <LinearLayout
+        android:id="@+id/builtInSection"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:layout_below="@id/headerLayout"
-        android:clipToPadding="false"
-        android:padding="8dp"
-        android:focusable="true"
-        android:descendantFocusability="afterDescendants"
-        android:nextFocusDown="@+id/playlistsRecyclerView"/>
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/section_padding"
+        android:paddingEnd="@dimen/section_padding"
+        android:paddingTop="4dp"
+        android:paddingBottom="8dp">
 
-    <ProgressBar
-        android:id="@+id/progressBar"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:layout_centerInParent="true"
-        android:visibility="gone"
-        android:indeterminateTint="@color/primary"/>
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/builtin_playlists"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="6dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:baselineAligned="false">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:layout_marginEnd="4dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/by_language"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp"/>
+
+                <Spinner
+                    android:id="@+id/spinnerLanguage"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_playlist_card"
+                    android:focusable="true"
+                    android:popupBackground="#2A2A48"/>
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:layout_marginStart="4dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/by_category"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp"/>
+
+                <Spinner
+                    android:id="@+id/spinnerCategory"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_playlist_card"
+                    android:focusable="true"
+                    android:popupBackground="#2A2A48"/>
+
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:baselineAligned="false"
+            android:layout_marginTop="6dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:layout_marginEnd="4dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/by_country"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp"/>
+
+                <Spinner
+                    android:id="@+id/spinnerCountry"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_playlist_card"
+                    android:focusable="true"
+                    android:popupBackground="#2A2A48"/>
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:layout_marginStart="4dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/by_region"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp"/>
+
+                <Spinner
+                    android:id="@+id/spinnerRegion"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_playlist_card"
+                    android:focusable="true"
+                    android:popupBackground="#2A2A48"/>
+
+            </LinearLayout>
+        </LinearLayout>
+
+    </LinearLayout>
 
     <TextView
-        android:id="@+id/emptyText"
+        android:id="@+id/customSectionLabel"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_centerInParent="true"
-        android:text="@string/no_playlists"
-        android:textColor="@color/text_hint"
-        android:textSize="@dimen/settings_title_text"
-        android:visibility="gone"/>
+        android:text="@string/custom_playlists"
+        android:textColor="@color/text_primary"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:paddingStart="@dimen/section_padding"
+        android:paddingEnd="@dimen/section_padding"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"/>
 
-    <!-- Old FAB removed: it was unreachable from a D-pad because the
-         bottom navigation overlapped its focus path. The new button in
-         the header is fully accessible. -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
 
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/playlistsRecyclerView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="8dp"
+            android:focusable="true"
+            android:descendantFocusability="afterDescendants"/>
 
-</RelativeLayout>
+        <ProgressBar
+            android:id="@+id/progressBar"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="center"
+            android:visibility="gone"
+            android:indeterminateTint="@color/primary"/>
+
+        <TextView
+            android:id="@+id/emptyText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="@string/no_playlists"
+            android:textColor="@color/text_hint"
+            android:textSize="@dimen/settings_title_text"
+            android:visibility="gone"/>
+
+    </FrameLayout>
+
+</LinearLayout>

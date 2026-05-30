@@ -146,6 +146,11 @@
     <string name="no_favorites">Нет избранных каналов</string>
     <string name="no_favorites_hint">Добавьте каналы в избранное</string>
     <string name="builtin_playlists">Встроенные плейлисты</string>
+    <string name="by_language">По языку</string>
+    <string name="by_category">По категории</string>
+    <string name="by_country">По стране</string>
+    <string name="by_region">По региону</string>
+    <string name="choose_builtin">— Выберите —</string>
     <string name="channels_count">%d каналов</string>
     <string name="delete">Удалить</string>
     <string name="cancel">Отмена</string>

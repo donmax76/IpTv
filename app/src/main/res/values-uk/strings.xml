@@ -149,6 +149,11 @@
     <string name="bottom_nav_shortcut">Кнопка MENU — відкриває нижню панель</string>
     <string name="brightness">Яскравість</string>
     <string name="builtin_playlists">Вбудовані плейлисти</string>
+    <string name="by_language">За мовою</string>
+    <string name="by_category">За категорією</string>
+    <string name="by_country">За країною</string>
+    <string name="by_region">За регіоном</string>
+    <string name="choose_builtin">— Виберіть —</string>
     <string name="cache_cleared">Кеш очищено</string>
     <string name="cancel">Скасувати</string>
     <string name="channel_http_headers">HTTP заголовки</string>

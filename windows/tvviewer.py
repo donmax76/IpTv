@@ -725,6 +725,58 @@ class PlaylistsPage(QWidget):
             self.refresh_list()
             event.acceptProposedAction()
 
+    # Round 220: parity with Android — built-in iptv-org bundles exposed
+    # via four comboboxes (by language / category / country / region),
+    # custom playlists shown as a list below.
+    BUILTIN_CATEGORIES = [
+        ('By language', [
+            ('🌐 Русскоязычные', 'https://iptv-org.github.io/iptv/languages/rus.m3u'),
+            ('🌐 Українські',    'https://iptv-org.github.io/iptv/languages/ukr.m3u'),
+            ('🌐 Azərbaycanca',  'https://iptv-org.github.io/iptv/languages/aze.m3u'),
+            ('🌐 Türkçe',        'https://iptv-org.github.io/iptv/languages/tur.m3u'),
+            ('🌐 English',       'https://iptv-org.github.io/iptv/languages/eng.m3u'),
+            ('🌐 Deutsch',       'https://iptv-org.github.io/iptv/languages/deu.m3u'),
+            ('🌐 Español',       'https://iptv-org.github.io/iptv/languages/spa.m3u'),
+        ]),
+        ('By category', [
+            ('⚽ Sports',     'https://iptv-org.github.io/iptv/categories/sports.m3u'),
+            ('📰 News',       'https://iptv-org.github.io/iptv/categories/news.m3u'),
+            ('🎵 Music',      'https://iptv-org.github.io/iptv/categories/music.m3u'),
+            ('🎬 Movies',     'https://iptv-org.github.io/iptv/categories/movies.m3u'),
+            ('📺 Entertain.', 'https://iptv-org.github.io/iptv/categories/entertainment.m3u'),
+            ('🧒 Kids',       'https://iptv-org.github.io/iptv/categories/kids.m3u'),
+            ('📚 Documentary','https://iptv-org.github.io/iptv/categories/documentary.m3u'),
+            ('🍳 Cooking',    'https://iptv-org.github.io/iptv/categories/cooking.m3u'),
+        ]),
+        ('By country', [
+            ('🇷🇺 Россия',     'https://iptv-org.github.io/iptv/countries/ru.m3u'),
+            ('🇺🇦 Украина',    'https://iptv-org.github.io/iptv/countries/ua.m3u'),
+            ('🇧🇾 Беларусь',   'https://iptv-org.github.io/iptv/countries/by.m3u'),
+            ('🇰🇿 Казахстан',  'https://iptv-org.github.io/iptv/countries/kz.m3u'),
+            ('🇦🇿 Азербайджан', 'https://iptv-org.github.io/iptv/countries/az.m3u'),
+            ('🇬🇪 Грузия',     'https://iptv-org.github.io/iptv/countries/ge.m3u'),
+            ('🇲🇩 Молдова',    'https://iptv-org.github.io/iptv/countries/md.m3u'),
+            ('🇦🇲 Армения',    'https://iptv-org.github.io/iptv/countries/am.m3u'),
+            ('🇺🇿 Узбекистан', 'https://iptv-org.github.io/iptv/countries/uz.m3u'),
+            ('🇰🇬 Кыргызстан', 'https://iptv-org.github.io/iptv/countries/kg.m3u'),
+            ('🇹🇯 Таджикистан','https://iptv-org.github.io/iptv/countries/tj.m3u'),
+            ('🇵🇱 Польша',     'https://iptv-org.github.io/iptv/countries/pl.m3u'),
+            ('🇩🇪 Германия',   'https://iptv-org.github.io/iptv/countries/de.m3u'),
+            ('🇬🇧 UK',         'https://iptv-org.github.io/iptv/countries/uk.m3u'),
+            ('🇺🇸 США',        'https://iptv-org.github.io/iptv/countries/us.m3u'),
+            ('🇨🇦 Канада',     'https://iptv-org.github.io/iptv/countries/ca.m3u'),
+            ('🇹🇷 Турция',     'https://iptv-org.github.io/iptv/countries/tr.m3u'),
+            ('🇮🇷 Иран',       'https://iptv-org.github.io/iptv/countries/ir.m3u'),
+            ('🇮🇱 Израиль',    'https://iptv-org.github.io/iptv/countries/il.m3u'),
+        ]),
+        ('By region', [
+            ('🌍 СНГ',          'https://iptv-org.github.io/iptv/regions/cis.m3u'),
+            ('🌍 Europe',       'https://iptv-org.github.io/iptv/regions/eur.m3u'),
+            ('🌍 Asia',         'https://iptv-org.github.io/iptv/regions/asia.m3u'),
+            ('🌍 North America','https://iptv-org.github.io/iptv/regions/noram.m3u'),
+        ]),
+    ]
+
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -737,6 +789,37 @@ class PlaylistsPage(QWidget):
         subtitle.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 14px;")
         layout.addWidget(subtitle)
         layout.addSpacing(12)
+
+        # Built-in playlists — four comboboxes (matches Android Round 220).
+        builtin_label = QLabel("Built-in playlists")
+        builtin_label.setStyleSheet(f"color: {COLORS['text_primary']}; font-size: 14px; font-weight: bold;")
+        layout.addWidget(builtin_label)
+
+        self._builtin_combos = []
+        grid = QHBoxLayout()
+        col_left = QVBoxLayout()
+        col_right = QVBoxLayout()
+        for i, (cat_label, items) in enumerate(self.BUILTIN_CATEGORIES):
+            lbl = QLabel(cat_label)
+            lbl.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 12px;")
+            combo = QComboBox()
+            combo.addItem("— Choose —", None)
+            for name, url in items:
+                combo.addItem(name, url)
+            combo.currentIndexChanged.connect(
+                lambda idx, c=combo: self.on_builtin_chosen(c))
+            self._builtin_combos.append(combo)
+            (col_left if i % 2 == 0 else col_right).addWidget(lbl)
+            (col_left if i % 2 == 0 else col_right).addWidget(combo)
+        grid.addLayout(col_left)
+        grid.addSpacing(8)
+        grid.addLayout(col_right)
+        layout.addLayout(grid)
+        layout.addSpacing(12)
+
+        custom_label = QLabel("My playlists")
+        custom_label.setStyleSheet(f"color: {COLORS['text_primary']}; font-size: 14px; font-weight: bold;")
+        layout.addWidget(custom_label)
 
         self.playlist_list = QListWidget()
         self.playlist_list.setSpacing(4)
@@ -762,6 +845,19 @@ class PlaylistsPage(QWidget):
 
         layout.addLayout(btn_row)
         self.refresh_list()
+
+    def on_builtin_chosen(self, combo):
+        idx = combo.currentIndex()
+        if idx <= 0:
+            return
+        url = combo.itemData(idx)
+        name = combo.itemText(idx)
+        if url:
+            self.playlist_selected.emit(name, url)
+        # Reset back to placeholder so reselecting the same item works.
+        combo.blockSignals(True)
+        combo.setCurrentIndex(0)
+        combo.blockSignals(False)
 
     def refresh_list(self):
         self.playlist_list.clear()

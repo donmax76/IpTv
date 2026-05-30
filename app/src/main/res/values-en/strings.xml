@@ -213,6 +213,11 @@
     <string name="back">Back</string>
     <string name="brightness">Brightness</string>
     <string name="builtin_playlists">Built-in playlists</string>
+    <string name="by_language">By language</string>
+    <string name="by_category">By category</string>
+    <string name="by_country">By country</string>
+    <string name="by_region">By region</string>
+    <string name="choose_builtin">— Choose —</string>
     <string name="cache_cleared">Cache cleared</string>
     <string name="channel_info">Info</string>
     <string name="channel_info_format">%1$d / %2$d</string>

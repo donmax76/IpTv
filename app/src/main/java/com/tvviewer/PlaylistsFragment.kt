@@ -6,7 +6,10 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.ProgressBar
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -25,6 +28,13 @@ class PlaylistsFragment : Fragment() {
     private lateinit var emptyText: TextView
     private lateinit var progressBar: ProgressBar
     private lateinit var adapter: PlaylistAdapter
+
+    private lateinit var spinnerLanguage: Spinner
+    private lateinit var spinnerCategory: Spinner
+    private lateinit var spinnerCountry: Spinner
+    private lateinit var spinnerRegion: Spinner
+    private lateinit var customSectionLabel: TextView
+    private lateinit var builtInSection: View
 
     private val addPlaylistLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -45,7 +55,6 @@ class PlaylistsFragment : Fragment() {
             val name = queryFileName(uri) ?: "Imported.m3u"
             val content = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                 ?: throw java.io.IOException("empty stream")
-            // Persist into app filesDir for reuse, then store file:// URL.
             val safeName = name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(80)
             val playlistDir = java.io.File(ctx.filesDir, "imported_playlists").apply { mkdirs() }
             val savedFile = java.io.File(playlistDir, "${System.currentTimeMillis()}_$safeName")
@@ -83,6 +92,12 @@ class PlaylistsFragment : Fragment() {
         recyclerView = view.findViewById(R.id.playlistsRecyclerView)
         emptyText = view.findViewById(R.id.emptyText)
         progressBar = view.findViewById(R.id.progressBar)
+        spinnerLanguage = view.findViewById(R.id.spinnerLanguage)
+        spinnerCategory = view.findViewById(R.id.spinnerCategory)
+        spinnerCountry = view.findViewById(R.id.spinnerCountry)
+        spinnerRegion = view.findViewById(R.id.spinnerRegion)
+        customSectionLabel = view.findViewById(R.id.customSectionLabel)
+        builtInSection = view.findViewById(R.id.builtInSection)
 
         val btnAdd = view.findViewById<View>(R.id.btnAddPlaylist)
         btnAdd?.setOnClickListener {
@@ -115,11 +130,67 @@ class PlaylistsFragment : Fragment() {
         recyclerView.layoutManager = LinearLayoutManager(requireContext())
         recyclerView.adapter = adapter
 
+        setupBuiltInSpinners()
         refreshPlaylists()
-        // Auto-load last playlist убран: точкой входа теперь служит
-        // HomeFragment с кнопкой «Прямой эфир». Без этого юзер
-        // открывает «Плейлисты» чтобы выбрать другой, а его сразу
-        // редиректит в плеер с прошлым.
+    }
+
+    /** Round 220: четыре комбобокса для встроенных подборок iptv-org —
+     *  по языку / категории / стране / региону. Раньше всё это было 30+
+     *  строк в одном списке. */
+    private fun setupBuiltInSpinners() {
+        val show = prefs.showBuiltInPlaylists
+        builtInSection.visibility = if (show) View.VISIBLE else View.GONE
+        if (!show) return
+
+        bindSpinner(spinnerLanguage, "by_language")
+        bindSpinner(spinnerCategory, "by_category")
+        bindSpinner(spinnerCountry, "by_country")
+        bindSpinner(spinnerRegion, "by_region")
+    }
+
+    private fun bindSpinner(spinner: Spinner, categoryId: String) {
+        val items = BuiltInPlaylists.categories
+            .firstOrNull { it.id == categoryId }?.playlists.orEmpty()
+
+        val labels = mutableListOf(getString(R.string.choose_builtin))
+        labels.addAll(items.map { it.name })
+
+        val arrayAdapter = object : ArrayAdapter<String>(
+            requireContext(),
+            android.R.layout.simple_spinner_item,
+            labels
+        ) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val v = super.getView(position, convertView, parent) as TextView
+                v.setTextColor(0xFFFFFFFF.toInt())
+                v.setPadding(24, 16, 24, 16)
+                return v
+            }
+
+            override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val v = super.getDropDownView(position, convertView, parent) as TextView
+                v.setTextColor(0xFFFFFFFF.toInt())
+                v.setPadding(24, 16, 24, 16)
+                return v
+            }
+        }
+        arrayAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinner.adapter = arrayAdapter
+
+        spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            private var firstInvocation = true
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                // Skip initial layout-driven selection (position 0 placeholder).
+                if (firstInvocation) { firstInvocation = false; return }
+                if (position <= 0) return
+                val pl = items.getOrNull(position - 1) ?: return
+                val url = pl.url ?: return
+                (activity as? MainActivity)?.switchToChannels(pl.name, url)
+                // Reset to placeholder so the same item can be re-selected later.
+                spinner.post { spinner.setSelection(0, false) }
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
     }
 
     private fun pasteUrlFromClipboard() {
@@ -153,6 +224,8 @@ class PlaylistsFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
+        // Built-in toggle may have changed in Settings while we were away.
+        setupBuiltInSpinners()
         refreshPlaylists()
         moveFocusToFirstItem()
     }
@@ -162,23 +235,16 @@ class PlaylistsFragment : Fragment() {
         if (!hidden) moveFocusToFirstItem()
     }
 
-    /** Без явного requestFocus при открытии вкладки фокус остаётся в
-     *  bottom-nav — юзер не может выбрать плейлист пока не нажмёт
-     *  «назад». Переводим фокус на первый item-row, когда recycler
-     *  отрисовал свои view-holders. */
     private fun moveFocusToFirstItem() {
         val v = view ?: return
         v.postDelayed({
             if (!isAdded || !::recyclerView.isInitialized) return@postDelayed
-            // Первая попытка — сразу
             val first = recyclerView.findViewHolderForAdapterPosition(0)?.itemView
             if (first != null && first.isAttachedToWindow) {
                 first.requestFocus()
                 return@postDelayed
             }
-            // Если view-holders ещё не выкатаны — фокусим сам recycler
             recyclerView.requestFocus()
-            // И вторая попытка после ещё одного layout-цикла
             recyclerView.postDelayed({
                 if (!isAdded) return@postDelayed
                 recyclerView.findViewHolderForAdapterPosition(0)
@@ -188,19 +254,15 @@ class PlaylistsFragment : Fragment() {
     }
 
     private fun refreshPlaylists() {
-        // Result-launcher callbacks can fire before onViewCreated (e.g.
-        // after process recreation). Bail out if the view tree isn't
-        // ready yet — onViewCreated will refresh again itself.
         if (!isAdded || !::adapter.isInitialized) return
-        val playlists = prefs.customPlaylists
-        val builtIn = if (prefs.showBuiltInPlaylists) {
-            BuiltInPlaylists.getAllPlaylists().map { it.name to (it.url ?: "") }
-        } else emptyList()
-        val allPlaylists = playlists + builtIn
+        // Round 220: список показывает ТОЛЬКО свои плейлисты. Встроенные
+        // ушли в комбобоксы выше.
+        val customs = prefs.customPlaylists
+        adapter.updatePlaylists(customs, customs.size)
 
-        adapter.updatePlaylists(allPlaylists, playlists.size)
-
-        emptyText.visibility = if (allPlaylists.isEmpty()) View.VISIBLE else View.GONE
-        recyclerView.visibility = if (allPlaylists.isEmpty()) View.GONE else View.VISIBLE
+        val empty = customs.isEmpty()
+        emptyText.visibility = if (empty) View.VISIBLE else View.GONE
+        recyclerView.visibility = if (empty) View.GONE else View.VISIBLE
+        customSectionLabel.visibility = if (empty) View.GONE else View.VISIBLE
     }
 }
