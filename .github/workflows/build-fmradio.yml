@@ -346,7 +346,7 @@ jobs:
           {
             "versionCode": $COMMIT_COUNT,
             "versionName": "3.0.$COMMIT_COUNT",
-            "downloadUrl": "https://github.com/donmax76/IpTv/releases/latest/download/FmRadio.apk"
+            "downloadUrl": "https://github.com/donmax76/IpTv/releases/download/fmradio-latest/FmRadio-release.apk"
           }
           EOF
           git config user.name "github-actions"
@@ -389,9 +389,9 @@ jobs:
 
       - name: Delete old release
         run: |
-          gh release delete latest --yes 2>/dev/null || true
-          git push origin :refs/tags/latest 2>/dev/null || true
-          git tag -d latest 2>/dev/null || true
+          gh release delete fmradio-latest --yes 2>/dev/null || true
+          git push origin :refs/tags/fmradio-latest 2>/dev/null || true
+          git tag -d fmradio-latest 2>/dev/null || true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -440,10 +440,9 @@ jobs:
           NOTES_EOF
           )
 
-          gh release create latest \
+          gh release create fmradio-latest \
             --title "FM Radio — сборка #${COMMIT_COUNT} (${VERSION_HASH})" \
             --notes "$NOTES" \
-            --latest \
             $FILES
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
