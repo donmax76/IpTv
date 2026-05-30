@@ -723,18 +723,21 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         val segmentAddr = blockB and 0x0F
 
         if (!versionB) {
-            // RT uses blocks C+D. At high BER, requiring both valid means RT
-            // never populates. Allow through — isValidRdsChar filters garbage.
+            // RT has no consistency checking like PS, so corrupt blocks write
+            // garbled chars directly → "hieroglyphs". Require at least block D
+            // valid for the 2 chars from D. Block C chars only if cValid.
             val pos = segmentAddr * 4
             if (pos + 3 < rtChars.size) {
                 val chars = intArrayOf(
-                    (blockC shr 8) and 0xFF, blockC and 0xFF,
-                    (blockD shr 8) and 0xFF, blockD and 0xFF
+                    if (cValid) (blockC shr 8) and 0xFF else -1,
+                    if (cValid) blockC and 0xFF else -1,
+                    if (dValid) (blockD shr 8) and 0xFF else -1,
+                    if (dValid) blockD and 0xFF else -1
                 )
                 var anyValid = false
                 for (j in 0..3) {
+                    if (chars[j] < 0) continue  // block not CRC-valid, skip this char
                     if (chars[j] == RDS_END_OF_TEXT) {
-                        // 0x0D = end of RadioText. Truncate here, clear the rest.
                         rtLength = pos + j
                         for (k in rtLength until rtChars.size) rtChars[k] = ' '
                         dataChanged = true
@@ -749,7 +752,8 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 }
             }
         } else {
-            // Version B: 2 chars per segment from block D
+            // Version B: 2 chars per segment from block D — require dValid
+            if (!dValid) return
             val pos = segmentAddr * 2
             if (pos + 1 < rtChars.size) {
                 val chars = intArrayOf((blockD shr 8) and 0xFF, blockD and 0xFF)
