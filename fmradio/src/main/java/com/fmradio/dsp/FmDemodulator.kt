@@ -107,11 +107,11 @@ class FmDemodulator(
     // a real broadcast pilot (10% AM modulation) gives ~0.025-0.035. Use
     // 0.020 lock / 0.012 unlock to keep the gap clean and avoid false stereo
     // on dead frequencies.
-    private val stereoLockThreshold = 0.030f     // match C++ native DSP
-    private val stereoUnlockThreshold = 0.020f   // match C++ native DSP
+    private val stereoLockThreshold = 0.018f     // match C++ — lower for FC0013
+    private val stereoUnlockThreshold = 0.012f   // match C++
     private var stereoBlend = 0f                // 0 = mono, 1 = full stereo
-    private val stereoBlendAttack = 0.0008f     // match C++ — slower, avoids stereo pop
-    private val stereoBlendRelease = 0.0003f    // match C++
+    private val stereoBlendAttack = 0.001f      // match C++
+    private val stereoBlendRelease = 0.0005f    // match C++
 
     @Volatile
     var isStereo = false
@@ -452,7 +452,7 @@ class FmDemodulator(
             // Scale to 16-bit PCM with soft-clip limiter (eliminates harsh hard-clip artifacts
             // on deep-modulated peaks). Uses a cubic soft-knee that is transparent below
             // 0.8 full-scale and rolls off smoothly toward ±1.0.
-            val gain = muteRamp * 24000f  // match C++ native DSP
+            val gain = muteRamp * 28000f  // match C++ native DSP
             val sampleL = (softClip(outL * gain / 32767f) * 32767f).toInt()
             val sampleR = (softClip(outR * gain / 32767f) * 32767f).toInt()
 

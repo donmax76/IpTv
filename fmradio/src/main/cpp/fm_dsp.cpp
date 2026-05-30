@@ -124,17 +124,14 @@ struct DspState {
     float pilotStrength = 0;
     bool isStereo = false;
     int pilotDetectWindow;
-    // Raised thresholds: on pure atan2 noise the 19 kHz BPF output has
-    // squared-mean around 0.008–0.010. A real broadcast pilot (10% AM
-    // modulation on top of the FM deviation) gives ~0.025–0.035. Use
-    // higher thresholds for car use: weak/multipath signals produce noisy
-    // stereo that sounds much worse than clean mono.
-    static constexpr float STEREO_LOCK = 0.030f;
-    static constexpr float STEREO_UNLOCK = 0.020f;
-    // Smooth blend — slower attack to avoid popping in/out of stereo
+    // FC0013 has weaker pilot output than R820T. Lower thresholds so
+    // strong stations get stereo. Noise floor pilot energy ~0.008-0.010,
+    // real pilot ~0.015-0.025 on FC0013.
+    static constexpr float STEREO_LOCK = 0.018f;
+    static constexpr float STEREO_UNLOCK = 0.012f;
     float stereoBlend = 0.0f;
-    static constexpr float STEREO_BLEND_ATTACK = 0.0008f;
-    static constexpr float STEREO_BLEND_RELEASE = 0.0003f;
+    static constexpr float STEREO_BLEND_ATTACK = 0.001f;
+    static constexpr float STEREO_BLEND_RELEASE = 0.0005f;
 
     // De-emphasis
     float deEmphAlpha;
@@ -615,9 +612,7 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
             if (d.muteRamp > 1.0f) d.muteRamp = 1.0f;
         }
 
-        // Soft-clip + PCM scale — reduced from 28000 to 24000 to leave headroom
-        // for car audio systems that add their own gain stage
-        float gain = d.muteRamp * d.squelchLevel * 24000.0f;
+        float gain = d.muteRamp * d.squelchLevel * 28000.0f;
         float clippedL = softClip(d.deEmphStateL * gain / 32767.0f) * 32767.0f;
         float clippedR = softClip(d.deEmphStateR * gain / 32767.0f) * 32767.0f;
         int sL = (int)clippedL;
