@@ -94,14 +94,10 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             if (elapsed >= CALIBRATION_SECONDS && calibrationFrames > sampleRate) {
                 val measured = (calibrationFrames / elapsed).toInt()
                 if (measured in (sampleRate * 85 / 100)..(sampleRate * 100 / 100)) {
-                    // Subtract 1.5% from measured rate. The calibration over-estimates
-                    // because it counts frames WRITTEN (including pre-buffer burst)
-                    // rather than frames consumed. 1.5% undershoot ensures buffer
-                    // slowly fills (safe — non-blocking write drops excess) instead
-                    // of draining (causes underrun → clicks).
-                    val adjusted = (measured * 985L / 1000L).toInt()
-                    measuredRate = adjusted
-                    actualRate = adjusted
+                    // Use exact measured rate (no undershoot/overshoot).
+                    // A buffer guard handles residual drift at the extremes.
+                    measuredRate = measured
+                    actualRate = measured
                     // Recreate AudioTrack at the measured rate
                     val oldTrack = audioTrack
                     oldTrack?.pause()
@@ -156,18 +152,55 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             else
                 AudioTrack.WRITE_BLOCKING
 
-            val written = audioTrack?.write(samples, 0, count, writeMode) ?: 0
+            // Buffer guard: check level before writing. If buffer is nearly
+            // full (>90%), skip some input samples to prevent overflow → clicks.
+            // If nearly empty (<15%), pad with last frame to prevent underrun.
+            val track = audioTrack
+            var writeOffset = 0
+            var writeCount = count
+            if (preBufferDone && track != null) {
+                val headPos = track.playbackHeadPosition.toLong() and 0xFFFFFFFFL
+                val bufLevel = framesWritten - headPos
+                val bufCap = track.bufferSizeInFrames.toLong()
+                if (bufCap > 0) {
+                    val fill = (bufLevel.toFloat() / bufCap).coerceIn(0f, 1f)
+                    if (fill > 0.90f && writeCount > 4) {
+                        // Buffer nearly full — skip ~10% of input samples
+                        val skip = (writeCount * 0.10f).toInt() and 0xFFFE  // even number
+                        writeCount -= skip
+                    } else if (fill < 0.15f && writeCount >= 4) {
+                        // Buffer nearly empty — duplicate last frame after write
+                        // (handled below after write)
+                    }
+                }
+            }
+
+            val written = audioTrack?.write(samples, writeOffset, writeCount, writeMode) ?: 0
             val actualFrames = written / 2
 
-            if (DebugLog.fileLoggingEnabled && (written < count || framesWritten % 70 == 0L)) {
-                val track = audioTrack
+            if (DebugLog.fileLoggingEnabled && (written < writeCount || framesWritten % 70 == 0L)) {
                 val headPos = track?.playbackHeadPosition ?: 0
                 val bufDiff = framesWritten + actualFrames - headPos
                 val bufSize = track?.bufferSizeInFrames ?: 0
-                DebugLog.log(TAG, "aud: w=$written/$count buf=$bufDiff bufSize=$bufSize rate=$actualRate")
+                DebugLog.log(TAG, "aud: w=$written/$writeCount buf=$bufDiff bufSize=$bufSize rate=$actualRate")
             }
 
             framesWritten += actualFrames
+
+            // Low-buffer padding: if buffer was below 15%, pad with last frame
+            if (preBufferDone && track != null && count >= 4) {
+                val headPos = track.playbackHeadPosition.toLong() and 0xFFFFFFFFL
+                val bufLevel = framesWritten - headPos
+                val bufCap = track.bufferSizeInFrames.toLong()
+                if (bufCap > 0 && bufLevel < bufCap * 15 / 100) {
+                    val lastL = samples[count - 2]
+                    val lastR = samples[count - 1]
+                    val pad = ShortArray(40)
+                    for (p in 0 until 40 step 2) { pad[p] = lastL; pad[p + 1] = lastR }
+                    val padW = track.write(pad, 0, 40, AudioTrack.WRITE_NON_BLOCKING)
+                    if (padW > 0) framesWritten += padW / 2
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error writing audio", e)
         }

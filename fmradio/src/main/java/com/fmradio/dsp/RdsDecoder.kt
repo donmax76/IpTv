@@ -443,8 +443,10 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                     }
                 }
 
-                // Once confirmed, lose sync after 20 consecutive bad blocks
-                if (syncConfirmed && badBlocks > 20) {
+                // Once confirmed, lose sync after 40 consecutive bad blocks.
+                // FC0013 has 89% BER — at 40, a confirmed sync survives noise
+                // bursts long enough to decode PS over multiple groups.
+                if (syncConfirmed && badBlocks > 40) {
                     Log.d(TAG, "RDS sync LOST (badBlocks=$badBlocks)")
                     DebugLog.log(TAG, "RDS sync LOST (badBlocks=$badBlocks)")
                     synced = false
@@ -657,9 +659,10 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         val segmentAddr = blockB and 0x03
         val pos = segmentAddr * 2
 
-        // PS characters come from block D — skip if that block failed CRC,
-        // otherwise garbage chars would poison the PS consistency buffer.
-        if (dValid) {
+        // PS chars from block D. At 89% BER on FC0013, requiring dValid
+        // means PS never populates (block D rarely passes CRC). Instead
+        // rely on PS_CONFIRM_THRESHOLD=2 to filter garbage — a corrupt
+        // char won't repeat identically twice.
         val c1 = rdsCharToUnicode((blockD shr 8) and 0xFF)
         val c2 = rdsCharToUnicode(blockD and 0xFF)
 
@@ -683,7 +686,6 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                     Log.d(TAG, "PS update: ${String(psChars).trim()}")
                 }
             }
-        }
         }
 
         // AF (Alternative Frequencies) from block C in version A
@@ -721,8 +723,8 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         val segmentAddr = blockB and 0x0F
 
         if (!versionB) {
-            // Version A RT needs both C and D (4 chars). Skip if either failed CRC.
-            if (!cValid || !dValid) return
+            // RT uses blocks C+D. At high BER, requiring both valid means RT
+            // never populates. Allow through — isValidRdsChar filters garbage.
             val pos = segmentAddr * 4
             if (pos + 3 < rtChars.size) {
                 val chars = intArrayOf(
@@ -748,7 +750,6 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             }
         } else {
             // Version B: 2 chars per segment from block D
-            if (!dValid) return
             val pos = segmentAddr * 2
             if (pos + 1 < rtChars.size) {
                 val chars = intArrayOf((blockD shr 8) and 0xFF, blockD and 0xFF)
