@@ -2184,6 +2184,16 @@ class PlayerActivity : BaseActivity() {
 
     private fun showCenterMenu() {
         val overlay = findViewById<FrameLayout>(R.id.playerCenterMenuOverlay) ?: return
+        // Round 220b: не перезапускать анимацию если меню уже открыто.
+        // Без этого re-trigger от любого keypress (или ложный путь в
+        // onKeyDown) визуально «закрывал и открывал» меню заново.
+        if (overlay.visibility == View.VISIBLE) {
+            // Подтянуть фокус если он куда-то сбежал.
+            if (currentFocus?.id != R.id.centerMenuSettings) {
+                findViewById<View>(R.id.centerMenuSettings)?.requestFocus()
+            }
+            return
+        }
         val panel = findViewById<View>(R.id.playerCenterMenuPanel)
         // Заполняем имя текущего плейлиста как «текущий выбор» в меню.
         val playlistLabel = findViewById<TextView>(R.id.centerMenuPlaylistName)
@@ -2408,10 +2418,16 @@ class PlayerActivity : BaseActivity() {
         if (event.action == KeyEvent.ACTION_DOWN && channelListVisible) {
             bumpChannelListIdleTimer()
         }
-        // Round 211: BACK / RIGHT для центрального popup-меню.
+        // Round 211: BACK / LEFT / RIGHT для центрального popup-меню.
+        // Round 220b: LEFT тоже закрывает меню. Без этого LEFT
+        // проваливался в onKeyDown, попадал в else-ветку LEFT и
+        // вызывал showCenterMenu() заново — пользователь видел
+        // «закрытие и повторное открытие» (scale-анимация), фокус
+        // сбрасывался, управлять было нельзя.
         if (event.action == KeyEvent.ACTION_DOWN && centerMenuVisible()) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_BACK,
+                KeyEvent.KEYCODE_DPAD_LEFT,
                 KeyEvent.KEYCODE_DPAD_RIGHT -> {
                     hideCenterMenu(); return true
                 }
