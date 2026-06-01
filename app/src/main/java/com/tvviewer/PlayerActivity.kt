@@ -1692,7 +1692,23 @@ class PlayerActivity : BaseActivity() {
                     // (российские/региональные) повторный плейлист может
                     // прилететь и через 10x — это нормально, не повод
                     // ронять плеер. Поднимаем коэффициент до 10.
-                    .setPlaylistStuckTargetDurationCoefficient(10.0)
+                    // Round 221l: на Media3 1.5.0 у HlsMediaSource.Factory
+                    // нет setPlaylistStuckTargetDurationCoefficient. Тот
+                    // вызов ронял компиляцию (build 320/321/322 не
+                    // выпустились). Правильный путь — custom
+                    // HlsPlaylistTracker.Factory с явным коэффициентом
+                    // в конструкторе DefaultHlsPlaylistTracker.
+                    .setPlaylistTrackerFactory(
+                        androidx.media3.exoplayer.hls.playlist.HlsPlaylistTracker.Factory {
+                            dataSourceFactory, errorHandlingPolicy, playlistParserFactory ->
+                            androidx.media3.exoplayer.hls.playlist.DefaultHlsPlaylistTracker(
+                                dataSourceFactory,
+                                errorHandlingPolicy,
+                                playlistParserFactory,
+                                10.0
+                            )
+                        }
+                    )
                     .createMediaSource(item)
         }
     }
