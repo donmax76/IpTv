@@ -567,10 +567,13 @@
          тёмно-синий фон с закруглёнными углами и cyan-рамкой, пункты
          с иконками подсвечиваются ярким голубым градиентом при
          фокусе. Анимация scale-in при появлении. -->
+    <!-- Round 221a: elevation=24dp + focusable панель, чтобы система
+         гарантированно ставила это поверх каналов и категорий. -->
     <FrameLayout
         android:id="@+id/playerCenterMenuOverlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:elevation="24dp"
         android:visibility="gone">
 
         <View
@@ -588,7 +591,8 @@
             android:layout_gravity="center"
             android:orientation="vertical"
             android:background="@drawable/bg_center_menu_panel"
-            android:padding="24dp">
+            android:padding="24dp"
+            android:descendantFocusability="afterDescendants">
 
             <!-- Текущий плейлист — крупная подсветка как в SS IPTV -->
             <TextView
@@ -616,37 +620,49 @@
                 android:focusableInTouchMode="false"
                 android:layout_marginBottom="16dp"/>
 
-            <com.google.android.material.button.MaterialButton
+            <!-- Round 221a: заменил MaterialButton → Button. MaterialButton
+                 рисует свой собственный фон поверх android:background, из-за
+                 чего cyan-подсветка фокуса из bg_center_menu_item не была
+                 видна — юзер думал что меню «не отвечает». -->
+            <Button
                 android:id="@+id/centerMenuSettings"
                 style="@style/CenterMenuItem"
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
                 android:text="@string/settings"
-                app:icon="@drawable/ic_settings"/>
+                android:drawableStart="@drawable/ic_settings"
+                android:drawablePadding="14dp"
+                android:drawableTint="#FFB0E0F0"/>
 
-            <com.google.android.material.button.MaterialButton
+            <Button
                 android:id="@+id/centerMenuFavorites"
                 style="@style/CenterMenuItem"
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
                 android:text="@string/favorites"
-                app:icon="@drawable/ic_favorite"/>
+                android:drawableStart="@drawable/ic_favorite"
+                android:drawablePadding="14dp"
+                android:drawableTint="#FFB0E0F0"/>
 
-            <com.google.android.material.button.MaterialButton
+            <Button
                 android:id="@+id/centerMenuRecent"
                 style="@style/CenterMenuItem"
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
                 android:text="@string/recent"
-                app:icon="@drawable/ic_recent"/>
+                android:drawableStart="@drawable/ic_recent"
+                android:drawablePadding="14dp"
+                android:drawableTint="#FFB0E0F0"/>
 
-            <com.google.android.material.button.MaterialButton
+            <Button
                 android:id="@+id/centerMenuSearch"
                 style="@style/CenterMenuItem"
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
                 android:text="@string/search_channels"
-                app:icon="@drawable/ic_search"/>
+                android:drawableStart="@drawable/ic_search"
+                android:drawablePadding="14dp"
+                android:drawableTint="#FFB0E0F0"/>
 
         </LinearLayout>
 

@@ -2184,37 +2184,56 @@ class PlayerActivity : BaseActivity() {
 
     private fun showCenterMenu() {
         val overlay = findViewById<FrameLayout>(R.id.playerCenterMenuOverlay) ?: return
-        // Round 220b: не перезапускать анимацию если меню уже открыто.
-        // Без этого re-trigger от любого keypress (или ложный путь в
-        // onKeyDown) визуально «закрывал и открывал» меню заново.
         if (overlay.visibility == View.VISIBLE) {
-            // Подтянуть фокус если он куда-то сбежал.
             if (currentFocus?.id != R.id.centerMenuSettings) {
                 findViewById<View>(R.id.centerMenuSettings)?.requestFocus()
             }
             return
         }
         val panel = findViewById<View>(R.id.playerCenterMenuPanel)
-        // Заполняем имя текущего плейлиста как «текущий выбор» в меню.
         val playlistLabel = findViewById<TextView>(R.id.centerMenuPlaylistName)
         playlistLabel?.text = prefs.lastPlaylistName?.takeIf { it.isNotBlank() }
             ?: getString(R.string.no_playlist_url)
+        // Round 221a: пока меню открыто, скрываем нижележащие списки —
+        // без этого они конкурируют за фокус и юзер не видел подсветку
+        // на пунктах меню.
+        findViewById<View>(R.id.overlayChannelsPanel)?.let {
+            it.tag = it.visibility
+            it.visibility = View.INVISIBLE
+        }
+        findViewById<View>(R.id.overlayCategoriesPanel)?.let {
+            it.tag = it.visibility
+            it.visibility = View.INVISIBLE
+        }
         overlay.visibility = View.VISIBLE
         overlay.bringToFront()
-        // Анимация: сначала тёмный фон fade-in, потом панель scale-in.
         findViewById<View>(R.id.playerCenterMenuDimBg)?.startAnimation(
             android.view.animation.AnimationUtils.loadAnimation(this, R.anim.fade_in))
         panel?.startAnimation(
             android.view.animation.AnimationUtils.loadAnimation(this, R.anim.popup_scale_in))
         currentFocus?.clearFocus()
-        overlay.post {
+        // Несколько попыток поставить фокус — на медленных устройствах
+        // post() выполняется до окончания layout-цикла.
+        val tryFocus = Runnable {
             findViewById<View>(R.id.centerMenuSettings)?.requestFocus()
         }
+        overlay.post(tryFocus)
+        overlay.postDelayed(tryFocus, 80)
+        overlay.postDelayed(tryFocus, 250)
     }
 
     private fun hideCenterMenu() {
         val overlay = findViewById<FrameLayout>(R.id.playerCenterMenuOverlay) ?: return
         if (overlay.visibility != View.VISIBLE) return
+        // Round 221a: восстанавливаем видимость скрытых на showCenterMenu
+        // нижних оверлеев. Их прежнее состояние мы сохранили в tag.
+        listOf(R.id.overlayChannelsPanel, R.id.overlayCategoriesPanel).forEach { id ->
+            findViewById<View>(id)?.let { v ->
+                val prev = v.tag as? Int
+                v.visibility = prev ?: View.GONE
+                v.tag = null
+            }
+        }
         val panel = findViewById<View>(R.id.playerCenterMenuPanel)
         val outAnim = android.view.animation.AnimationUtils.loadAnimation(
             this, R.anim.popup_scale_out)
