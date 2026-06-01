@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Round 222: минимальный сплеш. БЕЗ надписи «Проверка обновлений…»
+     по жалобе юзера «этого окна быть не должно». Только лого + имя
+     приложения. Если апдейта нет — мелькнёт долю секунды и
+     запустится MainActivity. Если апдейт есть — показывается
+     поверх этого лого AlertDialog. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -7,12 +12,11 @@
     android:background="@color/background">
 
     <ImageView
-        android:id="@+id/splashIcon"
-        android:layout_width="96dp"
-        android:layout_height="96dp"
+        android:layout_width="120dp"
+        android:layout_height="120dp"
         android:src="@drawable/ic_playlist"
         android:tint="@color/primary"
-        android:layout_marginBottom="24dp"
+        android:layout_marginBottom="20dp"
         android:contentDescription="@string/app_name"/>
 
     <TextView
@@ -20,23 +24,7 @@
         android:layout_height="wrap_content"
         android:text="@string/app_name"
         android:textColor="@color/text_primary"
-        android:textSize="24sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="32dp"/>
-
-    <ProgressBar
-        android:id="@+id/splashProgress"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:indeterminateTint="@color/primary"
-        android:layout_marginBottom="16dp"/>
-
-    <TextView
-        android:id="@+id/splashStatus"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/checking_updates"
-        android:textColor="@color/text_secondary"
-        android:textSize="14sp"/>
+        android:textSize="28sp"
+        android:textStyle="bold"/>
 
 </LinearLayout>

@@ -97,7 +97,7 @@
                     android:id="@+id/spinnerLanguage"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="@drawable/bg_playlist_card"
+                    android:background="@drawable/bg_playlist_spinner"
                     android:focusable="true"
                     android:popupBackground="#2A2A48"/>
 
@@ -121,7 +121,7 @@
                     android:id="@+id/spinnerCategory"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="@drawable/bg_playlist_card"
+                    android:background="@drawable/bg_playlist_spinner"
                     android:focusable="true"
                     android:popupBackground="#2A2A48"/>
 
@@ -153,7 +153,7 @@
                     android:id="@+id/spinnerCountry"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="@drawable/bg_playlist_card"
+                    android:background="@drawable/bg_playlist_spinner"
                     android:focusable="true"
                     android:popupBackground="#2A2A48"/>
 
@@ -177,7 +177,7 @@
                     android:id="@+id/spinnerRegion"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:background="@drawable/bg_playlist_card"
+                    android:background="@drawable/bg_playlist_spinner"
                     android:focusable="true"
                     android:popupBackground="#2A2A48"/>
 

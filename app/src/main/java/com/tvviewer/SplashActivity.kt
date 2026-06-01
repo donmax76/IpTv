@@ -23,10 +23,11 @@ import kotlinx.coroutines.withTimeoutOrNull
 class SplashActivity : AppCompatActivity() {
 
     companion object {
-        // Жёсткий таймаут — даже если сеть тупит, не держим юзера на
-        // splash дольше этого. 10 сек достаточно для одной HTTPS-GET'а
-        // GitHub API + парсинга нескольких сотен релизов.
-        private const val CHECK_TIMEOUT_MS = 10_000L
+        // Round 222: 5 сек — splash без надписи «проверка», только
+        // лого, поэтому юзер не должен смотреть на него дольше 5 сек.
+        // При быстрой сети check завершается за 0.5-1 сек и MainActivity
+        // открывается почти мгновенно.
+        private const val CHECK_TIMEOUT_MS = 5_000L
     }
 
     private var proceedJob: Job? = null

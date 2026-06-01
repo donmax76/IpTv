@@ -72,13 +72,10 @@ class MainActivity : BaseActivity() {
         if (savedInstanceState == null) {
             bottomNav.selectedItemId = R.id.nav_home
 
-            // Round 221h: SplashActivity убрана из launcher — юзер
-            // просил «этого окна быть не должно». Проверка апдейта
-            // снова идёт фоном здесь, диалог всплывает над MainActivity
-            // когда сервер ответит. Если апдейта нет — юзер вообще
-            // ничего не видит.
-            UpdateCheckerHelper.resetSessionDialogFlag()
-            UpdateCheckerHelper.maybeCheck(this, force = true)
+            // Round 222: проверку апдейта снова делает SplashActivity
+            // ДО открытия MainActivity. Здесь — только onResume
+            // повторно дёрнет maybeCheck с 1-часовым троттлом, если
+            // вдруг splash таймаутнулся.
 
             // Autoplay last channel if enabled
             if (prefs.autoplayLast) {

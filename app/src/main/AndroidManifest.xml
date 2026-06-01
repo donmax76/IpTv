@@ -28,28 +28,30 @@
             android:theme="@style/Theme.TVViewer"
             android:noHistory="true" />
 
-        <!-- Round 221h: SplashActivity больше не launcher. Юзер просил
-             убрать видимое окно «Проверка обновлений». Проверка теперь
-             идёт фоном в MainActivity.onCreate, диалог всплывает только
-             если апдейт найден. Сам класс оставлен на случай отката. -->
+        <!-- Round 222: SplashActivity снова launcher (Round 221h её
+             убрал, юзер пожаловался «он сразу открывает программу не
+             проверив»). Но layout теперь без надписи «Проверка
+             обновлений» — только лого, чтобы юзер не считал её
+             «лишним окном». Если апдейта нет, splash мелькает
+             долю секунды; если есть — диалог поверх лого. -->
         <activity
             android:name=".SplashActivity"
-            android:exported="false"
-            android:theme="@style/Theme.TVViewer"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"/>
-
-        <activity
-            android:name=".MainActivity"
             android:exported="true"
             android:theme="@style/Theme.TVViewer"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
-            android:resizeableActivity="true">
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.TVViewer"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:resizeableActivity="true"/>
 
         <activity
             android:name=".PlayerActivity"
