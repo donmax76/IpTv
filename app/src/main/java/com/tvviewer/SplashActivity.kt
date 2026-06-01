@@ -24,9 +24,9 @@ class SplashActivity : AppCompatActivity() {
 
     companion object {
         // Жёсткий таймаут — даже если сеть тупит, не держим юзера на
-        // splash дольше этого. 6 сек достаточно для одной HTTPS-GET'а
+        // splash дольше этого. 10 сек достаточно для одной HTTPS-GET'а
         // GitHub API + парсинга нескольких сотен релизов.
-        private const val CHECK_TIMEOUT_MS = 6_000L
+        private const val CHECK_TIMEOUT_MS = 10_000L
     }
 
     private var proceedJob: Job? = null
@@ -38,21 +38,26 @@ class SplashActivity : AppCompatActivity() {
 
         UpdateCheckerHelper.resetSessionDialogFlag()
 
-        // Параллельно: проверка апдейта (с таймаутом) и переход в Main.
-        // Если апдейт найден — спросим юзера; если нет — после таймаута
-        // / завершения проверки сразу пускаем в MainActivity.
         proceedJob = lifecycleScope.launch {
             val prefs = AppPreferences(this@SplashActivity)
-            val update = withTimeoutOrNull(CHECK_TIMEOUT_MS) {
+            // Делим «есть результат» (включая null=нет апдейта) и
+            // «таймаут». Если таймаут — НЕ обновляем lastUpdateCheckMs,
+            // чтобы onResume MainActivity мог попробовать ещё раз.
+            val checkFinished = withTimeoutOrNull(CHECK_TIMEOUT_MS) {
                 runCatching { UpdateChecker.check(prefs.updateCheckUrl).getOrNull() }
-                    .getOrNull()
+                    .getOrNull().let { Result.success(it) }
             }
-            // Закрепляем «последний раз проверяли — сейчас», чтобы
-            // UpdateCheckerHelper.maybeCheck в MainActivity не запустил
-            // вторую проверку сразу же.
-            prefs.lastUpdateCheckMs = System.currentTimeMillis()
 
             if (!isActive) return@launch
+
+            val update = checkFinished?.getOrNull()
+            if (checkFinished != null) {
+                // Проверка завершилась — успех или null. Помечаем чтобы
+                // MainActivity не дёргал GitHub второй раз через час.
+                prefs.lastUpdateCheckMs = System.currentTimeMillis()
+            }
+            // На таймаут lastUpdateCheckMs остаётся прежним — MainActivity
+            // повторит запрос если троттл уже истёк.
 
             if (update != null && update.versionCode > BuildConfig.VERSION_CODE) {
                 showUpdateDialog(update)

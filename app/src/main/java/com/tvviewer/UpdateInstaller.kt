@@ -150,6 +150,51 @@ object UpdateInstaller {
     }
 
     private fun triggerInstall(ctx: Context, apk: File) {
+        // Round 221f: сначала пробуем PackageInstaller (более надёжный
+        // на TV-боксах с Android 8+: ACTION_VIEW + FileProvider может
+        // не вызывать системный installer на некоторых launcher'ах,
+        // юзер видел «загружено» и ничего дальше).
+        if (tryPackageInstaller(ctx, apk)) return
+        // Fallback на ACTION_VIEW (как было).
+        tryActionViewInstall(ctx, apk)
+    }
+
+    private fun tryPackageInstaller(ctx: Context, apk: File): Boolean {
+        return try {
+            val pm = ctx.packageManager
+            val installer = pm.packageInstaller
+            val params = android.content.pm.PackageInstaller.SessionParams(
+                android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL
+            )
+            params.setAppPackageName(ctx.packageName)
+            val sessionId = installer.createSession(params)
+            installer.openSession(sessionId).use { session ->
+                apk.inputStream().use { input ->
+                    session.openWrite("apk", 0, apk.length()).use { output ->
+                        input.copyTo(output)
+                        session.fsync(output)
+                    }
+                }
+                val intent = Intent(ctx, InstallStatusReceiver::class.java).apply {
+                    `package` = ctx.packageName
+                    action = "com.tvviewer.INSTALL_STATUS"
+                }
+                val flags = android.app.PendingIntent.FLAG_UPDATE_CURRENT or
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S)
+                        android.app.PendingIntent.FLAG_MUTABLE else 0
+                val pi = android.app.PendingIntent.getBroadcast(
+                    ctx, sessionId, intent, flags)
+                session.commit(pi.intentSender)
+            }
+            Log.d(TAG, "PackageInstaller session committed, sessionId=$sessionId")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "PackageInstaller failed, will fall back to ACTION_VIEW", e)
+            false
+        }
+    }
+
+    private fun tryActionViewInstall(ctx: Context, apk: File) {
         try {
             val authority = "${ctx.packageName}.fileprovider"
             val uri: Uri = FileProvider.getUriForFile(ctx, authority, apk)

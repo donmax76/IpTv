@@ -72,6 +72,20 @@
             android:theme="@style/Theme.TVViewer.SettingsPanel"
             android:parentActivityName=".MainActivity" />
 
+        <!-- Round 221f: получает callback от PackageInstaller сессии и
+             запускает системный диалог подтверждения установки.
+             Зарегистрирован в манифесте (а не в коде) чтобы работал
+             даже если приложение в момент завершения скачивания
+             уйдёт в background. -->
+        <receiver
+            android:name=".InstallStatusReceiver"
+            android:exported="false"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="com.tvviewer.INSTALL_STATUS" />
+            </intent-filter>
+        </receiver>
+
         <!-- Round 186: FileProvider нужен чтобы отдать content:// URI
              на скачанный APK системному установщику (PackageInstaller на
              Android 7+ не принимает file://). Authority совпадает с тем
