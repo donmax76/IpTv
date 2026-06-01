@@ -106,7 +106,12 @@
          Тонкая граница, иконка слева, текст по левому краю с отступом.
          Активный фокус — яркий cyan-голубой градиент через
          bg_center_menu_item. -->
-    <style name="CenterMenuItem" parent="Widget.MaterialComponents.Button.TextButton">
+    <!-- Round 221b: parent был Widget.MaterialComponents.Button.TextButton
+         — он рисовал свою MaterialShape поверх android:background, из-за
+         чего cyan-подсветка фокуса из bg_center_menu_item не была видна.
+         Отвязали от Material; теперь это просто styled Button и
+         android:background работает корректно. -->
+    <style name="CenterMenuItem">
         <item name="android:textSize">15sp</item>
         <item name="android:textAllCaps">false</item>
         <item name="android:singleLine">true</item>
@@ -115,14 +120,15 @@
         <item name="android:textColor">@android:color/white</item>
         <item name="android:paddingStart">16dp</item>
         <item name="android:paddingEnd">16dp</item>
-        <item name="iconPadding">14dp</item>
-        <item name="iconSize">22dp</item>
-        <item name="iconTint">#FFB0E0F0</item>
-        <item name="android:insetTop">3dp</item>
-        <item name="android:insetBottom">3dp</item>
+        <item name="android:layout_marginTop">3dp</item>
+        <item name="android:layout_marginBottom">3dp</item>
         <item name="android:letterSpacing">0</item>
         <item name="android:focusable">true</item>
+        <item name="android:focusableInTouchMode">false</item>
+        <item name="android:clickable">true</item>
         <item name="android:background">@drawable/bg_center_menu_item</item>
+        <item name="android:minHeight">52dp</item>
+        <item name="android:stateListAnimator">@null</item>
     </style>
 
     <style name="Widget.TVViewer.BottomNavigation" parent="Widget.MaterialComponents.BottomNavigationView.Colored">
