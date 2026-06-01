@@ -365,8 +365,20 @@ class PlayerActivity : BaseActivity() {
         }
         findViewById<View>(R.id.centerMenuSettings)?.setOnClickListener {
             keepPlayingInBackground = true
-            hideCenterMenu()
-            if (channelListVisible) hideChannelList()
+            // Round 221g: hideCenterMenu() ВОССТАНАВЛИВАЕТ ранее скрытые
+            // overlay-панели (см. Round 221a — для возврата к каналам
+            // после закрытия меню по BACK). При уходе в Settings это
+            // даёт визуальный «мигнул-закрыл список каналов» перед
+            // запуском SettingsActivity. Стираем tag'и и гасим всё
+            // мгновенно — никаких restore'ов.
+            findViewById<View>(R.id.overlayChannelsPanel)?.let {
+                it.tag = null; it.visibility = View.GONE
+            }
+            findViewById<View>(R.id.overlayCategoriesPanel)?.let {
+                it.tag = null; it.visibility = View.GONE
+            }
+            findViewById<View>(R.id.playerCenterMenuOverlay)?.visibility = View.GONE
+            channelListVisible = false
             startActivity(Intent(this, SettingsActivity::class.java))
         }
         findViewById<View>(R.id.centerMenuFavorites)?.setOnClickListener {
