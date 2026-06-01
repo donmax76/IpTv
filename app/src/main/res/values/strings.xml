@@ -108,6 +108,7 @@
     <string name="buffer_high">Стабильный</string>
     <string name="aspect_ratio">Соотношение</string>
     <string name="aspect_fit">Вписать</string>
+    <string name="aspect_zoom">Заполнить с обрезкой</string>
     <string name="aspect_16_9">16:9</string>
     <string name="aspect_4_3">4:3</string>
     <string name="aspect_fill">Заполнить</string>

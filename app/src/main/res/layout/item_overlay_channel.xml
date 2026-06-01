@@ -112,7 +112,7 @@
                 android:layout_height="wrap_content"
                 android:textColor="@android:color/white"
                 android:textSize="12sp"
-                android:singleLine="true"
+                android:maxLines="2"
                 android:ellipsize="end"/>
 
         </LinearLayout>
@@ -143,7 +143,7 @@
                 android:layout_height="wrap_content"
                 android:textColor="@android:color/white"
                 android:textSize="12sp"
-                android:singleLine="true"
+                android:maxLines="2"
                 android:ellipsize="end"/>
 
         </LinearLayout>
@@ -174,7 +174,7 @@
                 android:layout_height="wrap_content"
                 android:textColor="@android:color/white"
                 android:textSize="12sp"
-                android:singleLine="true"
+                android:maxLines="2"
                 android:ellipsize="end"/>
 
         </LinearLayout>

@@ -171,6 +171,13 @@ class OverlayChannelAdapter(
         holder.itemView.setOnKeyListener { _, keyCode, event ->
             if (event.action == android.view.KeyEvent.ACTION_DOWN) {
                 when (keyCode) {
+                    // Round 221h: LEFT на выделенном канале — подробная
+                    // программа передач (now + next с описаниями).
+                    // Раньше LEFT здесь не перехватывался и
+                    // PlayerActivity.onKeyDown открывал панель категорий.
+                    android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
+                        onShowDetailsClick?.invoke(channel); true
+                    }
                     android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
                         holder.favoriteBtn.requestFocus(); true
                     }

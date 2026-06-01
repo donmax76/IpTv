@@ -1764,11 +1764,18 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun applyAspectRatioMode() {
+        // Round 221h: режимы 1 и 2 раньше были FIXED_WIDTH / FIXED_HEIGHT
+        // — это масштабирование по фиксированной стороне с сохранением
+        // AR контента, на стандартном 16:9 ТВ они визуально не
+        // отличались от FIT. Юзер жаловался: «соотношение не работает».
+        // Теперь только три РАЗЛИЧИМЫХ режима:
+        //   0 = FIT  — вписать (могут быть чёрные поля)
+        //   1 = ZOOM — заполнить, обрезая лишнее
+        //   2 = FILL — растянуть на весь экран без сохранения AR
         when (aspectRatioMode) {
             0 -> playerView.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
-            1 -> playerView.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH
-            2 -> playerView.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIXED_HEIGHT
-            3 -> playerView.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
+            1 -> playerView.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            2 -> playerView.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
         }
     }
 
@@ -1954,12 +1961,11 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun cycleAspectRatio() {
-        aspectRatioMode = (aspectRatioMode + 1) % 4
+        aspectRatioMode = (aspectRatioMode + 1) % 3
         applyAspectRatioMode()
         val names = arrayOf(
             getString(R.string.aspect_fit),
-            getString(R.string.aspect_16_9),
-            getString(R.string.aspect_4_3),
+            getString(R.string.aspect_zoom),
             getString(R.string.aspect_fill)
         )
         Toast.makeText(this, names[aspectRatioMode], Toast.LENGTH_SHORT).show()

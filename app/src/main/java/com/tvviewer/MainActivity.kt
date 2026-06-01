@@ -72,12 +72,13 @@ class MainActivity : BaseActivity() {
         if (savedInstanceState == null) {
             bottomNav.selectedItemId = R.id.nav_home
 
-            // Round 221: проверка апдейта теперь происходит в
-            // SplashActivity ДО показа MainActivity. Сюда (cold start)
-            // мы попадаем уже после диалога обновления, дёргать
-            // GitHub второй раз не нужно — sessionDialogShown=true
-            // выставлен SplashActivity при показе, lastUpdateCheckMs
-            // тоже свежий.
+            // Round 221h: SplashActivity убрана из launcher — юзер
+            // просил «этого окна быть не должно». Проверка апдейта
+            // снова идёт фоном здесь, диалог всплывает над MainActivity
+            // когда сервер ответит. Если апдейта нет — юзер вообще
+            // ничего не видит.
+            UpdateCheckerHelper.resetSessionDialogFlag()
+            UpdateCheckerHelper.maybeCheck(this, force = true)
 
             // Autoplay last channel if enabled
             if (prefs.autoplayLast) {
