@@ -72,11 +72,12 @@ class MainActivity : BaseActivity() {
         if (savedInstanceState == null) {
             bottomNav.selectedItemId = R.id.nav_home
 
-            // Auto-check for updates on cold start. Round 185: используем
-            // общий UpdateCheckerHelper, его же зовёт PlayerActivity ↪
-            // не нужно дважды дёргать GitHub.
-            UpdateCheckerHelper.resetSessionDialogFlag()
-            UpdateCheckerHelper.maybeCheck(this, force = true)
+            // Round 221: проверка апдейта теперь происходит в
+            // SplashActivity ДО показа MainActivity. Сюда (cold start)
+            // мы попадаем уже после диалога обновления, дёргать
+            // GitHub второй раз не нужно — sessionDialogShown=true
+            // выставлен SplashActivity при показе, lastUpdateCheckMs
+            // тоже свежий.
 
             // Autoplay last channel if enabled
             if (prefs.autoplayLast) {

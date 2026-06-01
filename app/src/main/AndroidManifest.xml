@@ -28,18 +28,27 @@
             android:theme="@style/Theme.TVViewer"
             android:noHistory="true" />
 
+        <!-- Round 221: SplashActivity — точка входа. Проверяет апдейт
+             ДО показа MainActivity, чтобы юзер сначала видел диалог
+             обновления, а потом уже саму программу. -->
         <activity
-            android:name=".MainActivity"
+            android:name=".SplashActivity"
             android:exported="true"
             android:theme="@style/Theme.TVViewer"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
-            android:resizeableActivity="true">
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.TVViewer"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:resizeableActivity="true"/>
 
         <activity
             android:name=".PlayerActivity"
