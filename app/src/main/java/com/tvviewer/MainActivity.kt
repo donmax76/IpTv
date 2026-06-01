@@ -72,10 +72,12 @@ class MainActivity : BaseActivity() {
         if (savedInstanceState == null) {
             bottomNav.selectedItemId = R.id.nav_home
 
-            // Round 222: проверку апдейта снова делает SplashActivity
-            // ДО открытия MainActivity. Здесь — только onResume
-            // повторно дёрнет maybeCheck с 1-часовым троттлом, если
-            // вдруг splash таймаутнулся.
+            // Round 222a: проверка апдейта идёт фоном здесь, без
+            // splash. Если апдейт найден — UpdateCheckerHelper
+            // покажет AlertDialog поверх MainActivity. Если нет —
+            // юзер вообще ничего не увидит, что и просили.
+            UpdateCheckerHelper.resetSessionDialogFlag()
+            UpdateCheckerHelper.maybeCheck(this, force = true)
 
             // Autoplay last channel if enabled
             if (prefs.autoplayLast) {
