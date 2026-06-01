@@ -171,14 +171,11 @@ class OverlayChannelAdapter(
         holder.itemView.setOnKeyListener { _, keyCode, event ->
             if (event.action == android.view.KeyEvent.ACTION_DOWN) {
                 when (keyCode) {
-                    // Round 221h: LEFT на выделенном канале — подробная
-                    // программа передач (now + next с описаниями).
-                    // Round 221j: RIGHT делает то же самое. До этого
-                    // RIGHT пытался перевести фокус на favoriteBtn,
-                    // но Round 218 сделал её visibility=gone size=0×0
-                    // — requestFocus тихо проваливался, юзер видел
-                    // «ничего не происходит».
-                    android.view.KeyEvent.KEYCODE_DPAD_LEFT,
+                    // Round 221k: только RIGHT открывает подробную
+                    // программу. LEFT пускаем как раньше — он улетит в
+                    // PlayerActivity.onKeyDown и тот откроет панель
+                    // категорий слева. Round 221h/221j ошибочно
+                    // забирал LEFT тоже.
                     android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
                         onShowDetailsClick?.invoke(channel); true
                     }
