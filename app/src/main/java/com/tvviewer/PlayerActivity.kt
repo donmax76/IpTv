@@ -1685,6 +1685,14 @@ class PlayerActivity : BaseActivity() {
                 // переключения, но аудио везде работает.
                 androidx.media3.exoplayer.hls.HlsMediaSource.Factory(factory)
                     .setAllowChunklessPreparation(false)
+                    // Round 221i: лог #194 build 318 — PlaylistStuckException
+                    // на X4 X4 / Android 11. По умолчанию ExoPlayer считает
+                    // HLS-плейлист «застрявшим» если он не обновился за
+                    // 3.5 * targetDuration. На IPTV-серверах с CDN-кэшем
+                    // (российские/региональные) повторный плейлист может
+                    // прилететь и через 10x — это нормально, не повод
+                    // ронять плеер. Поднимаем коэффициент до 10.
+                    .setPlaylistStuckTargetDurationCoefficient(10.0)
                     .createMediaSource(item)
         }
     }
