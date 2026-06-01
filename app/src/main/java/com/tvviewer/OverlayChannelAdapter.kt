@@ -91,14 +91,16 @@ class OverlayChannelAdapter(
             holder.source.visibility = View.GONE
         }
 
-        // Лого: tvg-logo → обучаемый кэш → iptv-org.
+        // Лого: tvg-logo → обучаемый кэш → iptv-org → инициалы.
         val logoUrl = channel.logoUrl
             ?: LearnedLogos.lookup(channel.name)
             ?: ChannelMetaLookup.lookup(channel.name)?.logoUrl
+        val tile = LetterTileDrawable(channel.name)
         holder.logo.load(logoUrl) {
             crossfade(true)
-            error(R.drawable.ic_channel_placeholder)
-            placeholder(R.drawable.ic_channel_placeholder)
+            error(tile)
+            placeholder(tile)
+            fallback(tile)
         }
 
         // EPG now/next with time

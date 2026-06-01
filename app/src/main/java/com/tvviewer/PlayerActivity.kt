@@ -1938,14 +1938,17 @@ class PlayerActivity : BaseActivity() {
         val resolvedLogo = channel.logoUrl
             ?: LearnedLogos.lookup(channel.name)
             ?: ChannelMetaLookup.lookup(channel.name)?.logoUrl
+        // Round 221c: единый fallback — цветная плашка с инициалами.
+        val tile = LetterTileDrawable(channel.name)
         if (resolvedLogo != null) {
             bannerChannelLogo.load(resolvedLogo) {
                 crossfade(true)
-                error(R.drawable.ic_channel_placeholder)
-                placeholder(R.drawable.ic_channel_placeholder)
+                error(tile)
+                placeholder(tile)
+                fallback(tile)
             }
         } else {
-            bannerChannelLogo.setImageResource(R.drawable.ic_channel_placeholder)
+            bannerChannelLogo.setImageDrawable(tile)
         }
 
         val (nowProg, nextProg) = EpgRepository.getNowNextDetailed(ChannelDataHolder.epgData, channel.tvgId, channel.name)

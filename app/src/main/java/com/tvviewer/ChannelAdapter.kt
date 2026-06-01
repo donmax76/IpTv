@@ -96,10 +96,15 @@ class ChannelAdapter(
         val resolvedLogo = channel.logoUrl
             ?: LearnedLogos.lookup(channel.name)
             ?: ChannelMetaLookup.lookup(channel.name)?.logoUrl
+        // Round 221c: если ни одно из трёх не дало URL — рисуем плашку
+        // с инициалами и цветом из имени канала вместо пустого
+        // placeholder'а.
+        val tile = LetterTileDrawable(channel.name)
         holder.channelLogo.load(resolvedLogo) {
             crossfade(true)
-            error(R.drawable.ic_channel_placeholder)
-            placeholder(R.drawable.ic_channel_placeholder)
+            error(tile)
+            placeholder(tile)
+            fallback(tile)
         }
 
         // EPG
