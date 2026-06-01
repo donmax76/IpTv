@@ -1340,6 +1340,14 @@ class PlayerActivity : BaseActivity() {
         }
         trackSelector.parameters = trackSelector.buildUponParameters()
             .setMaxVideoSize(maxW, maxH)
+            // Round 221d: разрешить выбирать «неподдерживаемые»
+            // дорожки. ExoPlayer часто помечает AC3 / MP2 / EAC3 как
+            // unsupported потому что hardware MediaCodec их не тянет,
+            // но FFmpeg-renderer из nextlib умеет. Без этого
+            // ensureAudioTrackSelected() натыкался на отсутствие
+            // «supported» дорожек и канал шёл без звука.
+            .setExceedRendererCapabilitiesIfNecessary(true)
+            .setExceedAudioConstraintsIfNecessary(true)
             .build()
 
         player = ExoPlayer.Builder(this, renderersFactory)
@@ -1521,19 +1529,47 @@ class PlayerActivity : BaseActivity() {
             g.type == C.TRACK_TYPE_AUDIO && g.isSelected
         }
         if (hasSelectedAudio) return
-        val firstSupported = tracks.groups
+
+        // Сначала ищем поддерживаемую дорожку.
+        val supported = tracks.groups
             .firstOrNull { it.type == C.TRACK_TYPE_AUDIO && hasAnySupportedTrack(it) }
-            ?: return
-        for (i in 0 until firstSupported.length) {
-            if (firstSupported.isTrackSupported(i)) {
-                val override = TrackSelectionOverride(firstSupported.mediaTrackGroup, i)
-                p.trackSelectionParameters = p.trackSelectionParameters
-                    .buildUpon()
-                    .setOverrideForType(override)
-                    .build()
-                Log.d("PlayerActivity", "Force-selected audio track: ${firstSupported.getTrackFormat(i).label ?: firstSupported.getTrackFormat(i).language}")
-                return
+        if (supported != null) {
+            for (i in 0 until supported.length) {
+                if (supported.isTrackSupported(i)) {
+                    val override = TrackSelectionOverride(supported.mediaTrackGroup, i)
+                    p.trackSelectionParameters = p.trackSelectionParameters
+                        .buildUpon()
+                        .setOverrideForType(override)
+                        .build()
+                    Log.d("PlayerActivity", "Force-selected supported audio: " +
+                        "${supported.getTrackFormat(i).sampleMimeType} / " +
+                        "${supported.getTrackFormat(i).language}")
+                    return
+                }
             }
+        }
+
+        // Round 221d: ни одна аудио-дорожка не помечена как
+        // «поддерживаемая» — но FFmpeg-renderer всё равно может её
+        // проиграть. ExoPlayer консервативен с isTrackSupported() для
+        // экзотических кодеков (AC3 с нестандартным sample rate, MP2
+        // mono на DVB, AAC-LC HE-v2). Форсируем первую аудио-дорожку
+        // какая есть. Релаксация exceedRendererCapabilities=true
+        // выставлена один раз в DefaultTrackSelector при создании
+        // плеера, поэтому здесь только override.
+        val anyAudio = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_AUDIO }
+        if (anyAudio != null && anyAudio.length > 0) {
+            val override = TrackSelectionOverride(anyAudio.mediaTrackGroup, 0)
+            p.trackSelectionParameters = p.trackSelectionParameters
+                .buildUpon()
+                .setOverrideForType(override)
+                .build()
+            val f = anyAudio.getTrackFormat(0)
+            Log.d("PlayerActivity",
+                "Force-selected unsupported audio (FFmpeg fallback): " +
+                "${f.sampleMimeType} / ${f.codecs} / ${f.language}")
+        } else {
+            Log.w("PlayerActivity", "No audio tracks in stream at all")
         }
     }
 
