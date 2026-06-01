@@ -48,7 +48,6 @@ object M3UParser {
         val lines = stripBom(content).lines()
         var i = 0
 
-        Log.d(TAG, "Parsing M3U, ${lines.size} lines")
         val hasExtInf = lines.any { it.trim().startsWith("#EXTINF:", ignoreCase = true) }
         if (hasExtInf) {
             while (i < lines.size) {
@@ -120,7 +119,6 @@ object M3UParser {
                 ))
             }
         }
-        Log.d(TAG, "Parsed ${channels.size} channels (extended=$hasExtInf)")
         return channels
     }
 

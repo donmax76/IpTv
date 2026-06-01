@@ -50,7 +50,6 @@ object LearnedLogos {
                     val fk = EpgRepository.fuzzyKey(k)
                     if (fk.isNotEmpty()) fuzzyMap[fk] = v
                 }
-                Log.d(TAG, "loaded ${map.size} learned logo entries (dropped $dropped favicons)")
                 if (dropped > 0) persist(context)
             }
         } catch (e: Throwable) {
@@ -90,7 +89,6 @@ object LearnedLogos {
             }
         }
         if (added > 0) {
-            Log.d(TAG, "harvested $added new logos (total ${map.size})")
             persist(context)
         }
     }

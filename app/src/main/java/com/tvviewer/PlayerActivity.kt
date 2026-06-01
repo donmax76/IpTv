@@ -292,8 +292,6 @@ class PlayerActivity : BaseActivity() {
                     if (cached != null && cached.isNotEmpty()) {
                         ChannelDataHolder.epgData = cached
                         EpgRepository.notifyEpgUpdate(cached)
-                        android.util.Log.d("PlayerActivity",
-                            "EPG cache loaded async on player start: ${cached.size} channels")
                     }
                 } catch (_: Throwable) {}
             }
@@ -2829,19 +2827,9 @@ class PlayerActivity : BaseActivity() {
             return true
         }
 
-        // Дебаг-логгер для неизвестных клавиш пульта: показываем
-        // keycode и имя на экране, чтобы пользователь мог сообщить
-        // что именно шлёт его пульт. Без этого мы гадаем.
-        // Не трогаем системные клавиши громкости/питания/back.
-        if (keyCode != KeyEvent.KEYCODE_VOLUME_UP &&
-            keyCode != KeyEvent.KEYCODE_VOLUME_DOWN &&
-            keyCode != KeyEvent.KEYCODE_VOLUME_MUTE &&
-            keyCode != KeyEvent.KEYCODE_BACK &&
-            keyCode != KeyEvent.KEYCODE_HOME &&
-            keyCode != KeyEvent.KEYCODE_POWER) {
-            val name = KeyEvent.keyCodeToString(keyCode)
-            Toast.makeText(this, "Key: $keyCode ($name)", Toast.LENGTH_LONG).show()
-        }
+        // Round 221e: убран Toast "Key: NNN (KEYCODE_xxx)" для всех
+        // неизвестных клавиш. Был нужен на этапе подбора биндингов
+        // под разные пульты; теперь рабочие маппинги зафиксированы.
         return super.onKeyDown(keyCode, event)
     }
 

@@ -61,14 +61,12 @@ object PlaylistRepository {
                 return@withContext PlaylistResult(result.channels, result.epgUrl)
             }
 
-            Log.d(TAG, "Fetching playlist: $url")
             val request = Request.Builder()
                 .url(url)
                 .header("User-Agent", userAgent)
                 .header("Accept", "*/*")
                 .build()
             val response = client.newCall(request).execute()
-            Log.d(TAG, "Response: ${response.code} ${response.message}")
             if (!response.isSuccessful) {
                 Log.e(TAG, "HTTP error: ${response.code}")
                 return@withContext PlaylistResult(emptyList(), null)
@@ -84,7 +82,6 @@ object PlaylistRepository {
                 return@withContext PlaylistResult(emptyList(), null)
             }
             val body = decodePlaylistBytes(bytes)
-            Log.d(TAG, "Response size: ${body.length} chars (raw ${bytes.size} bytes)")
             val baseUrl = url.substringBeforeLast("/") + "/"
             val result = M3UParser.parseWithEpg(body, baseUrl)
             // Diagnostic: if a remote playlist parsed to zero channels,

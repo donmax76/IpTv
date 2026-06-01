@@ -334,7 +334,6 @@ object EpgRepository {
         val userAgent = context?.let { AppPreferences(it).userAgent } ?: AppPreferences.DEFAULT_USER_AGENT
         val host = epgUrl.substringAfter("://").substringBefore("/").take(30)
         try {
-            Log.d(TAG, "Fetching EPG from: $epgUrl")
             reportProgress("Подключаюсь к $host…")
             if (context != null) ErrorLogger.info(context, "EPG", "fetchSingle($host) start, UA=${userAgent.take(40)}")
             val request = Request.Builder()
@@ -364,7 +363,6 @@ object EpgRepository {
                 tempFile.outputStream().use { out ->
                     body.byteStream().copyTo(out, 64 * 1024)
                 }
-                Log.d(TAG, "EPG downloaded ${tempFile.length()} bytes to $tempFile")
                 reportProgress("$host: скачано ${tempFile.length() / 1024} KB, парсю…")
                 if (context != null) ErrorLogger.info(context, "EPG",
                     "fetchSingle($host) downloaded ${tempFile.length() / 1024} KB in ${(System.currentTimeMillis() - tStart) / 1000}s")
@@ -380,7 +378,6 @@ object EpgRepository {
                     val b2 = raw.read()
                     raw.reset()
                     val isGzip = (b1 == 0x1F && b2 == 0x8B)
-                    Log.d(TAG, "EPG body: gzip=$isGzip (header=$b1 $b2)")
                     if (context != null) ErrorLogger.info(context, "EPG",
                         "fetchSingle($host) gzip=$isGzip, parsing…")
                     val decoded = if (isGzip) GZIPInputStream(raw, 32 * 1024) else raw
@@ -394,7 +391,6 @@ object EpgRepository {
                             .filter { it.code in 32..126 || it == '\n' || it == '\t' }
                             .take(180)
                     } else "(empty)"
-                    Log.d(TAG, "EPG peek: $lastFetchPeek")
                     val cleanedFirst = run {
                         val buf = ByteArray(8 * 1024)
                         val n = buffered.read(buf)
@@ -423,7 +419,6 @@ object EpgRepository {
                 }
             } else null
             val finalResult = parsedResult ?: return@withContext loadFromCache(context) ?: emptyMap()
-            Log.d(TAG, "EPG parsed: ${finalResult.size} channels with data")
             reportProgress("$host: ${finalResult.size} каналов, ${finalResult.values.sumOf { it.size }} передач")
             if (context != null) ErrorLogger.info(context, "EPG",
                 "fetchSingle($host) parsed ${finalResult.size} channels, " +
@@ -509,7 +504,6 @@ object EpgRepository {
             val json = serializeEpg(data)
             val file = File(context.filesDir, EPG_CACHE_FILE)
             file.writeText(json)
-            Log.d(TAG, "EPG cached to disk: ${file.length()} bytes")
         } catch (e: Exception) {
             Log.e(TAG, "EPG cache save error", e)
         }

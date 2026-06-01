@@ -221,7 +221,6 @@ class TVViewerApp : Application(), ImageLoaderFactory {
                 if (cached != null && cached.isNotEmpty()) {
                     ChannelDataHolder.epgData = cached
                     EpgRepository.notifyEpgUpdate(cached)
-                    Log.d("TVViewer", "EPG cache loaded on app start: ${cached.size} channels")
                 }
 
                 // Round 183: сократили warmup 30→5 сек. Раньше юзер
@@ -258,13 +257,11 @@ class TVViewerApp : Application(), ImageLoaderFactory {
                             "stale=${prefs.epgLastUpdate < staleAt} needFetch=$needFetch")
                     } catch (_: Throwable) {}
                     if (needFetch) {
-                        Log.d("TVViewer", "EPG auto-refresh starting (last=${prefs.epgLastUpdate})")
                         try {
                             val data = EpgRepository.fetchAll(urls, applicationContext)
                             if (data.isNotEmpty()) {
                                 ChannelDataHolder.epgData = data
                                 prefs.epgLastUpdate = System.currentTimeMillis()
-                                Log.d("TVViewer", "EPG auto-refresh done: ${data.size} channels")
                                 try { ErrorLogger.info(applicationContext, "EPG",
                                     "auto-refresh ok: ${data.size} channels") } catch (_: Throwable) {}
                             } else {

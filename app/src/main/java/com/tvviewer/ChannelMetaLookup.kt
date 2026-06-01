@@ -136,7 +136,6 @@ object ChannelMetaLookup {
                 val logosText = if (logosFresh) logosCache.readText()
                                 else fetchAndCacheUrl(LOGOS_URL, logosCache)
                 val logosByChannel = parseLogos(logosText)
-                Log.d(TAG, "logos.json indexed: ${logosByChannel.size}")
 
                 // 2. Затем channels.json — строим byName/byFuzzy,
                 //    подтягивая лого из карты выше.
@@ -266,7 +265,6 @@ object ChannelMetaLookup {
             }
             r.endArray()
             r.close()
-            Log.d(TAG, "indexed ${byName.size} channels")
         } catch (e: Throwable) {
             Log.e(TAG, "parseAndIndex failed", e)
         }
