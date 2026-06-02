@@ -392,10 +392,35 @@ class PlayerActivity : BaseActivity() {
             finish()
         }
         findViewById<View>(R.id.centerMenuSearch)?.setOnClickListener {
-            hideCenterMenu()
-            // Возврат в overlay со списком каналов с фокусом на поиск.
+            // Round 224: «При выборе поиск каналов в меню ничего не
+            // происходит, он должен искать во всех категориях».
+            // Сбрасываем категорию на «Все», чтобы фильтр не ограничивал.
+            overlaySelectedCategory = getString(R.string.all)
+            // hideCenterMenu делает анимацию scale-out (~200 мс) и
+            // ТОЛЬКО потом ставит overlay.visibility=GONE. Если сразу
+            // вызвать showChannelList + requestFocus на поиске, наш
+            // searchEdit получает фокус, потом анимация заканчивается и
+            // фокус уходит обратно. Гасим overlay мгновенно вместо
+            // hideCenterMenu().
+            findViewById<View>(R.id.playerCenterMenuOverlay)?.visibility = View.GONE
+            // Восстанавливаем те же tag'и что hideCenterMenu (Round 221a).
+            findViewById<View>(R.id.overlayChannelsPanel)?.let { it.tag = null }
+            findViewById<View>(R.id.overlayCategoriesPanel)?.let { it.tag = null }
             showChannelList()
-            findViewById<View>(R.id.overlaySearchEdit)?.requestFocus()
+            filterOverlayChannels()
+            val search = findViewById<View>(R.id.overlaySearchEdit)
+            search?.post {
+                search.requestFocus()
+                (search as? android.widget.EditText)?.let {
+                    it.setText("")
+                    it.setSelection(0)
+                    // Поднимаем софт-клавиатуру для тач-устройств; на
+                    // пульте просто получаем фокус.
+                    val imm = getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                        as? android.view.inputmethod.InputMethodManager
+                    imm?.showSoftInput(it, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                }
+            }
         }
 
         // Правое выпадающее меню плеера (DPAD_RIGHT). Все эти действия
@@ -2117,6 +2142,23 @@ class PlayerActivity : BaseActivity() {
         val wasVisible = channelListOverlay.visibility == View.VISIBLE
         channelListOverlay.visibility = View.VISIBLE
         channelListVisible = true
+        // Round 224: ВСЕГДА восстанавливаем «дефолтное» состояние
+        // списка каналов — overlayChannelsPanel visible, категории
+        // скрыты. Юзер жаловался: «не всегда показываются списки
+        // каналов, категории да а списки нет». Это происходило когда
+        // юзер ушёл в категории / центральное меню, при возврате
+        // tag-restore из hideCenterMenu мог вернуть list panel = GONE.
+        findViewById<View>(R.id.overlayChannelsPanel)?.let {
+            it.tag = null
+            it.visibility = View.VISIBLE
+        }
+        if (::overlayCategoriesPanel.isInitialized) {
+            val lpCats = overlayCategoriesPanel.layoutParams
+            lpCats.width = (140 * resources.displayMetrics.density).toInt()
+            overlayCategoriesPanel.layoutParams = lpCats
+            overlayCategoriesPanel.tag = null
+            overlayCategoriesPanel.visibility = View.GONE
+        }
         hideHandler.removeCallbacks(hideRunnable)
         // Round 211: slide-in анимация панели каналов слева, dim-фон fade.
         if (!wasVisible) {
