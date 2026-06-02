@@ -24,7 +24,10 @@ object UpdateChecker {
      *  Решение: пагинация. Перебираем до 20 страниц по 100 релизов
      *  (2000 макс), фильтруем v*-buildN, берём максимальный билд. */
     private const val GITHUB_API_BASE = "https://api.github.com/repos/donmax76/IpTv/releases"
-    private const val MAX_PAGES = 20
+    // Round 228a: 5 страниц по 100 = до 500 релизов. Хватит на все
+    // build* теги репо. Запрашиваем ПАРАЛЛЕЛЬНО (см. checkGitHubReleases),
+    // поэтому общее время — почти как один HTTP-запрос (~200-500 мс).
+    private const val MAX_PAGES = 5
     private const val PER_PAGE = 100
     private val OUR_TAG_REGEX = Regex("^v\\d+\\.\\d+-build\\d+$")
 
@@ -67,30 +70,54 @@ object UpdateChecker {
             fun safeStr(o: JSONObject, key: String): String =
                 if (o.isNull(key)) "" else o.optString(key, "")
 
-            // Round 215: пагинация. GitHub API возвращает наши релизы в
-            // непредсказуемом порядке (все имеют одинаковый created_at),
-            // поэтому первая страница не обязательно содержит самый
-            // свежий билд. Перебираем до MAX_PAGES страниц.
-            var bestRelease: JSONObject? = null
-            var bestCode = 0
-            var page = 1
-            while (page <= MAX_PAGES) {
+            // Round 228a: страницы запрашиваются ПАРАЛЛЕЛЬНО — общее
+            // время = время одного HTTP-запроса, а не суммы. Раньше
+            // (Round 215) перебирали страницы последовательно, на сети
+            // это занимало 1-2 сек.
+            val bodies = java.util.concurrent.ConcurrentHashMap<Int, String>()
+            val firstPageError = java.util.concurrent.atomic.AtomicReference<Exception?>()
+            val latch = java.util.concurrent.CountDownLatch(MAX_PAGES)
+            for (page in 1..MAX_PAGES) {
                 val request = Request.Builder()
                     .url("$GITHUB_API_BASE?per_page=$PER_PAGE&page=$page")
                     .header("Accept", "application/vnd.github.v3+json")
                     .header("User-Agent", "TVViewer-App")
                     .build()
-                val response = client.newCall(request).execute()
-                if (!response.isSuccessful) {
-                    if (page == 1) {
-                        return Result.failure(Exception("GitHub API HTTP ${response.code}"))
+                client.newCall(request).enqueue(object : okhttp3.Callback {
+                    override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                        if (page == 1) firstPageError.compareAndSet(null, e)
+                        latch.countDown()
                     }
-                    break  // rate limit или нет данных — используем то что собрали
-                }
-                val body = response.body?.string() ?: break
-                val arr = JSONArray(body)
-                if (arr.length() == 0) break  // конец страниц
+                    override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                        try {
+                            if (response.isSuccessful) {
+                                val b = response.body?.string()
+                                if (b != null) bodies[page] = b
+                            } else if (page == 1) {
+                                firstPageError.compareAndSet(null,
+                                    Exception("GitHub API HTTP ${response.code}"))
+                            }
+                        } finally {
+                            response.close()
+                            latch.countDown()
+                        }
+                    }
+                })
+            }
+            // Лимитируем общее ожидание чтобы splash не висел дольше
+            // своего CHECK_TIMEOUT_MS (3 сек). withTimeoutOrNull
+            // снаружи (в SplashActivity) обрежет ещё раз для подстраховки.
+            latch.await(3, java.util.concurrent.TimeUnit.SECONDS)
 
+            val firstErr = firstPageError.get()
+            if (firstErr != null && bodies.isEmpty()) {
+                return Result.failure(firstErr)
+            }
+
+            var bestRelease: JSONObject? = null
+            var bestCode = 0
+            for ((_, body) in bodies) {
+                val arr = try { JSONArray(body) } catch (_: Exception) { continue }
                 for (i in 0 until arr.length()) {
                     val rel = arr.getJSONObject(i)
                     val tag = safeStr(rel, "tag_name")
@@ -101,13 +128,9 @@ object UpdateChecker {
                         bestRelease = rel
                     }
                 }
-
-                if (arr.length() < PER_PAGE) break  // последняя страница
-                page++
             }
 
             if (bestRelease == null || bestCode <= 0) {
-                Log.d(TAG, "No matching v*-buildN release found (scanned $page pages)")
                 return Result.success(null)
             }
             val json = bestRelease

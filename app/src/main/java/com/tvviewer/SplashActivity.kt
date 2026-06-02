@@ -44,30 +44,12 @@ class SplashActivity : AppCompatActivity() {
         // setContentView НЕ вызываем — тема прозрачная, окна не видно.
         UpdateCheckerHelper.resetSessionDialogFlag()
 
-        // Round 228: попытка use-cache до сетевого запроса. Если в
-        // последние 10 минут проверка уже выполнялась — действуем по
-        // её результату без сети.
-        val prefs = AppPreferences(this)
-        val sinceCheck = System.currentTimeMillis() - prefs.lastUpdateCheckMs
-        if (sinceCheck < CACHE_TTL_MS) {
-            val cachedCode = prefs.cachedUpdateBuildCode
-            if (cachedCode > BuildConfig.VERSION_CODE &&
-                prefs.cachedUpdateDownloadUrl.isNotBlank()) {
-                val cached = UpdateChecker.UpdateInfo(
-                    versionCode = cachedCode,
-                    versionName = prefs.cachedUpdateVersionName,
-                    downloadUrl = prefs.cachedUpdateDownloadUrl,
-                    releaseNotes = prefs.cachedUpdateNotes
-                )
-                showUpdateDialog(cached)
-                return
-            }
-            // Кэш говорит «апдейта нет» — мгновенно открываем MainActivity.
-            proceedToMain()
-            return
-        }
-
+        // Round 228a: убрал кэш по просьбе юзера «при каждом запуске
+        // он не проверяет разве есть или нет новая версия?» — теперь
+        // сеть дёргается КАЖДЫЙ старт, но fast: UpdateChecker.check
+        // делает страницы параллельно (Round 228a), таймаут 3 сек.
         proceedJob = lifecycleScope.launch {
+            val prefs = AppPreferences(this@SplashActivity)
             val checkResult = withTimeoutOrNull(CHECK_TIMEOUT_MS) {
                 runCatching { UpdateChecker.check(prefs.updateCheckUrl).getOrNull() }
                     .getOrNull().let { Result.success(it) }
@@ -77,18 +59,6 @@ class SplashActivity : AppCompatActivity() {
             val update = checkResult?.getOrNull()
             if (checkResult != null) {
                 prefs.lastUpdateCheckMs = System.currentTimeMillis()
-                // Сохраняем результат в кэш для следующего запуска.
-                if (update != null && update.versionCode > BuildConfig.VERSION_CODE) {
-                    prefs.cachedUpdateBuildCode = update.versionCode
-                    prefs.cachedUpdateVersionName = update.versionName
-                    prefs.cachedUpdateDownloadUrl = update.downloadUrl
-                    prefs.cachedUpdateNotes = update.releaseNotes
-                } else {
-                    // «Апдейта нет» — обнуляем кэш чтобы следующий
-                    // запуск его не показал.
-                    prefs.cachedUpdateBuildCode = 0
-                    prefs.cachedUpdateDownloadUrl = ""
-                }
             }
 
             if (update != null && update.versionCode > BuildConfig.VERSION_CODE) {
