@@ -88,21 +88,30 @@ class SplashActivity : AppCompatActivity() {
         // Только сейчас инфлейтим лого + прогресс — до этого splash был
         // прозрачный.
         setContentView(R.layout.activity_splash)
-        findViewById<ProgressBar>(R.id.splashProgress).visibility = View.VISIBLE
-        findViewById<TextView>(R.id.splashStatus).apply {
+        val bar = findViewById<ProgressBar>(R.id.splashProgress).apply {
             visibility = View.VISIBLE
-            text = getString(R.string.update_downloading)
+            progress = 0
+        }
+        val status = findViewById<TextView>(R.id.splashStatus).apply {
+            visibility = View.VISIBLE
+            text = getString(R.string.update_downloading) + " 0%"
+        }
+        // Round 227: реальный прогресс с UpdateInstaller — обновляем
+        // progress bar и текст «Загрузка X%» по мере скачивания APK.
+        UpdateInstaller.onProgressCallback = { pct ->
+            bar.progress = pct
+            status.text = getString(R.string.update_downloading) + " $pct%"
         }
         UpdateInstaller.onFinishedCallback = { proceedToMain() }
         UpdateInstaller.downloadAndInstall(this, url)
-        findViewById<View>(R.id.splashStatus).postDelayed(
-            { proceedToMain() }, DOWNLOAD_FALLBACK_MS)
+        status.postDelayed({ proceedToMain() }, DOWNLOAD_FALLBACK_MS)
     }
 
     private fun proceedToMain() {
         if (alreadyProceeded) return
         alreadyProceeded = true
         UpdateInstaller.onFinishedCallback = null
+        UpdateInstaller.onProgressCallback = null
         startActivity(Intent(this, MainActivity::class.java))
         finish()
         overridePendingTransition(0, 0)
@@ -111,6 +120,7 @@ class SplashActivity : AppCompatActivity() {
     override fun onDestroy() {
         proceedJob?.cancel()
         UpdateInstaller.onFinishedCallback = null
+        UpdateInstaller.onProgressCallback = null
         super.onDestroy()
     }
 }

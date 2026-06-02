@@ -50,9 +50,15 @@ object UpdateInstaller {
      *  в MainActivity. Вызывается из main-thread. */
     @Volatile var onFinishedCallback: (() -> Unit)? = null
 
+    /** Round 227: коллбэк процентов загрузки (0..100) на main-thread.
+     *  Splash рисует через него настоящий progress bar вместо
+     *  бесконечного спиннера. */
+    @Volatile var onProgressCallback: ((Int) -> Unit)? = null
+
     internal fun notifyFinished() {
         val cb = onFinishedCallback
         onFinishedCallback = null
+        onProgressCallback = null
         if (cb != null) mainHandler.post { cb.invoke() }
     }
 
@@ -131,6 +137,7 @@ object UpdateInstaller {
             body.byteStream().use { input ->
                 dest.outputStream().use { output ->
                     val buf = ByteArray(64 * 1024)
+                    var lastUiPct = -1
                     while (true) {
                         val n = input.read(buf)
                         if (n <= 0) break
@@ -138,8 +145,16 @@ object UpdateInstaller {
                         written += n
                         if (total > 0) {
                             val pct = ((written * 100) / total).toInt()
-                            // Только при изменении на 10% — иначе будет
-                            // 100 toast'ов спамить очередь.
+                            // Round 227: UI-коллбэк на каждое изменение
+                            // процента — progress bar в Splash должен
+                            // плавно расти.
+                            if (pct != lastUiPct) {
+                                lastUiPct = pct
+                                val cb = onProgressCallback
+                                if (cb != null) mainHandler.post { cb.invoke(pct) }
+                            }
+                            // Toast по-прежнему раз в 10% — иначе очередь
+                            // toast'ов забивается.
                             val bucket = (pct / 10) * 10
                             if (bucket != lastReportedPct && bucket > 0 && bucket < 100) {
                                 lastReportedPct = bucket
