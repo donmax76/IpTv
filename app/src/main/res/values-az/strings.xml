@@ -195,6 +195,7 @@
     <string name="error_log_sent">Log göndərildi</string>
     <string name="errors_cleared">Xətalar təmizləndi</string>
     <string name="exit_app_confirm">Tətbiqdən çıxılsın?</string>
+    <string name="press_back_again_to_exit">Çıxmaq üçün «Geri» düyməsini yenidən basın</string>
     <string name="exit_fullscreen">Tam ekrandan çıx</string>
     <string name="filter_4k">4K</string>
     <string name="filter_all">Hamısı</string>

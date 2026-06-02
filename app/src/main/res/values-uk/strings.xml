@@ -197,6 +197,7 @@
     <string name="error_log_sent">Лог надіслано</string>
     <string name="errors_cleared">Помилки очищено</string>
     <string name="exit_app_confirm">Вийти із застосунку?</string>
+    <string name="press_back_again_to_exit">Натисніть «Назад» ще раз для виходу</string>
     <string name="filter_4k">4K</string>
     <string name="filter_all">Всі</string>
     <string name="filter_fhd">FHD</string>

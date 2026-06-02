@@ -5,6 +5,7 @@
     <string name="playlists">Плейлисты</string>
     <string name="recent">Недавние</string>
     <string name="exit_app_confirm">Выйти из приложения?</string>
+    <string name="press_back_again_to_exit">Нажмите ещё раз для выхода</string>
     <string name="yes">Да</string>
     <string name="no">Нет</string>
     <string name="send_to_github">Отправить на сервер</string>

@@ -8,6 +8,7 @@ import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
+import android.widget.Toast
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
@@ -407,29 +408,41 @@ class MainActivity : BaseActivity() {
         return null
     }
 
+    // Round 223: time of the last BACK press at the «нечего возвращать»
+    // state. Если второй BACK прилетел в течение 2 сек — показываем
+    // диалог выхода. Иначе — Toast «нажмите ещё раз» и обновление
+    // времени. Заменяет старое поведение «BACK → перевод фокуса в
+    // bottom-nav → второй BACK → выход».
+    private var lastBackPressMs: Long = 0
+    private val DOUBLE_BACK_WINDOW_MS = 2000L
+
     @Deprecated("Required override for older APIs")
     override fun onBackPressed() {
         if (::drawerLayout.isInitialized && drawerLayout.isDrawerOpen(Gravity.START)) {
             drawerLayout.closeDrawer(Gravity.START)
             return
         }
-        // На пульте: первый BACK перебрасывает фокус на bottom-nav,
-        // второй — спрашивает выход. На телефоне (тач) bottom-nav скрыт,
-        // фокуса там нет никогда, так что диалог никогда не появлялся.
-        // Теперь: если фокус НЕ на bottom-nav И на пульте (есть focus,
-        // bottom-nav видим) — перебрасываем как раньше; иначе сразу
-        // подтверждаем выход.
-        val focus = currentFocus
-        val bottomNavVisible = bottomNav.visibility == View.VISIBLE
-        if (focus != null && bottomNavVisible && !isBottomNavFocused(focus)) {
-            bottomNav.requestFocus()
+        // Если открыта вкладка отличная от Home — первый BACK
+        // возвращает на Home (это «предыдущее меню»).
+        if (bottomNav.selectedItemId != R.id.nav_home) {
+            bottomNav.selectedItemId = R.id.nav_home
             return
         }
-        AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
-            .setMessage(R.string.exit_app_confirm)
-            .setPositiveButton(R.string.yes) { _, _ -> super.onBackPressed() }
-            .setNegativeButton(R.string.no, null)
-            .show()
+        // На Home: double-BACK в окне 2 сек → диалог «выйти?». Один
+        // BACK → Toast-подсказка.
+        val now = System.currentTimeMillis()
+        if (now - lastBackPressMs < DOUBLE_BACK_WINDOW_MS) {
+            lastBackPressMs = 0L
+            AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
+                .setMessage(R.string.exit_app_confirm)
+                .setPositiveButton(R.string.yes) { _, _ -> super.onBackPressed() }
+                .setNegativeButton(R.string.no, null)
+                .show()
+            return
+        }
+        lastBackPressMs = now
+        Toast.makeText(this, R.string.press_back_again_to_exit,
+            Toast.LENGTH_SHORT).show()
     }
 
     private fun isBottomNavFocused(view: View): Boolean {
