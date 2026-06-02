@@ -113,3 +113,27 @@ jobs:
         make_latest: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    # Round 229: bump version.json on main so the Android app can
+    # read latest build info via raw.githubusercontent.com in a
+    # single ~100 ms request, instead of paginating the releases
+    # endpoint.
+    - name: Bump version.json on main
+      if: steps.build.outputs.exit_code == '0' && github.event_name == 'push'
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git fetch origin main
+        git checkout main
+        cat > version.json <<EOF
+        {
+          "versionCode": ${{ github.run_number }},
+          "versionName": "5.4",
+          "downloadUrl": "https://github.com/donmax76/IpTv/releases/download/v5.4-build${{ github.run_number }}/TVViewer-v5.4-debug.apk"
+        }
+        EOF
+        git add version.json
+        if ! git diff --cached --quiet; then
+          git commit -m "Bump version.json to build ${{ github.run_number }} [skip ci]"
+          git push origin main || true
+        fi

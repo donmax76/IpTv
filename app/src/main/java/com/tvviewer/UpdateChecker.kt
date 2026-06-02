@@ -43,11 +43,26 @@ object UpdateChecker {
         val releaseNotes: String = ""
     )
 
+    // Round 229: версионный JSON, который CI бампает на ветке main
+    // после каждого успешного релиза. Один HTTP GET к CDN-кэшу
+    // raw.githubusercontent.com ≈ 100 мс — быстрее любой пагинации
+    // releases-эндпоинта.
+    private const val FAST_VERSION_JSON =
+        "https://raw.githubusercontent.com/donmax76/IpTv/main/version.json"
+
     /**
-     * Check for updates. Tries GitHub Releases API first, then falls back to custom URL.
+     * Check for updates. Round 229: fast path через version.json на main
+     * (≈100 мс CDN). Если упало — fallback на параллельный скан
+     * Releases API (Round 228a). Customer URL — последний шанс.
      */
     suspend fun check(customUrl: String? = null): Result<UpdateInfo?> = withContext(Dispatchers.IO) {
-        // Try GitHub Releases API first
+        // Fast path.
+        try {
+            val fast = checkVersionJson(FAST_VERSION_JSON)
+            if (fast != null) return@withContext Result.success(fast)
+        } catch (_: Throwable) {}
+
+        // Slow fallback: paginated GitHub Releases API.
         try {
             val result = checkGitHubReleases()
             if (result.isSuccess && result.getOrNull() != null) {
@@ -57,12 +72,35 @@ object UpdateChecker {
             Log.d(TAG, "GitHub releases check failed, trying custom URL", e)
         }
 
-        // Fall back to custom version.json URL
+        // Custom URL fallback.
         if (!customUrl.isNullOrBlank()) {
             return@withContext checkCustomUrl(customUrl)
         }
 
         Result.success(null)
+    }
+
+    /** Парсит {versionCode,versionName,downloadUrl,releaseNotes?} JSON.
+     *  Возвращает null если не удалось скачать / распарсить. */
+    private fun checkVersionJson(url: String): UpdateInfo? {
+        return try {
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "TVViewer-App")
+                .header("Cache-Control", "no-cache")
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return null
+                val body = response.body?.string() ?: return null
+                val json = JSONObject(body)
+                val code = json.optInt("versionCode", 0)
+                val name = json.optString("versionName", "")
+                val downloadUrl = json.optString("downloadUrl", "")
+                val notes = json.optString("releaseNotes", "")
+                if (code <= 0 || downloadUrl.isBlank()) return null
+                UpdateInfo(code, name, downloadUrl, notes)
+            }
+        } catch (_: Exception) { null }
     }
 
     private fun checkGitHubReleases(): Result<UpdateInfo?> {
