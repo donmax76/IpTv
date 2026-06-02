@@ -1464,8 +1464,15 @@ class PlayerActivity : BaseActivity() {
                         // шум от тормозных CDN, не баг плеера. scheduleReconnect
                         // ниже всё равно дёрнет ретрай; не засоряем лог-файл
                         // который потом юзер шлёт через «Отправить лог».
-                        val isStuck = generateSequence<Throwable?>(error) { it.cause }
-                            .any { it.javaClass.name.contains("PlaylistStuckException") }
+                        var isStuck = false
+                        var cause: Throwable? = error
+                        while (cause != null) {
+                            if (cause.javaClass.name.contains("PlaylistStuckException")) {
+                                isStuck = true
+                                break
+                            }
+                            cause = cause.cause
+                        }
                         if (!isStuck) {
                             ErrorLogger.logException(this@PlayerActivity, error)
                         }
