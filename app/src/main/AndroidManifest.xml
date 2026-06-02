@@ -28,30 +28,30 @@
             android:theme="@style/Theme.TVViewer"
             android:noHistory="true" />
 
-        <!-- Round 222a: финальное решение по splash. Юзер: «не нужно
-             без надобности открывать окно проверки версии. это нужно
-             делать невидимо а если есть новая версия то только тогда
-             открывать окно». MainActivity снова launcher, проверка
-             идёт в фоне через UpdateCheckerHelper. SplashActivity
-             класс остаётся в проекте на случай отката. -->
+        <!-- Round 222b: финальный поток (с третьего раза):
+             splash виден пока идёт проверка → если апдейт есть →
+             диалог → «Да» → splash остаётся видим до завершения
+             загрузки + установки → MainActivity только после.
+             Если апдейта нет — splash мелькает 0.5-1 сек, дальше
+             MainActivity. -->
         <activity
             android:name=".SplashActivity"
-            android:exported="false"
-            android:theme="@style/Theme.TVViewer"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"/>
-
-        <activity
-            android:name=".MainActivity"
             android:exported="true"
             android:theme="@style/Theme.TVViewer"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
-            android:resizeableActivity="true">
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.TVViewer"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:resizeableActivity="true"/>
 
         <activity
             android:name=".PlayerActivity"

@@ -1,9 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Round 222: минимальный сплеш. БЕЗ надписи «Проверка обновлений…»
-     по жалобе юзера «этого окна быть не должно». Только лого + имя
-     приложения. Если апдейта нет — мелькнёт долю секунды и
-     запустится MainActivity. Если апдейт есть — показывается
-     поверх этого лого AlertDialog. -->
+<!-- Round 222b: splash виден пока идёт проверка апдейта. Если
+     апдейт есть и юзер согласился — splash остаётся, показывая
+     progressText «Загрузка обновления…». -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -26,5 +24,22 @@
         android:textColor="@color/text_primary"
         android:textSize="28sp"
         android:textStyle="bold"/>
+
+    <ProgressBar
+        android:id="@+id/splashProgress"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:indeterminateTint="@color/primary"
+        android:layout_marginTop="32dp"
+        android:visibility="gone"/>
+
+    <TextView
+        android:id="@+id/splashStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="@color/text_secondary"
+        android:textSize="14sp"
+        android:layout_marginTop="12dp"
+        android:visibility="gone"/>
 
 </LinearLayout>

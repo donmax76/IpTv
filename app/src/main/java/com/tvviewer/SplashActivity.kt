@@ -3,62 +3,63 @@ package com.tvviewer
 import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
-import android.util.Log
+import android.view.View
+import android.widget.ProgressBar
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Round 221: запускается раньше MainActivity. Проверяет апдейт, при
- * наличии показывает диалог «обновить / пропустить». В любом случае
- * (нет обновления / таймаут / пользователь отказался / уже скачивает)
- * переходит в MainActivity. Без отдельного splash'а проверка стартовала
- * уже после показа главного экрана и пользователь видел приложение до
- * того, как узнавал про апдейт.
+ * Round 222b: запускается раньше MainActivity. В фоне проверяет
+ * апдейт. Если нет — finish + start MainActivity. Если есть —
+ * AlertDialog «Обновить / Пропустить».
+ * «Пропустить» → MainActivity.
+ * «Обновить» → splash остаётся видим, показывает «Загрузка
+ *   обновления…» + спиннер. UpdateInstaller качает APK, потом
+ *   PackageInstaller вызывает системный диалог установки. После
+ *   успешной установки система перезапустит app и мы попадём в
+ *   новый MainActivity. Если юзер отменил установку или загрузка
+ *   упала — UpdateInstaller.onFinishedCallback → MainActivity.
  */
 class SplashActivity : AppCompatActivity() {
 
     companion object {
-        // Round 222: 5 сек — splash без надписи «проверка», только
-        // лого, поэтому юзер не должен смотреть на него дольше 5 сек.
-        // При быстрой сети check завершается за 0.5-1 сек и MainActivity
-        // открывается почти мгновенно.
         private const val CHECK_TIMEOUT_MS = 5_000L
+        // Страховка: если splash висит дольше 5 минут на «Загрузке»
+        // — что-то пошло не так, открываем MainActivity чтобы юзер
+        // не остался на чёрном экране.
+        private const val DOWNLOAD_FALLBACK_MS = 5L * 60_000L
     }
 
     private var proceedJob: Job? = null
     private var alreadyProceeded = false
+    private lateinit var progressBar: ProgressBar
+    private lateinit var statusText: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_splash)
+        progressBar = findViewById(R.id.splashProgress)
+        statusText = findViewById(R.id.splashStatus)
 
         UpdateCheckerHelper.resetSessionDialogFlag()
 
         proceedJob = lifecycleScope.launch {
             val prefs = AppPreferences(this@SplashActivity)
-            // Делим «есть результат» (включая null=нет апдейта) и
-            // «таймаут». Если таймаут — НЕ обновляем lastUpdateCheckMs,
-            // чтобы onResume MainActivity мог попробовать ещё раз.
-            val checkFinished = withTimeoutOrNull(CHECK_TIMEOUT_MS) {
+            val checkResult = withTimeoutOrNull(CHECK_TIMEOUT_MS) {
                 runCatching { UpdateChecker.check(prefs.updateCheckUrl).getOrNull() }
                     .getOrNull().let { Result.success(it) }
             }
-
             if (!isActive) return@launch
 
-            val update = checkFinished?.getOrNull()
-            if (checkFinished != null) {
-                // Проверка завершилась — успех или null. Помечаем чтобы
-                // MainActivity не дёргал GitHub второй раз через час.
+            val update = checkResult?.getOrNull()
+            if (checkResult != null) {
                 prefs.lastUpdateCheckMs = System.currentTimeMillis()
             }
-            // На таймаут lastUpdateCheckMs остаётся прежним — MainActivity
-            // повторит запрос если троттл уже истёк.
 
             if (update != null && update.versionCode > BuildConfig.VERSION_CODE) {
                 showUpdateDialog(update)
@@ -84,11 +85,7 @@ class SplashActivity : AppCompatActivity() {
             .setMessage(message)
             .setCancelable(false)
             .setPositiveButton(R.string.update_download) { _, _ ->
-                UpdateInstaller.downloadAndInstall(this, update.downloadUrl)
-                // Установщик откроет системный installer; MainActivity
-                // запустим всё равно, чтобы юзер мог продолжить работу
-                // пока скачивается / устанавливается.
-                proceedToMain()
+                startUpdate(update.downloadUrl)
             }
             .setNegativeButton(R.string.cancel) { _, _ ->
                 proceedToMain()
@@ -96,9 +93,19 @@ class SplashActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun startUpdate(url: String) {
+        progressBar.visibility = View.VISIBLE
+        statusText.visibility = View.VISIBLE
+        statusText.text = getString(R.string.update_downloading)
+        UpdateInstaller.onFinishedCallback = { proceedToMain() }
+        UpdateInstaller.downloadAndInstall(this, url)
+        statusText.postDelayed({ proceedToMain() }, DOWNLOAD_FALLBACK_MS)
+    }
+
     private fun proceedToMain() {
         if (alreadyProceeded) return
         alreadyProceeded = true
+        UpdateInstaller.onFinishedCallback = null
         startActivity(Intent(this, MainActivity::class.java))
         finish()
         overridePendingTransition(0, 0)
@@ -106,6 +113,7 @@ class SplashActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         proceedJob?.cancel()
+        UpdateInstaller.onFinishedCallback = null
         super.onDestroy()
     }
 }

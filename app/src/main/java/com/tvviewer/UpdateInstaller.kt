@@ -45,6 +45,17 @@ object UpdateInstaller {
     @Volatile private var ongoing: Job? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    /** Round 222b: SplashActivity подписывается сюда чтобы узнать
+     *  что апдейт завершился (или провалился) и пора пускать юзера
+     *  в MainActivity. Вызывается из main-thread. */
+    @Volatile var onFinishedCallback: (() -> Unit)? = null
+
+    internal fun notifyFinished() {
+        val cb = onFinishedCallback
+        onFinishedCallback = null
+        if (cb != null) mainHandler.post { cb.invoke() }
+    }
+
     fun downloadAndInstall(context: Context, downloadUrl: String) {
         if (ongoing?.isActive == true) {
             Toast.makeText(context, R.string.update_downloading, Toast.LENGTH_SHORT).show()
@@ -89,11 +100,15 @@ object UpdateInstaller {
                 if (ok && outFile.exists() && outFile.length() > 0) {
                     toast(appCtx, "Загружено, открываю установку")
                     triggerInstall(appCtx, outFile)
+                    // Install dialog взял управление. notifyFinished
+                    // придёт из InstallStatusReceiver на success /
+                    // failure / aborted.
                 } else {
                     Toast.makeText(appCtx,
                         "Не удалось скачать обновление. Откройте страницу релиза.",
                         Toast.LENGTH_LONG).show()
                     openInBrowser(appCtx, downloadUrl)
+                    notifyFinished()
                 }
             }
         }

@@ -48,9 +48,11 @@ class InstallStatusReceiver : BroadcastReceiver() {
             PackageInstaller.STATUS_SUCCESS -> {
                 Toast.makeText(context, "Обновление установлено",
                     Toast.LENGTH_SHORT).show()
+                UpdateInstaller.notifyFinished()
             }
             PackageInstaller.STATUS_FAILURE_ABORTED -> {
                 // юзер отменил — не шумим
+                UpdateInstaller.notifyFinished()
             }
             else -> {
                 val msg = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
@@ -58,6 +60,7 @@ class InstallStatusReceiver : BroadcastReceiver() {
                 Toast.makeText(context, "Установка не удалась: $msg",
                     Toast.LENGTH_LONG).show()
                 Log.e("InstallStatusReceiver", "Install failed status=$status msg=$msg")
+                UpdateInstaller.notifyFinished()
             }
         }
     }
