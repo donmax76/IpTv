@@ -27,7 +27,12 @@ import kotlinx.coroutines.withTimeoutOrNull
 class SplashActivity : AppCompatActivity() {
 
     companion object {
-        private const val CHECK_TIMEOUT_MS = 5_000L
+        // Round 228: 5 → 3 сек таймаут на сеть.
+        private const val CHECK_TIMEOUT_MS = 3_000L
+        // Round 228: TTL кэша результата проверки. 10 минут «нет
+        // апдейта» = пропускаем запрос целиком, splash не открывается
+        // вообще.
+        private const val CACHE_TTL_MS = 10L * 60_000L
         private const val DOWNLOAD_FALLBACK_MS = 5L * 60_000L
     }
 
@@ -39,8 +44,30 @@ class SplashActivity : AppCompatActivity() {
         // setContentView НЕ вызываем — тема прозрачная, окна не видно.
         UpdateCheckerHelper.resetSessionDialogFlag()
 
+        // Round 228: попытка use-cache до сетевого запроса. Если в
+        // последние 10 минут проверка уже выполнялась — действуем по
+        // её результату без сети.
+        val prefs = AppPreferences(this)
+        val sinceCheck = System.currentTimeMillis() - prefs.lastUpdateCheckMs
+        if (sinceCheck < CACHE_TTL_MS) {
+            val cachedCode = prefs.cachedUpdateBuildCode
+            if (cachedCode > BuildConfig.VERSION_CODE &&
+                prefs.cachedUpdateDownloadUrl.isNotBlank()) {
+                val cached = UpdateChecker.UpdateInfo(
+                    versionCode = cachedCode,
+                    versionName = prefs.cachedUpdateVersionName,
+                    downloadUrl = prefs.cachedUpdateDownloadUrl,
+                    releaseNotes = prefs.cachedUpdateNotes
+                )
+                showUpdateDialog(cached)
+                return
+            }
+            // Кэш говорит «апдейта нет» — мгновенно открываем MainActivity.
+            proceedToMain()
+            return
+        }
+
         proceedJob = lifecycleScope.launch {
-            val prefs = AppPreferences(this@SplashActivity)
             val checkResult = withTimeoutOrNull(CHECK_TIMEOUT_MS) {
                 runCatching { UpdateChecker.check(prefs.updateCheckUrl).getOrNull() }
                     .getOrNull().let { Result.success(it) }
@@ -50,6 +77,18 @@ class SplashActivity : AppCompatActivity() {
             val update = checkResult?.getOrNull()
             if (checkResult != null) {
                 prefs.lastUpdateCheckMs = System.currentTimeMillis()
+                // Сохраняем результат в кэш для следующего запуска.
+                if (update != null && update.versionCode > BuildConfig.VERSION_CODE) {
+                    prefs.cachedUpdateBuildCode = update.versionCode
+                    prefs.cachedUpdateVersionName = update.versionName
+                    prefs.cachedUpdateDownloadUrl = update.downloadUrl
+                    prefs.cachedUpdateNotes = update.releaseNotes
+                } else {
+                    // «Апдейта нет» — обнуляем кэш чтобы следующий
+                    // запуск его не показал.
+                    prefs.cachedUpdateBuildCode = 0
+                    prefs.cachedUpdateDownloadUrl = ""
+                }
             }
 
             if (update != null && update.versionCode > BuildConfig.VERSION_CODE) {

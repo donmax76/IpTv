@@ -344,6 +344,24 @@ class AppPreferences(context: Context) {
         get() = prefs.getLong("last_update_check_ms", 0L)
         set(value) = prefs.edit().putLong("last_update_check_ms", value).apply()
 
+    // Round 228: кешируем последний известный апдейт. Если за TTL
+    // (10 мин) splash увидит «апдейта нет» — следующий запуск пропустит
+    // сетевой запрос вообще, юзер не увидит ни секунды splash'а.
+    // Если апдейт был — храним versionCode + name + url + notes,
+    // показываем диалог сразу из кэша.
+    var cachedUpdateBuildCode: Int
+        get() = prefs.getInt("cached_update_code", 0)
+        set(v) = prefs.edit().putInt("cached_update_code", v).apply()
+    var cachedUpdateVersionName: String
+        get() = prefs.getString("cached_update_name", "") ?: ""
+        set(v) = prefs.edit().putString("cached_update_name", v).apply()
+    var cachedUpdateDownloadUrl: String
+        get() = prefs.getString("cached_update_url", "") ?: ""
+        set(v) = prefs.edit().putString("cached_update_url", v).apply()
+    var cachedUpdateNotes: String
+        get() = prefs.getString("cached_update_notes", "") ?: ""
+        set(v) = prefs.edit().putString("cached_update_notes", v).apply()
+
     var screenOrientation: String
         get() = prefs.getString(KEY_ORIENTATION, "auto") ?: "auto"
         set(value) = prefs.edit().putString(KEY_ORIENTATION, value).apply()
