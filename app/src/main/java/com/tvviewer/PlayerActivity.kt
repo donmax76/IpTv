@@ -1460,7 +1460,15 @@ class PlayerActivity : BaseActivity() {
                                 return
                             } catch (_: Exception) {}
                         }
-                        ErrorLogger.logException(this@PlayerActivity, error)
+                        // Round 226: PlaylistStuckException — известный
+                        // шум от тормозных CDN, не баг плеера. scheduleReconnect
+                        // ниже всё равно дёрнет ретрай; не засоряем лог-файл
+                        // который потом юзер шлёт через «Отправить лог».
+                        val isStuck = generateSequence<Throwable?>(error) { it.cause }
+                            .any { it.javaClass.name.contains("PlaylistStuckException") }
+                        if (!isStuck) {
+                            ErrorLogger.logException(this@PlayerActivity, error)
+                        }
                         // Декодер не нашёлся (типичный случай — MP2-аудио
                         // на дешёвых TV-боксах без MP2 MediaCodec'а).
                         // Reconnect не поможет — формат не изменится.
@@ -1723,6 +1731,11 @@ class PlayerActivity : BaseActivity() {
                     // выпустились). Правильный путь — custom
                     // HlsPlaylistTracker.Factory с явным коэффициентом
                     // в конструкторе DefaultHlsPlaylistTracker.
+                    // Round 226: 10.0 не хватило (лог #199 на build 330
+                    // снова PlaylistStuckException). Поднимаем до 20.0:
+                    // на типичном live-HLS с target=6s это разрешит
+                    // плейлисту не обновляться до 2 минут. Этого хватает
+                    // для большинства тормозных CDN.
                     .setPlaylistTrackerFactory(
                         androidx.media3.exoplayer.hls.playlist.HlsPlaylistTracker.Factory {
                             dataSourceFactory, errorHandlingPolicy, playlistParserFactory ->
@@ -1730,7 +1743,7 @@ class PlayerActivity : BaseActivity() {
                                 dataSourceFactory,
                                 errorHandlingPolicy,
                                 playlistParserFactory,
-                                10.0
+                                20.0
                             )
                         }
                     )
