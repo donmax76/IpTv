@@ -142,6 +142,20 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
 
+    <!-- Round 222c: прозрачный no-content launcher для SplashActivity.
+         Пока идёт проверка апдейта — окна не видно вообще, юзер
+         думает что программа ещё не запустилась. Если апдейт есть —
+         поверх прозрачного фона всплывает AlertDialog. Если нет —
+         SplashActivity молча запускает MainActivity. -->
+    <style name="Theme.TVViewer.Transparent" parent="Theme.TVViewer.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
     <!-- Round 180: Settings рендерится как боковая панель на пол-экрана
          поверх MainActivity. Прозрачный windowBackground +
          windowIsTranslucent позволяют видеть MainActivity сквозь

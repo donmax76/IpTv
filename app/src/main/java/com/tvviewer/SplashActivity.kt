@@ -14,38 +14,29 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Round 222b: запускается раньше MainActivity. В фоне проверяет
- * апдейт. Если нет — finish + start MainActivity. Если есть —
- * AlertDialog «Обновить / Пропустить».
- * «Пропустить» → MainActivity.
- * «Обновить» → splash остаётся видим, показывает «Загрузка
- *   обновления…» + спиннер. UpdateInstaller качает APK, потом
- *   PackageInstaller вызывает системный диалог установки. После
- *   успешной установки система перезапустит app и мы попадём в
- *   новый MainActivity. Если юзер отменил установку или загрузка
- *   упала — UpdateInstaller.onFinishedCallback → MainActivity.
+ * Round 222c: launcher activity. Полностью прозрачная (тема
+ * Theme.TVViewer.Transparent) — пока идёт проверка апдейта юзер
+ * НИЧЕГО не видит. Если апдейта нет — finish + MainActivity.
+ * Если есть — AlertDialog поверх пустого экрана. Если юзер
+ * соглашается обновиться — только тогда setContentView с
+ * progress-индикатором; во время download + install splash
+ * остаётся видимым, чтобы юзер не попадал в MainActivity до
+ * установки новой версии. Если установка отменена или провалилась
+ * — UpdateInstaller.onFinishedCallback → MainActivity.
  */
 class SplashActivity : AppCompatActivity() {
 
     companion object {
         private const val CHECK_TIMEOUT_MS = 5_000L
-        // Страховка: если splash висит дольше 5 минут на «Загрузке»
-        // — что-то пошло не так, открываем MainActivity чтобы юзер
-        // не остался на чёрном экране.
         private const val DOWNLOAD_FALLBACK_MS = 5L * 60_000L
     }
 
     private var proceedJob: Job? = null
     private var alreadyProceeded = false
-    private lateinit var progressBar: ProgressBar
-    private lateinit var statusText: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_splash)
-        progressBar = findViewById(R.id.splashProgress)
-        statusText = findViewById(R.id.splashStatus)
-
+        // setContentView НЕ вызываем — тема прозрачная, окна не видно.
         UpdateCheckerHelper.resetSessionDialogFlag()
 
         proceedJob = lifecycleScope.launch {
@@ -94,12 +85,18 @@ class SplashActivity : AppCompatActivity() {
     }
 
     private fun startUpdate(url: String) {
-        progressBar.visibility = View.VISIBLE
-        statusText.visibility = View.VISIBLE
-        statusText.text = getString(R.string.update_downloading)
+        // Только сейчас инфлейтим лого + прогресс — до этого splash был
+        // прозрачный.
+        setContentView(R.layout.activity_splash)
+        findViewById<ProgressBar>(R.id.splashProgress).visibility = View.VISIBLE
+        findViewById<TextView>(R.id.splashStatus).apply {
+            visibility = View.VISIBLE
+            text = getString(R.string.update_downloading)
+        }
         UpdateInstaller.onFinishedCallback = { proceedToMain() }
         UpdateInstaller.downloadAndInstall(this, url)
-        statusText.postDelayed({ proceedToMain() }, DOWNLOAD_FALLBACK_MS)
+        findViewById<View>(R.id.splashStatus).postDelayed(
+            { proceedToMain() }, DOWNLOAD_FALLBACK_MS)
     }
 
     private fun proceedToMain() {
