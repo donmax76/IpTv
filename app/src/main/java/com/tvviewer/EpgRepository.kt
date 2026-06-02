@@ -36,7 +36,13 @@ object EpgRepository {
     // мог достать свои программы из общего кэша. Старый _v2 файл
     // содержал отфильтрованный кэш и его нужно выбросить — поэтому
     // меняю имя.
-    private const val EPG_CACHE_FILE = "epg_cache_v4.json"
+    // Round 226a: bumped v4 → v5 чтобы инвалидировать старые кэши,
+    // собранные с узким окном 72 ч (Round 216). Round 225 расширил
+    // окно до 120 ч, но юзер видел старые данные пока следующий
+    // авто-fetch не сработает (через ~30 ч). Миграция в TVViewerApp
+    // также сбрасывает prefs.epgLastUpdate, чтобы fetch запустился
+    // сразу.
+    private const val EPG_CACHE_FILE = "epg_cache_v5.json"
     private const val EPG_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000L // 6 hours
 
     private val client: OkHttpClient = run {

@@ -215,6 +215,24 @@ class TVViewerApp : Application(), ImageLoaderFactory {
         autoRefreshScheduled = true
         applicationScope.launch {
             try {
+                // Round 226a: одноразовая миграция — старый кэш
+                // epg_cache_v4.json (Round 216, окно 72 ч) удаляем
+                // и сбрасываем epgLastUpdate, чтобы новый fetch
+                // запустился сразу и сохранил 120-часовое окно
+                // (Round 225). Без этого юзер ждал бы ~30 часов до
+                // следующего авто-fetch чтобы увидеть полные 3 суток.
+                try {
+                    val migrated = AppPreferences(applicationContext)
+                        .getMigrationFlag("epg_v5_migrated")
+                    if (!migrated) {
+                        java.io.File(applicationContext.filesDir, "epg_cache_v4.json")
+                            .takeIf { it.exists() }?.delete()
+                        AppPreferences(applicationContext).epgLastUpdate = 0L
+                        AppPreferences(applicationContext)
+                            .setMigrationFlag("epg_v5_migrated", true)
+                    }
+                } catch (_: Throwable) {}
+
                 // Шаг 1: подгружаем кеш в память — это даёт EPG в UI
                 // моментально пока сетевой fetch ещё не отработал.
                 val cached = EpgRepository.loadFromCache(applicationContext)

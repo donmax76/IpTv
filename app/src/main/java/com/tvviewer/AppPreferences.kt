@@ -371,6 +371,14 @@ class AppPreferences(context: Context) {
         get() = prefs.getLong(KEY_EPG_LAST_UPDATE, 0L)
         set(value) = prefs.edit().putLong(KEY_EPG_LAST_UPDATE, value).apply()
 
+    // Round 226a: универсальный флаг для одноразовых миграций
+    // (например, удаление кэша EPG v4 при выкатке v5).
+    fun getMigrationFlag(name: String): Boolean =
+        prefs.getBoolean("migration_$name", false)
+    fun setMigrationFlag(name: String, value: Boolean) {
+        prefs.edit().putBoolean("migration_$name", value).apply()
+    }
+
     var channelSort: String
         get() = prefs.getString(KEY_CHANNEL_SORT, "default") ?: "default"
         set(value) = prefs.edit().putString(KEY_CHANNEL_SORT, value).apply()
