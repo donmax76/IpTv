@@ -48,6 +48,19 @@ class InstallStatusReceiver : BroadcastReceiver() {
             PackageInstaller.STATUS_SUCCESS -> {
                 Toast.makeText(context, "Обновление установлено",
                     Toast.LENGTH_SHORT).show()
+                // Round 227a: после успешной установки Android убивает
+                // наш процесс (replace), SplashActivity уже мертва, и
+                // ничего не открывалось — юзер оставался на лаунчере.
+                // Стартуем MainActivity сами (уже из НОВОГО APK).
+                try {
+                    val launch = Intent(context, MainActivity::class.java).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
+                                 Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                    }
+                    context.startActivity(launch)
+                } catch (e: Exception) {
+                    Log.e("InstallStatusReceiver", "Cannot launch MainActivity after install", e)
+                }
                 UpdateInstaller.notifyFinished()
             }
             PackageInstaller.STATUS_FAILURE_ABORTED -> {
