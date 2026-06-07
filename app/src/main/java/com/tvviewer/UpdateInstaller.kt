@@ -153,10 +153,13 @@ object UpdateInstaller {
                                 val cb = onProgressCallback
                                 if (cb != null) mainHandler.post { cb.invoke(pct) }
                             }
-                            // Toast по-прежнему раз в 10% — иначе очередь
-                            // toast'ов забивается.
+                            // Round 229a: Toast про процент показываем
+                            // ТОЛЬКО если нет визуального прогресс-бара
+                            // (т.е. без splash callback'а). Иначе юзер
+                            // видит и бар и Toast параллельно.
                             val bucket = (pct / 10) * 10
-                            if (bucket != lastReportedPct && bucket > 0 && bucket < 100) {
+                            if (bucket != lastReportedPct && bucket > 0 && bucket < 100 &&
+                                onProgressCallback == null) {
                                 lastReportedPct = bucket
                                 mainHandler.post {
                                     Toast.makeText(ctx,
