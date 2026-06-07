@@ -428,16 +428,13 @@ class MainActivity : BaseActivity() {
             bottomNav.selectedItemId = R.id.nav_home
             return
         }
-        // На Home: double-BACK в окне 2 сек → диалог «выйти?». Один
-        // BACK → Toast-подсказка.
+        // Round 230: на Home double-BACK закрывает программу СРАЗУ,
+        // без AlertDialog «Выйти?». Юзер: «достаточно алерта». Алерт
+        // (Toast) уже показан на первом BACK, второй — финальный.
         val now = System.currentTimeMillis()
         if (now - lastBackPressMs < DOUBLE_BACK_WINDOW_MS) {
             lastBackPressMs = 0L
-            AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
-                .setMessage(R.string.exit_app_confirm)
-                .setPositiveButton(R.string.yes) { _, _ -> super.onBackPressed() }
-                .setNegativeButton(R.string.no, null)
-                .show()
+            super.onBackPressed()
             return
         }
         lastBackPressMs = now
