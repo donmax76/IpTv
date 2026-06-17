@@ -1294,12 +1294,31 @@ class ChannelsPage(QWidget):
         self.channel_list = QListWidget()
         self.channel_list.setSpacing(2)
         self.channel_list.setIconSize(QSize(48, 48))
+        # Round 237: тот же ChannelRowDelegate что и в плеер-оверлее —
+        # главный экран Channels теперь визуально такой же как Android
+        # (Round 212 item_overlay_channel layout).
         self.channel_list.setUniformItemSizes(True)
+        self.channel_list.setMouseTracking(True)
         self.channel_list.setStyleSheet(
-            "QListWidget::item { padding: 8px 6px; }"
-            "QListWidget::item:selected { background-color: " + COLORS['primary'] + "; color: white; }"
-            "QListWidget::item:focus { outline: 2px solid " + COLORS['primary'] + "; }")
+            "QListWidget { background: transparent; border: none; }"
+            "QListWidget::item { padding: 0; }"
+            "QListWidget::item:selected { background: transparent; }")
+        try:
+            self._main_delegate = ChannelRowDelegate(
+                get_logo=lambda ch: (self.logo_cache.get(ch.logo_url)
+                                     if self.logo_cache and ch.logo_url else None),
+                get_epg_data=lambda ch: (
+                    get_now_next(self.epg_data, ch.tvg_id, ch.name)[0],
+                    get_upcoming_programmes(self.epg_data, ch.tvg_id, ch.name, 3),
+                ),
+                parent=self.channel_list,
+            )
+            self.channel_list.setItemDelegate(self._main_delegate)
+        except Exception:
+            pass
         self.channel_list.itemDoubleClicked.connect(self.on_channel_click)
+        # Round 237: Enter/Return на выделенном канале — открывает плеер,
+        # как Android DPAD_CENTER.
         self.channel_list.setSelectionMode(QAbstractItemView.SingleSelection)
         layout.addWidget(self.channel_list)
 
@@ -1422,29 +1441,25 @@ class ChannelsPage(QWidget):
         try:
             lst.clear()
             for i, ch in enumerate(filtered):
-                epg_text = ""
-                if show_epg:
-                    now_prog, _ = get_now_next(epg, ch.tvg_id, ch.name)
-                    if now_prog:
-                        try:
-                            t = datetime.fromtimestamp(now_prog.start).strftime('%H:%M')
-                            epg_text = f"  {t} {now_prog.title}"
-                        except (OSError, ValueError):
-                            pass
+                # Round 237: fallback-текст всегда + данные для делегата
+                # на UserRole+1. Если делегат сломается — юзер увидит
+                # хотя бы строку с именем и текстовой EPG.
                 fav = " ♥" if ch.url in favs else ""
-                group = f" [{ch.group}]" if ch.group else ""
+                group_txt = f" [{ch.group}]" if ch.group else ""
                 q = detect_quality(ch.name)
                 qbadge = f"  ◆{q}" if q else ""
-                item = QListWidgetItem(f"{i+1}. {ch.name}{qbadge}{fav}{group}{epg_text}")
+                item = QListWidgetItem(f"{i+1}. {ch.name}{qbadge}{fav}{group_txt}")
                 item.setData(Qt.UserRole, ch_to_index.get(id(ch), -1))
+                item.setData(Qt.UserRole + 1, {
+                    'name': ch.name or '',
+                    'group': ch.group or '',
+                    'number': str(i + 1),
+                    'quality': q or '',
+                    '_channel': ch,
+                })
+                item.setSizeHint(QSize(0, ChannelRowDelegate.ROW_HEIGHT))
                 if q:
                     item.setForeground(QColor(QUALITY_COLORS[q]))
-                # Round 221c (Windows): сначала кэш реального лого,
-                # если нет — letter-tile с инициалами и цветом из имени.
-                icon = None
-                if logo_cache is not None and ch.logo_url:
-                    icon = logo_cache.get(ch.logo_url)
-                item.setIcon(icon if icon is not None else make_letter_tile_icon(ch.name))
                 lst.addItem(item)
         finally:
             lst.setUpdatesEnabled(True)
@@ -2242,7 +2257,10 @@ class PlayerPage(QWidget):
                     continue
                 if shown >= cap:
                     break
-                item = QListWidgetItem()
+                # Round 237: fallback-текст ВСЕГДА, чтобы при сбое
+                # делегата строка не была пустой — юзер видит хотя бы
+                # имя канала.
+                item = QListWidgetItem(f"{idx+1}. {ch.name}")
                 item.setData(Qt.UserRole, idx)
                 # Round 236: данные для ChannelRowDelegate.
                 item.setData(Qt.UserRole + 1, {
@@ -2252,8 +2270,6 @@ class PlayerPage(QWidget):
                     'quality': detect_quality(ch.name or ''),
                     '_channel': ch,
                 })
-                # sizeHint берёт делегат, но запасной 80px на случай если
-                # делегат не сработает.
                 item.setSizeHint(QSize(0, ChannelRowDelegate.ROW_HEIGHT))
                 self._overlay_list.addItem(item)
                 shown += 1
@@ -3755,6 +3771,20 @@ class MainWindow(QMainWindow):
             self.nav_buttons.append((btn, page_idx))
 
         main_layout.addWidget(nav_bar)
+
+        # Round 237: тонкая status-полоса под навигацией с подсказками
+        # клавиш. «Управление программой должно быть простым» (юзер).
+        self.shortcut_bar = QLabel(
+            "  F1 Playlists · F2 Channels · F3 TV Guide · F4 Favorites · "
+            "F5 Reload · F6 Recent  ·  В плеере: L Channels · R Settings · "
+            "Esc Close · Enter Play  ·  ↑↓ Navigate")
+        self.shortcut_bar.setStyleSheet(
+            f"background-color: {COLORS['background']};"
+            f" color: {COLORS['text_hint']};"
+            " padding: 4px 12px; font-size: 11px; border-top: 1px solid"
+            f" {COLORS['surface']};")
+        self.shortcut_bar.setFixedHeight(24)
+        main_layout.addWidget(self.shortcut_bar)
         self.update_nav_highlight(0)
 
     def _update_nav_labels(self):
