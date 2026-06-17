@@ -39,7 +39,10 @@ from PyQt5.QtWidgets import (
     QComboBox, QSlider, QToolBar, QAction, QSizePolicy, QAbstractItemView,
     QGraphicsOpacityEffect
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize, QUrl, QObject
+from PyQt5.QtCore import (
+    Qt, QTimer, pyqtSignal, QThread, QSize, QUrl, QObject,
+    QPropertyAnimation, QEasingCurve, QRect,
+)
 from PyQt5.QtGui import QFont, QColor, QPalette, QIcon, QPixmap, QKeySequence, QPainter, QBrush, QPen
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 import hashlib
@@ -138,6 +141,7 @@ _LETTER_TILE_PALETTE = (
     "#A29BFE", "#55EFC4", "#6C5CE7", "#EC9A9A",
 )
 _LETTER_TILE_CACHE = {}  # (name, size) -> QIcon
+_LETTER_TILE_CACHE_CAP = 2000  # Round 233: чтобы не расти бесконечно
 
 
 def _letter_tile_initials(name: str) -> str:
@@ -174,6 +178,13 @@ def make_letter_tile_icon(name: str, size: int = 48) -> QIcon:
     painter.drawText(pm.rect(), Qt.AlignCenter, _letter_tile_initials(name))
     painter.end()
     icon = QIcon(pm)
+    # Round 233: FIFO эвикция чтобы кэш не съел всю память на больших
+    # плейлистах (10k+ каналов).
+    if len(_LETTER_TILE_CACHE) >= _LETTER_TILE_CACHE_CAP:
+        try:
+            _LETTER_TILE_CACHE.pop(next(iter(_LETTER_TILE_CACHE)), None)
+        except StopIteration:
+            pass
     _LETTER_TILE_CACHE[cache_key] = icon
     return icon
 
@@ -1211,7 +1222,7 @@ class ChannelsPage(QWidget):
         layout.setContentsMargins(16, 16, 16, 16)
 
         header = QHBoxLayout()
-        self.title_label = QLabel("Channels")
+        self.title_label = QLabel(t('channels'))
         self.title_label.setFont(QFont('Segoe UI', 22, QFont.Bold))
         header.addWidget(self.title_label)
         header.addStretch()
@@ -1890,11 +1901,11 @@ class PlayerPage(QWidget):
         if not hasattr(self, 'channels_overlay'):
             return
         if self.channels_overlay.isVisible():
-            self.channels_overlay.hide()
+            self._slide_out(self.channels_overlay, direction='left')
         else:
             self.quick_overlay.hide()
             self._refresh_channels_overlay()
-            self.channels_overlay.show()
+            self._slide_in(self.channels_overlay, direction='left')
             self.channels_overlay.raise_()
             self._overlay_search.setFocus()
 
@@ -1902,27 +1913,113 @@ class PlayerPage(QWidget):
         if not hasattr(self, 'quick_overlay'):
             return
         if self.quick_overlay.isVisible():
-            self.quick_overlay.hide()
+            self._slide_out(self.quick_overlay, direction='right')
         else:
             self.channels_overlay.hide()
-            self.quick_overlay.show()
+            self._slide_in(self.quick_overlay, direction='right')
             self.quick_overlay.raise_()
+
+    # Round 233: 200мс slide-in/out для overlay-панелей. Аналог
+    # Android Round 211 slide_in_left / slide_in_right.
+    def _stop_anim(self, widget):
+        """Останавливаем предыдущую анимацию если ещё крутится —
+        иначе быстрые тогглы L/L/L могут оставить виджет в висячем
+        состоянии (animation finished дёргает hide() уже после
+        нового show)."""
+        prev = getattr(widget, '_slide_anim', None)
+        if prev is not None:
+            try:
+                prev.stop()
+            except Exception:
+                pass
+            widget._slide_anim = None
+
+    def _slide_in(self, widget, direction):
+        self._stop_anim(widget)
+        pw = self.video_frame.width()
+        ph = self.video_frame.height()
+        if pw <= 0 or ph <= 0:
+            widget.show()
+            return
+        w = widget.width() or (360 if direction == 'left' else 280)
+        # Стартовая позиция за пределом, целевая — впритык к краю.
+        if direction == 'left':
+            start = QRect(-w, 0, w, ph)
+            end = QRect(0, 0, w, ph)
+        else:
+            start = QRect(pw, 0, w, ph)
+            end = QRect(pw - w, 0, w, ph)
+        widget.setGeometry(start)
+        widget.show()
+        anim = QPropertyAnimation(widget, b"geometry", self)
+        anim.setDuration(200)
+        anim.setEasingCurve(QEasingCurve.OutCubic)
+        anim.setStartValue(start)
+        anim.setEndValue(end)
+        anim.start(QPropertyAnimation.DeleteWhenStopped)
+        # Держим ref чтобы Python GC не съел до старта.
+        widget._slide_anim = anim
+
+    def _slide_out(self, widget, direction):
+        self._stop_anim(widget)
+        pw = self.video_frame.width()
+        ph = self.video_frame.height()
+        cur = widget.geometry()
+        w = widget.width() or (360 if direction == 'left' else 280)
+        if direction == 'left':
+            end = QRect(-w, 0, w, ph)
+        else:
+            end = QRect(pw, 0, w, ph)
+        anim = QPropertyAnimation(widget, b"geometry", self)
+        anim.setDuration(160)
+        anim.setEasingCurve(QEasingCurve.InCubic)
+        anim.setStartValue(cur)
+        anim.setEndValue(end)
+        anim.finished.connect(widget.hide)
+        anim.start(QPropertyAnimation.DeleteWhenStopped)
+        widget._slide_anim = anim
 
     def _refresh_channels_overlay(self):
         if not hasattr(self, '_overlay_list'):
             return
         q = (self._overlay_search.text() or "").strip().lower()
-        self._overlay_list.clear()
-        for idx, ch in enumerate(self.channels or []):
-            if q and q not in (ch.name or "").lower():
-                continue
-            item = QListWidgetItem(f"{idx+1}. {ch.name}")
-            item.setData(Qt.UserRole, idx)
-            icon = None
-            if self.logo_cache is not None and ch.logo_url:
-                icon = self.logo_cache.get(ch.logo_url)
-            item.setIcon(icon if icon is not None else make_letter_tile_icon(ch.name))
-            self._overlay_list.addItem(item)
+        # Round 233: setUpdatesEnabled(False) — иначе QListWidget
+        # перерисовывается на каждый addItem, на 10k каналах
+        # подвешивает UI на 1-2 сек. Plus аппаратный лимит на 500
+        # элементов когда нет поиска — больше юзеру всё равно не
+        # обозреть, а скролл становится медленным.
+        self._overlay_list.setUpdatesEnabled(False)
+        try:
+            self._overlay_list.clear()
+            shown = 0
+            cap = 500 if not q else 10000  # без поиска — лимит; с поиском показываем всё подходящее
+            for idx, ch in enumerate(self.channels or []):
+                if q and q not in (ch.name or "").lower():
+                    continue
+                if shown >= cap:
+                    break
+                # EPG: now-программа добавляется к названию, чтобы юзер
+                # видел что идёт. Берём только now (next в overlay не
+                # помещается без лишних 2 строк).
+                epg_suffix = ""
+                if self.epg_data:
+                    try:
+                        now_prog, _ = get_now_next(
+                            self.epg_data, ch.tvg_id, ch.name)
+                        if now_prog and now_prog.title:
+                            epg_suffix = f"\n   {now_prog.title}"
+                    except Exception:
+                        pass
+                item = QListWidgetItem(f"{idx+1}. {ch.name}{epg_suffix}")
+                item.setData(Qt.UserRole, idx)
+                icon = None
+                if self.logo_cache is not None and ch.logo_url:
+                    icon = self.logo_cache.get(ch.logo_url)
+                item.setIcon(icon if icon is not None else make_letter_tile_icon(ch.name))
+                self._overlay_list.addItem(item)
+                shown += 1
+        finally:
+            self._overlay_list.setUpdatesEnabled(True)
 
     def _overlay_channel_clicked(self, item):
         idx = item.data(Qt.UserRole)
@@ -1935,6 +2032,31 @@ class PlayerPage(QWidget):
             except Exception:
                 pass
             self.channels_overlay.hide()
+
+    def retranslate_ui(self):
+        """Round 233: переводит все доступные подписи на лету."""
+        try:
+            if hasattr(self, 'btn_back'):
+                self.btn_back.setText(t('back'))
+            if hasattr(self, 'btn_prev'):
+                self.btn_prev.setText(t('prev'))
+            if hasattr(self, 'btn_next'):
+                self.btn_next.setText(t('next'))
+            if hasattr(self, 'btn_audio'):
+                self.btn_audio.setText(t('audio_track'))
+            if hasattr(self, 'btn_sleep'):
+                self.btn_sleep.setText(t('sleep_timer'))
+            if hasattr(self, 'btn_pip'):
+                self.btn_pip.setText(t('pip'))
+            if hasattr(self, 'btn_play'):
+                # play/pause label зависит от состояния — оставляем как есть.
+                pass
+            if hasattr(self, 'btn_panel_channels'):
+                self.btn_panel_channels.setText("☰ " + t('channels'))
+            if hasattr(self, 'btn_panel_quick'):
+                self.btn_panel_quick.setText("⚙ " + t('settings'))
+        except Exception:
+            pass
 
     def _show_channel_banner(self):
         if not self.channels or self.current_index >= len(self.channels):
@@ -2962,17 +3084,29 @@ class SettingsPage(QWidget):
         self.settings_changed.emit()
 
     def _save_language(self, _idx):
-        # Round 232: меняем UI-язык. Большинство меток фиксируются при
-        # сборке виджетов (top-bar страниц, кнопки плеера), поэтому
-        # для полного эффекта нужен перезапуск — показываем сообщение.
+        # Round 233: язык меняется мгновенно через _retranslate_all —
+        # без диалога «перезапустите приложение». Виджеты у которых нет
+        # retranslate_ui всё ещё застряют со старыми подписями до
+        # перезапуска, но navigation + ключевые экраны обновляются.
         code = self.lang_combo.currentData()
         if not code or code == getattr(self.config, 'ui_language', 'ru'):
             return
         self.config.ui_language = code
         self.config.save()
         set_ui_language(code)
-        QMessageBox.information(self, t('language'), t('language_changed'))
-        self.settings_changed.emit()
+        self.settings_changed.emit()  # MainWindow дёрнет _retranslate_all
+
+    def retranslate_ui(self):
+        # SettingsPage.title и section-метки фиксируются в сборке.
+        # При смене языка достаточно обновить главный заголовок и
+        # известные QLabel'ы.
+        try:
+            for child in self.findChildren(QLabel):
+                # Заголовок «Settings»
+                if child.text() in ("Settings", "Настройки", "Налаштування", "Tənzimləmələr"):
+                    child.setText(t('settings'))
+        except Exception:
+            pass
 
     def _save_volume(self, v):
         self.config.volume = int(v)
@@ -3318,24 +3452,33 @@ class MainWindow(QMainWindow):
         nav_layout.setContentsMargins(0, 0, 0, 0)
         nav_layout.setSpacing(0)
 
+        # Round 233: nav-кнопки храним вместе с translation-ключом,
+        # чтобы retranslate_ui() мог обновить подписи без пересборки.
         self.nav_buttons = []
         nav_items = [
-            ("Playlists", 0),
-            ("Channels", 1),
-            ("TV Guide", 5),
-            ("Favorites", 2),
-            ("Recent", 6),
-            ("Settings", 4),
+            ('playlists', 0),
+            ('channels', 1),
+            ('tv_guide', 5),
+            ('favorites', 2),
+            ('recent', 6),
+            ('settings', 4),
         ]
-        for label, page_idx in nav_items:
-            btn = QPushButton(label)
+        for tkey, page_idx in nav_items:
+            btn = QPushButton(t(tkey))
             btn.setObjectName("navBtn")
+            btn.setProperty('_t_key', tkey)
             btn.clicked.connect(lambda checked, idx=page_idx: self.switch_page(idx))
             nav_layout.addWidget(btn)
             self.nav_buttons.append((btn, page_idx))
 
         main_layout.addWidget(nav_bar)
         self.update_nav_highlight(0)
+
+    def _update_nav_labels(self):
+        for btn, _idx in getattr(self, 'nav_buttons', []):
+            key = btn.property('_t_key')
+            if key:
+                btn.setText(t(key))
 
     def switch_page(self, idx):
         if idx == 2:
@@ -3584,6 +3727,42 @@ class MainWindow(QMainWindow):
                 self.show()
         except Exception:
             pass
+        # Round 233: retranslate UI без перезапуска. Каждая страница
+        # обновляет свои подписи в retranslate_ui(); основное навигация
+        # обновляется отдельно.
+        try:
+            self._retranslate_all()
+        except Exception:
+            pass
+
+    def _retranslate_all(self):
+        # MainWindow chrome
+        try:
+            self.setWindowTitle(t('app_name'))
+        except Exception:
+            pass
+        # Nav buttons (label store keys → t())
+        try:
+            self._update_nav_labels()
+        except Exception:
+            pass
+        # Every page that has retranslate_ui() gets a call.
+        for page in (
+            getattr(self, 'home_page', None),
+            getattr(self, 'playlists_page', None),
+            getattr(self, 'channels_page', None),
+            getattr(self, 'favorites_page', None),
+            getattr(self, 'player_page', None),
+            getattr(self, 'settings_page', None),
+            getattr(self, 'tv_guide_page', None),
+            getattr(self, 'recent_page', None),
+        ):
+            fn = getattr(page, 'retranslate_ui', None)
+            if callable(fn):
+                try:
+                    fn()
+                except Exception:
+                    pass
 
     def closeEvent(self, event):
         self.player_page.stop()
