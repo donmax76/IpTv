@@ -3775,9 +3775,9 @@ class MainWindow(QMainWindow):
         # Round 237: тонкая status-полоса под навигацией с подсказками
         # клавиш. «Управление программой должно быть простым» (юзер).
         self.shortcut_bar = QLabel(
-            "  F1 Playlists · F2 Channels · F3 TV Guide · F4 Favorites · "
-            "F5 Reload · F6 Recent  ·  В плеере: L Channels · R Settings · "
-            "Esc Close · Enter Play  ·  ↑↓ Navigate")
+            "  F1-F6 разделы  ·  В плеере: ← Channels · → Settings · "
+            "↑↓ Переключить канал · Space Pause · F Favorite · "
+            "M Mute · +/- Громкость · 0-9 № канала · Esc Назад")
         self.shortcut_bar.setStyleSheet(
             f"background-color: {COLORS['background']};"
             f" color: {COLORS['text_hint']};"
@@ -3820,23 +3820,91 @@ class MainWindow(QMainWindow):
 
     def keyPressEvent(self, event):
         key = event.key()
-        # Round 232: L / R открывают side-panels плеера, ТОЛЬКО если
-        # сейчас открыт PlayerPage. На других страницах эти клавиши
-        # отдаются Qt по умолчанию (например, для поиска по букве в
-        # списке).
+        # Round 238: ХОТКЕИ 1:1 с Android (TV-pult mapping).
+        # На клавиатуре стрелки ↔ DPAD_LEFT/RIGHT/UP/DOWN,
+        # Space ↔ MEDIA_PLAY_PAUSE, F ↔ Yellow color-key (favorite),
+        # 0-9 ↔ digit input, M ↔ mute, +/- ↔ volume.
         try:
             current = self.stack.currentWidget()
             if isinstance(current, PlayerPage):
+                # Esc / Backspace — закрыть оверлей или вернуться назад.
+                if key in (Qt.Key_Escape, Qt.Key_Backspace):
+                    if hasattr(current, 'channels_overlay') and current.channels_overlay.isVisible():
+                        current.toggle_channels_overlay(); return
+                    if hasattr(current, 'quick_overlay') and current.quick_overlay.isVisible():
+                        current.toggle_quick_overlay(); return
+                    current.back_requested.emit(); return
+                # Если открыт channels_overlay — стрелки навигируют по
+                # списку, Right показывает детали, Enter играет.
+                if hasattr(current, 'channels_overlay') and current.channels_overlay.isVisible():
+                    if key == Qt.Key_Right:
+                        item = current._overlay_list.currentItem()
+                        if item:
+                            from PyQt5.QtCore import QPoint
+                            r = current._overlay_list.visualItemRect(item)
+                            current._show_overlay_channel_details(r.center())
+                        return
+                    if key == Qt.Key_Left:
+                        current.toggle_channels_overlay(); return
+                    if key in (Qt.Key_Return, Qt.Key_Enter):
+                        item = current._overlay_list.currentItem()
+                        if item:
+                            current._overlay_channel_clicked(item)
+                        return
+                    # Up/Down/PgUp/PgDn — стандартная навигация QListWidget.
+                # Если открыт quick_overlay — Left/Esc закроет, Up/Down
+                # пусть прокручивает focus по кнопкам естественно.
+                elif hasattr(current, 'quick_overlay') and current.quick_overlay.isVisible():
+                    if key in (Qt.Key_Left, Qt.Key_Right):
+                        current.toggle_quick_overlay(); return
+                else:
+                    # Видео-видимый режим: стрелки = переключение каналов
+                    # (как Android DPAD_UP/DOWN), Left/Right = side panels.
+                    if key == Qt.Key_Left:
+                        current.toggle_channels_overlay(); return
+                    if key == Qt.Key_Right:
+                        current.toggle_quick_overlay(); return
+                    if key == Qt.Key_Up:
+                        current.switch_channel(-1); return
+                    if key == Qt.Key_Down:
+                        current.switch_channel(1); return
+                    if key == Qt.Key_Space:
+                        current.toggle_play(); return
+                    if key == Qt.Key_F:
+                        current.toggle_favorite(); return
+                    if key == Qt.Key_M:
+                        # Mute toggle via volume slider.
+                        cur_v = current.vol_slider.value()
+                        if cur_v > 0:
+                            current._saved_volume_before_mute = cur_v
+                            current.vol_slider.setValue(0)
+                        else:
+                            current.vol_slider.setValue(
+                                getattr(current, '_saved_volume_before_mute', 50))
+                        return
+                    if key in (Qt.Key_Plus, Qt.Key_Equal, Qt.Key_VolumeUp):
+                        current.vol_slider.setValue(min(100, current.vol_slider.value() + 5))
+                        return
+                    if key in (Qt.Key_Minus, Qt.Key_Underscore, Qt.Key_VolumeDown):
+                        current.vol_slider.setValue(max(0, current.vol_slider.value() - 5))
+                        return
+                # Цифровые клавиши 0-9 — ввод номера канала (как Android).
+                if Qt.Key_0 <= key <= Qt.Key_9:
+                    try:
+                        digit = key - Qt.Key_0
+                        cur = getattr(current, '_number_input', '')
+                        current._number_input = (cur + str(digit))[-4:]
+                        current.number_label.setText(current._number_input)
+                        current._number_timer.start()
+                    except Exception:
+                        pass
+                    return
+                # Legacy aliases: L / R оставляем работоспособными для
+                # тех кто привык к Round 232.
                 if key == Qt.Key_L:
                     current.toggle_channels_overlay(); return
                 if key == Qt.Key_R:
                     current.toggle_quick_overlay(); return
-                if key == Qt.Key_Escape:
-                    # ESC закрывает любой видимый overlay
-                    if hasattr(current, 'channels_overlay') and current.channels_overlay.isVisible():
-                        current.channels_overlay.hide(); return
-                    if hasattr(current, 'quick_overlay') and current.quick_overlay.isVisible():
-                        current.quick_overlay.hide(); return
         except Exception:
             pass
         # Global section shortcuts (work from anywhere)
