@@ -915,8 +915,23 @@ class Config:
         try:
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        except Exception as e:
+            log_error('Config.save', e)
+
+    def save_async(self):
+        """Round 260: фоновое сохранение конфига. Юзер: «программа
+        сильно тормозит». При переключении каналов вызывалось save()
+        ДВАЖДЫ синхронно (в _save_current_channel_state и в play_url),
+        каждый раз — полный JSON dump 50+ KB на диск. На HDD/медленном
+        SSD это давало ощутимый микро-фриз. Дамп идёт в daemon-нитке,
+        UI не ждёт."""
+        try:
+            import threading as _th
+            _th.Thread(target=self.save, daemon=True).start()
+        except Exception as e:
+            log_error('Config.save_async', e)
+            try: self.save()
+            except Exception: pass
 
 
 class LoadPlaylistThread(QThread):
@@ -954,18 +969,24 @@ class UpdateCheckThread(QThread):
     REPO = "donmax76/iptv"
 
     def run(self):
+        # Round 260: подробное логирование всех веток — юзер: «при
+        # нажатии на проверку обновления ничего не находит».
         try:
+            log_info('update', f"querying GitHub releases for {self.REPO}")
             req = urllib.request.Request(
-                f"https://api.github.com/repos/{self.REPO}/releases?per_page=20",
+                f"https://api.github.com/repos/{self.REPO}/releases?per_page=30",
                 headers={
                     'Accept': 'application/vnd.github.v3+json',
                     'User-Agent': 'TVViewer-Windows',
                 },
             )
             with urllib.request.urlopen(req, timeout=15) as r:
-                data = json.loads(r.read())
+                raw = r.read()
+                data = json.loads(raw)
+            log_info('update', f"got {len(data) if isinstance(data, list) else 0} releases")
             wins = [rel for rel in data
                     if isinstance(rel, dict) and rel.get('tag_name', '').startswith('win-')]
+            log_info('update', f"win-* releases: {len(wins)}")
             best = None
             for rel in wins:
                 m = re.search(r'build(\d+)', rel.get('tag_name', ''))
@@ -975,17 +996,39 @@ class UpdateCheckThread(QThread):
                 if best is None or code > best[0]:
                     best = (code, rel)
             if best is None:
+                log_warn('update', "no win-* release with buildN tag found")
                 self.finished.emit(None)
                 return
             code, rel = best
-            asset = next((a for a in rel.get('assets', [])
-                          if a.get('name', '').lower().endswith('.exe')), None)
-            log_info('update', f"latest build={code} tag={rel.get('tag_name')}")
+            assets = rel.get('assets', []) or []
+            asset_names = [a.get('name', '') for a in assets]
+            log_info('update', f"latest build={code} tag={rel.get('tag_name')} "
+                               f"assets={asset_names}")
+            # Round 260: предпочитаем именно «update»-EXE (Round 257
+            # добавил TVViewer-update.exe в release). Если нет — любой
+            # .exe; если и того нет — fallback на ZIP URL.
+            asset = next((a for a in assets
+                          if 'update' in a.get('name', '').lower()
+                          and a.get('name', '').lower().endswith('.exe')), None)
+            if asset is None:
+                asset = next((a for a in assets
+                              if a.get('name', '').lower().endswith('.exe')), None)
+            zip_asset = next((a for a in assets
+                              if a.get('name', '').lower().endswith('.zip')), None)
+            url = ''
+            if asset is not None:
+                url = asset.get('browser_download_url') or ''
+            elif zip_asset is not None:
+                url = zip_asset.get('browser_download_url') or ''
+            else:
+                url = rel.get('html_url', '')
+            log_info('update', f"chosen url={url}")
             self.finished.emit({
                 'code': code,
                 'name': rel.get('name', ''),
                 'tag': rel.get('tag_name', ''),
-                'url': asset['browser_download_url'] if asset else rel.get('html_url', ''),
+                'url': url,
+                'has_exe': asset is not None,
                 'notes': rel.get('body', ''),
             })
         except Exception as e:
@@ -2186,6 +2229,40 @@ class FavoritesPage(QWidget):
 # лого + имя + категорию + 3-slot EPG-сетку + полоску прогресса
 # по текущей передаче. Имитирует Android Material card-style row.
 # ============================================================
+class ClockLabel(QLabel):
+    """Round 260: часы поверх видео без QGraphicsDropShadowEffect.
+
+    Юзер видел в логах:
+      ERROR [qt] UpdateLayeredWindowIndirect failed for ...
+                 dirty=(121x85 2445, -10)
+    Drop-shadow с blurRadius=20 расширял визуальные границы виджета за
+    пределы overlay_host (top-level WA_TranslucentBackground), и Windows
+    GDI отказывался обновлять layered-window с отрицательной y. Каждая
+    такая попытка — лишний GDI-stall. Рисуем чёрную обводку + белую
+    заливку прямо в paintEvent — никаких эффектов, никаких слоёв."""
+
+    def paintEvent(self, _event):
+        text = self.text()
+        if not text:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.setFont(self.font())
+        # 8-направленный stroke: чёрная обводка вокруг белого текста
+        # имитирует drop-shadow с blur=2px, но рисуется в native GDI
+        # без layered-window-обновлений.
+        p.setPen(QPen(QColor(0, 0, 0, 230)))
+        rect = self.rect()
+        for dx in (-2, -1, 0, 1, 2):
+            for dy in (-2, -1, 0, 1, 2):
+                if dx == 0 and dy == 0:
+                    continue
+                p.drawText(rect.adjusted(dx, dy, dx, dy),
+                           Qt.AlignLeft | Qt.AlignVCenter, text)
+        p.setPen(QPen(QColor("white")))
+        p.drawText(rect, Qt.AlignLeft | Qt.AlignVCenter, text)
+
+
 class ChannelRowDelegate(QStyledItemDelegate):
     ROW_HEIGHT = 80
     LOGO_SIZE = 48
@@ -2589,21 +2666,15 @@ class PlayerPage(QWidget):
         # persistentClock (Round 221b). Большие белые цифры + чёрная
         # тень для читаемости на любом фоне, без подложки. Позиция —
         # верх-право, обновляется по тому же clock_timer.
-        self.persistent_clock = QLabel(self.overlay_host)
-        # Round 254: часы должны быть видны на любом фоне (юзер). Делаем
-        # текст крупнее и ОЧЕНЬ сильную чёрную тень-обводку — фактически
-        # имитация stroke (Qt не умеет text-stroke без QPainter).
-        self.persistent_clock.setStyleSheet(
-            "color: white; font-size: 32px; font-weight: bold;"
-            " background: transparent;")
-        try:
-            shadow = QGraphicsDropShadowEffect(self.persistent_clock)
-            shadow.setBlurRadius(20)
-            shadow.setColor(QColor(0, 0, 0, 255))
-            shadow.setOffset(0, 0)
-            self.persistent_clock.setGraphicsEffect(shadow)
-        except Exception:
-            pass
+        # Round 260: ClockLabel сам рисует чёрный stroke + белый fill в
+        # paintEvent. Раньше использовали QGraphicsDropShadowEffect c
+        # blurRadius=20 на QLabel поверх translucent overlay_host — это
+        # вызывало UpdateLayeredWindowIndirect failed в Qt-логе на каждое
+        # обновление часов и подвешивало приложение.
+        self.persistent_clock = ClockLabel(self.overlay_host)
+        f = QFont('Segoe UI', 24, QFont.Bold)
+        self.persistent_clock.setFont(f)
+        self.persistent_clock.setStyleSheet("background: transparent;")
         self.persistent_clock.setText(datetime.now().strftime('%H:%M'))
         self.persistent_clock.adjustSize()
 
@@ -3734,7 +3805,7 @@ class PlayerPage(QWidget):
             except Exception:
                 pass
         self.config.save_channel_state(ch.url, state)
-        self.config.save()
+        self.config.save_async()  # Round 260: фон, не блокируем переключение
 
     def play_url(self, url):
         if not self.player:
@@ -3768,9 +3839,9 @@ class PlayerPage(QWidget):
                 log_error('set_rate', e)
             self.player.play()
             self.btn_play.setText("Pause")
-            # Remember last channel for autoplay-last
+            # Remember last channel for autoplay-last (фоновый дамп)
             self.config.last_channel_url = url
-            self.config.save()
+            self.config.save_async()
         except Exception as e:
             log_error('play_url', e, extra=f"url={url[:80]}")
 
@@ -4862,6 +4933,7 @@ class SettingsPage(QWidget):
 
     # ----- Updates -----
     def _check_updates(self):
+        log_info('update', f"manual check clicked, current build={WIN_VERSION_CODE}")
         self.btn_check_updates.setEnabled(False)
         self.update_status.setText("Checking…")
         self._upd_thread = UpdateCheckThread(self)
@@ -4872,12 +4944,15 @@ class SettingsPage(QWidget):
         self.btn_check_updates.setEnabled(True)
         if not isinstance(info, dict):
             self.update_status.setText("Could not reach GitHub.")
+            log_warn('update', "manual check: info is None (network or parse error)")
             QMessageBox.information(
                 self, "Updates",
-                "Could not check for updates (no internet?).")
+                "Could not check for updates (no internet?).\n\n"
+                "Подробности — в tvviewer.log (кнопка «Open log folder»).")
             return
         cur = WIN_VERSION_CODE
         latest = int(info.get('code', 0))
+        log_info('update', f"check result: latest={latest} current={cur} url={info.get('url','')}")
         if latest <= cur:
             self.update_status.setText(
                 f"You have the latest build ({cur}). GitHub: {latest}.")
@@ -4898,12 +4973,22 @@ class SettingsPage(QWidget):
             self.update_status.setText(f"Build {latest} available.")
             return
         url = info.get('url') or ''
-        if not url.lower().endswith('.exe'):
-            QMessageBox.warning(self, "Updates",
-                "Release does not have an EXE asset; opening browser.")
+        # Round 260: если release ещё не успел получить TVViewer-update.exe
+        # (старая сборка до Round 257), URL может указывать на ZIP или
+        # на страницу релиза. Открываем в браузере с понятным сообщением.
+        if not info.get('has_exe'):
+            log_warn('update', f"release has no .exe asset, opening url={url}")
+            QMessageBox.information(
+                self, "Updates",
+                f"Build {latest} доступен, но в этом релизе ещё нет\n"
+                "TVViewer-update.exe (это есть только в свежих сборках,\n"
+                "Round 257+).\n\n"
+                "Открою страницу релиза — скачайте полный ZIP вручную\n"
+                "и распакуйте поверх установленной папки.")
             try:
                 import webbrowser; webbrowser.open(url)
-            except Exception: pass
+            except Exception as e:
+                log_error('update.webbrowser', e)
             return
         self._do_download(url, latest)
 
