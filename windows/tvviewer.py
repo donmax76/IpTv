@@ -2278,6 +2278,23 @@ class PlayerPage(QWidget):
         self.video_frame.setMinimumHeight(400)
         self.video_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout.addWidget(self.video_frame)
+        # Round 248: VLC рисует видео прямо на нативном HWND video_frame
+        # и закрывает любые Qt-виджеты внутри него. Поэтому все оверлеи,
+        # часы и баннер живут в ОТДЕЛЬНОМ top-level прозрачном окне
+        # overlay_host, которое плавает поверх видео и трекает его
+        # геометрию. Так VLC физически не может их перекрыть.
+        self.overlay_host = QWidget(
+            None,
+            Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint
+            | Qt.NoDropShadowWindowHint)
+        self.overlay_host.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.overlay_host.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self.overlay_host.hide()
+        # Таймер синхронизации позиции overlay_host с video_frame —
+        # ловит перемещение/ресайз/фуллскрин главного окна.
+        self._overlay_sync_timer = QTimer(self)
+        self._overlay_sync_timer.setInterval(200)
+        self._overlay_sync_timer.timeout.connect(self._sync_overlay_host)
         self._build_osd_banner()
         # Round 232 (Windows): аналоги Android-овых overlay-панелей.
         # Левая — список каналов с поиском; правая — быстрые настройки
@@ -2381,7 +2398,7 @@ class PlayerPage(QWidget):
         # persistentClock (Round 221b). Большие белые цифры + чёрная
         # тень для читаемости на любом фоне, без подложки. Позиция —
         # верх-право, обновляется по тому же clock_timer.
-        self.persistent_clock = QLabel(self.video_frame)
+        self.persistent_clock = QLabel(self.overlay_host)
         self.persistent_clock.setStyleSheet(
             "color: white; font-size: 28px; font-weight: bold;"
             " background: transparent;")
@@ -2420,7 +2437,7 @@ class PlayerPage(QWidget):
 
     def _build_osd_banner(self):
         """Floating channel info banner (parented to video_frame, shown briefly on switch)."""
-        self.osd_banner = QWidget(self.video_frame)
+        self.osd_banner = QWidget(self.overlay_host)
         self.osd_banner.setStyleSheet(
             "background-color: rgba(18, 18, 32, 220);"
             " border-radius: 10px;")
@@ -2464,7 +2481,7 @@ class PlayerPage(QWidget):
     def _position_osd(self):
         if not hasattr(self, 'osd_banner'):
             return
-        parent = self.video_frame
+        parent = self.overlay_host
         pw = parent.width()
         ph = parent.height()
         if pw <= 0 or ph <= 0:
@@ -2475,15 +2492,15 @@ class PlayerPage(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self._position_osd()
-        self._position_overlays()
-        self._position_persistent_clock()
+        # Round 248: overlay_host — top-level окно, ресайз PlayerPage
+        # не меняет его автоматически; пересинхронизируем.
+        self._sync_overlay_host()
 
     # ---- Round 232: side-panel overlays ----
 
     def _build_channels_overlay(self):
         """Слева, ширина 360px. Содержит поиск + QListWidget со всеми каналами."""
-        self.channels_overlay = QWidget(self.video_frame)
+        self.channels_overlay = QWidget(self.overlay_host)
         # Round 239: убран QGraphicsDropShadowEffect — на больших
         # списках с делегатом он вызывал re-paint шторм, юзер сказал
         # «программа зависает на любую кнопку». Плоская обводка без
@@ -2529,7 +2546,7 @@ class PlayerPage(QWidget):
     def _build_categories_overlay(self):
         """Round 244: узкая панель категорий — слева, ~200px. Возникает
         на 2-е нажатие LEFT (как Android Round 199)."""
-        self.categories_overlay = QWidget(self.video_frame)
+        self.categories_overlay = QWidget(self.overlay_host)
         self.categories_overlay.setStyleSheet(
             "background-color: rgba(15, 15, 26, 240);"
             " border-top-right-radius: 14px;"
@@ -2557,7 +2574,7 @@ class PlayerPage(QWidget):
         """Round 244: центральное popup-меню. Возникает на 3-е нажатие
         LEFT (как Android Round 211). Кнопки: Настройки / Избранное /
         Недавние / Поиск."""
-        self.center_menu_overlay = QWidget(self.video_frame)
+        self.center_menu_overlay = QWidget(self.overlay_host)
         # Полупрозрачный dim позади.
         self.center_menu_overlay.setStyleSheet(
             "background-color: rgba(0, 0, 0, 130);")
@@ -2678,7 +2695,7 @@ class PlayerPage(QWidget):
 
     def _build_quick_overlay(self):
         """Справа, ширина 240px. Кнопки быстрых настроек."""
-        self.quick_overlay = QWidget(self.video_frame)
+        self.quick_overlay = QWidget(self.overlay_host)
         self.quick_overlay.setStyleSheet(
             "background-color: rgba(15, 15, 26, 240);"
             " border-top-left-radius: 14px;"
@@ -2716,7 +2733,7 @@ class PlayerPage(QWidget):
         # parentWidget()->layout(), поэтому добавим кнопки прямо рядом
         # с back через свой layout (создадим bar если ещё нет).
         # Простой путь: создаём отдельный bar для toggle поверх video_frame.
-        self._overlay_toggle_bar = QWidget(self.video_frame)
+        self._overlay_toggle_bar = QWidget(self.overlay_host)
         self._overlay_toggle_bar.setStyleSheet("background: transparent;")
         bar = QHBoxLayout(self._overlay_toggle_bar)
         bar.setContentsMargins(8, 8, 8, 8)
@@ -2736,11 +2753,66 @@ class PlayerPage(QWidget):
         bar.addWidget(self.btn_panel_quick)
         self._overlay_toggle_bar.adjustSize()
 
+    def showEvent(self, event):
+        # Round 248: при показе PlayerPage поднимаем overlay_host над
+        # видео и запускаем синхронизацию его геометрии.
+        super().showEvent(event)
+        try:
+            self._sync_overlay_host()
+            self.overlay_host.show()
+            self.overlay_host.raise_()
+            self._overlay_sync_timer.start()
+        except Exception:
+            pass
+
+    def hideEvent(self, event):
+        # Round 248: уходя из плеера прячем overlay_host (иначе он
+        # останется висеть поверх других вкладок) и стопаем таймер.
+        super().hideEvent(event)
+        try:
+            self._overlay_sync_timer.stop()
+            self.overlay_host.hide()
+        except Exception:
+            pass
+
+    def _sync_overlay_host(self):
+        """Round 248: позиционируем top-level overlay_host точно над
+        video_frame (в глобальных координатах) и держим его размер
+        равным video_frame. Затем раскладываем дочерние оверлеи."""
+        try:
+            if not self.video_frame.isVisible():
+                self.overlay_host.hide()
+                return
+            tl = self.video_frame.mapToGlobal(self.video_frame.rect().topLeft())
+            w = self.video_frame.width()
+            h = self.video_frame.height()
+            if w <= 0 or h <= 0:
+                return
+            self.overlay_host.setGeometry(tl.x(), tl.y(), w, h)
+            if not self.overlay_host.isVisible():
+                self.overlay_host.show()
+            self.overlay_host.raise_()
+            self._position_osd()
+            self._position_overlays()
+            self._position_persistent_clock()
+            # Round 248: когда открыт интерактивный оверлей — окно
+            # ловит мышь; когда видны только часы/баннер — пропускаем
+            # клики на видео (иначе нельзя кликнуть по плееру).
+            interactive = any(
+                getattr(self, name, None) is not None
+                and getattr(self, name).isVisible()
+                for name in ('channels_overlay', 'categories_overlay',
+                             'center_menu_overlay', 'quick_overlay'))
+            self.overlay_host.setAttribute(
+                Qt.WA_TransparentForMouseEvents, not interactive)
+        except Exception:
+            pass
+
     def _position_overlays(self):
         if not hasattr(self, 'channels_overlay'):
             return
-        pw = self.video_frame.width()
-        ph = self.video_frame.height()
+        pw = self.overlay_host.width()
+        ph = self.overlay_host.height()
         if pw <= 0 or ph <= 0:
             return
         # Round 236: расширили left-overlay до 640px чтобы EPG-сетка
@@ -2771,6 +2843,8 @@ class PlayerPage(QWidget):
         """
         if not hasattr(self, 'channels_overlay'):
             return
+        # Round 248: overlay_host должен быть на месте ДО показа панелей.
+        self._sync_overlay_host()
         ch_vis = self.channels_overlay.isVisible()
         cat_vis = (hasattr(self, 'categories_overlay')
                    and self.categories_overlay.isVisible())
@@ -2843,8 +2917,8 @@ class PlayerPage(QWidget):
 
     def _slide_in(self, widget, direction):
         self._stop_anim(widget)
-        pw = self.video_frame.width()
-        ph = self.video_frame.height()
+        pw = self.overlay_host.width()
+        ph = self.overlay_host.height()
         if pw <= 0 or ph <= 0:
             widget.show()
             return
@@ -2869,8 +2943,8 @@ class PlayerPage(QWidget):
 
     def _slide_out(self, widget, direction):
         self._stop_anim(widget)
-        pw = self.video_frame.width()
-        ph = self.video_frame.height()
+        pw = self.overlay_host.width()
+        ph = self.overlay_host.height()
         cur = widget.geometry()
         w = widget.width() or (360 if direction == 'left' else 280)
         if direction == 'left':
@@ -3362,8 +3436,8 @@ class PlayerPage(QWidget):
                 self.persistent_clock.hide()
                 return
             self.persistent_clock.show()
-            pw = self.video_frame.width()
-            ph = self.video_frame.height()
+            pw = self.overlay_host.width()
+            ph = self.overlay_host.height()
             cw = self.persistent_clock.width()
             ch = self.persistent_clock.height()
             pad = 14
@@ -4463,8 +4537,36 @@ class MainWindow(QMainWindow):
         self.resize(1100, 700)
         self.init_ui()
         self.auto_load_last()
+        # Round 248: application-level event filter — ловим хоткеи даже
+        # когда фокус забрало нативное VLC-видео-окно. Без этого в
+        # плеере не работали стрелки / Space / цифры.
+        try:
+            QApplication.instance().installEventFilter(self)
+        except Exception:
+            pass
         # Silent auto-check for new build at startup (only for frozen EXE)
         QTimer.singleShot(3000, self._auto_check_updates)
+
+    def eventFilter(self, obj, event):
+        """Round 248: глобальный перехват клавиш. Когда играет VLC, его
+        HWND забирает фокус и keyPressEvent в MainWindow не вызывается.
+        Здесь ловим KeyPress на уровне приложения. Если активна
+        текстовая строка ввода (поиск / диалог) — НЕ перехватываем,
+        чтобы юзер мог печатать."""
+        try:
+            if event.type() == event.KeyPress:
+                fw = QApplication.focusWidget()
+                # Не мешаем вводу текста.
+                if isinstance(fw, QLineEdit):
+                    return False
+                key = event.key()
+                # Обрабатываем только наши «плеерные» и глобальные
+                # клавиши; остальное отдаём Qt.
+                if self._handle_key(key):
+                    return True
+        except Exception:
+            pass
+        return super().eventFilter(obj, event)
 
     def _auto_check_updates(self):
         if not getattr(sys, 'frozen', False):
@@ -4625,61 +4727,91 @@ class MainWindow(QMainWindow):
             focus_target.setFocus()
 
     def keyPressEvent(self, event):
-        key = event.key()
-        # Round 238: ХОТКЕИ 1:1 с Android (TV-pult mapping).
-        # На клавиатуре стрелки ↔ DPAD_LEFT/RIGHT/UP/DOWN,
-        # Space ↔ MEDIA_PLAY_PAUSE, F ↔ Yellow color-key (favorite),
-        # 0-9 ↔ digit input, M ↔ mute, +/- ↔ volume.
+        if self._handle_key(event.key()):
+            return
+        super().keyPressEvent(event)
+
+    def _handle_key(self, key):
+        """Round 248: единый обработчик хоткеев. Вызывается и из
+        keyPressEvent, и из application-level event filter (чтобы
+        клавиши работали даже когда фокус забрало нативное VLC-окно).
+        Возвращает True если клавиша обработана."""
         try:
             current = self.stack.currentWidget()
             if isinstance(current, PlayerPage):
                 # Esc / Backspace — закрыть оверлей или вернуться назад.
                 if key in (Qt.Key_Escape, Qt.Key_Backspace):
                     if hasattr(current, 'channels_overlay') and current.channels_overlay.isVisible():
-                        current.left_press(); return
+                        current.left_press(); return True
                     if hasattr(current, 'quick_overlay') and current.quick_overlay.isVisible():
-                        current.toggle_quick_overlay(); return
-                    current.back_requested.emit(); return
-                # Если открыт channels_overlay — стрелки навигируют по
-                # списку, Right показывает детали, Enter играет.
+                        current.toggle_quick_overlay(); return True
+                    current.back_requested.emit(); return True
                 if hasattr(current, 'channels_overlay') and current.channels_overlay.isVisible():
                     if key == Qt.Key_Right:
                         item = current._overlay_list.currentItem()
                         if item:
-                            from PyQt5.QtCore import QPoint
                             r = current._overlay_list.visualItemRect(item)
                             current._show_overlay_channel_details(r.center())
-                        return
+                        return True
                     if key == Qt.Key_Left:
-                        current.left_press(); return
+                        current.left_press(); return True
                     if key in (Qt.Key_Return, Qt.Key_Enter):
                         item = current._overlay_list.currentItem()
                         if item:
                             current._overlay_channel_clicked(item)
-                        return
-                    # Up/Down/PgUp/PgDn — стандартная навигация QListWidget.
-                # Если открыт quick_overlay — Left/Esc закроет, Up/Down
-                # пусть прокручивает focus по кнопкам естественно.
+                        return True
+                    if key in (Qt.Key_Up, Qt.Key_Down):
+                        # Навигация по overlay-списку.
+                        lst = current._overlay_list
+                        row = lst.currentRow()
+                        if key == Qt.Key_Up and row > 0:
+                            lst.setCurrentRow(row - 1)
+                        elif key == Qt.Key_Down and row < lst.count() - 1:
+                            lst.setCurrentRow(row + 1)
+                        return True
+                elif (hasattr(current, 'categories_overlay')
+                      and current.categories_overlay.isVisible()):
+                    # В overlay категорий: Up/Down навигируют, Enter
+                    # выбирает, Left → центральное меню, Esc/Right закрыть.
+                    clist = current._cat_list
+                    if key in (Qt.Key_Up, Qt.Key_Down):
+                        row = clist.currentRow()
+                        if key == Qt.Key_Up and row > 0:
+                            clist.setCurrentRow(row - 1)
+                        elif key == Qt.Key_Down and row < clist.count() - 1:
+                            clist.setCurrentRow(row + 1)
+                        return True
+                    if key in (Qt.Key_Return, Qt.Key_Enter):
+                        item = clist.currentItem()
+                        if item:
+                            current._on_category_chosen(item)
+                        return True
+                    if key == Qt.Key_Left:
+                        current.left_press(); return True
+                    if key == Qt.Key_Right:
+                        current.categories_overlay.hide(); return True
+                elif (hasattr(current, 'center_menu_overlay')
+                      and current.center_menu_overlay.isVisible()):
+                    if key == Qt.Key_Left:
+                        current.left_press(); return True
                 elif hasattr(current, 'quick_overlay') and current.quick_overlay.isVisible():
                     if key in (Qt.Key_Left, Qt.Key_Right):
-                        current.toggle_quick_overlay(); return
+                        current.toggle_quick_overlay(); return True
                 else:
-                    # Видео-видимый режим: стрелки = переключение каналов
-                    # (как Android DPAD_UP/DOWN), Left/Right = side panels.
+                    # Видео без оверлеев: стрелки = каналы/панели.
                     if key == Qt.Key_Left:
-                        current.left_press(); return
+                        current.left_press(); return True
                     if key == Qt.Key_Right:
-                        current.toggle_quick_overlay(); return
+                        current.toggle_quick_overlay(); return True
                     if key == Qt.Key_Up:
-                        current.switch_channel(-1); return
+                        current.switch_channel(-1); return True
                     if key == Qt.Key_Down:
-                        current.switch_channel(1); return
+                        current.switch_channel(1); return True
                     if key == Qt.Key_Space:
-                        current.toggle_play(); return
+                        current.toggle_play(); return True
                     if key == Qt.Key_F:
-                        current.toggle_favorite(); return
+                        current.toggle_favorite(); return True
                     if key == Qt.Key_M:
-                        # Mute toggle via volume slider.
                         cur_v = current.vol_slider.value()
                         if cur_v > 0:
                             current._saved_volume_before_mute = cur_v
@@ -4687,14 +4819,14 @@ class MainWindow(QMainWindow):
                         else:
                             current.vol_slider.setValue(
                                 getattr(current, '_saved_volume_before_mute', 50))
-                        return
+                        return True
                     if key in (Qt.Key_Plus, Qt.Key_Equal, Qt.Key_VolumeUp):
                         current.vol_slider.setValue(min(100, current.vol_slider.value() + 5))
-                        return
+                        return True
                     if key in (Qt.Key_Minus, Qt.Key_Underscore, Qt.Key_VolumeDown):
                         current.vol_slider.setValue(max(0, current.vol_slider.value() - 5))
-                        return
-                # Цифровые клавиши 0-9 — ввод номера канала (как Android).
+                        return True
+                # Цифровые клавиши 0-9 — ввод номера канала.
                 if Qt.Key_0 <= key <= Qt.Key_9:
                     try:
                         digit = key - Qt.Key_0
@@ -4704,33 +4836,31 @@ class MainWindow(QMainWindow):
                         current._number_timer.start()
                     except Exception:
                         pass
-                    return
-                # Legacy aliases: L / R оставляем работоспособными для
-                # тех кто привык к Round 232.
+                    return True
                 if key == Qt.Key_L:
-                    current.left_press(); return
+                    current.left_press(); return True
                 if key == Qt.Key_R:
-                    current.toggle_quick_overlay(); return
+                    current.toggle_quick_overlay(); return True
         except Exception:
             pass
-        # Global section shortcuts (work from anywhere)
+        # Global section shortcuts (работают везде).
         if key == Qt.Key_F1:
-            self.switch_page(0); return
+            self.switch_page(0); return True
         if key == Qt.Key_F2:
-            self.switch_page(1); return
+            self.switch_page(1); return True
         if key == Qt.Key_F3:
-            self.switch_page(5); return
+            self.switch_page(5); return True
         if key == Qt.Key_F4:
-            self.switch_page(2); return
+            self.switch_page(2); return True
         if key == Qt.Key_F6:
-            self.switch_page(6); return
+            self.switch_page(6); return True
         if key == Qt.Key_F5:
             if self.config.last_playlist_url:
                 self.load_playlist(
                     self.config.last_playlist_name or "Playlist",
                     self.config.last_playlist_url)
-            return
-        super().keyPressEvent(event)
+            return True
+        return False
 
     def update_nav_highlight(self, active_idx):
         for btn, idx in self.nav_buttons:
