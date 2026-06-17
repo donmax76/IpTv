@@ -2315,8 +2315,12 @@ class PlayerPage(QWidget):
         # Таймер синхронизации позиции overlay_host с video_frame —
         # ловит перемещение/ресайз/фуллскрин главного окна.
         self._overlay_sync_timer = QTimer(self)
-        self._overlay_sync_timer.setInterval(200)
+        # Round 250: 200мс был агрессивный (CPU 5-10% и подвисания).
+        # 800мс хватает чтобы отслеживать перемещение окна; реальная
+        # реакция на ресайз/show/hide идёт через явные вызовы.
+        self._overlay_sync_timer.setInterval(800)
         self._overlay_sync_timer.timeout.connect(self._sync_overlay_host)
+        self._last_overlay_geom = None  # кэш геометрии — пропускаем no-op
         self._build_osd_banner()
         # Round 232 (Windows): аналоги Android-овых overlay-панелей.
         # Левая — список каналов с поиском; правая — быстрые настройки
@@ -2798,9 +2802,10 @@ class PlayerPage(QWidget):
             pass
 
     def _sync_overlay_host(self):
-        """Round 248: позиционируем top-level overlay_host точно над
-        video_frame (в глобальных координатах) и держим его размер
-        равным video_frame. Затем раскладываем дочерние оверлеи."""
+        """Round 248/250: позиционируем top-level overlay_host точно над
+        video_frame. Раскладываем дочерние оверлеи ТОЛЬКО когда
+        геометрия реально изменилась — иначе таймер 5 раз в секунду
+        вызывал каскад setGeometry/repaint, что и давало зависания."""
         try:
             if not self.video_frame.isVisible():
                 self.overlay_host.hide()
@@ -2810,7 +2815,15 @@ class PlayerPage(QWidget):
             h = self.video_frame.height()
             if w <= 0 or h <= 0:
                 return
-            self.overlay_host.setGeometry(tl.x(), tl.y(), w, h)
+            geom = (tl.x(), tl.y(), w, h)
+            if geom == self._last_overlay_geom:
+                # геометрия не менялась — только удостоверимся что окно
+                # видимо/поднято, и выходим.
+                if not self.overlay_host.isVisible():
+                    self.overlay_host.show()
+                return
+            self._last_overlay_geom = geom
+            self.overlay_host.setGeometry(*geom)
             if not self.overlay_host.isVisible():
                 self.overlay_host.show()
             self.overlay_host.raise_()
@@ -4701,9 +4714,9 @@ class MainWindow(QMainWindow):
         # Round 237: тонкая status-полоса под навигацией с подсказками
         # клавиш. «Управление программой должно быть простым» (юзер).
         self.shortcut_bar = QLabel(
-            "  F1-F6 разделы  ·  В плеере: ← Channels · → Settings · "
-            "↑↓ Переключить канал · Space Pause · F Favorite · "
-            "M Mute · +/- Громкость · 0-9 № канала · Esc Назад")
+            "  F1-F6 разделы · F11 Fullscreen  ·  В плеере: ← Channels · "
+            "→ Settings · ↑↓ Канал · Space Pause · F Favorite · M Mute · "
+            "+/- Громкость · 0-9 № канала · Esc Закрыть")
         self.shortcut_bar.setStyleSheet(
             f"background-color: {COLORS['background']};"
             f" color: {COLORS['text_hint']};"
@@ -4763,6 +4776,18 @@ class MainWindow(QMainWindow):
             if isinstance(current, PlayerPage):
                 # Esc / Backspace — закрыть оверлей или вернуться назад.
                 if key in (Qt.Key_Escape, Qt.Key_Backspace):
+                    # Round 250: Esc должен закрыть ЛЮБОЙ видимый
+                    # оверлей плеера — раньше центр-меню и категории
+                    # пропускались, Esc проваливался в back_requested
+                    # и юзера выбрасывало на вкладку каналов.
+                    if hasattr(current, 'center_menu_overlay') and current.center_menu_overlay.isVisible():
+                        current.center_menu_overlay.hide()
+                        current._sync_overlay_host()
+                        return True
+                    if hasattr(current, 'categories_overlay') and current.categories_overlay.isVisible():
+                        current.categories_overlay.hide()
+                        current._sync_overlay_host()
+                        return True
                     if hasattr(current, 'channels_overlay') and current.channels_overlay.isVisible():
                         current.left_press(); return True
                     if hasattr(current, 'quick_overlay') and current.quick_overlay.isVisible():
@@ -4876,6 +4901,15 @@ class MainWindow(QMainWindow):
             self.switch_page(2); return True
         if key == Qt.Key_F6:
             self.switch_page(6); return True
+        # Round 250: F11 — fullscreen всего окна, работает в любой
+        # вкладке (раньше был только в плеере, а нижние кнопки скрыты —
+        # запустить fullscreen стало вообще не из чего).
+        if key == Qt.Key_F11:
+            if self.isFullScreen():
+                self.showNormal()
+            else:
+                self.showFullScreen()
+            return True
         if key == Qt.Key_F5:
             if self.config.last_playlist_url:
                 self.load_playlist(
