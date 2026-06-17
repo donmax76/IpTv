@@ -522,7 +522,32 @@ COLORS = {
     'error': '#FF6B6B',
 }
 
-STYLESHEET = f"""
+# Round 247: цветовые темы — порт Android Round 211 themes.xml.
+# Меняют только primary / primary_dark / secondary; фон / карточки /
+# текст остаются для консистентности тёмной темы.
+THEME_PALETTES = {
+    'default': ('#7C6CF7', '#5A4DC5', '#4ECDC4'),  # фирменный фиолетовый
+    'blue':    ('#2196F3', '#1976D2', '#03DAC5'),
+    'green':   ('#4CAF50', '#388E3C', '#00BCD4'),
+    'orange':  ('#FF9800', '#F57C00', '#FFB74D'),
+    'red':     ('#F44336', '#D32F2F', '#FF7043'),
+}
+
+
+def apply_theme(theme_code):
+    """Round 247: меняет COLORS['primary'/'primary_dark'/'secondary']
+    и пересобирает глобальную STYLESHEET. После вызова приложение
+    должно перепривязать app.setStyleSheet(STYLESHEET)."""
+    global COLORS, STYLESHEET
+    palette = THEME_PALETTES.get(theme_code) or THEME_PALETTES['default']
+    COLORS['primary'], COLORS['primary_dark'], COLORS['secondary'] = palette
+    # Перегенерируем STYLESHEET — это f-string, нужно собрать заново.
+    STYLESHEET = _build_stylesheet()
+
+def _build_stylesheet():
+    """Round 247: STYLESHEET как функция, чтобы apply_theme мог
+    перестроить её с новыми COLORS."""
+    return f"""
 QMainWindow, QWidget {{
     background-color: {COLORS['background']};
     color: {COLORS['text_primary']};
@@ -667,6 +692,9 @@ QSlider::sub-page:horizontal {{
 }}
 """
 
+
+STYLESHEET = _build_stylesheet()
+
 CONFIG_FILE = "tvviewer_config.json"
 
 
@@ -695,6 +723,9 @@ class Config:
         # Round 246: позиция персистентных часов в плеере
         # (top_right / top_left / bottom_right / bottom_left / off).
         self.clock_position = "top_right"
+        # Round 247: цветовая тема — default(purple) / blue / green /
+        # orange / red. Порт Android Round 211 цветных тем.
+        self.theme_color = "default"
         self.per_channel_state = {}        # url -> {volume, aspect_idx, speed_idx, position_ms, audio_track}
         # Round 232 (Windows): UI language. ru/en/uk/az. На первом
         # запуске возьмём системную локаль, потом юзер может сменить в
@@ -773,6 +804,9 @@ class Config:
                 if cp in ('top_right', 'top_left', 'bottom_right',
                           'bottom_left', 'off'):
                     self.clock_position = cp
+                tc = data.get('theme_color', 'default')
+                if tc in THEME_PALETTES:
+                    self.theme_color = tc
                 pcs = data.get('per_channel_state', {})
                 if isinstance(pcs, dict):
                     self.per_channel_state = pcs
@@ -805,6 +839,7 @@ class Config:
             'hardware_decode': self.hardware_decode,
             'audio_output': self.audio_output,
             'clock_position': self.clock_position,
+            'theme_color': self.theme_color,
             'per_channel_state': self.per_channel_state,
             'ui_language': getattr(self, 'ui_language', 'ru'),
         }
@@ -1432,6 +1467,12 @@ class PlaylistsPage(QWidget):
         btn_add_xtream.clicked.connect(self.add_playlist_xtream)
         btn_row.addWidget(btn_add_xtream)
 
+        # Round 247: вставка URL из буфера обмена — порт Android
+        # «paste_url_from_clipboard» из PlaylistsFragment.
+        btn_paste = QPushButton("📋 Из буфера")
+        btn_paste.clicked.connect(self.add_playlist_from_clipboard)
+        btn_row.addWidget(btn_paste)
+
         btn_row.addStretch()
 
         btn_remove = QPushButton("Remove")
@@ -1541,6 +1582,43 @@ class PlaylistsPage(QWidget):
         btns.accepted.connect(_try_login)
         btns.rejected.connect(dlg.reject)
         dlg.exec_()
+
+    def add_playlist_from_clipboard(self):
+        """Round 247: достаём URL из буфера обмена. Поддерживает
+        прямой ввод https://...m3u/m3u8 и текст с URL внутри."""
+        try:
+            txt = (QApplication.clipboard().text() or "").strip()
+        except Exception:
+            txt = ""
+        if not txt:
+            QMessageBox.information(self, "Из буфера",
+                "Буфер обмена пуст.")
+            return
+        # Сначала ищем явный m3u/m3u8 URL.
+        m = re.search(r'(?i)https?://\S+\.m3u8?\S*', txt)
+        url = m.group(0) if m else (
+            txt if (txt.lower().startswith('http://') or
+                    txt.lower().startswith('https://')) else None)
+        if not url:
+            QMessageBox.information(self, "Из буфера",
+                "В буфере нет ссылки на плейлист.")
+            return
+        # Извлекаем имя из URL.
+        try:
+            m2 = re.search(r'/([^/?#]+\.m3u8?)', url)
+            name = (m2.group(1).rstrip('.m3u8').rstrip('.m3u') if m2
+                    else f"Playlist {len(self.config.playlists) + 1}")
+        except Exception:
+            name = f"Playlist {len(self.config.playlists) + 1}"
+        # Подтверждение и добавление.
+        confirm = QMessageBox.question(
+            self, "Добавить плейлист?",
+            f"{name}\n{url}",
+            QMessageBox.Yes | QMessageBox.No)
+        if confirm == QMessageBox.Yes:
+            self.config.playlists.append({'name': name, 'url': url})
+            self.config.save()
+            self.refresh_list()
 
     def add_playlist_file(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -3855,6 +3933,27 @@ class SettingsPage(QWidget):
         vol_row.addStretch()
         layout.addLayout(vol_row)
 
+        # Round 247: цветовая тема — как Android (5 вариантов).
+        theme_row = QHBoxLayout()
+        theme_row.addWidget(QLabel("Цветовая тема:"))
+        self.theme_combo = QComboBox()
+        for code, label in (
+            ('default', '🟣 Фиолетовый (по умолчанию)'),
+            ('blue',    '🔵 Синий'),
+            ('green',   '🟢 Зелёный'),
+            ('orange',  '🟠 Оранжевый'),
+            ('red',     '🔴 Красный'),
+        ):
+            self.theme_combo.addItem(label, code)
+        cur_theme = getattr(self.config, 'theme_color', 'default')
+        for i in range(self.theme_combo.count()):
+            if self.theme_combo.itemData(i) == cur_theme:
+                self.theme_combo.setCurrentIndex(i)
+                break
+        self.theme_combo.currentIndexChanged.connect(self._save_theme)
+        theme_row.addWidget(self.theme_combo, 1)
+        layout.addLayout(theme_row)
+
         # Round 246: позиция персистентных часов в плеере.
         clock_row = QHBoxLayout()
         clock_row.addWidget(QLabel("Часы в плеере:"))
@@ -4076,6 +4175,21 @@ class SettingsPage(QWidget):
                     child.setText(t('settings'))
         except Exception:
             pass
+
+    def _save_theme(self, _idx):
+        """Round 247: меняем цветовую тему — apply_theme +
+        re-применяем stylesheet к QApplication. Без перезапуска."""
+        code = self.theme_combo.currentData()
+        if not code or code == getattr(self.config, 'theme_color', 'default'):
+            return
+        self.config.theme_color = code
+        self.config.save()
+        try:
+            apply_theme(code)
+            QApplication.instance().setStyleSheet(STYLESHEET)
+        except Exception:
+            pass
+        self.settings_changed.emit()
 
     def _save_clock_position(self, _idx):
         code = self.clock_combo.currentData()
@@ -5044,7 +5158,6 @@ class SplashWindow(QWidget):
 
 def main():
     app = QApplication(sys.argv)
-    app.setStyleSheet(STYLESHEET)
     app.setFont(QFont('Segoe UI', 12))
     _install_crash_handler(app)
     # Round 232: применяем язык до сборки UI. MainWindow при создании
@@ -5052,6 +5165,9 @@ def main():
     # рендере виджетов уже была правильная локаль.
     _bootstrap_cfg = Config()
     set_ui_language(getattr(_bootstrap_cfg, 'ui_language', 'ru'))
+    # Round 247: применяем выбранную цветовую тему ДО setStyleSheet.
+    apply_theme(getattr(_bootstrap_cfg, 'theme_color', 'default'))
+    app.setStyleSheet(STYLESHEET)
     # Round 235: показываем splash пока MainWindow строится. На больших
     # плейлистах сборка занимает 2-4 сек, без splash юзер видит чёрный
     # экран и думает что зависло.
