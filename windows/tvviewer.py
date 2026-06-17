@@ -2677,6 +2677,10 @@ class PlayerPage(QWidget):
             o = getattr(self, w, None)
             if o is not None and o.isVisible():
                 o.hide()
+        # Round 251: сброс LEFT-стадии, чтобы следующее LEFT начинало
+        # с открытия каналов, а не продолжало с середины.
+        self._left_stage = 0
+        self._left_dir = 1
 
     def _refresh_categories_overlay(self):
         if not hasattr(self, '_cat_list'):
@@ -2869,47 +2873,54 @@ class PlayerPage(QWidget):
             self._overlay_toggle_bar.raise_()
 
     def left_press(self):
-        """Round 244: state-machine для LEFT — копия Android-цепочки.
+        """Round 251: LEFT — ping-pong по стадиям. Открывает поэтапно
+        и так же поэтапно закрывает (юзер: «когда он открыт влево он
+        так же должен поэтапно закрываться»).
 
-          state 0 (ничего не открыто)  → channels
-          state 1 (открыты channels)   → categories (channels скрываются)
-          state 2 (открыты categories) → center menu
-          state 3 (открыто center menu)→ закрыть всё
+          стадии: 0=закрыто 1=каналы 2=категории 3=центр-меню
+          LEFT идёт 0→1→2→3, на максимуме разворачивается 3→2→1→0.
         """
         if not hasattr(self, 'channels_overlay'):
             return
-        # Round 248: overlay_host должен быть на месте ДО показа панелей.
         self._sync_overlay_host()
-        ch_vis = self.channels_overlay.isVisible()
-        cat_vis = (hasattr(self, 'categories_overlay')
-                   and self.categories_overlay.isVisible())
-        cm_vis = (hasattr(self, 'center_menu_overlay')
-                  and self.center_menu_overlay.isVisible())
-        if cm_vis:
-            self.hide_all_overlays()
-            return
-        if cat_vis:
-            # categories → center menu
-            self.categories_overlay.hide()
-            self.center_menu_overlay.show()
-            self.center_menu_overlay.raise_()
-            return
-        if ch_vis:
-            # channels → categories
-            self.channels_overlay.hide()
+        stage = getattr(self, '_left_stage', 0)
+        direction = getattr(self, '_left_dir', 1)
+        if stage >= 3:
+            direction = -1
+        elif stage <= 0:
+            direction = 1
+        stage += direction
+        stage = max(0, min(3, stage))
+        self._left_stage = stage
+        self._left_dir = direction
+        self._apply_left_stage(stage)
+
+    def _apply_left_stage(self, stage):
+        """Round 251: показывает оверлеи соответствующие стадии 0-3."""
+        # Сначала прячем всё.
+        for name in ('channels_overlay', 'categories_overlay',
+                     'center_menu_overlay'):
+            o = getattr(self, name, None)
+            if o is not None and o.isVisible():
+                o.hide()
+        self.quick_overlay.hide()
+        if stage == 1:
+            self._refresh_channels_overlay()
+            self._slide_in(self.channels_overlay, direction='left')
+            self.channels_overlay.raise_()
+            self._overlay_search.setFocus()
+        elif stage == 2:
             self._refresh_categories_overlay()
             self._slide_in(self.categories_overlay, direction='left')
             self.categories_overlay.raise_()
             self._cat_list.setFocus()
             if self._cat_list.count() > 0:
                 self._cat_list.setCurrentRow(0)
-            return
-        # nothing → channels
-        self.quick_overlay.hide()
-        self._refresh_channels_overlay()
-        self._slide_in(self.channels_overlay, direction='left')
-        self.channels_overlay.raise_()
-        self._overlay_search.setFocus()
+        elif stage == 3:
+            self.center_menu_overlay.show()
+            self.center_menu_overlay.raise_()
+        # stage 0 = всё закрыто (уже скрыли выше).
+        self._sync_overlay_host()
 
     def toggle_channels_overlay(self):
         """Старый API — оставлен для совместимости. Тогглит только
@@ -3551,8 +3562,12 @@ class PlayerPage(QWidget):
             return
         if w.isFullScreen():
             w.showNormal()
+            if hasattr(w, '_apply_fullscreen_chrome'):
+                w._apply_fullscreen_chrome(False)
         else:
             w.showFullScreen()
+            if hasattr(w, '_apply_fullscreen_chrome'):
+                w._apply_fullscreen_chrome(True)
 
     # --- Sleep timer ---
 
@@ -4682,6 +4697,7 @@ class MainWindow(QMainWindow):
 
         # Bottom navigation bar
         nav_bar = QWidget()
+        self.nav_bar = nav_bar  # Round 251: ref для fullscreen-скрытия
         nav_bar.setStyleSheet(f"background-color: {COLORS['surface']};")
         nav_bar.setFixedHeight(52)
         nav_layout = QHBoxLayout(nav_bar)
@@ -4776,22 +4792,23 @@ class MainWindow(QMainWindow):
             if isinstance(current, PlayerPage):
                 # Esc / Backspace — закрыть оверлей или вернуться назад.
                 if key in (Qt.Key_Escape, Qt.Key_Backspace):
-                    # Round 250: Esc должен закрыть ЛЮБОЙ видимый
-                    # оверлей плеера — раньше центр-меню и категории
-                    # пропускались, Esc проваливался в back_requested
-                    # и юзера выбрасывало на вкладку каналов.
-                    if hasattr(current, 'center_menu_overlay') and current.center_menu_overlay.isVisible():
-                        current.center_menu_overlay.hide()
+                    # Round 251: Esc закрывает оверлеи ПОЛНОСТЬЮ (в
+                    # отличие от LEFT, который шагает поэтапно). Если
+                    # ничего не открыто — выходим из fullscreen, иначе
+                    # назад на каналы.
+                    any_overlay = any(
+                        getattr(current, n, None) is not None
+                        and getattr(current, n).isVisible()
+                        for n in ('center_menu_overlay', 'categories_overlay',
+                                  'channels_overlay', 'quick_overlay'))
+                    if any_overlay:
+                        current.hide_all_overlays()
                         current._sync_overlay_host()
                         return True
-                    if hasattr(current, 'categories_overlay') and current.categories_overlay.isVisible():
-                        current.categories_overlay.hide()
-                        current._sync_overlay_host()
+                    if self.isFullScreen():
+                        self.showNormal()
+                        self._apply_fullscreen_chrome(False)
                         return True
-                    if hasattr(current, 'channels_overlay') and current.channels_overlay.isVisible():
-                        current.left_press(); return True
-                    if hasattr(current, 'quick_overlay') and current.quick_overlay.isVisible():
-                        current.toggle_quick_overlay(); return True
                     current.back_requested.emit(); return True
                 if hasattr(current, 'channels_overlay') and current.channels_overlay.isVisible():
                     if key == Qt.Key_Right:
@@ -4907,8 +4924,10 @@ class MainWindow(QMainWindow):
         if key == Qt.Key_F11:
             if self.isFullScreen():
                 self.showNormal()
+                self._apply_fullscreen_chrome(False)
             else:
                 self.showFullScreen()
+                self._apply_fullscreen_chrome(True)
             return True
         if key == Qt.Key_F5:
             if self.config.last_playlist_url:
@@ -4917,6 +4936,21 @@ class MainWindow(QMainWindow):
                     self.config.last_playlist_url)
             return True
         return False
+
+    def _apply_fullscreen_chrome(self, fullscreen):
+        """Round 251: в полном экране прячем нижнюю навигацию и
+        полоску хоткеев, чтобы видео занимало ВЕСЬ экран (юзер:
+        «фулл скрин не полный»). При выходе — показываем обратно."""
+        try:
+            if hasattr(self, 'nav_bar'):
+                self.nav_bar.setVisible(not fullscreen)
+            if hasattr(self, 'shortcut_bar'):
+                self.shortcut_bar.setVisible(not fullscreen)
+            cur = self.stack.currentWidget()
+            if isinstance(cur, PlayerPage):
+                QTimer.singleShot(60, cur._sync_overlay_host)
+        except Exception:
+            pass
 
     def update_nav_highlight(self, active_idx):
         for btn, idx in self.nav_buttons:
