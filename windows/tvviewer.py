@@ -1294,31 +1294,16 @@ class ChannelsPage(QWidget):
         self.channel_list = QListWidget()
         self.channel_list.setSpacing(2)
         self.channel_list.setIconSize(QSize(48, 48))
-        # Round 237: тот же ChannelRowDelegate что и в плеер-оверлее —
-        # главный экран Channels теперь визуально такой же как Android
-        # (Round 212 item_overlay_channel layout).
         self.channel_list.setUniformItemSizes(True)
-        self.channel_list.setMouseTracking(True)
+        # Round 240: вернул стандартный плоский список для ChannelsPage —
+        # делегат на больших плейлистах рисовался плохо, юзер видел
+        # «нет списков каналов». Делегат остаётся только в плеере
+        # (overlay), где помещается всего ~500 элементов.
         self.channel_list.setStyleSheet(
-            "QListWidget { background: transparent; border: none; }"
-            "QListWidget::item { padding: 0; }"
-            "QListWidget::item:selected { background: transparent; }")
-        try:
-            self._main_delegate = ChannelRowDelegate(
-                get_logo=lambda ch: (self.logo_cache.get(ch.logo_url)
-                                     if self.logo_cache and ch.logo_url else None),
-                get_epg_data=lambda ch: (
-                    get_now_next(self.epg_data, ch.tvg_id, ch.name)[0],
-                    get_upcoming_programmes(self.epg_data, ch.tvg_id, ch.name, 3),
-                ),
-                parent=self.channel_list,
-            )
-            self.channel_list.setItemDelegate(self._main_delegate)
-        except Exception:
-            pass
+            "QListWidget::item { padding: 8px 6px; }"
+            "QListWidget::item:selected { background-color: " + COLORS['primary'] + "; color: white; }"
+            "QListWidget::item:focus { outline: 2px solid " + COLORS['primary'] + "; }")
         self.channel_list.itemDoubleClicked.connect(self.on_channel_click)
-        # Round 237: Enter/Return на выделенном канале — открывает плеер,
-        # как Android DPAD_CENTER.
         self.channel_list.setSelectionMode(QAbstractItemView.SingleSelection)
         layout.addWidget(self.channel_list)
 
@@ -1441,42 +1426,37 @@ class ChannelsPage(QWidget):
         try:
             lst.clear()
             for i, ch in enumerate(filtered):
+                # Round 240: вернулись к стандартному плоскому формату.
+                # Делегат остался только в overlay плеера (там <500
+                # элементов и помещается).
+                epg_text = ""
+                if show_epg and epg:
+                    try:
+                        now_prog, _ = get_now_next(epg, ch.tvg_id, ch.name)
+                        if now_prog:
+                            try:
+                                tstart = datetime.fromtimestamp(now_prog.start).strftime('%H:%M')
+                                epg_text = f"  {tstart} {now_prog.title}"
+                            except (OSError, ValueError):
+                                pass
+                    except Exception:
+                        pass
                 fav = " ♥" if ch.url in favs else ""
                 group_txt = f" [{ch.group}]" if ch.group else ""
                 q = detect_quality(ch.name)
                 qbadge = f"  ◆{q}" if q else ""
-                # Round 239: EPG ТОЛЬКО когда плейлист до 500 каналов —
-                # иначе 10k × 4 lookup'а на возврате с плеера зависают
-                # UI на 2-3 секунды. Юзер жалоба: «зависание происходит
-                # когда нажимаю назад».
-                now_p, upc = (None, [])
-                if epg and show_epg:
-                    try:
-                        now_p, _ = get_now_next(epg, ch.tvg_id, ch.name)
-                        upc = get_upcoming_programmes(epg, ch.tvg_id, ch.name, 3)
-                    except Exception:
-                        pass
+                item = QListWidgetItem(f"{i+1}. {ch.name}{qbadge}{fav}{group_txt}{epg_text}")
+                item.setData(Qt.UserRole, ch_to_index.get(id(ch), -1))
+                if q:
+                    item.setForeground(QColor(QUALITY_COLORS[q]))
+                # Round 221c: лого или letter-tile.
                 icon = None
                 if logo_cache is not None and ch.logo_url:
                     try:
                         icon = logo_cache.get(ch.logo_url)
                     except Exception:
                         icon = None
-                item = QListWidgetItem(f"{i+1}. {ch.name}{qbadge}{fav}{group_txt}")
-                item.setData(Qt.UserRole, ch_to_index.get(id(ch), -1))
-                item.setData(Qt.UserRole + 1, {
-                    'name': ch.name or '',
-                    'group': ch.group or '',
-                    'number': str(i + 1),
-                    'quality': q or '',
-                    '_channel': ch,
-                    '_now': now_p,
-                    '_upcoming': upc,
-                    '_icon': icon,
-                })
-                item.setSizeHint(QSize(0, ChannelRowDelegate.ROW_HEIGHT))
-                if q:
-                    item.setForeground(QColor(QUALITY_COLORS[q]))
+                item.setIcon(icon if icon is not None else make_letter_tile_icon(ch.name))
                 lst.addItem(item)
         finally:
             lst.setUpdatesEnabled(True)
@@ -1631,7 +1611,11 @@ class ChannelRowDelegate(QStyledItemDelegate):
         self._chip_sd = QColor("#74B9FF")
 
     def sizeHint(self, option, index):
-        return QSize(option.rect.width(), self.ROW_HEIGHT)
+        # Round 240: option.rect.width() может быть 0 при первичном
+        # layout-pass; возвращаем безопасную ширину чтобы строки не
+        # коллапсировали и юзер видел список.
+        w = option.rect.width() if option.rect.width() > 0 else 600
+        return QSize(w, self.ROW_HEIGHT)
 
     def paint(self, painter, option, index):
         painter.save()
