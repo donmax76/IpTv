@@ -1144,7 +1144,7 @@ class UpdateCheckThread(QThread):
     """
     finished = pyqtSignal(object)  # dict with keys: code, name, tag, url, notes — or None
 
-    REPO = "donmax76/iptv"
+    REPO = "donmax76/IpTv"  # Round 266: canonical case
 
     FAST_VERSION_JSON = (
         "https://raw.githubusercontent.com/donmax76/IpTv/main/"
@@ -1227,30 +1227,44 @@ class UpdateCheckThread(QThread):
             return
         try:
             log_info('update', f"slow path: querying releases for {self.REPO}")
-            api_url = f"https://api.github.com/repos/{self.REPO}/releases?per_page=30"
+            # Round 266: пагинируем — у репо много Android v5.4-buildN
+            # релизов в день, и наши win-v5.4-buildN иногда падают за
+            # пределы первой страницы. Юзер видел «win-* releases: 0».
+            # Сканируем до 5 страниц по 100 = 500 релизов (как Android
+            # UpdateChecker.MAX_PAGES в build.yml). Останавливаемся
+            # раньше если нашли — каждое следующее с меньшим build #.
             headers = {
                 'Accept': 'application/vnd.github.v3+json',
                 'User-Agent': 'TVViewer-Windows',
             }
-            raw = self._fetch(api_url, headers)
-            if raw is None:
-                self.finished.emit(None)
-                return
-            data = json.loads(raw)
-            log_info('update', f"got {len(data) if isinstance(data, list) else 0} releases")
-            wins = [rel for rel in data
-                    if isinstance(rel, dict) and rel.get('tag_name', '').startswith('win-')]
-            log_info('update', f"win-* releases: {len(wins)}")
             best = None
-            for rel in wins:
-                m = re.search(r'build(\d+)', rel.get('tag_name', ''))
-                if not m:
-                    continue
-                code = int(m.group(1))
-                if best is None or code > best[0]:
-                    best = (code, rel)
+            for page in range(1, 6):
+                api_url = (f"https://api.github.com/repos/{self.REPO}"
+                           f"/releases?per_page=100&page={page}")
+                raw = self._fetch(api_url, headers)
+                if raw is None:
+                    break
+                data = json.loads(raw)
+                if not isinstance(data, list) or not data:
+                    break
+                wins = [rel for rel in data
+                        if isinstance(rel, dict)
+                        and rel.get('tag_name', '').startswith('win-')]
+                log_info('update',
+                         f"page {page}: {len(data)} releases, {len(wins)} win-*")
+                for rel in wins:
+                    m = re.search(r'build(\d+)', rel.get('tag_name', ''))
+                    if not m:
+                        continue
+                    code = int(m.group(1))
+                    if best is None or code > best[0]:
+                        best = (code, rel)
+                # Если уже нашли — следующие страницы будут только старше.
+                if best is not None and page >= 1:
+                    break
             if best is None:
-                log_warn('update', "no win-* release with buildN tag found")
+                log_warn('update', "no win-* release with buildN tag found "
+                                   "after 5 pages")
                 self.finished.emit(None)
                 return
             code, rel = best
