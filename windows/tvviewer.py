@@ -4163,6 +4163,7 @@ class RecentPage(QWidget):
 # ============================================================
 class TvGuidePage(QWidget):
     channel_play = pyqtSignal(int)
+    epg_refresh_requested = pyqtSignal()  # Round 257: ручное обновление EPG
 
     def __init__(self, config: Config, logo_cache: LogoCache = None):
         super().__init__()
@@ -4177,8 +4178,18 @@ class TvGuidePage(QWidget):
         self._tick.setInterval(60 * 1000)
         self._tick.timeout.connect(self.refresh_list)
 
+        # Round 257: авто-обновление EPG раз в 30 минут (как Android
+        # EpgRepository periodic refresh).
+        self._auto_epg = QTimer(self)
+        self._auto_epg.setInterval(30 * 60 * 1000)
+        self._auto_epg.timeout.connect(self.epg_refresh_requested.emit)
+
         if self.logo_cache is not None:
             self.logo_cache.logo_ready.connect(self._refresh_logos)
+
+    def _on_refresh_clicked(self):
+        self.status.setText("Обновляю EPG…")
+        self.epg_refresh_requested.emit()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -4189,6 +4200,17 @@ class TvGuidePage(QWidget):
         title.setFont(QFont('Segoe UI', 22, QFont.Bold))
         header.addWidget(title)
         header.addStretch()
+        # Round 257: ручная кнопка обновления EPG (юзер: «нет ручного или
+        # авто обновления тв гида»). Эмитим refresh_requested — MainWindow
+        # триггерит LoadEpgThread по тем же source-ам, что были при
+        # загрузке плейлиста.
+        self.btn_refresh = QPushButton("↻ Обновить EPG")
+        self.btn_refresh.setStyleSheet(
+            "QPushButton { background-color: #7C6CF7; color: white;"
+            " padding: 6px 14px; border-radius: 6px; font-size: 13px; }"
+            "QPushButton:hover { background-color: #9485FA; }")
+        self.btn_refresh.clicked.connect(self._on_refresh_clicked)
+        header.addWidget(self.btn_refresh)
         self.status = QLabel("")
         self.status.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 13px;")
         header.addWidget(self.status)
@@ -4223,6 +4245,8 @@ class TvGuidePage(QWidget):
         self.refresh_list()
         if not self._tick.isActive():
             self._tick.start()
+        if not self._auto_epg.isActive():
+            self._auto_epg.start()
 
     def refresh_list(self):
         query = self.search_edit.text().strip().lower()
@@ -5002,6 +5026,7 @@ class MainWindow(QMainWindow):
         self._progress_cb(76, "Программа передач…")
         self.tv_guide_page = TvGuidePage(self.config, self.logo_cache)
         self.tv_guide_page.channel_play.connect(self.play_channel)
+        self.tv_guide_page.epg_refresh_requested.connect(self._on_epg_refresh)
         self.stack.addWidget(self.tv_guide_page)
 
         self._progress_cb(82, "Недавние…")
@@ -5079,6 +5104,23 @@ class MainWindow(QMainWindow):
                 btn.setText(f"{icon}  {t(key)}" if icon else t(key))
 
     def switch_page(self, idx):
+        # Round 257: при переходе НА любую страницу кроме плеера —
+        # автоматически выходим из fullscreen и показываем nav_bar +
+        # shortcut_bar (юзер: «при фул скрине при переходе в настройки
+        # вернуться не получается — нужно выйти из полноэкранного
+        # режима»). И наоборот: на плеере прячем chrome всегда —
+        # всегда «фул-скрин-выгляд» без F11.
+        try:
+            going_to_player = (idx == 3)
+            if not going_to_player and self.isFullScreen():
+                self.showNormal()
+                self._apply_fullscreen_chrome(False)
+            if hasattr(self, 'nav_bar'):
+                self.nav_bar.setVisible(not going_to_player)
+            if hasattr(self, 'shortcut_bar'):
+                self.shortcut_bar.setVisible(not going_to_player)
+        except Exception:
+            pass
         if idx == 2:
             self.favorites_page.refresh(self.channels, self.epg_data)
         elif idx == 5:
@@ -5408,11 +5450,38 @@ class MainWindow(QMainWindow):
             if self.stack.currentIndex() == 5:
                 self.tv_guide_page.set_data(self.channels, self.epg_data)
 
+    def _on_epg_refresh(self):
+        """Round 257: ручная или авто-перезагрузка EPG из TvGuidePage.
+        Собираем источники как при первой загрузке (last_epg_url из M3U
+        + config.epg_urls пользовательские) и запускаем LoadEpgThread."""
+        sources = []
+        if getattr(self.config, 'last_epg_url', ''):
+            sources.append(self.config.last_epg_url)
+        for u in getattr(self.config, 'epg_urls', []) or []:
+            if u and u not in sources:
+                sources.append(u)
+        if not sources:
+            self.tv_guide_page.status.setText(
+                "Нет источников EPG. Добавьте URL в Настройках.")
+            return
+        self.tv_guide_page.status.setText(
+            f"Скачиваю EPG ({len(sources)} src)…")
+        self.load_epg(sources)
+
     def play_channel(self, index):
         if index < 0 or index >= len(self.channels):
             return
         self.stack.setCurrentIndex(3)
         self.update_nav_highlight(-1)
+        # Round 257: на плеере всегда прячем MainWindow chrome — юзер
+        # хочет «фул-скрин по умолчанию» без необходимости F11.
+        try:
+            if hasattr(self, 'nav_bar'):
+                self.nav_bar.setVisible(False)
+            if hasattr(self, 'shortcut_bar'):
+                self.shortcut_bar.setVisible(False)
+        except Exception:
+            pass
         self.player_page.play_channel(index, self.channels, self.epg_data)
         # Apply remembered fullscreen preference
         if self.config.remember_fullscreen and not self.isFullScreen():
