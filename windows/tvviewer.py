@@ -4265,10 +4265,13 @@ class TvGuidePage(QWidget):
         self._tick.setInterval(60 * 1000)
         self._tick.timeout.connect(self.refresh_list)
 
-        # Round 257: авто-обновление EPG раз в 30 минут (как Android
-        # EpgRepository periodic refresh).
+        # Round 257/259: авто-обновление EPG. Юзер: «при просмотре
+        # фул хд каналов и возможно идёт обновление тв программы»
+        # — поэтому увеличили интервал до 4 часов (Android default)
+        # и добавили проверку «активен ли плеер» в _on_epg_refresh
+        # MainWindow.
         self._auto_epg = QTimer(self)
-        self._auto_epg.setInterval(30 * 60 * 1000)
+        self._auto_epg.setInterval(4 * 60 * 60 * 1000)
         self._auto_epg.timeout.connect(self.epg_refresh_requested.emit)
 
         if self.logo_cache is not None:
@@ -5017,10 +5020,42 @@ class MainWindow(QMainWindow):
         # плеере не работали стрелки / Space / цифры.
         try:
             QApplication.instance().installEventFilter(self)
-        except Exception:
-            pass
+        except Exception as e:
+            log_error('installEventFilter', e)
+        # Round 259: следим за активностью приложения. overlay_host
+        # (top-level Tool с WindowStaysOnTopHint) рисует часы/кнопки
+        # «Каналы»/«Настройки» поверх ВСЕХ окон, включая другие
+        # приложения, когда юзер alt-tab'ает из TVViewer. Прячем
+        # overlay_host вместе с потерей фокуса; возвращаем когда
+        # окно снова активно и юзер на PlayerPage.
+        try:
+            QApplication.instance().applicationStateChanged.connect(
+                self._on_app_state_changed)
+        except Exception as e:
+            log_error('applicationStateChanged.connect', e)
         # Silent auto-check for new build at startup (only for frozen EXE)
         QTimer.singleShot(3000, self._auto_check_updates)
+
+    def _on_app_state_changed(self, state):
+        """Round 259: alt-tab → прячем overlay_host чтобы наши часы и
+        кнопки overlay-toggle не светились поверх других приложений.
+        Возврат — показываем (если на PlayerPage)."""
+        try:
+            from PyQt5.QtCore import Qt as _Qt
+            page = self.stack.currentWidget()
+            if not isinstance(page, PlayerPage):
+                return
+            host = getattr(page, 'overlay_host', None)
+            if host is None:
+                return
+            if state == _Qt.ApplicationActive:
+                page._sync_overlay_host()
+                host.show()
+                host.raise_()
+            else:
+                host.hide()
+        except Exception as e:
+            log_error('_on_app_state_changed', e)
 
     def eventFilter(self, obj, event):
         """Round 248: глобальный перехват клавиш. Когда играет VLC, его
@@ -5540,9 +5575,34 @@ class MainWindow(QMainWindow):
                 self.tv_guide_page.set_data(self.channels, self.epg_data)
 
     def _on_epg_refresh(self):
-        """Round 257: ручная или авто-перезагрузка EPG из TvGuidePage.
-        Собираем источники как при первой загрузке (last_epg_url из M3U
-        + config.epg_urls пользовательские) и запускаем LoadEpgThread."""
+        """Round 257/259: ручная или авто-перезагрузка EPG. Юзер:
+        «программа постоянно зависает при просмотре фул хд каналов и
+        возможно идёт обновление тв программы». Поэтому:
+        - если плеер активно играет — пропускаем АВТО-перезагрузку
+          (ручная кнопка ↻ всегда работает);
+        - дросселируем: не чаще раза в час;
+        - LoadEpgThread парсит большой XMLTV под GIL и крадёт CPU у
+          QApplication, на FullHD это даёт лаги."""
+        import time as _t
+        now = _t.time()
+        last = getattr(self, '_last_epg_load_ts', 0)
+        auto = self.sender() is not getattr(self.tv_guide_page, 'btn_refresh', None)
+        if auto:
+            # авто-триггер: пропускаем если плеер активно проигрывает
+            try:
+                cur = self.stack.currentWidget()
+                if isinstance(cur, PlayerPage) and getattr(cur, 'player', None) \
+                        and cur.player.is_playing():
+                    log_info('epg-refresh',
+                             'skipped: player is playing, will retry next tick')
+                    return
+            except Exception as e:
+                log_error('epg-refresh.check_player', e)
+            # авто-троттл: не чаще раза в час
+            if now - last < 60 * 60:
+                log_info('epg-refresh',
+                         f'skipped: throttled, last={int(now - last)}s ago')
+                return
         sources = []
         if getattr(self.config, 'last_epg_url', ''):
             sources.append(self.config.last_epg_url)
@@ -5555,6 +5615,8 @@ class MainWindow(QMainWindow):
             return
         self.tv_guide_page.status.setText(
             f"Скачиваю EPG ({len(sources)} src)…")
+        self._last_epg_load_ts = now
+        log_info('epg-refresh', f"loading {len(sources)} sources auto={auto}")
         self.load_epg(sources)
 
     def play_channel(self, index):
