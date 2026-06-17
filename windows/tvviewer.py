@@ -2503,6 +2503,74 @@ class PlayerPage(QWidget):
 
         row.addLayout(col, 1)
         # Position is set in resizeEvent / _position_osd
+        # Round 252: верхняя панель как в Android (bg_player_gradient_top):
+        # имя канала + now-playing слева, LIVE-бейдж и часы справа.
+        # Авто-скрывается вместе с баннером.
+        self._build_top_panel()
+
+    def _build_top_panel(self):
+        self.top_panel = QWidget(self.overlay_host)
+        # Градиент сверху вниз: непрозрачный чёрный → прозрачный.
+        self.top_panel.setStyleSheet(
+            "background-color: rgba(0,0,0,0);")
+        self.top_panel.hide()
+        # Полупрозрачная подложка через дочерний QLabel с градиентом
+        # (QSS не делает linear-gradient на QWidget надёжно, поэтому
+        # рисуем сплошную затемнённую полосу).
+        bg = QLabel(self.top_panel)
+        bg.setStyleSheet("background-color: rgba(10,10,20,180);")
+        self._top_panel_bg = bg
+        row = QHBoxLayout(self.top_panel)
+        row.setContentsMargins(18, 12, 18, 12)
+        row.setSpacing(12)
+        # Иконка списка каналов (☰) — клик открывает список.
+        self.top_channels_btn = QPushButton("☰")
+        self.top_channels_btn.setFixedSize(38, 38)
+        self.top_channels_btn.setStyleSheet(
+            "QPushButton { background: transparent; color: white;"
+            " font-size: 20px; border: none; }"
+            "QPushButton:hover { color: #7C6CF7; }")
+        self.top_channels_btn.clicked.connect(self.left_press)
+        row.addWidget(self.top_channels_btn)
+        # Имя канала + now-playing.
+        name_col = QVBoxLayout()
+        name_col.setSpacing(2)
+        self.top_channel_name = QLabel("")
+        self.top_channel_name.setStyleSheet(
+            "color: white; font-size: 17px; font-weight: bold;"
+            " background: transparent;")
+        name_col.addWidget(self.top_channel_name)
+        self.top_now = QLabel("")
+        self.top_now.setStyleSheet(
+            "color: rgba(255,255,255,180); font-size: 12px;"
+            " background: transparent;")
+        name_col.addWidget(self.top_now)
+        row.addLayout(name_col, 1)
+        # LIVE-бейдж.
+        live = QLabel("● LIVE")
+        live.setStyleSheet(
+            "color: white; font-size: 11px; font-weight: bold;"
+            " background-color: #E53935; border-radius: 4px;"
+            " padding: 3px 8px;")
+        row.addWidget(live)
+        # Часы.
+        self.top_clock = QLabel("")
+        self.top_clock.setStyleSheet(
+            "color: white; font-size: 15px; font-weight: bold;"
+            " background: transparent;")
+        row.addWidget(self.top_clock)
+
+    def _position_top_panel(self):
+        if not hasattr(self, 'top_panel'):
+            return
+        pw = self.overlay_host.width()
+        if pw <= 0:
+            return
+        h = 62
+        self.top_panel.setGeometry(0, 0, pw, h)
+        if hasattr(self, '_top_panel_bg'):
+            self._top_panel_bg.setGeometry(0, 0, pw, h)
+            self._top_panel_bg.lower()
 
     def _position_osd(self):
         if not hasattr(self, 'osd_banner'):
@@ -2512,9 +2580,12 @@ class PlayerPage(QWidget):
         ph = parent.height()
         if pw <= 0 or ph <= 0:
             return
-        bw = min(540, max(340, pw - 40))
-        bh = 92
-        self.osd_banner.setGeometry(20, 20, bw, bh)
+        bw = min(560, max(340, pw - 40))
+        bh = 96
+        # Round 252: баннер инфо теперь ВНИЗУ (как Android bottomBar),
+        # верхняя панель занимает верх.
+        self.osd_banner.setGeometry(20, ph - bh - 20, bw, bh)
+        self._position_top_panel()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -3200,9 +3271,24 @@ class PlayerPage(QWidget):
         else:
             self.osd_next.setText("")
 
+        # Round 252: заполняем верхнюю панель.
+        try:
+            self.top_channel_name.setText(f"{self.current_index + 1}  {ch.name}")
+            self.top_now.setText(self.osd_now.text())
+            self.top_clock.setText(datetime.now().strftime('%H:%M'))
+        except Exception:
+            pass
+
         self._position_osd()
         self.osd_banner.raise_()
         self.osd_banner.show()
+        # Round 252: верхняя панель показывается вместе с баннером.
+        try:
+            self._position_top_panel()
+            self.top_panel.raise_()
+            self.top_panel.show()
+        except Exception:
+            pass
         self._banner_timer.start()
 
     def mouseMoveEvent(self, event):
@@ -3220,6 +3306,9 @@ class PlayerPage(QWidget):
     def _hide_banner(self):
         if hasattr(self, 'osd_banner'):
             self.osd_banner.hide()
+        # Round 252: верхняя панель скрывается вместе с баннером.
+        if hasattr(self, 'top_panel'):
+            self.top_panel.hide()
 
     def _on_pip_clicked(self):
         mw = self.window()
