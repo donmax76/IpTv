@@ -220,6 +220,72 @@ DEFAULT_EPG_URLS = [
 
 
 # ============================================================
+# Round 242 (Windows): ChannelSorter — порт Android ChannelSorter.kt
+# (Android Round 194). Поддерживает default / number / name / group /
+# quality. Используется и в ChannelsPage и в Favorites/Recent.
+# ============================================================
+def sort_channels(channels, sort_mode):
+    """Сортирует список Channel'ов по заданному режиму. Возвращает
+    новый отсортированный список (исходный не мутирует)."""
+    if not channels:
+        return channels
+    if sort_mode == "name":
+        return sorted(channels, key=lambda c: (c.name or "").lower())
+    if sort_mode == "group":
+        # Без группы — в самый низ по алфавиту.
+        return sorted(channels, key=lambda c: (
+            (c.group or "zzzzzz").lower(),
+            (c.name or "").lower(),
+        ))
+    if sort_mode == "quality":
+        rank = {"4K": 0, "FHD": 1, "HD": 2, "SD": 3, "": 4}
+        return sorted(channels, key=lambda c: (
+            rank.get(detect_quality(c.name or ""), 4),
+            (c.name or "").lower(),
+        ))
+    if sort_mode == "number":
+        # Используем tvg_id если число, иначе позицию в плейлисте.
+        def _num(c):
+            try:
+                return int(c.tvg_id) if c.tvg_id and c.tvg_id.isdigit() else 10**9
+            except Exception:
+                return 10**9
+        return sorted(channels, key=lambda c: (_num(c), (c.name or "").lower()))
+    return list(channels)  # "default"
+
+
+# ============================================================
+# Round 242 (Windows): XtreamApi — порт Android XtreamApi.kt. Авторизация
+# через player_api.php + сборка M3U-URL для get.php.
+# ============================================================
+class XtreamApi:
+    @staticmethod
+    def authenticate(server, username, password):
+        """Возвращает dict с user_info при успехе, None при ошибке."""
+        try:
+            base = (server or "").rstrip('/')
+            url = f"{base}/player_api.php?username={username}&password={password}"
+            req = urllib.request.Request(
+                url, headers={'User-Agent': 'TVViewer/Windows'})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                if getattr(resp, 'status', 200) != 200:
+                    return None
+                body = resp.read().decode('utf-8', errors='replace')
+            data = json.loads(body)
+            ui = data.get('user_info') or {}
+            if str(ui.get('auth', '0')) != '1':
+                return None
+            return {'user_info': ui, 'server_info': data.get('server_info')}
+        except Exception:
+            return None
+
+    @staticmethod
+    def build_m3u_url(server, username, password):
+        base = (server or "").rstrip('/')
+        return f"{base}/get.php?username={username}&password={password}&type=m3u_plus&output=ts"
+
+
+# ============================================================
 # Round 232 (Windows): i18n. Простая словарная схема — таблица
 # ключ → перевод по локали. ru/en/uk/az. Дефолт ru. Меняется
 # в SettingsPage; некоторые экраны требуют перезапуска (надписи
@@ -386,10 +452,46 @@ TRANSLATIONS = {
 
 _CURRENT_LANG = 'ru'
 
+# Round 242: расширенный список языков — порт Android LocaleHelper.
+# Реальные переводы есть для ru/en/uk/az; для остальных fallback на ru.
+SUPPORTED_LANGUAGES = [
+    ('system', 'System'),
+    ('ru', 'Русский'),
+    ('en', 'English'),
+    ('uk', 'Українська'),
+    ('az', 'Azərbaycanca'),
+    ('de', 'Deutsch'),
+    ('fr', 'Français'),
+    ('es', 'Español'),
+    ('pl', 'Polski'),
+    ('tr', 'Türkçe'),
+    ('it', 'Italiano'),
+    ('zh', '中文'),
+    ('ar', 'العربية'),
+    ('pt', 'Português'),
+]
+
+
+def _resolve_system_lang():
+    """Возвращает код 2-буквенный из системной локали, иначе 'ru'."""
+    try:
+        import locale as _locale
+        code = (_locale.getdefaultlocale()[0] or "")[:2].lower()
+        return code if code in TRANSLATIONS else 'ru'
+    except Exception:
+        return 'ru'
+
 
 def set_ui_language(lang: str):
+    """Round 242: 'system' резолвится в системную локаль; для языков
+    без перевода — fallback на ru."""
     global _CURRENT_LANG
-    _CURRENT_LANG = lang if lang in TRANSLATIONS else 'ru'
+    if lang == 'system':
+        _CURRENT_LANG = _resolve_system_lang()
+    elif lang in TRANSLATIONS:
+        _CURRENT_LANG = lang
+    else:
+        _CURRENT_LANG = 'ru'
 
 
 def t(key: str, **kwargs) -> str:
@@ -1317,6 +1419,11 @@ class PlaylistsPage(QWidget):
         btn_add_file.clicked.connect(self.add_playlist_file)
         btn_row.addWidget(btn_add_file)
 
+        # Round 242: Xtream-codes login.
+        btn_add_xtream = QPushButton("+ Xtream")
+        btn_add_xtream.clicked.connect(self.add_playlist_xtream)
+        btn_row.addWidget(btn_add_xtream)
+
         btn_row.addStretch()
 
         btn_remove = QPushButton("Remove")
@@ -1375,6 +1482,57 @@ class PlaylistsPage(QWidget):
                 self.config.playlists.append({'name': name, 'url': url})
                 self.config.save()
                 self.refresh_list()
+
+    def add_playlist_xtream(self):
+        """Round 242: добавить плейлист по Xtream-codes креденшелам.
+        Юзер вводит сервер/login/пароль — мы аутентифицируемся,
+        и если auth OK — собираем M3U-URL и добавляем."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Xtream Codes")
+        dlg.setStyleSheet(STYLESHEET)
+        dlg.setMinimumWidth(450)
+        form = QFormLayout(dlg)
+        name_edit = QLineEdit()
+        name_edit.setPlaceholderText("My Xtream")
+        server_edit = QLineEdit()
+        server_edit.setPlaceholderText("http://example.com:8080")
+        user_edit = QLineEdit()
+        user_edit.setPlaceholderText("login")
+        pass_edit = QLineEdit()
+        pass_edit.setEchoMode(QLineEdit.Password)
+        form.addRow("Name:", name_edit)
+        form.addRow("Server:", server_edit)
+        form.addRow("Username:", user_edit)
+        form.addRow("Password:", pass_edit)
+        status = QLabel("")
+        status.setStyleSheet(f"color: {COLORS['text_secondary']};")
+        form.addRow(status)
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        form.addRow(btns)
+
+        def _try_login():
+            srv = server_edit.text().strip()
+            usr = user_edit.text().strip()
+            pwd = pass_edit.text()
+            name = name_edit.text().strip() or "Xtream"
+            if not (srv and usr and pwd):
+                status.setText("Заполните сервер, логин и пароль.")
+                return
+            status.setText("Проверяю…")
+            QApplication.processEvents()
+            info = XtreamApi.authenticate(srv, usr, pwd)
+            if info is None:
+                status.setText("Не удалось войти. Проверьте данные.")
+                return
+            url = XtreamApi.build_m3u_url(srv, usr, pwd)
+            self.config.playlists.append({'name': name, 'url': url})
+            self.config.save()
+            self.refresh_list()
+            dlg.accept()
+
+        btns.accepted.connect(_try_login)
+        btns.rejected.connect(dlg.reject)
+        dlg.exec_()
 
     def add_playlist_file(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -1448,6 +1606,7 @@ class ChannelsPage(QWidget):
         self.sort_combo.addItem("Sort: Default", "default")
         self.sort_combo.addItem("Sort: Name", "name")
         self.sort_combo.addItem("Sort: Number", "number")
+        self.sort_combo.addItem("Sort: Group", "group")
         self.sort_combo.addItem("Sort: Quality (4K → SD)", "quality")
         cur_sort = getattr(self.config, 'channel_sort', 'default')
         for i in range(self.sort_combo.count()):
@@ -1605,15 +1764,9 @@ class ChannelsPage(QWidget):
             filtered.sort(key=lambda c: recent_order.get(c.url, 9999))
         else:
             sort_mode = getattr(self.config, 'channel_sort', 'default')
-            if sort_mode == "name":
-                filtered.sort(key=lambda c: (c.name or "").lower())
-            elif sort_mode == "number":
-                # Stable: keep original M3U order (already in self.channels order)
-                pass
-            elif sort_mode == "quality":
-                rank = {"4K": 0, "FHD": 1, "HD": 2, "SD": 3, "": 4}
-                filtered.sort(key=lambda c: (rank.get(detect_quality(c.name), 4),
-                                             (c.name or "").lower()))
+            # Round 242: единая сортировка через sort_channels —
+            # поддерживает default/name/group/number/quality.
+            filtered = sort_channels(filtered, sort_mode)
         self.filtered = filtered
 
         # Show EPG titles only for small lists to keep the UI responsive
@@ -3358,12 +3511,10 @@ class SettingsPage(QWidget):
         lang_row = QHBoxLayout()
         lang_row.addWidget(QLabel(t('language') + ":"))
         self.lang_combo = QComboBox()
-        for code, label in (
-            ('ru', 'Русский'),
-            ('en', 'English'),
-            ('uk', 'Українська'),
-            ('az', 'Azərbaycanca'),
-        ):
+        # Round 242: расширенный список языков как Android LocaleHelper.
+        # 'system' = автодетект из локали ОС. Реально перевод есть для
+        # ru/en/uk/az; остальные показываются по дефолту (ru).
+        for code, label in SUPPORTED_LANGUAGES:
             self.lang_combo.addItem(label, code)
         cur_lang = getattr(self.config, 'ui_language', 'ru')
         for i in range(self.lang_combo.count()):
@@ -4433,11 +4584,21 @@ def _install_crash_handler(app):
                 msg.setInformativeText(str(exc_value)[:300])
                 msg.setDetailedText(tb_text[-3000:])
                 btn_report = msg.addButton("Report on GitHub", QMessageBox.AcceptRole)
+                # Round 242: «Copy» кнопка — порт Android
+                # CrashReportActivity.copyBtn. Юзер копирует stacktrace
+                # в буфер для вставки в чат с разработчиком.
+                btn_copy = msg.addButton("Copy stacktrace", QMessageBox.ActionRole)
                 msg.addButton(QMessageBox.Close)
                 msg.exec_()
-                if msg.clickedButton() is btn_report:
+                clicked = msg.clickedButton()
+                if clicked is btn_report:
                     import webbrowser
                     webbrowser.open(url)
+                elif clicked is btn_copy:
+                    try:
+                        QApplication.clipboard().setText(tb_text)
+                    except Exception:
+                        pass
             except Exception:
                 pass
         finally:
