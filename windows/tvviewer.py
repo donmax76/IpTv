@@ -228,6 +228,7 @@ DEFAULT_EPG_URLS = [
 TRANSLATIONS = {
     'ru': {
         'app_name': "M3U IPTV",
+        'home': "Главная",
         'channels': "Каналы",
         'playlists': "Плейлисты",
         'favorites': "Избранное",
@@ -266,6 +267,7 @@ TRANSLATIONS = {
     },
     'en': {
         'app_name': "M3U IPTV",
+        'home': "Home",
         'channels': "Channels",
         'playlists': "Playlists",
         'favorites': "Favorites",
@@ -304,6 +306,7 @@ TRANSLATIONS = {
     },
     'uk': {
         'app_name': "M3U IPTV",
+        'home': "Головна",
         'channels': "Канали",
         'playlists': "Плейлисти",
         'favorites': "Обране",
@@ -342,6 +345,7 @@ TRANSLATIONS = {
     },
     'az': {
         'app_name': "M3U IPTV",
+        'home': "Əsas",
         'channels': "Kanallar",
         'playlists': "Pleylistlər",
         'favorites': "Seçilmişlər",
@@ -969,6 +973,201 @@ class LogoCache(QObject):
         finally:
             reply.deleteLater()
             self._pump()
+
+
+# ============================================================
+# Round 241 (Windows): Home Page — порт Android HomeFragment.
+# Большие кнопки «Прямой эфир» и «Плейлисты» поверх циклящегося
+# фотофона с picsum.photos.
+# ============================================================
+class HomePage(QWidget):
+    live_requested = pyqtSignal()        # хочу плеер с последним плейлистом
+    playlists_requested = pyqtSignal()    # хочу вкладку плейлистов
+
+    PHOTO_URL_BASE = "https://picsum.photos/1280/720?random="
+    SLIDE_INTERVAL_MS = 30_000
+    FADE_DURATION_MS = 1_400
+
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self._photo_seed = int(time.time())
+        self._bg_pix_a = None
+        self._bg_pix_b = None
+        self._showing_a = True
+        self._fader = None  # текущая fade-анимация
+        # Фоновые QLabel'ы — кросс-фейд между двумя картинками.
+        self.bg_a = QLabel(self)
+        self.bg_b = QLabel(self)
+        for w in (self.bg_a, self.bg_b):
+            w.setScaledContents(True)
+            w.setStyleSheet("background-color: #0F0F1A;")
+        self.bg_b.hide()
+        # Тёмный overlay поверх фото для читаемости текста.
+        self.dim = QLabel(self)
+        self.dim.setStyleSheet("background-color: rgba(15, 15, 26, 130);")
+        self._build_ui()
+        # Загрузчик картинок в отдельном потоке.
+        self._net = QNetworkAccessManager(self)
+        self._net.finished.connect(self._on_photo_loaded)
+        self._fetch_photo(self._photo_seed)
+        # Таймер cycle.
+        self._cycle_timer = QTimer(self)
+        self._cycle_timer.setInterval(self.SLIDE_INTERVAL_MS)
+        self._cycle_timer.timeout.connect(self._cycle)
+        self._cycle_timer.start()
+
+    def _build_ui(self):
+        # Контентный слой — поверх фонов.
+        self.content = QWidget(self)
+        col = QVBoxLayout(self.content)
+        col.setContentsMargins(60, 60, 60, 60)
+        col.setSpacing(20)
+        col.addStretch()
+
+        title = QLabel(t('app_name'))
+        title.setStyleSheet(
+            "color: white; font-size: 48px; font-weight: bold;"
+            " background: transparent;")
+        col.addWidget(title)
+
+        self.subtitle = QLabel("TVViewer")
+        self.subtitle.setStyleSheet(
+            "color: #00CEC9; font-size: 18px; background: transparent;")
+        col.addWidget(self.subtitle)
+
+        col.addSpacing(40)
+
+        # Большая фиолетовая кнопка «Прямой эфир».
+        self.btn_live = QPushButton("▶  " + (t('play') if t('play') != 'play' else "Прямой эфир"))
+        self.btn_live.setMinimumHeight(70)
+        self.btn_live.setMinimumWidth(360)
+        self.btn_live.setStyleSheet(
+            "QPushButton { background-color: #7C6CF7; color: white;"
+            " border-radius: 14px; font-size: 22px; font-weight: bold;"
+            " padding: 12px 24px; }"
+            "QPushButton:hover { background-color: #5A4DC5; }"
+            "QPushButton:pressed { background-color: #4A3DB5; }")
+        self.btn_live.clicked.connect(self.live_requested.emit)
+        col.addWidget(self.btn_live, alignment=Qt.AlignLeft)
+
+        # Вторая кнопка — «Плейлисты».
+        self.btn_playlists = QPushButton("📋  " + t('playlists'))
+        self.btn_playlists.setMinimumHeight(60)
+        self.btn_playlists.setMinimumWidth(360)
+        self.btn_playlists.setStyleSheet(
+            "QPushButton { background-color: rgba(30, 30, 58, 220);"
+            " color: white; border: 2px solid #7C6CF7; border-radius: 12px;"
+            " font-size: 18px; padding: 10px 20px; }"
+            "QPushButton:hover { background-color: rgba(60, 60, 92, 220); }")
+        self.btn_playlists.clicked.connect(self.playlists_requested.emit)
+        col.addWidget(self.btn_playlists, alignment=Qt.AlignLeft)
+
+        col.addSpacing(20)
+
+        # Текущий плейлист — справочная подпись.
+        self.default_label = QLabel("")
+        self.default_label.setStyleSheet(
+            "color: rgba(255,255,255,180); font-size: 13px;"
+            " background: transparent;")
+        col.addWidget(self.default_label)
+
+        col.addStretch()
+        self._refresh_default_label()
+
+    def _refresh_default_label(self):
+        name = getattr(self.config, 'last_playlist_name', '') or ''
+        if name:
+            self.default_label.setText(f"📂  {name}")
+        else:
+            self.default_label.setText("")
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._refresh_default_label()
+        if hasattr(self, '_cycle_timer'):
+            self._cycle_timer.start()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        if hasattr(self, '_cycle_timer'):
+            self._cycle_timer.stop()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.bg_a.setGeometry(self.rect())
+        self.bg_b.setGeometry(self.rect())
+        self.dim.setGeometry(self.rect())
+        if hasattr(self, 'content'):
+            self.content.setGeometry(self.rect())
+        for w in (self.bg_a, self.bg_b, self.dim):
+            w.lower()
+        self.dim.raise_()
+        if hasattr(self, 'content'):
+            self.content.raise_()
+
+    def _fetch_photo(self, seed):
+        """Запрашиваем картинку через QNetworkAccessManager (async)."""
+        try:
+            url = QUrl(f"{self.PHOTO_URL_BASE}{seed}")
+            req = QNetworkRequest(url)
+            req.setHeader(QNetworkRequest.UserAgentHeader, "TVViewer/Windows")
+            self._net.get(req)
+        except Exception:
+            pass
+
+    def _on_photo_loaded(self, reply):
+        try:
+            if reply.error() != QNetworkReply.NoError:
+                reply.deleteLater()
+                return
+            data = bytes(reply.readAll())
+            reply.deleteLater()
+            pix = QPixmap()
+            if not pix.loadFromData(data):
+                return
+            # Кросс-фейд: новая картинка в скрытый QLabel, потом
+            # поменять видимость с fade.
+            target = self.bg_b if self._showing_a else self.bg_a
+            target.setPixmap(pix)
+            target.show()
+            self._fade_swap(target)
+        except Exception:
+            pass
+
+    def _fade_swap(self, new_target):
+        """Кросс-фейд между bg_a и bg_b."""
+        try:
+            effect = QGraphicsOpacityEffect(new_target)
+            effect.setOpacity(0.0)
+            new_target.setGraphicsEffect(effect)
+            anim = QPropertyAnimation(effect, b"opacity", self)
+            anim.setDuration(self.FADE_DURATION_MS)
+            anim.setStartValue(0.0)
+            anim.setEndValue(1.0)
+            anim.setEasingCurve(QEasingCurve.InOutQuad)
+
+            def _on_finish():
+                old = self.bg_a if new_target is self.bg_b else self.bg_b
+                old.hide()
+                self._showing_a = (new_target is self.bg_a)
+                try:
+                    new_target.setGraphicsEffect(None)
+                except Exception:
+                    pass
+
+            anim.finished.connect(_on_finish)
+            anim.start(QPropertyAnimation.DeleteWhenStopped)
+            self._fader = anim
+        except Exception:
+            # Fallback без анимации: показать сразу.
+            new_target.show()
+            (self.bg_a if new_target is self.bg_b else self.bg_b).hide()
+            self._showing_a = (new_target is self.bg_a)
+
+    def _cycle(self):
+        self._photo_seed += 1
+        self._fetch_photo(self._photo_seed)
 
 
 # ============================================================
@@ -3739,6 +3938,14 @@ class MainWindow(QMainWindow):
         self.recent_page.channel_play.connect(self.play_channel)
         self.stack.addWidget(self.recent_page)
 
+        # Round 241: HomePage — добавляем в конец чтобы не сдвинуть
+        # индексы существующих страниц. Index = 7.
+        self.home_page = HomePage(self.config)
+        self.home_page.live_requested.connect(self._on_home_live)
+        self.home_page.playlists_requested.connect(lambda: self.switch_page(0))
+        self.stack.addWidget(self.home_page)
+        self._home_index = self.stack.count() - 1
+
         main_layout.addWidget(self.stack, 1)
 
         # Bottom navigation bar
@@ -3749,10 +3956,11 @@ class MainWindow(QMainWindow):
         nav_layout.setContentsMargins(0, 0, 0, 0)
         nav_layout.setSpacing(0)
 
-        # Round 233/235: nav-кнопки с translation-ключом + Material-style
-        # Unicode-иконкой. Иконка хранится в свойстве для retranslate_ui.
+        # Round 233/235/241: nav-кнопки с translation-ключом + Material
+        # Unicode-иконкой. Home (index 7) добавлен первым.
         self.nav_buttons = []
         nav_items = [
+            ('home',      getattr(self, '_home_index', 7), '🏠'),
             ('playlists', 0, '📋'),
             ('channels',  1, '📺'),
             ('tv_guide',  5, '📅'),
@@ -3784,7 +3992,11 @@ class MainWindow(QMainWindow):
             f" {COLORS['surface']};")
         self.shortcut_bar.setFixedHeight(24)
         main_layout.addWidget(self.shortcut_bar)
-        self.update_nav_highlight(0)
+        # Round 241: стартуем на HomePage (как Android nav_home).
+        try:
+            self.switch_page(self._home_index)
+        except Exception:
+            self.update_nav_highlight(0)
 
     def _update_nav_labels(self):
         for btn, _idx in getattr(self, 'nav_buttons', []):
@@ -4049,6 +4261,29 @@ class MainWindow(QMainWindow):
         if self.isFullScreen():
             self.showNormal()
         self.switch_page(1)
+
+    def _on_home_live(self):
+        """Round 241: «Прямой эфир» — открыть плеер с последним
+        каналом. Порт Android HomeFragment.onLiveClicked()."""
+        # Если есть последний канал — играем.
+        last_ch = self.config.last_channel_url
+        last_pl = self.config.last_playlist_url
+        if last_ch and self.channels:
+            for i, ch in enumerate(self.channels):
+                if ch.url == last_ch:
+                    self.play_channel(i)
+                    return
+        # Иначе если есть плейлист — грузим его, потом юзер выберет канал.
+        if last_pl:
+            self.load_playlist(self.config.last_playlist_name or "Playlist", last_pl)
+            return
+        # Иначе подсказка: открыть плейлисты.
+        QMessageBox.information(
+            self, t('app_name'),
+            "Сначала добавьте плейлист на вкладке «Плейлисты»."
+            if _CURRENT_LANG == 'ru'
+            else "Add a playlist first on the Playlists tab.")
+        self.switch_page(0)
 
     def toggle_pip_mode(self):
         """Frameless 480×270 always-on-top mini player in the screen corner."""
