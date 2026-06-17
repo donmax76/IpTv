@@ -2199,6 +2199,10 @@ class PlayerPage(QWidget):
         # Скрыты по умолчанию; toggle хоткеями L / R и кнопками в top-bar.
         self._build_channels_overlay()
         self._build_quick_overlay()
+        # Round 244: цепочка как в Android — LEFT → каналы → категории
+        # → центральное меню.
+        self._build_categories_overlay()
+        self._build_center_menu()
         # Кнопки в top-bar для тех у кого нет физической клавиатуры.
         try:
             self._inject_overlay_toggle_buttons()
@@ -2397,6 +2401,156 @@ class PlayerPage(QWidget):
         self._overlay_list.setItemDelegate(self._channel_delegate)
         col.addWidget(self._overlay_list, 1)
 
+    def _build_categories_overlay(self):
+        """Round 244: узкая панель категорий — слева, ~200px. Возникает
+        на 2-е нажатие LEFT (как Android Round 199)."""
+        self.categories_overlay = QWidget(self.video_frame)
+        self.categories_overlay.setStyleSheet(
+            "background-color: rgba(15, 15, 26, 240);"
+            " border-top-right-radius: 14px;"
+            " border-bottom-right-radius: 14px;"
+            " border: 2px solid rgba(124, 108, 247, 220);"
+            " border-left: none;")
+        self.categories_overlay.hide()
+        col = QVBoxLayout(self.categories_overlay)
+        col.setContentsMargins(10, 10, 10, 10)
+        col.setSpacing(8)
+        title = QLabel(t('panel_quick') if False else "Категории")
+        title.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
+        col.addWidget(title)
+        self._cat_list = QListWidget()
+        self._cat_list.setStyleSheet(
+            "QListWidget { background: transparent; color: white;"
+            " border: none; font-size: 14px; }"
+            "QListWidget::item { padding: 8px 6px; border-radius: 6px; }"
+            "QListWidget::item:selected { background-color: #7C6CF7;"
+            " color: white; }")
+        self._cat_list.itemClicked.connect(self._on_category_chosen)
+        col.addWidget(self._cat_list, 1)
+
+    def _build_center_menu(self):
+        """Round 244: центральное popup-меню. Возникает на 3-е нажатие
+        LEFT (как Android Round 211). Кнопки: Настройки / Избранное /
+        Недавние / Поиск."""
+        self.center_menu_overlay = QWidget(self.video_frame)
+        # Полупрозрачный dim позади.
+        self.center_menu_overlay.setStyleSheet(
+            "background-color: rgba(0, 0, 0, 130);")
+        self.center_menu_overlay.hide()
+        # Внутренняя панель — карточка с кнопками.
+        outer = QVBoxLayout(self.center_menu_overlay)
+        outer.setAlignment(Qt.AlignCenter)
+        card = QWidget(self.center_menu_overlay)
+        card.setStyleSheet(
+            "background-color: rgba(26, 26, 50, 250);"
+            " border: 2px solid #7C6CF7; border-radius: 16px;")
+        card.setFixedWidth(360)
+        inner = QVBoxLayout(card)
+        inner.setContentsMargins(20, 20, 20, 20)
+        inner.setSpacing(10)
+        title = QLabel(t('settings'))
+        title.setStyleSheet("color: white; font-size: 18px;"
+                            " font-weight: bold; padding-bottom: 4px;")
+        inner.addWidget(title)
+
+        def _row(label, callback):
+            b = QPushButton(label)
+            b.setMinimumHeight(48)
+            b.setStyleSheet(
+                "QPushButton { background-color: rgba(60, 60, 92, 200);"
+                " color: white; border: 1px solid #7C6CF7;"
+                " border-radius: 8px; font-size: 14px;"
+                " padding: 8px 12px; text-align: left; }"
+                "QPushButton:hover { background-color: #7C6CF7; }"
+                "QPushButton:focus { background-color: #7C6CF7;"
+                " border: 2px solid white; }")
+            b.clicked.connect(callback)
+            return b
+
+        # Кнопки тригерят переключение MainWindow (через сигнал, плюс
+        # закрытие центрального меню).
+        inner.addWidget(_row("⚙  " + t('settings'),
+                             lambda: self._center_menu_action('settings')))
+        inner.addWidget(_row("★  " + t('favorites'),
+                             lambda: self._center_menu_action('favorites')))
+        inner.addWidget(_row("⏱  " + t('recent'),
+                             lambda: self._center_menu_action('recent')))
+        inner.addWidget(_row("🔍  Поиск",
+                             lambda: self._center_menu_action('search')))
+        outer.addWidget(card)
+        # Сохраняем reference на card чтобы могли вернуть фокус.
+        self._center_menu_card = card
+
+    def _center_menu_action(self, action):
+        """Round 244: handler центрального меню. Закрывает все overlays
+        + переключается на нужную вкладку."""
+        self.hide_all_overlays()
+        try:
+            mw = self.window()
+            if action == 'settings':
+                mw.switch_page(4)
+            elif action == 'favorites':
+                mw.switch_page(2)
+            elif action == 'recent':
+                mw.switch_page(6)
+            elif action == 'search':
+                mw.switch_page(1)
+                # Сразу даём фокус на поисковую строку каналов.
+                try:
+                    mw.channels_page.search_input.setFocus()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def hide_all_overlays(self):
+        for w in ('channels_overlay', 'categories_overlay',
+                  'center_menu_overlay', 'quick_overlay'):
+            o = getattr(self, w, None)
+            if o is not None and o.isVisible():
+                o.hide()
+
+    def _refresh_categories_overlay(self):
+        if not hasattr(self, '_cat_list'):
+            return
+        cats = ["All"]
+        seen = set(["All"])
+        for ch in (self.channels or []):
+            g = (ch.group or "").strip()
+            if g and g not in seen:
+                seen.add(g)
+                cats.append(g)
+        self._cat_list.clear()
+        for c in cats:
+            item = QListWidgetItem(c)
+            self._cat_list.addItem(item)
+
+    def _on_category_chosen(self, item):
+        """Round 244: при выборе категории — закрываем overlay
+        категорий, открываем список каналов с фильтром."""
+        cat = item.text()
+        # Простая фильтрация: храним в config.last_category и сигналим
+        # MainWindow обновить ChannelsPage (если он есть).
+        try:
+            self.config.last_category = cat
+            self.config.save()
+            mw = self.window()
+            cp = getattr(mw, 'channels_page', None)
+            if cp is not None:
+                cp.selected_category = cat
+                try:
+                    cp.filter_channels()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        # Скрываем overlay категорий и показываем каналы.
+        if self.categories_overlay.isVisible():
+            self.categories_overlay.hide()
+        self._refresh_channels_overlay()
+        self._slide_in(self.channels_overlay, direction='left')
+        self.channels_overlay.raise_()
+
     def _build_quick_overlay(self):
         """Справа, ширина 240px. Кнопки быстрых настроек."""
         self.quick_overlay = QWidget(self.video_frame)
@@ -2468,14 +2622,64 @@ class PlayerPage(QWidget):
         # помещалась в строке (3 × 130px = 390px + лого + имя).
         ch_w = min(680, int(pw * 0.62))
         qk_w = min(280, int(pw * 0.32))
+        cat_w = min(220, int(pw * 0.22))
         self.channels_overlay.setGeometry(0, 0, ch_w, ph)
         self.quick_overlay.setGeometry(pw - qk_w, 0, qk_w, ph)
+        # Round 244: новые панели — категории слева (узкая), центральное
+        # меню на весь экран с dim-фоном.
+        if hasattr(self, 'categories_overlay'):
+            self.categories_overlay.setGeometry(0, 0, cat_w, ph)
+        if hasattr(self, 'center_menu_overlay'):
+            self.center_menu_overlay.setGeometry(0, 0, pw, ph)
         if hasattr(self, '_overlay_toggle_bar'):
             # Позиционируем bar над OSD-баннером, ширина = video_frame
             self._overlay_toggle_bar.setGeometry(0, ph - 56, pw, 56)
             self._overlay_toggle_bar.raise_()
 
+    def left_press(self):
+        """Round 244: state-machine для LEFT — копия Android-цепочки.
+
+          state 0 (ничего не открыто)  → channels
+          state 1 (открыты channels)   → categories (channels скрываются)
+          state 2 (открыты categories) → center menu
+          state 3 (открыто center menu)→ закрыть всё
+        """
+        if not hasattr(self, 'channels_overlay'):
+            return
+        ch_vis = self.channels_overlay.isVisible()
+        cat_vis = (hasattr(self, 'categories_overlay')
+                   and self.categories_overlay.isVisible())
+        cm_vis = (hasattr(self, 'center_menu_overlay')
+                  and self.center_menu_overlay.isVisible())
+        if cm_vis:
+            self.hide_all_overlays()
+            return
+        if cat_vis:
+            # categories → center menu
+            self.categories_overlay.hide()
+            self.center_menu_overlay.show()
+            self.center_menu_overlay.raise_()
+            return
+        if ch_vis:
+            # channels → categories
+            self.channels_overlay.hide()
+            self._refresh_categories_overlay()
+            self._slide_in(self.categories_overlay, direction='left')
+            self.categories_overlay.raise_()
+            self._cat_list.setFocus()
+            if self._cat_list.count() > 0:
+                self._cat_list.setCurrentRow(0)
+            return
+        # nothing → channels
+        self.quick_overlay.hide()
+        self._refresh_channels_overlay()
+        self._slide_in(self.channels_overlay, direction='left')
+        self.channels_overlay.raise_()
+        self._overlay_search.setFocus()
+
     def toggle_channels_overlay(self):
+        """Старый API — оставлен для совместимости. Тогглит только
+        список каналов (без cycle через категории / меню)."""
         if not hasattr(self, 'channels_overlay'):
             return
         if self.channels_overlay.isVisible():
@@ -4192,7 +4396,7 @@ class MainWindow(QMainWindow):
                 # Esc / Backspace — закрыть оверлей или вернуться назад.
                 if key in (Qt.Key_Escape, Qt.Key_Backspace):
                     if hasattr(current, 'channels_overlay') and current.channels_overlay.isVisible():
-                        current.toggle_channels_overlay(); return
+                        current.left_press(); return
                     if hasattr(current, 'quick_overlay') and current.quick_overlay.isVisible():
                         current.toggle_quick_overlay(); return
                     current.back_requested.emit(); return
@@ -4207,7 +4411,7 @@ class MainWindow(QMainWindow):
                             current._show_overlay_channel_details(r.center())
                         return
                     if key == Qt.Key_Left:
-                        current.toggle_channels_overlay(); return
+                        current.left_press(); return
                     if key in (Qt.Key_Return, Qt.Key_Enter):
                         item = current._overlay_list.currentItem()
                         if item:
@@ -4223,7 +4427,7 @@ class MainWindow(QMainWindow):
                     # Видео-видимый режим: стрелки = переключение каналов
                     # (как Android DPAD_UP/DOWN), Left/Right = side panels.
                     if key == Qt.Key_Left:
-                        current.toggle_channels_overlay(); return
+                        current.left_press(); return
                     if key == Qt.Key_Right:
                         current.toggle_quick_overlay(); return
                     if key == Qt.Key_Up:
@@ -4264,7 +4468,7 @@ class MainWindow(QMainWindow):
                 # Legacy aliases: L / R оставляем работоспособными для
                 # тех кто привык к Round 232.
                 if key == Qt.Key_L:
-                    current.toggle_channels_overlay(); return
+                    current.left_press(); return
                 if key == Qt.Key_R:
                     current.toggle_quick_overlay(); return
         except Exception:
