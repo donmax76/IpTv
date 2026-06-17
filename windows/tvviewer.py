@@ -1441,13 +1441,27 @@ class ChannelsPage(QWidget):
         try:
             lst.clear()
             for i, ch in enumerate(filtered):
-                # Round 237: fallback-текст всегда + данные для делегата
-                # на UserRole+1. Если делегат сломается — юзер увидит
-                # хотя бы строку с именем и текстовой EPG.
                 fav = " ♥" if ch.url in favs else ""
                 group_txt = f" [{ch.group}]" if ch.group else ""
                 q = detect_quality(ch.name)
                 qbadge = f"  ◆{q}" if q else ""
+                # Round 239: EPG ТОЛЬКО когда плейлист до 500 каналов —
+                # иначе 10k × 4 lookup'а на возврате с плеера зависают
+                # UI на 2-3 секунды. Юзер жалоба: «зависание происходит
+                # когда нажимаю назад».
+                now_p, upc = (None, [])
+                if epg and show_epg:
+                    try:
+                        now_p, _ = get_now_next(epg, ch.tvg_id, ch.name)
+                        upc = get_upcoming_programmes(epg, ch.tvg_id, ch.name, 3)
+                    except Exception:
+                        pass
+                icon = None
+                if logo_cache is not None and ch.logo_url:
+                    try:
+                        icon = logo_cache.get(ch.logo_url)
+                    except Exception:
+                        icon = None
                 item = QListWidgetItem(f"{i+1}. {ch.name}{qbadge}{fav}{group_txt}")
                 item.setData(Qt.UserRole, ch_to_index.get(id(ch), -1))
                 item.setData(Qt.UserRole + 1, {
@@ -1456,6 +1470,9 @@ class ChannelsPage(QWidget):
                     'number': str(i + 1),
                     'quality': q or '',
                     '_channel': ch,
+                    '_now': now_p,
+                    '_upcoming': upc,
+                    '_icon': icon,
                 })
                 item.setSizeHint(QSize(0, ChannelRowDelegate.ROW_HEIGHT))
                 if q:
@@ -1641,6 +1658,13 @@ class ChannelRowDelegate(QStyledItemDelegate):
         number = data.get('number', '')
         quality = data.get('quality', '')
         channel = data.get('_channel')
+        # Round 239: EPG/лого читаем из пред-вычисленных полей в data,
+        # а НЕ вызываем lookup в paint(). Иначе на каждом repaint /
+        # scroll шла фуззи-индексация EPG для каждой видимой строки —
+        # UI зависал.
+        now_prog = data.get('_now')
+        upcoming = data.get('_upcoming') or []
+        icon = data.get('_icon')
 
         x = rect.left() + self.PAD
         cy = rect.center().y()
@@ -1658,32 +1682,21 @@ class ChannelRowDelegate(QStyledItemDelegate):
             painter.drawText(num_rect, Qt.AlignCenter, str(number))
             x += num_w + 8
 
-        # Лого.
-        icon = None
-        if channel is not None and self._get_logo:
-            try:
-                icon = self._get_logo(channel)
-            except Exception:
-                icon = None
+        # Лого — уже подготовлено в data (если не было, используем
+        # letter-tile fallback).
         if icon is None and name:
             icon = make_letter_tile_icon(name, self.LOGO_SIZE)
         if icon is not None:
-            pix = icon.pixmap(self.LOGO_SIZE, self.LOGO_SIZE)
-            painter.drawPixmap(int(x), int(cy - self.LOGO_SIZE / 2), pix)
+            try:
+                pix = icon.pixmap(self.LOGO_SIZE, self.LOGO_SIZE)
+                painter.drawPixmap(int(x), int(cy - self.LOGO_SIZE / 2), pix)
+            except Exception:
+                pass
         x += self.LOGO_SIZE + 10
 
         # Колонка имени — 200px (минимум) или адаптивно.
         name_col_w = max(180, rect.right() - x - (self.EPG_COL_W * self.EPG_COLS) - self.PAD)
         name_col_w = min(name_col_w, 260)
-
-        # EPG: now + upcoming
-        now_prog, upcoming = (None, [])
-        if channel is not None and self._get_epg:
-            try:
-                now_prog, upcoming = self._get_epg(channel)
-            except Exception:
-                pass
-
         # Имя канала.
         painter.setPen(QPen(self._white))
         painter.setFont(QFont('Segoe UI', 11, QFont.Bold))
@@ -2006,21 +2019,16 @@ class PlayerPage(QWidget):
     def _build_channels_overlay(self):
         """Слева, ширина 360px. Содержит поиск + QListWidget со всеми каналами."""
         self.channels_overlay = QWidget(self.video_frame)
+        # Round 239: убран QGraphicsDropShadowEffect — на больших
+        # списках с делегатом он вызывал re-paint шторм, юзер сказал
+        # «программа зависает на любую кнопку». Плоская обводка без
+        # эффектов работает значительно стабильнее.
         self.channels_overlay.setStyleSheet(
-            "background-color: rgba(15, 15, 26, 235);"
+            "background-color: rgba(15, 15, 26, 240);"
             " border-top-right-radius: 14px;"
             " border-bottom-right-radius: 14px;"
-            " border: 1px solid rgba(124, 108, 247, 200);"
+            " border: 2px solid rgba(124, 108, 247, 220);"
             " border-left: none;")
-        # Round 236: drop-shadow эффект на правом крае.
-        try:
-            sh = QGraphicsDropShadowEffect(self.channels_overlay)
-            sh.setBlurRadius(20)
-            sh.setOffset(4, 0)
-            sh.setColor(QColor(124, 108, 247, 160))
-            self.channels_overlay.setGraphicsEffect(sh)
-        except Exception:
-            pass
         self.channels_overlay.hide()
         col = QVBoxLayout(self.channels_overlay)
         col.setContentsMargins(10, 10, 10, 10)
@@ -2057,19 +2065,11 @@ class PlayerPage(QWidget):
         """Справа, ширина 240px. Кнопки быстрых настроек."""
         self.quick_overlay = QWidget(self.video_frame)
         self.quick_overlay.setStyleSheet(
-            "background-color: rgba(15, 15, 26, 235);"
+            "background-color: rgba(15, 15, 26, 240);"
             " border-top-left-radius: 14px;"
             " border-bottom-left-radius: 14px;"
-            " border: 1px solid rgba(124, 108, 247, 200);"
+            " border: 2px solid rgba(124, 108, 247, 220);"
             " border-right: none;")
-        try:
-            sh = QGraphicsDropShadowEffect(self.quick_overlay)
-            sh.setBlurRadius(20)
-            sh.setOffset(-4, 0)
-            sh.setColor(QColor(124, 108, 247, 160))
-            self.quick_overlay.setGraphicsEffect(sh)
-        except Exception:
-            pass
         self.quick_overlay.hide()
         col = QVBoxLayout(self.quick_overlay)
         col.setContentsMargins(10, 10, 10, 10)
@@ -2257,18 +2257,33 @@ class PlayerPage(QWidget):
                     continue
                 if shown >= cap:
                     break
-                # Round 237: fallback-текст ВСЕГДА, чтобы при сбое
-                # делегата строка не была пустой — юзер видит хотя бы
-                # имя канала.
+                # Round 239: EPG и лого вычисляем ОДИН РАЗ при
+                # populate, кладём в data — paint() читает готовое.
+                now_p, upc = (None, [])
+                if self.epg_data:
+                    try:
+                        now_p, _ = get_now_next(self.epg_data, ch.tvg_id, ch.name)
+                        upc = get_upcoming_programmes(
+                            self.epg_data, ch.tvg_id, ch.name, 3)
+                    except Exception:
+                        pass
+                icon = None
+                if self.logo_cache is not None and ch.logo_url:
+                    try:
+                        icon = self.logo_cache.get(ch.logo_url)
+                    except Exception:
+                        icon = None
                 item = QListWidgetItem(f"{idx+1}. {ch.name}")
                 item.setData(Qt.UserRole, idx)
-                # Round 236: данные для ChannelRowDelegate.
                 item.setData(Qt.UserRole + 1, {
                     'name': ch.name or '',
                     'group': ch.group or '',
                     'number': str(idx + 1),
                     'quality': detect_quality(ch.name or ''),
                     '_channel': ch,
+                    '_now': now_p,
+                    '_upcoming': upc,
+                    '_icon': icon,
                 })
                 item.setSizeHint(QSize(0, ChannelRowDelegate.ROW_HEIGHT))
                 self._overlay_list.addItem(item)
