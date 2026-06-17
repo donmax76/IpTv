@@ -2107,6 +2107,11 @@ class ChannelsPage(QWidget):
         """Called when new logos have been downloaded; update icons in place."""
         if self.logo_cache is None:
             return
+        # Round 262: пропускаем если страница скрыта — иначе на каждый
+        # logo_ready (раз ~400мс пока подтягиваются 3639 лого) мы
+        # обходили весь QListWidget и тормозили FullHD-воспроизведение.
+        if not self.isVisible():
+            return
         lst = self.channel_list
         for row in range(lst.count()):
             item = lst.item(row)
@@ -2202,6 +2207,8 @@ class FavoritesPage(QWidget):
     def _refresh_logos(self):
         if self.logo_cache is None:
             return
+        if not self.isVisible():
+            return  # Round 262: не тормозим плеер пока юзер не на странице
         lst = self.fav_list
         for row in range(lst.count()):
             item = lst.item(row)
@@ -4324,6 +4331,8 @@ class RecentPage(QWidget):
     def _refresh_logos(self):
         if self.logo_cache is None:
             return
+        if not self.isVisible():
+            return  # Round 262: пропускаем когда страница не видна
         lst = self.recent_list
         for row in range(lst.count()):
             item = lst.item(row)
@@ -4373,6 +4382,25 @@ class TvGuidePage(QWidget):
     def _on_refresh_clicked(self):
         self.status.setText("Обновляю EPG…")
         self.epg_refresh_requested.emit()
+
+    def showEvent(self, event):
+        # Round 262: _tick перестраивает весь guide_list (3000+ каналов)
+        # с get_now_next по каждому — это дорого. Гоняем его ТОЛЬКО
+        # когда страница на экране. Иначе FullHD на PlayerPage лагает.
+        super().showEvent(event)
+        try:
+            if self.channels and not self._tick.isActive():
+                self._tick.start()
+            self.refresh_list()  # сразу освежим entries при заходе
+        except Exception as e:
+            log_error('TvGuidePage.showEvent', e)
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        try:
+            self._tick.stop()
+        except Exception as e:
+            log_error('TvGuidePage.hideEvent', e)
 
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -4426,12 +4454,23 @@ class TvGuidePage(QWidget):
         self.channels = channels
         self.epg_data = epg_data
         self.refresh_list()
-        if not self._tick.isActive():
+        # Round 262: _tick стартуется только когда страница реально
+        # видна — иначе он зря перебирал 3639 каналов раз в минуту,
+        # пока юзер на плеере. _auto_epg тикает каждые 4ч (throttle в
+        # MainWindow._on_epg_refresh), без проблем.
+        if self.isVisible() and self.channels and not self._tick.isActive():
             self._tick.start()
         if not self._auto_epg.isActive():
             self._auto_epg.start()
 
     def refresh_list(self):
+        # Round 262: ОЧЕНЬ дорогая операция — обход 3000+ каналов с
+        # get_now_next + make_letter_tile_icon. Раньше вызывалась
+        # _tick'ом каждые 60 сек ДАЖЕ когда юзер на PlayerPage и смотрит
+        # FullHD. Это и было основной причиной зависаний. Теперь — только
+        # когда страница видна.
+        if not self.isVisible():
+            return
         query = self.search_edit.text().strip().lower()
         lst = self.guide_list
         lst.setUpdatesEnabled(False)
@@ -4478,6 +4517,8 @@ class TvGuidePage(QWidget):
     def _refresh_logos(self):
         if self.logo_cache is None:
             return
+        if not self.isVisible():
+            return  # Round 262: пропускаем когда TvGuidePage скрыт
         lst = self.guide_list
         for row in range(lst.count()):
             item = lst.item(row)
