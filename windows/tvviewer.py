@@ -399,6 +399,66 @@ TRANSLATIONS = {
         'panel_channels': "Каналы",
         'panel_quick': "Быстрые настройки",
         'press_l_for_channels': "L — список каналов, R — настройки",
+        # Round 265: расширенный набор для полного покрытия UI.
+        'live': "Прямой эфир",
+        'add_url': "+ Добавить URL",
+        'open_file': "+ Открыть файл",
+        'xtream': "+ Xtream",
+        'from_clipboard': "📋 Из буфера",
+        'clear': "Очистить",
+        'add': "Добавить",
+        'cancel': "Отмена",
+        'ok': "OK",
+        'save': "Сохранить",
+        'reset_settings': "Сбросить настройки",
+        'clear_favorites': "Очистить избранное",
+        'clear_recent': "Очистить недавние",
+        'clear_per_channel_state': "Очистить состояние каналов",
+        'check_for_updates': "Проверить обновления",
+        'open_releases': "Открыть страницу релизов на GitHub",
+        'open_log_folder': "Открыть папку логов",
+        'report_issue': "Сообщить о проблеме на GitHub",
+        'updates': "Обновления",
+        'data': "Данные",
+        'help': "Помощь",
+        'about': "О программе",
+        'now': "Сейчас",
+        'next_program': "Далее",
+        'no_program': "Нет программы",
+        'select_playlist': "Выберите плейлист · перетащите .m3u/.m3u8 сюда",
+        'add_playlist_title': "Добавить плейлист",
+        'xtream_codes': "Xtream Codes",
+        'channel': "Канал",
+        'buffer_label': "Буфер (сетевой кэш):",
+        'default_volume': "Громкость по умолчанию:",
+        'color_theme': "Цветовая тема:",
+        'audio_output': "Аудио-выход:",
+        'channel_sort': "Сортировка каналов:",
+        'autoplay_last': "Авто-воспроизведение последнего",
+        'remember_fullscreen': "Запоминать fullscreen",
+        'always_on_top': "Поверх всех окон",
+        'hardware_decode': "Аппаратное декодирование",
+        'user_agent': "User-Agent для потоков:",
+        'epg_sources': "Источники EPG:",
+        'mini_player': "Мини-плеер",
+        'installed': "Установлено",
+        'channels_count_short': "{n} кан.",
+        'favorites_label': "Избранное",
+        'recent_label': "Недавние",
+        'tv_guide_label': "ТВ-гид",
+        'channels_label': "Каналы",
+        'playlists_label': "Плейлисты",
+        'search_channels': "Поиск каналов...",
+        'mute': "Без звука",
+        'channels_in_list': "{n} каналов",
+        'paste_url': "Вставьте URL плейлиста",
+        'name_optional': "Имя (необязательно)",
+        'updates_check_in_progress': "Проверяю…",
+        'on_latest_version': "У вас последняя версия",
+        'new_build_available': "Доступен новый build {build}",
+        'download_install': "Скачать и установить?",
+        'update_no_internet': "Не удалось связаться с GitHub (нет интернета?)",
+        'restart_required': "Требуется перезапуск приложения",
     },
     'en': {
         'app_name': "M3U IPTV",
@@ -438,6 +498,65 @@ TRANSLATIONS = {
         'panel_channels': "Channels",
         'panel_quick': "Quick settings",
         'press_l_for_channels': "L — channel list, R — settings",
+        'live': "Live",
+        'add_url': "+ Add URL",
+        'open_file': "+ Open file",
+        'xtream': "+ Xtream",
+        'from_clipboard': "📋 From clipboard",
+        'clear': "Clear",
+        'add': "Add",
+        'cancel': "Cancel",
+        'ok': "OK",
+        'save': "Save",
+        'reset_settings': "Reset settings",
+        'clear_favorites': "Clear favorites",
+        'clear_recent': "Clear recent",
+        'clear_per_channel_state': "Clear per-channel state",
+        'check_for_updates': "Check for updates",
+        'open_releases': "Open GitHub releases page",
+        'open_log_folder': "Open log folder",
+        'report_issue': "Report a problem on GitHub",
+        'updates': "Updates",
+        'data': "Data",
+        'help': "Help",
+        'about': "About",
+        'now': "Now",
+        'next_program': "Next",
+        'no_program': "No programme",
+        'select_playlist': "Select a playlist · drop .m3u/.m3u8 files here to import",
+        'add_playlist_title': "Add Playlist",
+        'xtream_codes': "Xtream Codes",
+        'channel': "Channel",
+        'buffer_label': "Buffer (network cache):",
+        'default_volume': "Default volume:",
+        'color_theme': "Color theme:",
+        'audio_output': "Audio output:",
+        'channel_sort': "Channel sort:",
+        'autoplay_last': "Autoplay last channel",
+        'remember_fullscreen': "Remember fullscreen",
+        'always_on_top': "Always on top",
+        'hardware_decode': "Hardware decoding",
+        'user_agent': "HTTP User-Agent:",
+        'epg_sources': "EPG sources:",
+        'mini_player': "Mini player",
+        'installed': "Installed",
+        'channels_count_short': "{n} ch.",
+        'favorites_label': "Favorites",
+        'recent_label': "Recent",
+        'tv_guide_label': "TV Guide",
+        'channels_label': "Channels",
+        'playlists_label': "Playlists",
+        'search_channels': "Search channels...",
+        'mute': "Mute",
+        'channels_in_list': "{n} channels",
+        'paste_url': "Paste playlist URL",
+        'name_optional': "Name (optional)",
+        'updates_check_in_progress': "Checking…",
+        'on_latest_version': "You're on the latest version",
+        'new_build_available': "Build {build} available",
+        'download_install': "Download and install?",
+        'update_no_internet': "Could not reach GitHub (no internet?)",
+        'restart_required': "Application restart required",
     },
     'uk': {
         'app_name': "M3U IPTV",
@@ -516,6 +635,65 @@ TRANSLATIONS = {
         'panel_channels': "Kanallar",
         'panel_quick': "Tez tənzimləmələr",
         'press_l_for_channels': "L — kanal siyahısı, R — tənzimləmələr",
+        'live': "Canlı yayım",
+        'add_url': "+ URL əlavə et",
+        'open_file': "+ Fayl aç",
+        'xtream': "+ Xtream",
+        'from_clipboard': "📋 Mübadilə buferindən",
+        'clear': "Təmizlə",
+        'add': "Əlavə et",
+        'cancel': "Ləğv et",
+        'ok': "OK",
+        'save': "Saxla",
+        'reset_settings': "Tənzimləmələri sıfırla",
+        'clear_favorites': "Seçilmişləri sil",
+        'clear_recent': "Son baxılanları sil",
+        'clear_per_channel_state': "Kanal vəziyyətlərini sil",
+        'check_for_updates': "Yeniləmələri yoxla",
+        'open_releases': "GitHub releases səhifəsini aç",
+        'open_log_folder': "Loq qovluğunu aç",
+        'report_issue': "GitHub-da problem bildir",
+        'updates': "Yeniləmələr",
+        'data': "Məlumatlar",
+        'help': "Kömək",
+        'about': "Haqqında",
+        'now': "İndi",
+        'next_program': "Növbəti",
+        'no_program': "Proqram yoxdur",
+        'select_playlist': "Pleylist seçin · .m3u/.m3u8 faylını buraya atın",
+        'add_playlist_title': "Pleylist əlavə et",
+        'xtream_codes': "Xtream Kodları",
+        'channel': "Kanal",
+        'buffer_label': "Bufer (şəbəkə keşi):",
+        'default_volume': "Varsayılan səs:",
+        'color_theme': "Rəng teması:",
+        'audio_output': "Audio çıxışı:",
+        'channel_sort': "Kanal sıralaması:",
+        'autoplay_last': "Sonuncunu avto-başlat",
+        'remember_fullscreen': "Tam ekranı yadda saxla",
+        'always_on_top': "Həmişə üstdə",
+        'hardware_decode': "Aparat dekodlama",
+        'user_agent': "HTTP User-Agent:",
+        'epg_sources': "EPG mənbələri:",
+        'mini_player': "Mini pleyer",
+        'installed': "Quraşdırılıb",
+        'channels_count_short': "{n} kan.",
+        'favorites_label': "Seçilmişlər",
+        'recent_label': "Son",
+        'tv_guide_label': "TV proqramı",
+        'channels_label': "Kanallar",
+        'playlists_label': "Pleylistlər",
+        'search_channels': "Kanal axtar...",
+        'mute': "Səssiz",
+        'channels_in_list': "{n} kanal",
+        'paste_url': "Pleylist URL-ni yapışdır",
+        'name_optional': "Ad (məcburi deyil)",
+        'updates_check_in_progress': "Yoxlanılır…",
+        'on_latest_version': "Sizdə ən son versiyadır",
+        'new_build_available': "Build {build} mövcuddur",
+        'download_install': "Yükləyib quraşdırmaq?",
+        'update_no_internet': "GitHub-a çatmaq mümkün olmadı",
+        'restart_required': "Tətbiqi yenidən başlatmaq lazımdır",
     },
 }
 
@@ -1218,34 +1396,91 @@ class LoadEpgThread(QThread):
         self.finished.emit(merged)
 
 
+class _LogoFetcher(QThread):
+    """Round 265: загрузчик одной логотипной картинки.
+
+    Юзер: «в андроид версии эта проблема решена с лого». Android Coil
+    + OkHttp бандлят CA-сертификаты, поэтому HTTPS у них работает
+    из коробки. У нас в PyInstaller-сборке QNetworkAccessManager без
+    cacert.pem — HTTPS молча падал и папка tvviewer_logos оставалась
+    пустая. Делаем тройной транспорт:
+      1) requests (несёт certifi внутри пакета)
+      2) urllib с системным SSL
+      3) urllib без проверки SSL (последний шанс)
+    """
+    done = pyqtSignal(str, bytes, str)  # url, data, error
+
+    def __init__(self, url, parent=None):
+        super().__init__(parent)
+        self._url = url
+
+    def run(self):
+        err = ""
+        data = b""
+        headers = {'User-Agent': 'TVViewer/Windows'}
+        # 1) requests + certifi
+        try:
+            import requests as _rq
+            r = _rq.get(self._url, headers=headers, timeout=12,
+                        allow_redirects=True)
+            r.raise_for_status()
+            data = r.content
+        except Exception as e1:
+            err1 = f"requests:{type(e1).__name__}"
+            # 2) urllib system SSL
+            try:
+                req = urllib.request.Request(self._url, headers=headers)
+                with urllib.request.urlopen(req, timeout=12) as r:
+                    data = r.read()
+            except Exception as e2:
+                err2 = f"urllib:{type(e2).__name__}"
+                # 3) unverified SSL
+                try:
+                    import ssl as _ssl
+                    ctx = _ssl._create_unverified_context()
+                    req = urllib.request.Request(self._url, headers=headers)
+                    with urllib.request.urlopen(req, timeout=12,
+                                                context=ctx) as r:
+                        data = r.read()
+                except Exception as e3:
+                    err = f"{err1}|{err2}|unverified:{type(e3).__name__}"
+        try:
+            self.done.emit(self._url, data, err)
+        except Exception as e:
+            log_error('_LogoFetcher.emit', e)
+
+
 class LogoCache(QObject):
     """Async logo loader with disk cache, shared across pages.
 
-    Limits concurrent network requests to avoid hammering the network thread
-    and starving the UI when a 5000-channel playlist asks for icons all at once.
+    Round 265: QNAM выкинут — у него в PyInstaller-сборке без cacert.pem
+    HTTPS отваливался молча (QNetworkReply.error()==NoError, body пустой,
+    папка tvviewer_logos оставалась пустая). Юзер: «лого ни у одного
+    канала нету и папка tvviewer_logos пустая». Перенесли на urllib в
+    QThread — точно так же как _PhotoFetcher в Round 253.
     """
-    logo_ready = pyqtSignal()  # coalesced: fires at most every ~400ms after a batch of loads
+    logo_ready = pyqtSignal()
 
     MAX_CONCURRENT = 6
-    MAX_ICONS_IN_MEM = 2000  # very rough cap to prevent unbounded growth
+    MAX_ICONS_IN_MEM = 2000
 
     def __init__(self, cache_dir: str, parent=None):
         super().__init__(parent)
         self.cache_dir = cache_dir
         try:
             os.makedirs(cache_dir, exist_ok=True)
-        except Exception:
-            pass
-        self.icons: dict = {}      # url -> QIcon
-        self.missing: set = set()  # urls that failed to load
+        except Exception as e:
+            log_error('LogoCache.makedirs', e, extra=cache_dir)
+        self.icons: dict = {}
+        self.missing: set = set()
         self._inflight: set = set()
-        self._queue: list = []     # URLs waiting for a slot
-        self.nam = QNetworkAccessManager(self)
-        self.nam.finished.connect(self._on_finished)
+        self._queue: list = []
+        self._workers: list = []  # QThread refs чтобы GC не убил
         self._emit_timer = QTimer(self)
         self._emit_timer.setSingleShot(True)
         self._emit_timer.setInterval(400)
         self._emit_timer.timeout.connect(self.logo_ready.emit)
+        log_info('logo', f"cache dir = {cache_dir}")
 
     def _path(self, url: str) -> str:
         return os.path.join(
@@ -1253,7 +1488,6 @@ class LogoCache(QObject):
             hashlib.sha1(url.encode('utf-8', 'ignore')).hexdigest()[:16] + '.png')
 
     def get(self, url: str):
-        """Return QIcon immediately (possibly None). Enqueues async download on miss."""
         if not url or url in self.missing:
             return None
         cached = self.icons.get(url)
@@ -1279,22 +1513,25 @@ class LogoCache(QObject):
                 continue
             self._inflight.add(url)
             try:
-                req = QNetworkRequest(QUrl(url))
-                req.setRawHeader(b"User-Agent", b"TVViewer/5.3")
-                reply = self.nam.get(req)
-                reply.setProperty('url', url)
-            except Exception:
+                w = _LogoFetcher(url, self)
+                w.done.connect(self._on_done)
+                # Сохраняем ref чтобы Python не собрал; чистим в finished.
+                self._workers.append(w)
+                w.finished.connect(lambda w=w: self._workers.remove(w)
+                                   if w in self._workers else None)
+                w.start()
+            except Exception as e:
+                log_error('LogoCache._pump', e, extra=url)
                 self._inflight.discard(url)
                 self.missing.add(url)
 
-    def _on_finished(self, reply: QNetworkReply):
-        url = reply.property('url')
+    def _on_done(self, url, data, err):
         self._inflight.discard(url)
         try:
-            if reply.error() != QNetworkReply.NoError:
+            if err:
+                log_warn('logo', f"failed {url[:80]}: {err}")
                 self.missing.add(url)
                 return
-            data = bytes(reply.readAll())
             if not data:
                 self.missing.add(url)
                 return
@@ -1307,14 +1544,13 @@ class LogoCache(QObject):
             try:
                 with open(self._path(url), 'wb') as f:
                     f.write(data)
-            except Exception:
-                pass
+            except Exception as e:
+                log_error('logo.write_disk', e, extra=url)
             if len(self.icons) < self.MAX_ICONS_IN_MEM:
                 self.icons[url] = QIcon(pm)
             if not self._emit_timer.isActive():
                 self._emit_timer.start()
         finally:
-            reply.deleteLater()
             self._pump()
 
 
@@ -1685,29 +1921,35 @@ class PlaylistsPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
 
-        title = QLabel("M3U IPTV")
-        title.setFont(QFont('Segoe UI', 24, QFont.Bold))
-        layout.addWidget(title)
+        self._title = QLabel(t('app_name'))
+        self._title.setFont(QFont('Segoe UI', 24, QFont.Bold))
+        layout.addWidget(self._title)
 
-        subtitle = QLabel("Select a playlist  ·  drop .m3u/.m3u8 files here to import")
-        subtitle.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 14px;")
-        layout.addWidget(subtitle)
+        self._subtitle = QLabel(t('select_playlist'))
+        self._subtitle.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 14px;")
+        layout.addWidget(self._subtitle)
         layout.addSpacing(12)
 
         # Built-in playlists — four comboboxes (matches Android Round 220).
-        builtin_label = QLabel("Built-in playlists")
-        builtin_label.setStyleSheet(f"color: {COLORS['text_primary']}; font-size: 14px; font-weight: bold;")
-        layout.addWidget(builtin_label)
+        self._builtin_label = QLabel(t('built_in_playlists'))
+        self._builtin_label.setStyleSheet(f"color: {COLORS['text_primary']}; font-size: 14px; font-weight: bold;")
+        layout.addWidget(self._builtin_label)
 
         self._builtin_combos = []
+        self._builtin_cat_labels = []
+        # Round 265: ключи переводов для категорий вместо хардкода.
+        cat_t_keys = ['by_language', 'by_category', 'by_country', 'by_region']
         grid = QHBoxLayout()
         col_left = QVBoxLayout()
         col_right = QVBoxLayout()
-        for i, (cat_label, items) in enumerate(self.BUILTIN_CATEGORIES):
-            lbl = QLabel(cat_label)
+        for i, (_cat_label_en, items) in enumerate(self.BUILTIN_CATEGORIES):
+            cat_key = cat_t_keys[i] if i < len(cat_t_keys) else 'choose'
+            lbl = QLabel(t(cat_key))
             lbl.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 12px;")
+            lbl.setProperty('_t_key', cat_key)
+            self._builtin_cat_labels.append(lbl)
             combo = QComboBox()
-            combo.addItem("— Choose —", None)
+            combo.addItem(t('choose'), None)
             for name, url in items:
                 combo.addItem(name, url)
             combo.currentIndexChanged.connect(
@@ -1721,9 +1963,9 @@ class PlaylistsPage(QWidget):
         layout.addLayout(grid)
         layout.addSpacing(12)
 
-        custom_label = QLabel("My playlists")
-        custom_label.setStyleSheet(f"color: {COLORS['text_primary']}; font-size: 14px; font-weight: bold;")
-        layout.addWidget(custom_label)
+        self._custom_label = QLabel(t('my_playlists'))
+        self._custom_label.setStyleSheet(f"color: {COLORS['text_primary']}; font-size: 14px; font-weight: bold;")
+        layout.addWidget(self._custom_label)
 
         self.playlist_list = QListWidget()
         self.playlist_list.setSpacing(4)
@@ -1731,32 +1973,32 @@ class PlaylistsPage(QWidget):
         layout.addWidget(self.playlist_list)
 
         btn_row = QHBoxLayout()
-        btn_add_url = QPushButton("+ Add URL")
-        btn_add_url.setObjectName("primaryBtn")
-        btn_add_url.clicked.connect(self.add_playlist_url)
-        btn_row.addWidget(btn_add_url)
+        self._btn_add_url = QPushButton(t('add_url'))
+        self._btn_add_url.setObjectName("primaryBtn")
+        self._btn_add_url.clicked.connect(self.add_playlist_url)
+        btn_row.addWidget(self._btn_add_url)
 
-        btn_add_file = QPushButton("+ Open File")
-        btn_add_file.clicked.connect(self.add_playlist_file)
-        btn_row.addWidget(btn_add_file)
+        self._btn_add_file = QPushButton(t('open_file'))
+        self._btn_add_file.clicked.connect(self.add_playlist_file)
+        btn_row.addWidget(self._btn_add_file)
 
         # Round 242: Xtream-codes login.
-        btn_add_xtream = QPushButton("+ Xtream")
-        btn_add_xtream.clicked.connect(self.add_playlist_xtream)
-        btn_row.addWidget(btn_add_xtream)
+        self._btn_add_xtream = QPushButton(t('xtream'))
+        self._btn_add_xtream.clicked.connect(self.add_playlist_xtream)
+        btn_row.addWidget(self._btn_add_xtream)
 
         # Round 247: вставка URL из буфера обмена — порт Android
         # «paste_url_from_clipboard» из PlaylistsFragment.
-        btn_paste = QPushButton("📋 Из буфера")
-        btn_paste.clicked.connect(self.add_playlist_from_clipboard)
-        btn_row.addWidget(btn_paste)
+        self._btn_paste = QPushButton(t('from_clipboard'))
+        self._btn_paste.clicked.connect(self.add_playlist_from_clipboard)
+        btn_row.addWidget(self._btn_paste)
 
         btn_row.addStretch()
 
-        btn_remove = QPushButton("Remove")
-        btn_remove.setStyleSheet(f"color: {COLORS['error']};")
-        btn_remove.clicked.connect(self.remove_playlist)
-        btn_row.addWidget(btn_remove)
+        self._btn_remove = QPushButton(t('remove'))
+        self._btn_remove.setStyleSheet(f"color: {COLORS['error']};")
+        self._btn_remove.clicked.connect(self.remove_playlist)
+        btn_row.addWidget(self._btn_remove)
 
         layout.addLayout(btn_row)
         self.refresh_list()
@@ -1780,6 +2022,38 @@ class PlaylistsPage(QWidget):
             item = QListWidgetItem(f"{pl['name']}\n{pl['url']}")
             item.setData(Qt.UserRole, pl)
             self.playlist_list.addItem(item)
+
+    def retranslate_ui(self):
+        """Round 265: применяем переводы ко всем сохранённым QLabel/QPushButton."""
+        try:
+            if hasattr(self, '_title'):
+                self._title.setText(t('app_name'))
+            if hasattr(self, '_subtitle'):
+                self._subtitle.setText(t('select_playlist'))
+            if hasattr(self, '_builtin_label'):
+                self._builtin_label.setText(t('built_in_playlists'))
+            if hasattr(self, '_custom_label'):
+                self._custom_label.setText(t('my_playlists'))
+            for lbl in getattr(self, '_builtin_cat_labels', []):
+                key = lbl.property('_t_key')
+                if key:
+                    lbl.setText(t(key))
+            # Combo «— Choose —» — индекс 0.
+            for combo in getattr(self, '_builtin_combos', []):
+                if combo.count() > 0:
+                    combo.setItemText(0, t('choose'))
+            if hasattr(self, '_btn_add_url'):
+                self._btn_add_url.setText(t('add_url'))
+            if hasattr(self, '_btn_add_file'):
+                self._btn_add_file.setText(t('open_file'))
+            if hasattr(self, '_btn_add_xtream'):
+                self._btn_add_xtream.setText(t('xtream'))
+            if hasattr(self, '_btn_paste'):
+                self._btn_paste.setText(t('from_clipboard'))
+            if hasattr(self, '_btn_remove'):
+                self._btn_remove.setText(t('remove'))
+        except Exception as e:
+            log_error('PlaylistsPage.retranslate_ui', e)
 
     def on_playlist_click(self, item):
         pl = item.data(Qt.UserRole)
@@ -1962,7 +2236,7 @@ class ChannelsPage(QWidget):
         srow = QHBoxLayout()
         srow.setSpacing(6)
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Search channels...")
+        self.search_edit.setPlaceholderText(t('search_channels'))
         self.search_edit.textChanged.connect(self._on_search_text)
         srow.addWidget(self.search_edit, 1)
 
@@ -2238,9 +2512,9 @@ class FavoritesPage(QWidget):
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
-        title = QLabel("Favorites")
-        title.setFont(QFont('Segoe UI', 22, QFont.Bold))
-        layout.addWidget(title)
+        self._title = QLabel(t('favorites'))
+        self._title.setFont(QFont('Segoe UI', 22, QFont.Bold))
+        layout.addWidget(self._title)
         self.count_label = QLabel("")
         self.count_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 13px;")
         layout.addWidget(self.count_label)
@@ -2278,7 +2552,7 @@ class FavoritesPage(QWidget):
                 self.fav_list.addItem(item)
         finally:
             self.fav_list.setUpdatesEnabled(True)
-        self.count_label.setText(f"{len(self.fav_channels)} favorites")
+        self.count_label.setText(f"{len(self.fav_channels)} · {t('favorites')}")
 
     def _refresh_logos(self):
         if self.logo_cache is None:
@@ -2302,6 +2576,16 @@ class FavoritesPage(QWidget):
         idx = item.data(Qt.UserRole)
         if idx is not None:
             self.channel_play.emit(idx)
+
+    def retranslate_ui(self):
+        try:
+            if hasattr(self, '_title'):
+                self._title.setText(t('favorites'))
+            if hasattr(self, 'count_label') and self.channels:
+                self.count_label.setText(
+                    f"{len(getattr(self, 'fav_channels', []))} · {t('favorites')}")
+        except Exception as e:
+            log_error('FavoritesPage.retranslate_ui', e)
 
 
 
@@ -4341,16 +4625,16 @@ class RecentPage(QWidget):
         layout.setContentsMargins(16, 16, 16, 16)
 
         header = QHBoxLayout()
-        title = QLabel("Recent")
-        title.setFont(QFont('Segoe UI', 22, QFont.Bold))
-        header.addWidget(title)
+        self._title = QLabel(t('recent'))
+        self._title.setFont(QFont('Segoe UI', 22, QFont.Bold))
+        header.addWidget(self._title)
         header.addStretch()
         self.count_label = QLabel("")
         self.count_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 13px;")
         header.addWidget(self.count_label)
-        btn_clear = QPushButton("Clear")
-        btn_clear.clicked.connect(self._clear)
-        header.addWidget(btn_clear)
+        self._btn_clear = QPushButton(t('clear'))
+        self._btn_clear.clicked.connect(self._clear)
+        header.addWidget(self._btn_clear)
         layout.addLayout(header)
         layout.addSpacing(8)
 
@@ -4403,6 +4687,15 @@ class RecentPage(QWidget):
         self.config.recent_urls = []
         self.config.save()
         self.refresh(self.channels, self.epg_data)
+
+    def retranslate_ui(self):
+        try:
+            if hasattr(self, '_title'):
+                self._title.setText(t('recent'))
+            if hasattr(self, '_btn_clear'):
+                self._btn_clear.setText(t('clear'))
+        except Exception as e:
+            log_error('RecentPage.retranslate_ui', e)
 
     def _refresh_logos(self):
         if self.logo_cache is None:
@@ -4483,15 +4776,15 @@ class TvGuidePage(QWidget):
         layout.setContentsMargins(16, 16, 16, 16)
 
         header = QHBoxLayout()
-        title = QLabel("TV Guide")
-        title.setFont(QFont('Segoe UI', 22, QFont.Bold))
-        header.addWidget(title)
+        self._title = QLabel(t('tv_guide'))
+        self._title.setFont(QFont('Segoe UI', 22, QFont.Bold))
+        header.addWidget(self._title)
         header.addStretch()
         # Round 257: ручная кнопка обновления EPG (юзер: «нет ручного или
         # авто обновления тв гида»). Эмитим refresh_requested — MainWindow
         # триггерит LoadEpgThread по тем же source-ам, что были при
         # загрузке плейлиста.
-        self.btn_refresh = QPushButton("↻ Обновить EPG")
+        self.btn_refresh = QPushButton("↻ " + t('updates'))
         self.btn_refresh.setStyleSheet(
             "QPushButton { background-color: #7C6CF7; color: white;"
             " padding: 6px 14px; border-radius: 6px; font-size: 13px; }"
@@ -4504,7 +4797,7 @@ class TvGuidePage(QWidget):
         layout.addLayout(header)
 
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Search channels...")
+        self.search_edit.setPlaceholderText(t('search_channels'))
         self.search_edit.textChanged.connect(self._debounced_refresh)
         layout.addWidget(self.search_edit)
         layout.addSpacing(6)
@@ -4589,6 +4882,17 @@ class TvGuidePage(QWidget):
         idx = item.data(Qt.UserRole)
         if idx is not None and idx >= 0:
             self.channel_play.emit(idx)
+
+    def retranslate_ui(self):
+        try:
+            if hasattr(self, '_title'):
+                self._title.setText(t('tv_guide'))
+            if hasattr(self, 'btn_refresh'):
+                self.btn_refresh.setText("↻ " + t('updates'))
+            if hasattr(self, 'search_edit'):
+                self.search_edit.setPlaceholderText(t('search_channels'))
+        except Exception as e:
+            log_error('TvGuidePage.retranslate_ui', e)
 
     def _refresh_logos(self):
         if self.logo_cache is None:
