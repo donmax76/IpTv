@@ -2210,10 +2210,19 @@ class PlayerPage(QWidget):
             pass
 
         # Auto-hide banner timer
+        # Round 245: банер информации — как в Android-плеере:
+        # появляется на переключении канала и исчезает через ~4.5 сек.
+        # ТАКЖЕ показывается на mouseMove и keypress в плеере чтобы
+        # юзер мог взглянуть на инфо в любой момент.
         self._banner_timer = QTimer(self)
         self._banner_timer.setSingleShot(True)
         self._banner_timer.setInterval(4500)
         self._banner_timer.timeout.connect(self._hide_banner)
+        try:
+            self.video_frame.setMouseTracking(True)
+            self.setMouseTracking(True)
+        except Exception:
+            pass
 
         # Bottom controls
         ctrl = QHBoxLayout()
@@ -2282,7 +2291,17 @@ class PlayerPage(QWidget):
         self.clock_label.setStyleSheet(f"color: {COLORS['text_hint']}; font-size: 13px;")
         ctrl.addWidget(self.clock_label)
 
-        layout.addLayout(ctrl)
+        # Round 245: нижняя панель кнопок СКРЫТА — как в Android-плеере,
+        # где нет видимых нижних кнопок. Все управление перенесено в
+        # right-overlay (RIGHT) и через хоткеи + osd_banner показывает
+        # инфо при переключении. Сами кнопки оставляем в layout (для
+        # кода который их трогает: btn_play.setText "Pause" и т.п.),
+        # но прячем сам контейнер.
+        self._bottom_ctrl_layout = ctrl
+        self._bottom_ctrl_widget = QWidget()
+        self._bottom_ctrl_widget.setLayout(ctrl)
+        self._bottom_ctrl_widget.setVisible(False)
+        layout.addWidget(self._bottom_ctrl_widget)
 
         # EPG update timer
         self.epg_timer = QTimer()
@@ -2959,6 +2978,18 @@ class PlayerPage(QWidget):
         self.osd_banner.raise_()
         self.osd_banner.show()
         self._banner_timer.start()
+
+    def mouseMoveEvent(self, event):
+        """Round 245: любое движение мыши в плеере оживляет
+        info-banner — как Android при нажатии любой клавиши."""
+        try:
+            if self.channels and not self.osd_banner.isVisible():
+                self._show_channel_banner()
+            else:
+                self._banner_timer.start()  # продлеваем таймер
+        except Exception:
+            pass
+        super().mouseMoveEvent(event)
 
     def _hide_banner(self):
         if hasattr(self, 'osd_banner'):
