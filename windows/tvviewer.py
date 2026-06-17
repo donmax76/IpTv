@@ -1808,9 +1808,14 @@ class PlayerPage(QWidget):
     def _build_channels_overlay(self):
         """Слева, ширина 360px. Содержит поиск + QListWidget со всеми каналами."""
         self.channels_overlay = QWidget(self.video_frame)
+        # Round 235: скругление углов + насыщенная фиолетовая обводка,
+        # ближе к Android Round 211 центральному popup-меню.
         self.channels_overlay.setStyleSheet(
-            "background-color: rgba(15, 15, 26, 220);"
-            " border-right: 1px solid rgba(124, 108, 247, 180);")
+            "background-color: rgba(15, 15, 26, 235);"
+            " border-top-right-radius: 14px;"
+            " border-bottom-right-radius: 14px;"
+            " border: 1px solid rgba(124, 108, 247, 200);"
+            " border-left: none;")
         self.channels_overlay.hide()
         col = QVBoxLayout(self.channels_overlay)
         col.setContentsMargins(10, 10, 10, 10)
@@ -1836,8 +1841,11 @@ class PlayerPage(QWidget):
         """Справа, ширина 240px. Кнопки быстрых настроек."""
         self.quick_overlay = QWidget(self.video_frame)
         self.quick_overlay.setStyleSheet(
-            "background-color: rgba(15, 15, 26, 220);"
-            " border-left: 1px solid rgba(124, 108, 247, 180);")
+            "background-color: rgba(15, 15, 26, 235);"
+            " border-top-left-radius: 14px;"
+            " border-bottom-left-radius: 14px;"
+            " border: 1px solid rgba(124, 108, 247, 200);"
+            " border-right: none;")
         self.quick_overlay.hide()
         col = QVBoxLayout(self.quick_overlay)
         col.setContentsMargins(10, 10, 10, 10)
@@ -3510,21 +3518,22 @@ class MainWindow(QMainWindow):
         nav_layout.setContentsMargins(0, 0, 0, 0)
         nav_layout.setSpacing(0)
 
-        # Round 233: nav-кнопки храним вместе с translation-ключом,
-        # чтобы retranslate_ui() мог обновить подписи без пересборки.
+        # Round 233/235: nav-кнопки с translation-ключом + Material-style
+        # Unicode-иконкой. Иконка хранится в свойстве для retranslate_ui.
         self.nav_buttons = []
         nav_items = [
-            ('playlists', 0),
-            ('channels', 1),
-            ('tv_guide', 5),
-            ('favorites', 2),
-            ('recent', 6),
-            ('settings', 4),
+            ('playlists', 0, '📋'),
+            ('channels',  1, '📺'),
+            ('tv_guide',  5, '📅'),
+            ('favorites', 2, '★'),
+            ('recent',    6, '⏱'),
+            ('settings',  4, '⚙'),
         ]
-        for tkey, page_idx in nav_items:
-            btn = QPushButton(t(tkey))
+        for tkey, page_idx, icon_ch in nav_items:
+            btn = QPushButton(f"{icon_ch}  {t(tkey)}")
             btn.setObjectName("navBtn")
             btn.setProperty('_t_key', tkey)
+            btn.setProperty('_icon_ch', icon_ch)
             btn.clicked.connect(lambda checked, idx=page_idx: self.switch_page(idx))
             nav_layout.addWidget(btn)
             self.nav_buttons.append((btn, page_idx))
@@ -3535,8 +3544,9 @@ class MainWindow(QMainWindow):
     def _update_nav_labels(self):
         for btn, _idx in getattr(self, 'nav_buttons', []):
             key = btn.property('_t_key')
+            icon = btn.property('_icon_ch') or ""
             if key:
-                btn.setText(t(key))
+                btn.setText(f"{icon}  {t(key)}" if icon else t(key))
 
     def switch_page(self, idx):
         if idx == 2:
@@ -3888,6 +3898,93 @@ def _install_crash_handler(app):
     sys.excepthook = _excepthook
 
 
+# ============================================================
+# Round 235 (Windows): Splash window — gradient background + logo +
+# app name + version. Показывается пока MainWindow строится (что на
+# 10k каналов с EPG занимает 2-4 секунды). Аналог Android Round 222c.
+# ============================================================
+class SplashWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowFlags(Qt.SplashScreen | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, False)
+        self.setFixedSize(560, 360)
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(12)
+
+        # Logo — большая letter-tile-эстетика, в стиле приложения.
+        logo = QLabel()
+        logo.setFixedSize(140, 140)
+        logo.setAlignment(Qt.AlignCenter)
+        pm = QPixmap(140, 140)
+        pm.fill(QColor(0, 0, 0, 0))
+        painter = QPainter(pm)
+        painter.setRenderHint(QPainter.Antialiasing)
+        # Градиент фиолетовый → бирюзовый (фирменные цвета Android).
+        from PyQt5.QtGui import QLinearGradient
+        grad = QLinearGradient(0, 0, 140, 140)
+        grad.setColorAt(0.0, QColor("#7C6CF7"))
+        grad.setColorAt(1.0, QColor("#00CEC9"))
+        painter.setBrush(QBrush(grad))
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(0, 0, 140, 140, 26, 26)
+        # TV-иконка в центре (Unicode-символ через большой шрифт).
+        painter.setPen(QPen(QColor("white")))
+        f = QFont('Segoe UI Symbol', 64, QFont.Bold)
+        painter.setFont(f)
+        painter.drawText(pm.rect(), Qt.AlignCenter, "📺")
+        painter.end()
+        logo.setPixmap(pm)
+        layout.addWidget(logo, alignment=Qt.AlignCenter)
+
+        # Имя приложения.
+        name = QLabel("M3U IPTV")
+        name.setAlignment(Qt.AlignCenter)
+        name.setStyleSheet("color: white; font-size: 32px; font-weight: bold;")
+        layout.addWidget(name)
+
+        # Подпись.
+        sub = QLabel("TVViewer")
+        sub.setAlignment(Qt.AlignCenter)
+        sub.setStyleSheet("color: #00CEC9; font-size: 14px;")
+        layout.addWidget(sub)
+
+        layout.addSpacing(20)
+
+        # Прогресс-бар indeterminate.
+        bar = QProgressBar()
+        bar.setRange(0, 0)
+        bar.setTextVisible(False)
+        bar.setFixedHeight(6)
+        bar.setStyleSheet(
+            "QProgressBar { background-color: rgba(255,255,255,30);"
+            " border: none; border-radius: 3px; }"
+            "QProgressBar::chunk { background-color: #7C6CF7;"
+            " border-radius: 3px; }")
+        layout.addWidget(bar)
+
+    def paintEvent(self, event):
+        # Фон с диагональным градиентом — фирменная палитра.
+        from PyQt5.QtGui import QLinearGradient
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        grad = QLinearGradient(0, 0, self.width(), self.height())
+        grad.setColorAt(0.0, QColor("#0F0F1A"))
+        grad.setColorAt(0.5, QColor("#1E1E3A"))
+        grad.setColorAt(1.0, QColor("#0F0F1A"))
+        painter.fillRect(self.rect(), QBrush(grad))
+        # Тонкая фиолетовая обводка по периметру.
+        painter.setPen(QPen(QColor("#7C6CF7"), 2))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 12, 12)
+        super().paintEvent(event)
+
+
 def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLESHEET)
@@ -3898,11 +3995,27 @@ def main():
     # рендере виджетов уже была правильная локаль.
     _bootstrap_cfg = Config()
     set_ui_language(getattr(_bootstrap_cfg, 'ui_language', 'ru'))
+    # Round 235: показываем splash пока MainWindow строится. На больших
+    # плейлистах сборка занимает 2-4 сек, без splash юзер видит чёрный
+    # экран и думает что зависло.
+    splash = SplashWindow()
+    splash.show()
+    app.processEvents()  # рендерим splash перед тяжёлым MainWindow()
     window = MainWindow()
     # Apply persisted always-on-top preference
     if window.config.always_on_top:
         window.setWindowFlag(Qt.WindowStaysOnTopHint, True)
     window.show()
+    # Round 235: гасим splash после того как MainWindow отрисована,
+    # с небольшой задержкой чтобы splash был виден хотя бы 600мс
+    # (без задержки на быстрой машине мелькает за мс).
+    try:
+        QTimer.singleShot(600, splash.close)
+    except Exception:
+        try:
+            splash.close()
+        except Exception:
+            pass
     sys.exit(app.exec_())
 
 
