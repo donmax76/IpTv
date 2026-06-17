@@ -200,6 +200,187 @@ DEFAULT_EPG_URLS = [
     "https://iptvx.one/epg/epg.xml.gz",
 ]
 
+
+# ============================================================
+# Round 232 (Windows): i18n. Простая словарная схема — таблица
+# ключ → перевод по локали. ru/en/uk/az. Дефолт ru. Меняется
+# в SettingsPage; некоторые экраны требуют перезапуска (надписи
+# фиксируются в момент сборки UI).
+# ============================================================
+TRANSLATIONS = {
+    'ru': {
+        'app_name': "M3U IPTV",
+        'channels': "Каналы",
+        'playlists': "Плейлисты",
+        'favorites': "Избранное",
+        'recent': "Недавние",
+        'tv_guide': "ТВ-гид",
+        'settings': "Настройки",
+        'search': "Поиск",
+        'play': "Играть",
+        'pause': "Пауза",
+        'prev': "< Пред",
+        'next': "След >",
+        'back': "< Назад",
+        'volume': "Громкость",
+        'aspect': "Соотношение",
+        'speed': "Скорость",
+        'audio_track': "Аудио",
+        'sleep_timer': "Таймер сна",
+        'pip': "PiP",
+        'fullscreen': "Полный экран",
+        'language': "Язык",
+        'language_changed': "Язык изменён. Перезапустите приложение.",
+        'add_playlist': "Добавить плейлист",
+        'remove': "Удалить",
+        'built_in_playlists': "Встроенные плейлисты",
+        'my_playlists': "Мои плейлисты",
+        'choose': "— Выберите —",
+        'by_language': "По языку",
+        'by_category': "По категории",
+        'by_country': "По стране",
+        'by_region': "По региону",
+        'no_logos': "Нет логотипов",
+        'channel_count': "{n} каналов",
+        'panel_channels': "Каналы",
+        'panel_quick': "Быстрые настройки",
+        'press_l_for_channels': "L — список каналов, R — настройки",
+    },
+    'en': {
+        'app_name': "M3U IPTV",
+        'channels': "Channels",
+        'playlists': "Playlists",
+        'favorites': "Favorites",
+        'recent': "Recent",
+        'tv_guide': "TV Guide",
+        'settings': "Settings",
+        'search': "Search",
+        'play': "Play",
+        'pause': "Pause",
+        'prev': "< Prev",
+        'next': "Next >",
+        'back': "< Back",
+        'volume': "Volume",
+        'aspect': "Aspect",
+        'speed': "Speed",
+        'audio_track': "Audio",
+        'sleep_timer': "Sleep timer",
+        'pip': "PiP",
+        'fullscreen': "Fullscreen",
+        'language': "Language",
+        'language_changed': "Language changed. Restart the app.",
+        'add_playlist': "Add playlist",
+        'remove': "Remove",
+        'built_in_playlists': "Built-in playlists",
+        'my_playlists': "My playlists",
+        'choose': "— Choose —",
+        'by_language': "By language",
+        'by_category': "By category",
+        'by_country': "By country",
+        'by_region': "By region",
+        'no_logos': "No logos",
+        'channel_count': "{n} channels",
+        'panel_channels': "Channels",
+        'panel_quick': "Quick settings",
+        'press_l_for_channels': "L — channel list, R — settings",
+    },
+    'uk': {
+        'app_name': "M3U IPTV",
+        'channels': "Канали",
+        'playlists': "Плейлисти",
+        'favorites': "Обране",
+        'recent': "Нещодавні",
+        'tv_guide': "Телепрограма",
+        'settings': "Налаштування",
+        'search': "Пошук",
+        'play': "Відтворити",
+        'pause': "Пауза",
+        'prev': "< Попер",
+        'next': "Далі >",
+        'back': "< Назад",
+        'volume': "Гучність",
+        'aspect': "Співвідношення",
+        'speed': "Швидкість",
+        'audio_track': "Аудіо",
+        'sleep_timer': "Таймер сну",
+        'pip': "PiP",
+        'fullscreen': "На весь екран",
+        'language': "Мова",
+        'language_changed': "Мову змінено. Перезапустіть застосунок.",
+        'add_playlist': "Додати плейлист",
+        'remove': "Видалити",
+        'built_in_playlists': "Вбудовані плейлисти",
+        'my_playlists': "Мої плейлисти",
+        'choose': "— Виберіть —",
+        'by_language': "За мовою",
+        'by_category': "За категорією",
+        'by_country': "За країною",
+        'by_region': "За регіоном",
+        'no_logos': "Немає логотипів",
+        'channel_count': "{n} каналів",
+        'panel_channels': "Канали",
+        'panel_quick': "Швидкі налаштування",
+        'press_l_for_channels': "L — список каналів, R — налаштування",
+    },
+    'az': {
+        'app_name': "M3U IPTV",
+        'channels': "Kanallar",
+        'playlists': "Pleylistlər",
+        'favorites': "Seçilmişlər",
+        'recent': "Son baxılanlar",
+        'tv_guide': "TV proqramı",
+        'settings': "Tənzimləmələr",
+        'search': "Axtar",
+        'play': "Oxut",
+        'pause': "Dayandır",
+        'prev': "< Əvvəlki",
+        'next': "Sonrakı >",
+        'back': "< Geri",
+        'volume': "Səs",
+        'aspect': "Nisbət",
+        'speed': "Sürət",
+        'audio_track': "Audio",
+        'sleep_timer': "Yuxu taymeri",
+        'pip': "PiP",
+        'fullscreen': "Tam ekran",
+        'language': "Dil",
+        'language_changed': "Dil dəyişdi. Tətbiqi yenidən başladın.",
+        'add_playlist': "Pleylist əlavə et",
+        'remove': "Sil",
+        'built_in_playlists': "Daxili pleylistlər",
+        'my_playlists': "Mənim pleylistlərim",
+        'choose': "— Seçin —",
+        'by_language': "Dilə görə",
+        'by_category': "Kateqoriyaya görə",
+        'by_country': "Ölkəyə görə",
+        'by_region': "Regiona görə",
+        'no_logos': "Loqo yoxdur",
+        'channel_count': "{n} kanal",
+        'panel_channels': "Kanallar",
+        'panel_quick': "Tez tənzimləmələr",
+        'press_l_for_channels': "L — kanal siyahısı, R — tənzimləmələr",
+    },
+}
+
+_CURRENT_LANG = 'ru'
+
+
+def set_ui_language(lang: str):
+    global _CURRENT_LANG
+    _CURRENT_LANG = lang if lang in TRANSLATIONS else 'ru'
+
+
+def t(key: str, **kwargs) -> str:
+    """Lookup a translation. Falls back to ru, then to the key itself."""
+    table = TRANSLATIONS.get(_CURRENT_LANG) or TRANSLATIONS['ru']
+    s = table.get(key) or TRANSLATIONS['ru'].get(key) or key
+    if kwargs:
+        try:
+            return s.format(**kwargs)
+        except Exception:
+            return s
+    return s
+
 # --- Colors matching Android dark theme ---
 COLORS = {
     'background': '#0F0F1A',
@@ -388,6 +569,16 @@ class Config:
         self.hardware_decode = True
         self.audio_output = ""             # VLC --aout: "" auto / directsound / mmdevice / waveout
         self.per_channel_state = {}        # url -> {volume, aspect_idx, speed_idx, position_ms, audio_track}
+        # Round 232 (Windows): UI language. ru/en/uk/az. На первом
+        # запуске возьмём системную локаль, потом юзер может сменить в
+        # настройках.
+        import locale as _locale
+        sys_lang = ""
+        try:
+            sys_lang = (_locale.getdefaultlocale()[0] or "")[:2].lower()
+        except Exception:
+            pass
+        self.ui_language = sys_lang if sys_lang in ("ru", "en", "uk", "az") else "ru"
         self.load()
 
     RECENT_LIMIT = 30
@@ -454,6 +645,10 @@ class Config:
                 pcs = data.get('per_channel_state', {})
                 if isinstance(pcs, dict):
                     self.per_channel_state = pcs
+                # Round 232: загружаем сохранённый язык если он есть.
+                stored_lang = data.get('ui_language', '')
+                if stored_lang in ("ru", "en", "uk", "az"):
+                    self.ui_language = stored_lang
             except Exception:
                 pass
 
@@ -479,6 +674,7 @@ class Config:
             'hardware_decode': self.hardware_decode,
             'audio_output': self.audio_output,
             'per_channel_state': self.per_channel_state,
+            'ui_language': getattr(self, 'ui_language', 'ru'),
         }
         try:
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
@@ -1436,6 +1632,17 @@ class PlayerPage(QWidget):
         self.video_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout.addWidget(self.video_frame)
         self._build_osd_banner()
+        # Round 232 (Windows): аналоги Android-овых overlay-панелей.
+        # Левая — список каналов с поиском; правая — быстрые настройки
+        # (Aspect / Speed / Audio / Sleep / Fullscreen / PiP / Favorite).
+        # Скрыты по умолчанию; toggle хоткеями L / R и кнопками в top-bar.
+        self._build_channels_overlay()
+        self._build_quick_overlay()
+        # Кнопки в top-bar для тех у кого нет физической клавиатуры.
+        try:
+            self._inject_overlay_toggle_buttons()
+        except Exception:
+            pass
 
         # Auto-hide banner timer
         self._banner_timer = QTimer(self)
@@ -1580,6 +1787,154 @@ class PlayerPage(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._position_osd()
+        self._position_overlays()
+
+    # ---- Round 232: side-panel overlays ----
+
+    def _build_channels_overlay(self):
+        """Слева, ширина 360px. Содержит поиск + QListWidget со всеми каналами."""
+        self.channels_overlay = QWidget(self.video_frame)
+        self.channels_overlay.setStyleSheet(
+            "background-color: rgba(15, 15, 26, 220);"
+            " border-right: 1px solid rgba(124, 108, 247, 180);")
+        self.channels_overlay.hide()
+        col = QVBoxLayout(self.channels_overlay)
+        col.setContentsMargins(10, 10, 10, 10)
+        col.setSpacing(8)
+        title = QLabel(t('panel_channels'))
+        title.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
+        col.addWidget(title)
+        self._overlay_search = QLineEdit()
+        self._overlay_search.setPlaceholderText(t('search') + "…")
+        self._overlay_search.textChanged.connect(self._refresh_channels_overlay)
+        col.addWidget(self._overlay_search)
+        self._overlay_list = QListWidget()
+        self._overlay_list.setIconSize(QSize(28, 28))
+        self._overlay_list.itemClicked.connect(self._overlay_channel_clicked)
+        col.addWidget(self._overlay_list, 1)
+
+    def _build_quick_overlay(self):
+        """Справа, ширина 240px. Кнопки быстрых настроек."""
+        self.quick_overlay = QWidget(self.video_frame)
+        self.quick_overlay.setStyleSheet(
+            "background-color: rgba(15, 15, 26, 220);"
+            " border-left: 1px solid rgba(124, 108, 247, 180);")
+        self.quick_overlay.hide()
+        col = QVBoxLayout(self.quick_overlay)
+        col.setContentsMargins(10, 10, 10, 10)
+        col.setSpacing(8)
+        title = QLabel(t('panel_quick'))
+        title.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
+        col.addWidget(title)
+
+        def _btn(label, callback):
+            b = QPushButton(label)
+            b.clicked.connect(callback)
+            return b
+
+        col.addWidget(_btn(t('aspect'), self.cycle_aspect_ratio))
+        col.addWidget(_btn(t('speed'), self.cycle_speed))
+        col.addWidget(_btn(t('audio_track'), self.cycle_audio_track))
+        col.addWidget(_btn(t('sleep_timer'), self.configure_sleep_timer))
+        col.addWidget(_btn(t('fullscreen'), self.toggle_fullscreen))
+        col.addWidget(_btn(t('pip'), self._on_pip_clicked))
+        col.addWidget(_btn("♥ " + t('favorites'), self.toggle_favorite))
+        col.addStretch()
+
+    def _inject_overlay_toggle_buttons(self):
+        """В top_bar добавляем кнопки для toggle левой/правой панели."""
+        if not hasattr(self, 'btn_back'):
+            return
+        top_layout = self.btn_back.parentWidget().layout() if self.btn_back.parent() else None
+        # btn_back живёт в HBoxLayout наверху; QLayout не возвращает legко
+        # parentWidget()->layout(), поэтому добавим кнопки прямо рядом
+        # с back через свой layout (создадим bar если ещё нет).
+        # Простой путь: создаём отдельный bar для toggle поверх video_frame.
+        self._overlay_toggle_bar = QWidget(self.video_frame)
+        self._overlay_toggle_bar.setStyleSheet("background: transparent;")
+        bar = QHBoxLayout(self._overlay_toggle_bar)
+        bar.setContentsMargins(8, 8, 8, 8)
+        bar.setSpacing(8)
+        self.btn_panel_channels = QPushButton("☰ " + t('channels'))
+        self.btn_panel_channels.setStyleSheet(
+            "background-color: rgba(15, 15, 26, 200); color: white;"
+            " padding: 8px 14px; border-radius: 6px; border: 1px solid #7C6CF7;")
+        self.btn_panel_channels.clicked.connect(self.toggle_channels_overlay)
+        bar.addWidget(self.btn_panel_channels)
+        bar.addStretch()
+        self.btn_panel_quick = QPushButton("⚙ " + t('settings'))
+        self.btn_panel_quick.setStyleSheet(
+            "background-color: rgba(15, 15, 26, 200); color: white;"
+            " padding: 8px 14px; border-radius: 6px; border: 1px solid #7C6CF7;")
+        self.btn_panel_quick.clicked.connect(self.toggle_quick_overlay)
+        bar.addWidget(self.btn_panel_quick)
+        self._overlay_toggle_bar.adjustSize()
+
+    def _position_overlays(self):
+        if not hasattr(self, 'channels_overlay'):
+            return
+        pw = self.video_frame.width()
+        ph = self.video_frame.height()
+        if pw <= 0 or ph <= 0:
+            return
+        ch_w = min(360, int(pw * 0.40))
+        qk_w = min(280, int(pw * 0.32))
+        self.channels_overlay.setGeometry(0, 0, ch_w, ph)
+        self.quick_overlay.setGeometry(pw - qk_w, 0, qk_w, ph)
+        if hasattr(self, '_overlay_toggle_bar'):
+            # Позиционируем bar над OSD-баннером, ширина = video_frame
+            self._overlay_toggle_bar.setGeometry(0, ph - 56, pw, 56)
+            self._overlay_toggle_bar.raise_()
+
+    def toggle_channels_overlay(self):
+        if not hasattr(self, 'channels_overlay'):
+            return
+        if self.channels_overlay.isVisible():
+            self.channels_overlay.hide()
+        else:
+            self.quick_overlay.hide()
+            self._refresh_channels_overlay()
+            self.channels_overlay.show()
+            self.channels_overlay.raise_()
+            self._overlay_search.setFocus()
+
+    def toggle_quick_overlay(self):
+        if not hasattr(self, 'quick_overlay'):
+            return
+        if self.quick_overlay.isVisible():
+            self.quick_overlay.hide()
+        else:
+            self.channels_overlay.hide()
+            self.quick_overlay.show()
+            self.quick_overlay.raise_()
+
+    def _refresh_channels_overlay(self):
+        if not hasattr(self, '_overlay_list'):
+            return
+        q = (self._overlay_search.text() or "").strip().lower()
+        self._overlay_list.clear()
+        for idx, ch in enumerate(self.channels or []):
+            if q and q not in (ch.name or "").lower():
+                continue
+            item = QListWidgetItem(f"{idx+1}. {ch.name}")
+            item.setData(Qt.UserRole, idx)
+            icon = None
+            if self.logo_cache is not None and ch.logo_url:
+                icon = self.logo_cache.get(ch.logo_url)
+            item.setIcon(icon if icon is not None else make_letter_tile_icon(ch.name))
+            self._overlay_list.addItem(item)
+
+    def _overlay_channel_clicked(self, item):
+        idx = item.data(Qt.UserRole)
+        if isinstance(idx, int) and 0 <= idx < len(self.channels):
+            try:
+                # Используем штатный play_channel — он же сбрасывает
+                # стейт и обновляет UI. Передаём текущие channels/epg
+                # чтобы не пересоздавать их.
+                self.play_channel(idx, self.channels, self.epg_data)
+            except Exception:
+                pass
+            self.channels_overlay.hide()
 
     def _show_channel_banner(self):
         if not self.channels or self.current_index >= len(self.channels):
@@ -2366,7 +2721,7 @@ class SettingsPage(QWidget):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(10)
 
-        title = QLabel("Settings")
+        title = QLabel(t('settings'))
         title.setFont(QFont('Segoe UI', 22, QFont.Bold))
         layout.addWidget(title)
         layout.addSpacing(8)
@@ -2377,6 +2732,29 @@ class SettingsPage(QWidget):
         vlc_label.setStyleSheet(
             f"color: {'#4ECDC4' if HAS_VLC else COLORS['error']}; font-size: 14px;")
         layout.addWidget(vlc_label)
+        layout.addSpacing(12)
+
+        # Round 232 (Windows): language selector — самое заметное чего
+        # не было в Windows-версии раньше.
+        layout.addWidget(self._section(t('language')))
+        lang_row = QHBoxLayout()
+        lang_row.addWidget(QLabel(t('language') + ":"))
+        self.lang_combo = QComboBox()
+        for code, label in (
+            ('ru', 'Русский'),
+            ('en', 'English'),
+            ('uk', 'Українська'),
+            ('az', 'Azərbaycanca'),
+        ):
+            self.lang_combo.addItem(label, code)
+        cur_lang = getattr(self.config, 'ui_language', 'ru')
+        for i in range(self.lang_combo.count()):
+            if self.lang_combo.itemData(i) == cur_lang:
+                self.lang_combo.setCurrentIndex(i)
+                break
+        self.lang_combo.currentIndexChanged.connect(self._save_language)
+        lang_row.addWidget(self.lang_combo, 1)
+        layout.addLayout(lang_row)
         layout.addSpacing(12)
 
         # --- Playback section ---
@@ -2581,6 +2959,19 @@ class SettingsPage(QWidget):
     def _save_buffer(self, _idx):
         self.config.network_caching_ms = int(self.buf_combo.currentData())
         self.config.save()
+        self.settings_changed.emit()
+
+    def _save_language(self, _idx):
+        # Round 232: меняем UI-язык. Большинство меток фиксируются при
+        # сборке виджетов (top-bar страниц, кнопки плеера), поэтому
+        # для полного эффекта нужен перезапуск — показываем сообщение.
+        code = self.lang_combo.currentData()
+        if not code or code == getattr(self.config, 'ui_language', 'ru'):
+            return
+        self.config.ui_language = code
+        self.config.save()
+        set_ui_language(code)
+        QMessageBox.information(self, t('language'), t('language_changed'))
         self.settings_changed.emit()
 
     def _save_volume(self, v):
@@ -2972,6 +3363,25 @@ class MainWindow(QMainWindow):
 
     def keyPressEvent(self, event):
         key = event.key()
+        # Round 232: L / R открывают side-panels плеера, ТОЛЬКО если
+        # сейчас открыт PlayerPage. На других страницах эти клавиши
+        # отдаются Qt по умолчанию (например, для поиска по букве в
+        # списке).
+        try:
+            current = self.stack.currentWidget()
+            if isinstance(current, PlayerPage):
+                if key == Qt.Key_L:
+                    current.toggle_channels_overlay(); return
+                if key == Qt.Key_R:
+                    current.toggle_quick_overlay(); return
+                if key == Qt.Key_Escape:
+                    # ESC закрывает любой видимый overlay
+                    if hasattr(current, 'channels_overlay') and current.channels_overlay.isVisible():
+                        current.channels_overlay.hide(); return
+                    if hasattr(current, 'quick_overlay') and current.quick_overlay.isVisible():
+                        current.quick_overlay.hide(); return
+        except Exception:
+            pass
         # Global section shortcuts (work from anywhere)
         if key == Qt.Key_F1:
             self.switch_page(0); return
@@ -3246,6 +3656,11 @@ def main():
     app.setStyleSheet(STYLESHEET)
     app.setFont(QFont('Segoe UI', 12))
     _install_crash_handler(app)
+    # Round 232: применяем язык до сборки UI. MainWindow при создании
+    # тоже инициализирует Config, но мы это делаем СНАЧАЛА чтобы при
+    # рендере виджетов уже была правильная локаль.
+    _bootstrap_cfg = Config()
+    set_ui_language(getattr(_bootstrap_cfg, 'ui_language', 'ru'))
     window = MainWindow()
     # Apply persisted always-on-top preference
     if window.config.always_on_top:
