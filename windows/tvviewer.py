@@ -2122,7 +2122,10 @@ class ChannelRowDelegate(QStyledItemDelegate):
         self._secondary = QColor("#B0B0CC")
         self._primary = QColor("#7C6CF7")
         self._card = QColor(36, 36, 60, 180)
-        self._card_sel = QColor(124, 108, 247, 90)
+        # Round 254: яркое выделение выбранной строки. Юзер: «фокуса и
+        # выделения выбранной строки нигде не видно». Альфа 220 + жирная
+        # белая полоса слева как Material highlight.
+        self._card_sel = QColor(124, 108, 247, 220)
         self._chip_hd = QColor("#00CEC9")
         self._chip_4k = QColor("#FF7675")
         self._chip_sd = QColor("#74B9FF")
@@ -2148,9 +2151,15 @@ class ChannelRowDelegate(QStyledItemDelegate):
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(rect.adjusted(4, 3, -4, -3), 8, 8)
         if is_sel:
-            painter.setPen(QPen(self._primary, 2))
+            # Round 254: чёткий контур + белая полоса-индикатор слева.
+            painter.setPen(QPen(self._white, 3))
             painter.setBrush(Qt.NoBrush)
             painter.drawRoundedRect(rect.adjusted(4, 3, -4, -3), 8, 8)
+            # Белая полоса-индикатор у левого края — как Material list item.
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(self._white))
+            painter.drawRect(rect.left() + 4, rect.top() + 6,
+                             5, rect.height() - 12)
 
         # Данные канала из user-role.
         data = index.data(Qt.UserRole + 1) or {}
@@ -2482,12 +2491,15 @@ class PlayerPage(QWidget):
         # тень для читаемости на любом фоне, без подложки. Позиция —
         # верх-право, обновляется по тому же clock_timer.
         self.persistent_clock = QLabel(self.overlay_host)
+        # Round 254: часы должны быть видны на любом фоне (юзер). Делаем
+        # текст крупнее и ОЧЕНЬ сильную чёрную тень-обводку — фактически
+        # имитация stroke (Qt не умеет text-stroke без QPainter).
         self.persistent_clock.setStyleSheet(
-            "color: white; font-size: 28px; font-weight: bold;"
+            "color: white; font-size: 32px; font-weight: bold;"
             " background: transparent;")
         try:
             shadow = QGraphicsDropShadowEffect(self.persistent_clock)
-            shadow.setBlurRadius(8)
+            shadow.setBlurRadius(20)
             shadow.setColor(QColor(0, 0, 0, 255))
             shadow.setOffset(0, 0)
             self.persistent_clock.setGraphicsEffect(shadow)
@@ -2660,7 +2672,7 @@ class PlayerPage(QWidget):
         # «программа зависает на любую кнопку». Плоская обводка без
         # эффектов работает значительно стабильнее.
         self.channels_overlay.setStyleSheet(
-            "background-color: rgba(15, 15, 26, 240);"
+            "background-color: rgba(15, 15, 26, 170);"
             " border-top-right-radius: 14px;"
             " border-bottom-right-radius: 14px;"
             " border: 2px solid rgba(124, 108, 247, 220);"
@@ -2702,7 +2714,7 @@ class PlayerPage(QWidget):
         на 2-е нажатие LEFT (как Android Round 199)."""
         self.categories_overlay = QWidget(self.overlay_host)
         self.categories_overlay.setStyleSheet(
-            "background-color: rgba(15, 15, 26, 240);"
+            "background-color: rgba(15, 15, 26, 170);"
             " border-top-right-radius: 14px;"
             " border-bottom-right-radius: 14px;"
             " border: 2px solid rgba(124, 108, 247, 220);"
@@ -2715,12 +2727,18 @@ class PlayerPage(QWidget):
         title.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
         col.addWidget(title)
         self._cat_list = QListWidget()
+        # Round 254: чёткое выделение фокуса. Юзер: «фокуса и выделения
+        # выбранной строки нигде не видно». Толстая обводка + светлая
+        # заливка + белая полоса слева.
         self._cat_list.setStyleSheet(
             "QListWidget { background: transparent; color: white;"
-            " border: none; font-size: 14px; }"
-            "QListWidget::item { padding: 8px 6px; border-radius: 6px; }"
+            " border: none; font-size: 14px; outline: none; }"
+            "QListWidget::item { padding: 10px 8px; border-radius: 6px;"
+            " margin-bottom: 4px; }"
+            "QListWidget::item:hover { background-color: rgba(124, 108, 247, 100); }"
             "QListWidget::item:selected { background-color: #7C6CF7;"
-            " color: white; }")
+            " color: white; border-left: 4px solid white;"
+            " font-weight: bold; }")
         self._cat_list.itemClicked.connect(self._on_category_chosen)
         col.addWidget(self._cat_list, 1)
 
@@ -2765,14 +2783,31 @@ class PlayerPage(QWidget):
 
         # Кнопки тригерят переключение MainWindow (через сигнал, плюс
         # закрытие центрального меню).
-        inner.addWidget(_row("⚙  " + t('settings'),
-                             lambda: self._center_menu_action('settings')))
-        inner.addWidget(_row("★  " + t('favorites'),
-                             lambda: self._center_menu_action('favorites')))
-        inner.addWidget(_row("⏱  " + t('recent'),
-                             lambda: self._center_menu_action('recent')))
-        inner.addWidget(_row("🔍  Поиск",
-                             lambda: self._center_menu_action('search')))
+        # Round 254: EPG-инфо текущего канала вверху центр-меню
+        # (бывшая нижняя инфо-панель переехала сюда по запросу юзера).
+        self._center_menu_info = QLabel("")
+        self._center_menu_info.setWordWrap(True)
+        self._center_menu_info.setStyleSheet(
+            "color: #00CEC9; font-size: 13px; line-height: 1.5;"
+            " background-color: rgba(0,0,0,80); border-radius: 8px;"
+            " padding: 10px 12px; margin-bottom: 6px;")
+        inner.addWidget(self._center_menu_info)
+
+        # Round 254: храним кнопки списком — нужен для D-pad навигации
+        # (Up/Down в _handle_key).
+        self._center_menu_buttons = []
+        b1 = _row("⚙  " + t('settings'),
+                  lambda: self._center_menu_action('settings'))
+        b2 = _row("★  " + t('favorites'),
+                  lambda: self._center_menu_action('favorites'))
+        b3 = _row("⏱  " + t('recent'),
+                  lambda: self._center_menu_action('recent'))
+        b4 = _row("🔍  Поиск",
+                  lambda: self._center_menu_action('search'))
+        for bb in (b1, b2, b3, b4):
+            bb.setFocusPolicy(Qt.StrongFocus)
+            inner.addWidget(bb)
+            self._center_menu_buttons.append(bb)
         outer.addWidget(card)
         # Сохраняем reference на card чтобы могли вернуть фокус.
         self._center_menu_card = card
@@ -2855,7 +2890,7 @@ class PlayerPage(QWidget):
         """Справа, ширина 240px. Кнопки быстрых настроек."""
         self.quick_overlay = QWidget(self.overlay_host)
         self.quick_overlay.setStyleSheet(
-            "background-color: rgba(15, 15, 26, 240);"
+            "background-color: rgba(15, 15, 26, 170);"
             " border-top-left-radius: 14px;"
             " border-bottom-left-radius: 14px;"
             " border: 2px solid rgba(124, 108, 247, 220);"
@@ -3045,8 +3080,17 @@ class PlayerPage(QWidget):
             if self._cat_list.count() > 0:
                 self._cat_list.setCurrentRow(0)
         elif stage == 3:
+            self._update_center_menu_epg()
             self.center_menu_overlay.show()
             self.center_menu_overlay.raise_()
+            # Round 254: фокус на первой кнопке, иначе D-pad не работает
+            # пока юзер не ткнёт мышью.
+            try:
+                if (hasattr(self, '_center_menu_buttons')
+                        and self._center_menu_buttons):
+                    self._center_menu_buttons[0].setFocus()
+            except Exception:
+                pass
         # stage 0 = всё закрыто (уже скрыли выше).
         self._sync_overlay_host()
 
@@ -3337,16 +3381,39 @@ class PlayerPage(QWidget):
             pass
 
         self._position_osd()
-        self.osd_banner.raise_()
-        self.osd_banner.show()
-        # Round 252: верхняя панель показывается вместе с баннером.
+        # Round 254: НЕ показываем верхнюю и нижнюю панели — юзер:
+        # «верхняя панель вообще не нужна, нижняя — в меню по LEFT».
+        # Оставляем только обновление центр-меню и часов.
         try:
-            self._position_top_panel()
-            self.top_panel.raise_()
-            self.top_panel.show()
+            self._update_center_menu_epg()
         except Exception:
             pass
-        self._banner_timer.start()
+        # Round 254: banner_timer не нужен — нет автоскрываемых панелей.
+
+    def _update_center_menu_epg(self):
+        """Round 254: помещаем EPG-инфо текущего канала в центр-меню
+        (нижняя инфо-панель убрана, юзер: «нижняя должна быть в меню
+        которая открывается в конце при нажатии в лево»)."""
+        if not hasattr(self, '_center_menu_info'):
+            return
+        try:
+            if not self.channels or self.current_index >= len(self.channels):
+                self._center_menu_info.setText("")
+                return
+            ch = self.channels[self.current_index]
+            now_prog, next_prog = get_now_next(
+                self.epg_data, ch.tvg_id, ch.name)
+            lines = [f"📺  {ch.name}"]
+            if now_prog:
+                t1 = datetime.fromtimestamp(now_prog.start).strftime('%H:%M')
+                t2 = datetime.fromtimestamp(now_prog.end).strftime('%H:%M')
+                lines.append(f"▶  {t1}–{t2}   {now_prog.title}")
+            if next_prog:
+                tn = datetime.fromtimestamp(next_prog.start).strftime('%H:%M')
+                lines.append(f"⏭  {tn}   {next_prog.title}")
+            self._center_menu_info.setText("\n".join(lines))
+        except Exception:
+            pass
 
     def mouseMoveEvent(self, event):
         """Round 245: любое движение мыши в плеере оживляет
@@ -4958,10 +5025,12 @@ class MainWindow(QMainWindow):
                     current.back_requested.emit(); return True
                 if hasattr(current, 'channels_overlay') and current.channels_overlay.isVisible():
                     if key == Qt.Key_Right:
-                        item = current._overlay_list.currentItem()
-                        if item:
-                            r = current._overlay_list.visualItemRect(item)
-                            current._show_overlay_channel_details(r.center())
+                        # Round 254: RIGHT теперь ЗАКРЫВАЕТ список каналов
+                        # (юзер: «при нажатии вправо он должен закрываться
+                        # чего нет»). Используем left_press который делает
+                        # обратный шаг state-machine, либо полностью прячем.
+                        current.hide_all_overlays()
+                        current._sync_overlay_host()
                         return True
                     if key == Qt.Key_Left:
                         current.left_press(); return True
@@ -5004,6 +5073,31 @@ class MainWindow(QMainWindow):
                       and current.center_menu_overlay.isVisible()):
                     if key == Qt.Key_Left:
                         current.left_press(); return True
+                    if key == Qt.Key_Right:
+                        # Round 254: RIGHT закрывает центр-меню (симметрично
+                        # списку каналов).
+                        current.hide_all_overlays()
+                        current._sync_overlay_host()
+                        return True
+                    if key in (Qt.Key_Up, Qt.Key_Down):
+                        # Round 254: навигация фокусом по кнопкам меню.
+                        if hasattr(current, '_center_menu_buttons'):
+                            btns = current._center_menu_buttons
+                            focused = None
+                            for i, b in enumerate(btns):
+                                if b.hasFocus():
+                                    focused = i; break
+                            if focused is None:
+                                focused = 0
+                            else:
+                                focused = (focused + (1 if key == Qt.Key_Down else -1)) % len(btns)
+                            btns[focused].setFocus()
+                            return True
+                    if key in (Qt.Key_Return, Qt.Key_Enter):
+                        if hasattr(current, '_center_menu_buttons'):
+                            for b in current._center_menu_buttons:
+                                if b.hasFocus():
+                                    b.click(); return True
                 elif hasattr(current, 'quick_overlay') and current.quick_overlay.isVisible():
                     if key in (Qt.Key_Left, Qt.Key_Right):
                         current.toggle_quick_overlay(); return True
