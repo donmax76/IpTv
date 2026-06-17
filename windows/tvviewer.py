@@ -37,13 +37,17 @@ from PyQt5.QtWidgets import (
     QStackedWidget, QFrame, QProgressBar, QSplitter, QFileDialog,
     QDialog, QDialogButtonBox, QFormLayout, QMessageBox, QScrollArea,
     QComboBox, QSlider, QToolBar, QAction, QSizePolicy, QAbstractItemView,
-    QGraphicsOpacityEffect
+    QGraphicsOpacityEffect, QStyledItemDelegate, QStyle,
+    QGraphicsDropShadowEffect,
 )
 from PyQt5.QtCore import (
     Qt, QTimer, pyqtSignal, QThread, QSize, QUrl, QObject,
-    QPropertyAnimation, QEasingCurve, QRect,
+    QPropertyAnimation, QEasingCurve, QRect, QRectF,
 )
-from PyQt5.QtGui import QFont, QColor, QPalette, QIcon, QPixmap, QKeySequence, QPainter, QBrush, QPen
+from PyQt5.QtGui import (
+    QFont, QColor, QPalette, QIcon, QPixmap, QKeySequence,
+    QPainter, QBrush, QPen, QFontMetrics,
+)
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 import hashlib
 
@@ -1565,6 +1569,185 @@ class FavoritesPage(QWidget):
             self.channel_play.emit(idx)
 
 
+
+
+# ============================================================
+# Round 236 (Windows): custom delegate для overlay-списка каналов.
+# Аналог Android Round 212 item_overlay_channel.xml — рендерит
+# лого + имя + категорию + 3-slot EPG-сетку + полоску прогресса
+# по текущей передаче. Имитирует Android Material card-style row.
+# ============================================================
+class ChannelRowDelegate(QStyledItemDelegate):
+    ROW_HEIGHT = 80
+    LOGO_SIZE = 48
+    PAD = 10
+    EPG_COLS = 3
+    EPG_COL_W = 130
+
+    def __init__(self, get_logo, get_epg_data, parent=None):
+        super().__init__(parent)
+        self._get_logo = get_logo      # callable(channel) -> QIcon|None
+        self._get_epg = get_epg_data   # callable(channel) -> (now, upcoming_list)
+        self._cyan = QColor("#09B8E5")
+        self._white = QColor("white")
+        self._secondary = QColor("#B0B0CC")
+        self._primary = QColor("#7C6CF7")
+        self._card = QColor(36, 36, 60, 180)
+        self._card_sel = QColor(124, 108, 247, 90)
+        self._chip_hd = QColor("#00CEC9")
+        self._chip_4k = QColor("#FF7675")
+        self._chip_sd = QColor("#74B9FF")
+
+    def sizeHint(self, option, index):
+        return QSize(option.rect.width(), self.ROW_HEIGHT)
+
+    def paint(self, painter, option, index):
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        rect = option.rect
+        # Карточка с фоном — выделение или обычный card-цвет.
+        is_sel = bool(option.state & QStyle.State_Selected)
+        is_hover = bool(option.state & QStyle.State_MouseOver)
+        bg = self._card_sel if is_sel else self._card
+        if is_hover and not is_sel:
+            bg = QColor(60, 60, 92, 200)
+        painter.setBrush(QBrush(bg))
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(rect.adjusted(4, 3, -4, -3), 8, 8)
+        if is_sel:
+            painter.setPen(QPen(self._primary, 2))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(rect.adjusted(4, 3, -4, -3), 8, 8)
+
+        # Данные канала из user-role.
+        data = index.data(Qt.UserRole + 1) or {}
+        name = data.get('name', '')
+        group = data.get('group', '')
+        number = data.get('number', '')
+        quality = data.get('quality', '')
+        channel = data.get('_channel')
+
+        x = rect.left() + self.PAD
+        cy = rect.center().y()
+
+        # Номер канала (маленький бейджик).
+        if number:
+            num_w = 38
+            num_h = 22
+            num_rect = QRectF(x, cy - num_h / 2, num_w, num_h)
+            painter.setBrush(QBrush(QColor(124, 108, 247, 130)))
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(num_rect, 6, 6)
+            painter.setPen(QPen(self._white))
+            painter.setFont(QFont('Segoe UI', 10, QFont.Bold))
+            painter.drawText(num_rect, Qt.AlignCenter, str(number))
+            x += num_w + 8
+
+        # Лого.
+        icon = None
+        if channel is not None and self._get_logo:
+            try:
+                icon = self._get_logo(channel)
+            except Exception:
+                icon = None
+        if icon is None and name:
+            icon = make_letter_tile_icon(name, self.LOGO_SIZE)
+        if icon is not None:
+            pix = icon.pixmap(self.LOGO_SIZE, self.LOGO_SIZE)
+            painter.drawPixmap(int(x), int(cy - self.LOGO_SIZE / 2), pix)
+        x += self.LOGO_SIZE + 10
+
+        # Колонка имени — 200px (минимум) или адаптивно.
+        name_col_w = max(180, rect.right() - x - (self.EPG_COL_W * self.EPG_COLS) - self.PAD)
+        name_col_w = min(name_col_w, 260)
+
+        # EPG: now + upcoming
+        now_prog, upcoming = (None, [])
+        if channel is not None and self._get_epg:
+            try:
+                now_prog, upcoming = self._get_epg(channel)
+            except Exception:
+                pass
+
+        # Имя канала.
+        painter.setPen(QPen(self._white))
+        painter.setFont(QFont('Segoe UI', 11, QFont.Bold))
+        fm = QFontMetrics(painter.font())
+        name_text = fm.elidedText(name, Qt.ElideRight, name_col_w)
+        painter.drawText(int(x), int(cy - 16), int(name_col_w), 20,
+                         Qt.AlignLeft | Qt.AlignVCenter, name_text)
+
+        # Группа + quality chip под именем.
+        sub_y = int(cy + 4)
+        painter.setFont(QFont('Segoe UI', 9))
+        sub_x = x
+        if quality:
+            chip = self._chip_4k if quality == '4K' else (
+                self._chip_hd if quality in ('HD', 'FHD') else self._chip_sd)
+            chip_text = quality
+            cw = QFontMetrics(painter.font()).horizontalAdvance(chip_text) + 12
+            ch = 16
+            chip_rect = QRectF(sub_x, sub_y - 2, cw, ch)
+            painter.setBrush(QBrush(chip))
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(chip_rect, 8, 8)
+            painter.setPen(QPen(QColor(15, 15, 26)))
+            painter.drawText(chip_rect, Qt.AlignCenter, chip_text)
+            sub_x += cw + 6
+        if group:
+            painter.setPen(QPen(self._secondary))
+            grp_text = QFontMetrics(painter.font()).elidedText(
+                group, Qt.ElideRight, int(x + name_col_w - sub_x))
+            painter.drawText(int(sub_x), sub_y - 2, int(x + name_col_w - sub_x), 16,
+                             Qt.AlignLeft | Qt.AlignVCenter, grp_text)
+
+        x += name_col_w + 8
+
+        # EPG-слоты — до 3 будущих программ.
+        slot_x = x
+        for i in range(self.EPG_COLS):
+            if i >= len(upcoming):
+                break
+            prog = upcoming[i]
+            try:
+                tstart = datetime.fromtimestamp(prog.start).strftime('%H:%M')
+            except Exception:
+                tstart = ''
+            slot_rect = QRect(int(slot_x), rect.top() + 8,
+                              self.EPG_COL_W - 6, rect.height() - 22)
+            # Время — cyan, мелкое.
+            painter.setPen(QPen(self._cyan))
+            painter.setFont(QFont('Segoe UI', 9, QFont.Bold))
+            painter.drawText(slot_rect.x(), slot_rect.y(), slot_rect.width(), 14,
+                             Qt.AlignLeft | Qt.AlignVCenter, tstart)
+            # Название.
+            painter.setPen(QPen(self._white))
+            painter.setFont(QFont('Segoe UI', 9))
+            fm2 = QFontMetrics(painter.font())
+            title = fm2.elidedText(prog.title or '', Qt.ElideRight,
+                                    slot_rect.width())
+            painter.drawText(slot_rect.x(), slot_rect.y() + 14,
+                             slot_rect.width(), 30,
+                             Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap, title)
+            slot_x += self.EPG_COL_W
+
+        # Полоска прогресса по текущей программе — на дне строки.
+        if now_prog:
+            try:
+                pct = get_current_progress(now_prog)
+            except Exception:
+                pct = 0
+            bar_y = rect.bottom() - 6
+            bar_x = rect.left() + 60
+            bar_w = rect.width() - 70
+            painter.setBrush(QBrush(QColor(255, 255, 255, 30)))
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(QRectF(bar_x, bar_y, bar_w, 2), 1, 1)
+            painter.setBrush(QBrush(self._primary))
+            painter.drawRoundedRect(QRectF(bar_x, bar_y, bar_w * max(0.0, min(1.0, pct)), 2), 1, 1)
+        painter.restore()
+
+
 # ============================================================
 # Player Page
 # ============================================================
@@ -1808,14 +1991,21 @@ class PlayerPage(QWidget):
     def _build_channels_overlay(self):
         """Слева, ширина 360px. Содержит поиск + QListWidget со всеми каналами."""
         self.channels_overlay = QWidget(self.video_frame)
-        # Round 235: скругление углов + насыщенная фиолетовая обводка,
-        # ближе к Android Round 211 центральному popup-меню.
         self.channels_overlay.setStyleSheet(
             "background-color: rgba(15, 15, 26, 235);"
             " border-top-right-radius: 14px;"
             " border-bottom-right-radius: 14px;"
             " border: 1px solid rgba(124, 108, 247, 200);"
             " border-left: none;")
+        # Round 236: drop-shadow эффект на правом крае.
+        try:
+            sh = QGraphicsDropShadowEffect(self.channels_overlay)
+            sh.setBlurRadius(20)
+            sh.setOffset(4, 0)
+            sh.setColor(QColor(124, 108, 247, 160))
+            self.channels_overlay.setGraphicsEffect(sh)
+        except Exception:
+            pass
         self.channels_overlay.hide()
         col = QVBoxLayout(self.channels_overlay)
         col.setContentsMargins(10, 10, 10, 10)
@@ -1830,11 +2020,22 @@ class PlayerPage(QWidget):
         self._overlay_list = QListWidget()
         self._overlay_list.setIconSize(QSize(28, 28))
         self._overlay_list.itemClicked.connect(self._overlay_channel_clicked)
-        # Round 234: правый клик показывает детали программы — порт
-        # Android Round 221k (channelDetailsPanel).
         self._overlay_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self._overlay_list.customContextMenuRequested.connect(
             self._show_overlay_channel_details)
+        # Round 236: рендеринг строк через ChannelRowDelegate — лого +
+        # имя + EPG-сетка + прогресс, копия Android Round 212 layout.
+        self._overlay_list.setMouseTracking(True)
+        self._overlay_list.setStyleSheet(
+            "QListWidget { background: transparent; border: none; outline: none; }"
+            "QListWidget::item { padding: 0; }"
+            "QListWidget::item:selected { background: transparent; }")
+        self._channel_delegate = ChannelRowDelegate(
+            get_logo=self._delegate_get_logo,
+            get_epg_data=self._delegate_get_epg,
+            parent=self._overlay_list,
+        )
+        self._overlay_list.setItemDelegate(self._channel_delegate)
         col.addWidget(self._overlay_list, 1)
 
     def _build_quick_overlay(self):
@@ -1846,6 +2047,14 @@ class PlayerPage(QWidget):
             " border-bottom-left-radius: 14px;"
             " border: 1px solid rgba(124, 108, 247, 200);"
             " border-right: none;")
+        try:
+            sh = QGraphicsDropShadowEffect(self.quick_overlay)
+            sh.setBlurRadius(20)
+            sh.setOffset(-4, 0)
+            sh.setColor(QColor(124, 108, 247, 160))
+            self.quick_overlay.setGraphicsEffect(sh)
+        except Exception:
+            pass
         self.quick_overlay.hide()
         col = QVBoxLayout(self.quick_overlay)
         col.setContentsMargins(10, 10, 10, 10)
@@ -1904,7 +2113,9 @@ class PlayerPage(QWidget):
         ph = self.video_frame.height()
         if pw <= 0 or ph <= 0:
             return
-        ch_w = min(360, int(pw * 0.40))
+        # Round 236: расширили left-overlay до 640px чтобы EPG-сетка
+        # помещалась в строке (3 × 130px = 390px + лого + имя).
+        ch_w = min(680, int(pw * 0.62))
         qk_w = min(280, int(pw * 0.32))
         self.channels_overlay.setGeometry(0, 0, ch_w, ph)
         self.quick_overlay.setGeometry(pw - qk_w, 0, qk_w, ph)
@@ -1995,50 +2206,55 @@ class PlayerPage(QWidget):
         anim.start(QPropertyAnimation.DeleteWhenStopped)
         widget._slide_anim = anim
 
+    def _delegate_get_logo(self, channel):
+        """Используется ChannelRowDelegate."""
+        if channel is None:
+            return None
+        if self.logo_cache is not None and getattr(channel, 'logo_url', None):
+            return self.logo_cache.get(channel.logo_url)
+        return None
+
+    def _delegate_get_epg(self, channel):
+        """Возвращает (now_prog, upcoming_list[3]) для делегата."""
+        if not self.epg_data or channel is None:
+            return None, []
+        try:
+            now_prog, _ = get_now_next(self.epg_data, channel.tvg_id, channel.name)
+            upcoming = get_upcoming_programmes(
+                self.epg_data, channel.tvg_id, channel.name, 3)
+            return now_prog, upcoming
+        except Exception:
+            return None, []
+
     def _refresh_channels_overlay(self):
         if not hasattr(self, '_overlay_list'):
             return
         q = (self._overlay_search.text() or "").strip().lower()
-        # Round 233: setUpdatesEnabled(False) — иначе QListWidget
-        # перерисовывается на каждый addItem, на 10k каналах
-        # подвешивает UI на 1-2 сек. Plus аппаратный лимит на 500
-        # элементов когда нет поиска — больше юзеру всё равно не
-        # обозреть, а скролл становится медленным.
+        # Round 233: setUpdatesEnabled(False) — батч рендеринга.
+        # 500 cap без поиска — на 10k каналах иначе пауза 1-2 сек.
         self._overlay_list.setUpdatesEnabled(False)
         try:
             self._overlay_list.clear()
             shown = 0
-            cap = 500 if not q else 10000  # без поиска — лимит; с поиском показываем всё подходящее
+            cap = 500 if not q else 10000
             for idx, ch in enumerate(self.channels or []):
                 if q and q not in (ch.name or "").lower():
                     continue
                 if shown >= cap:
                     break
-                # Round 234 (Windows): EPG-сетка из 3 строк (now + 2
-                # предстоящих) — порт Android Round 212. Если данных нет
-                # — строки опускаются и item получает обычный 1-строчный
-                # формат.
-                epg_lines = []
-                if self.epg_data:
-                    try:
-                        upcoming = get_upcoming_programmes(
-                            self.epg_data, ch.tvg_id, ch.name, 3)
-                        for prog in upcoming:
-                            try:
-                                tstart = datetime.fromtimestamp(
-                                    prog.start).strftime('%H:%M')
-                                epg_lines.append(f"  {tstart}  {prog.title}")
-                            except (OSError, ValueError):
-                                pass
-                    except Exception:
-                        pass
-                epg_suffix = ("\n" + "\n".join(epg_lines)) if epg_lines else ""
-                item = QListWidgetItem(f"{idx+1}. {ch.name}{epg_suffix}")
+                item = QListWidgetItem()
                 item.setData(Qt.UserRole, idx)
-                icon = None
-                if self.logo_cache is not None and ch.logo_url:
-                    icon = self.logo_cache.get(ch.logo_url)
-                item.setIcon(icon if icon is not None else make_letter_tile_icon(ch.name))
+                # Round 236: данные для ChannelRowDelegate.
+                item.setData(Qt.UserRole + 1, {
+                    'name': ch.name or '',
+                    'group': ch.group or '',
+                    'number': str(idx + 1),
+                    'quality': detect_quality(ch.name or ''),
+                    '_channel': ch,
+                })
+                # sizeHint берёт делегат, но запасной 80px на случай если
+                # делегат не сработает.
+                item.setSizeHint(QSize(0, ChannelRowDelegate.ROW_HEIGHT))
                 self._overlay_list.addItem(item)
                 shown += 1
         finally:
