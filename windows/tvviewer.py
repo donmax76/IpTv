@@ -692,6 +692,9 @@ class Config:
         self.always_on_top = False
         self.hardware_decode = True
         self.audio_output = ""             # VLC --aout: "" auto / directsound / mmdevice / waveout
+        # Round 246: позиция персистентных часов в плеере
+        # (top_right / top_left / bottom_right / bottom_left / off).
+        self.clock_position = "top_right"
         self.per_channel_state = {}        # url -> {volume, aspect_idx, speed_idx, position_ms, audio_track}
         # Round 232 (Windows): UI language. ru/en/uk/az. На первом
         # запуске возьмём системную локаль, потом юзер может сменить в
@@ -766,6 +769,10 @@ class Config:
                 self.always_on_top = bool(data.get('always_on_top', False))
                 self.hardware_decode = bool(data.get('hardware_decode', True))
                 self.audio_output = data.get('audio_output', '')
+                cp = data.get('clock_position', 'top_right')
+                if cp in ('top_right', 'top_left', 'bottom_right',
+                          'bottom_left', 'off'):
+                    self.clock_position = cp
                 pcs = data.get('per_channel_state', {})
                 if isinstance(pcs, dict):
                     self.per_channel_state = pcs
@@ -797,6 +804,7 @@ class Config:
             'always_on_top': self.always_on_top,
             'hardware_decode': self.hardware_decode,
             'audio_output': self.audio_output,
+            'clock_position': self.clock_position,
             'per_channel_state': self.per_channel_state,
             'ui_language': getattr(self, 'ui_language', 'ru'),
         }
@@ -2291,6 +2299,25 @@ class PlayerPage(QWidget):
         self.clock_label.setStyleSheet(f"color: {COLORS['text_hint']}; font-size: 13px;")
         ctrl.addWidget(self.clock_label)
 
+        # Round 246: персистентные часы поверх видео — как Android
+        # persistentClock (Round 221b). Большие белые цифры + чёрная
+        # тень для читаемости на любом фоне, без подложки. Позиция —
+        # верх-право, обновляется по тому же clock_timer.
+        self.persistent_clock = QLabel(self.video_frame)
+        self.persistent_clock.setStyleSheet(
+            "color: white; font-size: 28px; font-weight: bold;"
+            " background: transparent;")
+        try:
+            shadow = QGraphicsDropShadowEffect(self.persistent_clock)
+            shadow.setBlurRadius(8)
+            shadow.setColor(QColor(0, 0, 0, 255))
+            shadow.setOffset(0, 0)
+            self.persistent_clock.setGraphicsEffect(shadow)
+        except Exception:
+            pass
+        self.persistent_clock.setText(datetime.now().strftime('%H:%M'))
+        self.persistent_clock.adjustSize()
+
         # Round 245: нижняя панель кнопок СКРЫТА — как в Android-плеере,
         # где нет видимых нижних кнопок. Все управление перенесено в
         # right-overlay (RIGHT) и через хоткеи + osd_banner показывает
@@ -2372,6 +2399,7 @@ class PlayerPage(QWidget):
         super().resizeEvent(event)
         self._position_osd()
         self._position_overlays()
+        self._position_persistent_clock()
 
     # ---- Round 232: side-panel overlays ----
 
@@ -3234,7 +3262,45 @@ class PlayerPage(QWidget):
             self.epg_progress.setValue(0)
 
     def update_clock(self):
-        self.clock_label.setText(datetime.now().strftime('%H:%M'))
+        now_str = datetime.now().strftime('%H:%M')
+        self.clock_label.setText(now_str)
+        # Round 246: тот же текст в персистентные часы поверх видео.
+        try:
+            if hasattr(self, 'persistent_clock'):
+                self.persistent_clock.setText(now_str)
+                self.persistent_clock.adjustSize()
+                self._position_persistent_clock()
+        except Exception:
+            pass
+
+    def _position_persistent_clock(self):
+        """Round 246: позиция часов читается из config.clock_position
+        — top_right / top_left / bottom_right / bottom_left / off."""
+        try:
+            if not hasattr(self, 'persistent_clock'):
+                return
+            pos = getattr(self.config, 'clock_position', 'top_right')
+            if pos == 'off':
+                self.persistent_clock.hide()
+                return
+            self.persistent_clock.show()
+            pw = self.video_frame.width()
+            ph = self.video_frame.height()
+            cw = self.persistent_clock.width()
+            ch = self.persistent_clock.height()
+            pad = 14
+            if pos == 'top_left':
+                x, y = pad, 10
+            elif pos == 'bottom_right':
+                x, y = pw - cw - pad, ph - ch - 10
+            elif pos == 'bottom_left':
+                x, y = pad, ph - ch - 10
+            else:  # top_right
+                x, y = pw - cw - pad, 10
+            self.persistent_clock.setGeometry(x, y, cw, ch)
+            self.persistent_clock.raise_()
+        except Exception:
+            pass
 
     # --- Aspect ratio ---
 
@@ -3789,6 +3855,27 @@ class SettingsPage(QWidget):
         vol_row.addStretch()
         layout.addLayout(vol_row)
 
+        # Round 246: позиция персистентных часов в плеере.
+        clock_row = QHBoxLayout()
+        clock_row.addWidget(QLabel("Часы в плеере:"))
+        self.clock_combo = QComboBox()
+        for code, label in (
+            ('top_right',    'Верх-право'),
+            ('top_left',     'Верх-лево'),
+            ('bottom_right', 'Низ-право'),
+            ('bottom_left',  'Низ-лево'),
+            ('off',          'Скрыть'),
+        ):
+            self.clock_combo.addItem(label, code)
+        cur_pos = getattr(self.config, 'clock_position', 'top_right')
+        for i in range(self.clock_combo.count()):
+            if self.clock_combo.itemData(i) == cur_pos:
+                self.clock_combo.setCurrentIndex(i)
+                break
+        self.clock_combo.currentIndexChanged.connect(self._save_clock_position)
+        clock_row.addWidget(self.clock_combo, 1)
+        layout.addLayout(clock_row)
+
         # Sleep timer default
         sleep_row = QHBoxLayout()
         sleep_row.addWidget(QLabel("Sleep timer (default):"))
@@ -3989,6 +4076,14 @@ class SettingsPage(QWidget):
                     child.setText(t('settings'))
         except Exception:
             pass
+
+    def _save_clock_position(self, _idx):
+        code = self.clock_combo.currentData()
+        if not code:
+            return
+        self.config.clock_position = code
+        self.config.save()
+        self.settings_changed.emit()
 
     def _save_volume(self, v):
         self.config.volume = int(v)
@@ -4713,6 +4808,11 @@ class MainWindow(QMainWindow):
     def _on_settings_changed(self):
         # Push new default volume to the running player
         self.player_page.vol_slider.setValue(self.config.volume)
+        # Round 246: применяем смену позиции часов сразу.
+        try:
+            self.player_page._position_persistent_clock()
+        except Exception:
+            pass
         # Refresh channel list (favorite state / category visibility may have changed)
         self.channels_page.filter_channels()
         if self.stack.currentIndex() == 2:
