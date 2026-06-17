@@ -3191,14 +3191,36 @@ class PlayerPage(QWidget):
     def showEvent(self, event):
         # Round 248: при показе PlayerPage поднимаем overlay_host над
         # видео и запускаем синхронизацию его геометрии.
+        # Round 261: ДОПОЛНИТЕЛЬНО ставим MainWindow владельцем
+        # overlay_host (setParent + те же флаги). На Windows owned-окно
+        # минимизируется/уходит назад вместе со своим owner-ом. Без
+        # этого overlay_host (Qt.Tool|WindowStaysOnTopHint) светился
+        # поверх ДРУГИХ приложений при alt-tab. Юзер: «опять эти
+        # элементы выходят за пределы своей программы». Делается один
+        # раз при первом show — последующие setParent дешевле, но всё
+        # равно пересоздают native window, так что флагуем.
         super().showEvent(event)
         try:
+            if not getattr(self, '_overlay_owner_set', False):
+                mw = self.window()
+                if mw is not None and mw is not self:
+                    self.overlay_host.setParent(
+                        mw,
+                        Qt.FramelessWindowHint | Qt.Tool
+                        | Qt.WindowStaysOnTopHint
+                        | Qt.NoDropShadowWindowHint)
+                    self.overlay_host.setAttribute(
+                        Qt.WA_TranslucentBackground, True)
+                    self.overlay_host.setAttribute(
+                        Qt.WA_ShowWithoutActivating, True)
+                    self._overlay_owner_set = True
+                    log_info('overlay', f"owner set to {type(mw).__name__}")
             self._sync_overlay_host()
             self.overlay_host.show()
             self.overlay_host.raise_()
             self._overlay_sync_timer.start()
-        except Exception:
-            pass
+        except Exception as e:
+            log_error('PlayerPage.showEvent', e)
 
     def hideEvent(self, event):
         # Round 248: уходя из плеера прячем overlay_host (иначе он
@@ -5141,6 +5163,32 @@ class MainWindow(QMainWindow):
                 host.hide()
         except Exception as e:
             log_error('_on_app_state_changed', e)
+
+    def changeEvent(self, event):
+        """Round 261: belt-and-braces — ловим WindowState/Activation
+        events MainWindow и синхронизируем overlay_host. applicationState-
+        Changed на Windows иногда не срабатывает при minimize-to-tray
+        или при кликe на другой app без полного alt-tab."""
+        try:
+            from PyQt5.QtCore import QEvent as _QE
+            if event.type() in (_QE.WindowStateChange,
+                                _QE.ActivationChange,
+                                _QE.WindowDeactivate,
+                                _QE.WindowActivate):
+                page = self.stack.currentWidget()
+                if isinstance(page, PlayerPage):
+                    host = getattr(page, 'overlay_host', None)
+                    if host is not None:
+                        active = self.isActiveWindow() and not self.isMinimized()
+                        if active:
+                            page._sync_overlay_host()
+                            host.show()
+                            host.raise_()
+                        else:
+                            host.hide()
+        except Exception as e:
+            log_error('changeEvent', e)
+        super().changeEvent(event)
 
     def eventFilter(self, obj, event):
         """Round 248: глобальный перехват клавиш. Когда играет VLC, его
