@@ -40,7 +40,7 @@ from PyQt5.QtWidgets import (
     QGraphicsOpacityEffect
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize, QUrl, QObject
-from PyQt5.QtGui import QFont, QColor, QPalette, QIcon, QPixmap, QKeySequence
+from PyQt5.QtGui import QFont, QColor, QPalette, QIcon, QPixmap, QKeySequence, QPainter, QBrush, QPen
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 import hashlib
 
@@ -128,6 +128,55 @@ _QUALITY_PATTERNS = [
     ("HD",   re.compile(r'(?i)(?:^|[\s\[\(\.\-_])(hd|720p?|h264|ahd)(?:$|[\s\]\)\.\-_])')),
     ("SD",   re.compile(r'(?i)(?:^|[\s\[\(\.\-_])(sd|480p?|360p?|240p?|low)(?:$|[\s\]\)\.\-_])')),
 ]
+
+# Round 221c (Windows): letter-tile fallback для каналов без логотипа.
+# Цветная плашка с инициалами, цвет — детерминированный hash имени,
+# один и тот же канал в разных плейлистах получает одинаковую плашку.
+_LETTER_TILE_PALETTE = (
+    "#7C6CF7", "#00CEC9", "#FF7675", "#00B894",
+    "#FDC094", "#74B9FF", "#FD79A8", "#E17055",
+    "#A29BFE", "#55EFC4", "#6C5CE7", "#EC9A9A",
+)
+_LETTER_TILE_CACHE: Dict[Tuple[str, int], QIcon] = {}
+
+
+def _letter_tile_initials(name: str) -> str:
+    parts = [p for p in re.split(r"[ \-_./|]+", name or "") if p]
+    if not parts:
+        return "?"
+    if len(parts) == 1:
+        return parts[0][0].upper()
+    return (parts[0][0] + parts[1][0]).upper()
+
+
+def _letter_tile_color(name: str) -> str:
+    h = 0
+    for c in name or "":
+        h = h * 31 + ord(c)
+    return _LETTER_TILE_PALETTE[abs(h) % len(_LETTER_TILE_PALETTE)]
+
+
+def make_letter_tile_icon(name: str, size: int = 48) -> QIcon:
+    cache_key = (name or "", size)
+    if cache_key in _LETTER_TILE_CACHE:
+        return _LETTER_TILE_CACHE[cache_key]
+    pm = QPixmap(size, size)
+    pm.fill(QColor(0, 0, 0, 0))
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setBrush(QBrush(QColor(_letter_tile_color(name))))
+    painter.setPen(Qt.NoPen)
+    radius = size * 0.18
+    painter.drawRoundedRect(0, 0, size, size, radius, radius)
+    painter.setPen(QPen(QColor("white")))
+    font = QFont("Segoe UI", int(size * 0.36), QFont.Bold)
+    painter.setFont(font)
+    painter.drawText(pm.rect(), Qt.AlignCenter, _letter_tile_initials(name))
+    painter.end()
+    icon = QIcon(pm)
+    _LETTER_TILE_CACHE[cache_key] = icon
+    return icon
+
 
 def detect_quality(name: str) -> str:
     """Return '4K' / 'FHD' / 'HD' / 'SD' / '' for a channel name."""
@@ -1176,10 +1225,12 @@ class ChannelsPage(QWidget):
                 item.setData(Qt.UserRole, ch_to_index.get(id(ch), -1))
                 if q:
                     item.setForeground(QColor(QUALITY_COLORS[q]))
+                # Round 221c (Windows): сначала кэш реального лого,
+                # если нет — letter-tile с инициалами и цветом из имени.
+                icon = None
                 if logo_cache is not None and ch.logo_url:
                     icon = logo_cache.get(ch.logo_url)
-                    if icon is not None:
-                        item.setIcon(icon)
+                item.setIcon(icon if icon is not None else make_letter_tile_icon(ch.name))
                 lst.addItem(item)
         finally:
             lst.setUpdatesEnabled(True)
@@ -1199,8 +1250,9 @@ class ChannelsPage(QWidget):
             ch = self.channels[idx]
             if not ch.logo_url:
                 continue
-            if not item.icon().isNull():
-                continue  # already set
+            # Round 221c (Windows): не пропускаем item.icon()!=null —
+            # сейчас все имеют letter-tile, реальное лого должно его
+            # заменить.
             icon = self.logo_cache.get(ch.logo_url)
             if icon is not None:
                 item.setIcon(icon)
@@ -1272,10 +1324,10 @@ class FavoritesPage(QWidget):
                 epg = f"  {now_prog.title}" if now_prog else ""
                 item = QListWidgetItem(f"♥ {ch.name}{epg}")
                 item.setData(Qt.UserRole, idx)
+                icon = None
                 if self.logo_cache is not None and ch.logo_url:
                     icon = self.logo_cache.get(ch.logo_url)
-                    if icon is not None:
-                        item.setIcon(icon)
+                item.setIcon(icon if icon is not None else make_letter_tile_icon(ch.name))
                 self.fav_list.addItem(item)
         finally:
             self.fav_list.setUpdatesEnabled(True)
@@ -2130,10 +2182,10 @@ class RecentPage(QWidget):
                 item.setData(Qt.UserRole, idx)
                 if q:
                     item.setForeground(QColor(QUALITY_COLORS[q]))
+                icon = None
                 if self.logo_cache is not None and ch.logo_url:
                     icon = self.logo_cache.get(ch.logo_url)
-                    if icon is not None:
-                        item.setIcon(icon)
+                item.setIcon(icon if icon is not None else make_letter_tile_icon(ch.name))
                 self.recent_list.addItem(item)
                 count += 1
         finally:
@@ -2262,10 +2314,10 @@ class TvGuidePage(QWidget):
                         next_text = f"\n  ⏭ {next_prog.title}"
                 item = QListWidgetItem(f"{ch.name}{now_text}{next_text}")
                 item.setData(Qt.UserRole, idx)
+                icon = None
                 if self.logo_cache is not None and ch.logo_url:
                     icon = self.logo_cache.get(ch.logo_url)
-                    if icon is not None:
-                        item.setIcon(icon)
+                item.setIcon(icon if icon is not None else make_letter_tile_icon(ch.name))
                 lst.addItem(item)
                 count += 1
         finally:
