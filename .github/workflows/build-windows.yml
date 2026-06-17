@@ -142,6 +142,36 @@ jobs:
         path: release_output/TVViewer-update.exe
         if-no-files-found: error
 
+    # Round 264: bump windows-version.json on main — копируем Android
+    # подход (Round 229 в build.yml). Один HTTP GET к raw.githubusercontent.com
+    # ≈ 100 мс, гораздо надёжнее пагинации Releases API на стороне юзера
+    # (особенно когда PyInstaller-сборка не несёт cacert.pem).
+    - name: Bump windows-version.json on main
+      if: github.event_name == 'push'
+      shell: pwsh
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git fetch origin main
+        git checkout main
+        $build = "${{ github.run_number }}"
+        $json = @"
+        {
+          "versionCode": $build,
+          "versionName": "5.4",
+          "tag": "win-v5.4-build$build",
+          "exeUrl":   "https://github.com/donmax76/IpTv/releases/download/win-v5.4-build$build/TVViewer-update.exe",
+          "zipUrl":   "https://github.com/donmax76/IpTv/releases/download/win-v5.4-build$build/TVViewer-Windows-Portable.zip"
+        }
+        "@
+        Set-Content windows-version.json $json
+        git add windows-version.json
+        git diff --cached --quiet
+        if ($LASTEXITCODE -ne 0) {
+          git commit -m "Bump windows-version.json to build $build [skip ci]"
+          git push origin main
+        }
+
     - name: Create Release
       if: github.event_name == 'push'
       uses: softprops/action-gh-release@v2

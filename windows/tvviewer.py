@@ -968,54 +968,96 @@ class UpdateCheckThread(QThread):
 
     REPO = "donmax76/iptv"
 
-    def run(self):
-        # Round 260/263: подробное логирование + SSL-fallback. Юзер:
-        # «обновление не идёт, ничего не находит». На PyInstaller-сборке
-        # urllib иногда не может проверить TLS-сертификат (отсутствует
-        # cacert.pem), и https://api.github.com тогда падает.
+    FAST_VERSION_JSON = (
+        "https://raw.githubusercontent.com/donmax76/IpTv/main/"
+        "windows-version.json")
+
+    def _fetch(self, url, headers):
+        """Round 264: тройной транспорт — requests → urllib → urllib без
+        проверки SSL. PyInstaller-сборка без cacert.pem падала на TLS,
+        unverified — последний шанс достучаться до github."""
+        # 1) requests (несёт certifi)
         try:
-            log_info('update', f"querying GitHub releases for {self.REPO}")
+            import requests as _rq
+            resp = _rq.get(url, headers=headers, timeout=15)
+            resp.raise_for_status()
+            log_info('update', f"fetched via requests: {url}")
+            return resp.content
+        except Exception as e:
+            log_warn('update', f"requests failed for {url}: {type(e).__name__}: {e}")
+        # 2) urllib
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=15) as r:
+                raw = r.read()
+            log_info('update', f"fetched via urllib: {url}")
+            return raw
+        except Exception as e:
+            log_warn('update', f"urllib failed for {url}: {type(e).__name__}: {e}")
+        # 3) urllib + unverified SSL
+        try:
+            import ssl as _ssl
+            ctx = _ssl._create_unverified_context()
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=15, context=ctx) as r:
+                raw = r.read()
+            log_warn('update', f"fetched via urllib (UNVERIFIED): {url}")
+            return raw
+        except Exception as e:
+            log_error('update.all_failed', e, extra=f"url={url}")
+            return None
+
+    def _try_fast_path(self):
+        """Round 264: Android-style fast path — читаем windows-version.json
+        с raw.githubusercontent.com (CDN, ~100мс) вместо пагинации API."""
+        try:
+            log_info('update', f"fast path: {self.FAST_VERSION_JSON}")
+            raw = self._fetch(self.FAST_VERSION_JSON,
+                              {'User-Agent': 'TVViewer-Windows',
+                               'Cache-Control': 'no-cache'})
+            if not raw:
+                return None
+            obj = json.loads(raw)
+            code = int(obj.get('versionCode', 0))
+            if code <= 0:
+                return None
+            url = obj.get('exeUrl') or obj.get('zipUrl') or ''
+            has_exe = bool(obj.get('exeUrl'))
+            log_info('update',
+                     f"fast path ok: build={code} tag={obj.get('tag','')} "
+                     f"exe={has_exe}")
+            return {
+                'code': code,
+                'name': obj.get('versionName', ''),
+                'tag': obj.get('tag', f"win-v5.4-build{code}"),
+                'url': url,
+                'has_exe': has_exe,
+                'notes': obj.get('releaseNotes', ''),
+            }
+        except Exception as e:
+            log_warn('update', f"fast path parse failed: {type(e).__name__}: {e}")
+            return None
+
+    def run(self):
+        # Round 260/263/264: fast path → API fallback. Юзер: «в андроид
+        # версии обновление работает» — там тот же путь через
+        # raw.githubusercontent.com/.../version.json.
+        # 0) fast path
+        fast = self._try_fast_path()
+        if fast is not None:
+            self.finished.emit(fast)
+            return
+        try:
+            log_info('update', f"slow path: querying releases for {self.REPO}")
             api_url = f"https://api.github.com/repos/{self.REPO}/releases?per_page=30"
             headers = {
                 'Accept': 'application/vnd.github.v3+json',
                 'User-Agent': 'TVViewer-Windows',
             }
-            raw = None
-            # 1) Сначала requests (он несёт certifi и сам подхватывает
-            # CA-сертификаты — самый надёжный путь в PyInstaller).
-            try:
-                import requests as _rq
-                resp = _rq.get(api_url, headers=headers, timeout=15)
-                resp.raise_for_status()
-                raw = resp.content
-                log_info('update', f"fetched via requests ({len(raw)} bytes)")
-            except Exception as e1:
-                log_warn('update', f"requests failed: {type(e1).__name__}: {e1}")
-                # 2) Fallback на urllib.
-                try:
-                    req = urllib.request.Request(api_url, headers=headers)
-                    with urllib.request.urlopen(req, timeout=15) as r:
-                        raw = r.read()
-                    log_info('update', f"fetched via urllib ({len(raw)} bytes)")
-                except Exception as e2:
-                    log_warn('update', f"urllib failed: {type(e2).__name__}: {e2}")
-                    # 3) Последняя надежда — urllib с unverified SSL
-                    # (для проверки обновлений приемлемо: ответ всё
-                    # равно публичный, инсталлятор отдельно проверять
-                    # не будем — он же приходит из github.com).
-                    try:
-                        import ssl as _ssl
-                        ctx = _ssl._create_unverified_context()
-                        req = urllib.request.Request(api_url, headers=headers)
-                        with urllib.request.urlopen(req, timeout=15,
-                                                    context=ctx) as r:
-                            raw = r.read()
-                        log_warn('update',
-                                 f"fetched via urllib (UNVERIFIED SSL) "
-                                 f"({len(raw)} bytes)")
-                    except Exception as e3:
-                        log_error('update.all_methods_failed', e3)
-                        raise
+            raw = self._fetch(api_url, headers)
+            if raw is None:
+                self.finished.emit(None)
+                return
             data = json.loads(raw)
             log_info('update', f"got {len(data) if isinstance(data, list) else 0} releases")
             wins = [rel for rel in data
