@@ -121,6 +121,75 @@ def _log_file_path() -> str:
         pass
     return os.path.join(d, "tvviewer.log")
 
+
+# Round 258: централизованное логирование. Юзер: «добавь логирования всех
+# ошибок». Инициализируем logging СРАЗУ при импорте, чтобы все ошибки
+# (даже до запуска MainWindow / splash) попадали в файл.
+import logging as _logging
+_LOGGER = _logging.getLogger('tvviewer')
+if not _LOGGER.handlers:
+    try:
+        _h = _logging.FileHandler(_log_file_path(), encoding='utf-8')
+        _h.setFormatter(_logging.Formatter(
+            '%(asctime)s %(levelname)s [%(name)s] %(message)s'))
+        _LOGGER.addHandler(_h)
+        _LOGGER.setLevel(_logging.INFO)
+        _LOGGER.propagate = False
+    except Exception:
+        pass
+
+
+def log_error(tag: str, err, extra: str = ""):
+    """Запись ошибки + traceback в tvviewer.log. Используется в except-
+    блоках вместо silent pass."""
+    try:
+        import traceback as _tb
+        if isinstance(err, BaseException):
+            msg = f"[{tag}] {type(err).__name__}: {err}"
+            if extra:
+                msg = f"{msg} | {extra}"
+            _LOGGER.error("%s\n%s", msg, _tb.format_exc())
+        else:
+            _LOGGER.error("[%s] %s%s", tag, err,
+                          f" | {extra}" if extra else "")
+    except Exception:
+        pass
+
+
+def log_info(tag: str, msg: str):
+    try:
+        _LOGGER.info("[%s] %s", tag, msg)
+    except Exception:
+        pass
+
+
+def log_warn(tag: str, msg: str):
+    try:
+        _LOGGER.warning("[%s] %s", tag, msg)
+    except Exception:
+        pass
+
+
+def _install_threading_hook():
+    """Round 258: ловим необработанные исключения из QThread/threading.
+    Без этого крах в фоновой нитке (LoadEpgThread, _PhotoFetcher,
+    DownloadUpdateThread) проходил в /dev/null."""
+    try:
+        import threading
+        if hasattr(threading, 'excepthook'):
+            def _hook(args):
+                try:
+                    log_error('thread', args.exc_value,
+                              extra=f"thread={getattr(args.thread, 'name', '?')}")
+                except Exception:
+                    pass
+            threading.excepthook = _hook
+    except Exception:
+        pass
+
+
+_install_threading_hook()
+
 def _read_log_tail(path: str, max_chars: int = 4000) -> str:
     try:
         with open(path, 'r', encoding='utf-8', errors='replace') as f:
@@ -861,12 +930,16 @@ class LoadPlaylistThread(QThread):
 
     def run(self):
         try:
+            log_info('playlist', f"loading {self.url}")
             if os.path.isfile(self.url):
                 result = load_playlist_file(self.url)
             else:
                 result = fetch_playlist(self.url)
+            log_info('playlist',
+                     f"ok channels={len(getattr(result, 'channels', []) or [])}")
             self.finished.emit(result)
         except Exception as e:
+            log_error('LoadPlaylistThread', e, extra=f"url={self.url}")
             self.error.emit(str(e))
 
 
@@ -907,6 +980,7 @@ class UpdateCheckThread(QThread):
             code, rel = best
             asset = next((a for a in rel.get('assets', [])
                           if a.get('name', '').lower().endswith('.exe')), None)
+            log_info('update', f"latest build={code} tag={rel.get('tag_name')}")
             self.finished.emit({
                 'code': code,
                 'name': rel.get('name', ''),
@@ -914,7 +988,8 @@ class UpdateCheckThread(QThread):
                 'url': asset['browser_download_url'] if asset else rel.get('html_url', ''),
                 'notes': rel.get('body', ''),
             })
-        except Exception:
+        except Exception as e:
+            log_error('UpdateCheckThread', e)
             self.finished.emit(None)
 
 
@@ -945,8 +1020,10 @@ class DownloadUpdateThread(QThread):
                         read += len(chunk)
                         if total > 0:
                             self.progress.emit(int(read * 100 / total))
+            log_info('update', f"downloaded {read} bytes → {out_path}")
             self.finished.emit(out_path)
         except Exception as e:
+            log_error('DownloadUpdateThread', e, extra=f"url={self.url}")
             self.error.emit(str(e))
             try: os.remove(out_path)
             except Exception: pass
@@ -1015,8 +1092,10 @@ class LoadEpgThread(QThread):
                     merged.update(data)
             except Exception as e:
                 trace("EPG", f"source failed: {url} → {type(e).__name__}: {e}")
+                log_error('epg_source', e, extra=f"url={url}")
                 continue
         trace("EPG", f"fetchAll done: merged={len(merged)} channels")
+        log_info('epg', f"merged channels={len(merged)} from {len(self.urls)} sources")
         self.finished.emit(merged)
 
 
@@ -1142,12 +1221,13 @@ class _PhotoFetcher(QThread):
                 headers={'User-Agent': 'TVViewer/Windows'})
             with urllib.request.urlopen(req, timeout=8) as resp:
                 data = resp.read()
-        except Exception:
+        except Exception as e:
+            log_error('PhotoFetcher', e, extra=f"url={self._url}")
             data = b""
         try:
             self.image_ready.emit(data)
-        except Exception:
-            pass
+        except Exception as e:
+            log_error('PhotoFetcher.emit', e)
 
 
 # ============================================================
@@ -3098,8 +3178,8 @@ class PlayerPage(QWidget):
                              'center_menu_overlay', 'quick_overlay'))
             self.overlay_host.setAttribute(
                 Qt.WA_TransparentForMouseEvents, not interactive)
-        except Exception:
-            pass
+        except Exception as e:
+            log_error('_sync_overlay_host', e)
 
     def _position_overlays(self):
         if not hasattr(self, 'channels_overlay'):
@@ -3554,7 +3634,9 @@ class PlayerPage(QWidget):
                 args += [f'--http-user-agent={ua}']
             self.vlc_instance = vlc.Instance(*args)
             self.player = self.vlc_instance.media_player_new()
-        except Exception:
+            log_info('vlc', f"instance ok, args={args}")
+        except Exception as e:
+            log_error('init_vlc', e, extra=f"args={args}")
             self.vlc_instance = None
             self.player = None
 
@@ -3566,6 +3648,7 @@ class PlayerPage(QWidget):
         self.current_index = index
         self.epg_data = epg_data
         ch = channels[index]
+        log_info('play', f"#{index+1}/{len(channels)} {ch.name!r} url={ch.url[:80]}")
         self.channel_name_label.setText(ch.name)
         self.channel_number_label.setText(f"{index + 1} / {len(channels)}")
         self.update_fav_btn()
@@ -3581,8 +3664,8 @@ class PlayerPage(QWidget):
                     self._speed_idx = int(st['speed_idx']) % len(self.SPEED_VALUES)
                 if 'volume' in st and 0 <= int(st['volume']) <= 100:
                     self.vol_slider.setValue(int(st['volume']))
-            except Exception:
-                pass
+            except Exception as e:
+                log_error('restore_channel_state', e, extra=f"url={ch.url[:80]}")
 
         self.play_url(ch.url)
 
@@ -3655,37 +3738,41 @@ class PlayerPage(QWidget):
 
     def play_url(self, url):
         if not self.player:
+            log_warn('play_url', "no VLC player available")
             self.epg_bar.setText("VLC not installed. Install VLC and python-vlc.")
             return
-        # Release previous media to avoid resource accumulation across channel switches
-        prev = self.current_media
-        media = self.vlc_instance.media_new(url)
-        media.add_option(f':network-caching={int(self.config.network_caching_ms)}')
-        self.player.set_media(media)
-        self.current_media = media
-        if prev is not None:
-            try:
-                prev.release()
-            except Exception:
-                pass
-        if sys.platform == "win32":
-            self.player.set_hwnd(int(self.video_frame.winId()))
-        elif sys.platform == "linux":
-            self.player.set_xwindow(int(self.video_frame.winId()))
-        elif sys.platform == "darwin":
-            self.player.set_nsobject(int(self.video_frame.winId()))
-        self.player.audio_set_volume(self.config.volume)
-        # Restore aspect ratio & speed per current selection
-        self._apply_aspect_ratio()
         try:
-            self.player.set_rate(self.SPEED_VALUES[self._speed_idx])
-        except Exception:
-            pass
-        self.player.play()
-        self.btn_play.setText("Pause")
-        # Remember last channel for autoplay-last
-        self.config.last_channel_url = url
-        self.config.save()
+            # Release previous media to avoid resource accumulation across channel switches
+            prev = self.current_media
+            media = self.vlc_instance.media_new(url)
+            media.add_option(f':network-caching={int(self.config.network_caching_ms)}')
+            self.player.set_media(media)
+            self.current_media = media
+            if prev is not None:
+                try:
+                    prev.release()
+                except Exception as e:
+                    log_error('media_release', e)
+            if sys.platform == "win32":
+                self.player.set_hwnd(int(self.video_frame.winId()))
+            elif sys.platform == "linux":
+                self.player.set_xwindow(int(self.video_frame.winId()))
+            elif sys.platform == "darwin":
+                self.player.set_nsobject(int(self.video_frame.winId()))
+            self.player.audio_set_volume(self.config.volume)
+            # Restore aspect ratio & speed per current selection
+            self._apply_aspect_ratio()
+            try:
+                self.player.set_rate(self.SPEED_VALUES[self._speed_idx])
+            except Exception as e:
+                log_error('set_rate', e)
+            self.player.play()
+            self.btn_play.setText("Pause")
+            # Remember last channel for autoplay-last
+            self.config.last_channel_url = url
+            self.config.save()
+        except Exception as e:
+            log_error('play_url', e, extra=f"url={url[:80]}")
 
     def toggle_play(self):
         if not self.player:
@@ -4952,8 +5039,8 @@ class MainWindow(QMainWindow):
                 # клавиши; остальное отдаём Qt.
                 if self._handle_key(key):
                     return True
-        except Exception:
-            pass
+        except Exception as e:
+            log_error('eventFilter', e)
         return super().eventFilter(obj, event)
 
     def _auto_check_updates(self):
@@ -5111,6 +5198,7 @@ class MainWindow(QMainWindow):
         # режима»). И наоборот: на плеере прячем chrome всегда —
         # всегда «фул-скрин-выгляд» без F11.
         try:
+            log_info('nav', f"switch_page → {idx}")
             going_to_player = (idx == 3)
             if not going_to_player and self.isFullScreen():
                 self.showNormal()
@@ -5119,8 +5207,8 @@ class MainWindow(QMainWindow):
                 self.nav_bar.setVisible(not going_to_player)
             if hasattr(self, 'shortcut_bar'):
                 self.shortcut_bar.setVisible(not going_to_player)
-        except Exception:
-            pass
+        except Exception as e:
+            log_error('switch_page', e, extra=f"idx={idx}")
         if idx == 2:
             self.favorites_page.refresh(self.channels, self.epg_data)
         elif idx == 5:
@@ -5297,8 +5385,8 @@ class MainWindow(QMainWindow):
                     current.left_press(); return True
                 if key == Qt.Key_R:
                     current.toggle_quick_overlay(); return True
-        except Exception:
-            pass
+        except Exception as e:
+            log_error('_handle_key', e, extra=f"key={key}")
         # Global section shortcuts (работают везде).
         if key == Qt.Key_F1:
             self.switch_page(0); return True
@@ -5341,8 +5429,8 @@ class MainWindow(QMainWindow):
             cur = self.stack.currentWidget()
             if isinstance(cur, PlayerPage):
                 QTimer.singleShot(60, cur._sync_overlay_host)
-        except Exception:
-            pass
+        except Exception as e:
+            log_error('_apply_fullscreen_chrome', e, extra=f"fs={fullscreen}")
 
     def update_nav_highlight(self, active_idx):
         for btn, idx in self.nav_buttons:
@@ -5420,6 +5508,7 @@ class MainWindow(QMainWindow):
                     break
 
     def on_playlist_error(self, error: str):
+        log_error('playlist_load', error)
         self.channels_page.status_label.setText(f"Error: {error}")
 
     def load_epg(self, urls):
@@ -5629,23 +5718,15 @@ class MainWindow(QMainWindow):
 def _install_crash_handler(app):
     """Log unhandled exceptions to disk and offer a 'Report on GitHub' dialog."""
     import traceback
-    import logging
     import platform as _platform
-    log_path = _log_file_path()
-    try:
-        logging.basicConfig(
-            filename=log_path,
-            level=logging.INFO,
-            format="%(asctime)s %(levelname)s %(message)s",
-        )
-    except Exception:
-        pass
+    # Round 258: используем уже-инициализированный _LOGGER (см. начало
+    # файла), basicConfig здесь больше не нужен.
 
     def _excepthook(exc_type, exc_value, exc_tb):
         try:
             tb_text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
             try:
-                logging.error("Unhandled exception:\n%s", tb_text)
+                _LOGGER.error("Unhandled exception:\n%s", tb_text)
             except Exception:
                 pass
             # Offer to file an issue
@@ -5835,6 +5916,25 @@ def main():
     app = QApplication(sys.argv)
     app.setFont(QFont('Segoe UI', 12))
     _install_crash_handler(app)
+    # Round 258: Qt сам пишет warning/critical в stderr — перехватываем и
+    # пишем в tvviewer.log. Иначе на --windowed сборке без консоли все
+    # «QObject::startTimer: …» и пр. терялись.
+    try:
+        from PyQt5.QtCore import qInstallMessageHandler, QtMsgType
+        def _qt_msg_handler(mode, ctx, message):
+            try:
+                if mode == QtMsgType.QtDebugMsg:
+                    log_info('qt', message)
+                elif mode == QtMsgType.QtWarningMsg:
+                    log_warn('qt', message)
+                else:  # Critical / Fatal / Info
+                    log_error('qt', message)
+            except Exception:
+                pass
+        qInstallMessageHandler(_qt_msg_handler)
+        log_info('app', f"startup v{WIN_VERSION_NAME} build {WIN_VERSION_CODE}")
+    except Exception as _e:
+        log_error('qt-handler-install', _e)
     # Round 232: применяем язык до сборки UI. MainWindow при создании
     # тоже инициализирует Config, но мы это делаем СНАЧАЛА чтобы при
     # рендере виджетов уже была правильная локаль.
