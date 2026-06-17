@@ -969,20 +969,54 @@ class UpdateCheckThread(QThread):
     REPO = "donmax76/iptv"
 
     def run(self):
-        # Round 260: подробное логирование всех веток — юзер: «при
-        # нажатии на проверку обновления ничего не находит».
+        # Round 260/263: подробное логирование + SSL-fallback. Юзер:
+        # «обновление не идёт, ничего не находит». На PyInstaller-сборке
+        # urllib иногда не может проверить TLS-сертификат (отсутствует
+        # cacert.pem), и https://api.github.com тогда падает.
         try:
             log_info('update', f"querying GitHub releases for {self.REPO}")
-            req = urllib.request.Request(
-                f"https://api.github.com/repos/{self.REPO}/releases?per_page=30",
-                headers={
-                    'Accept': 'application/vnd.github.v3+json',
-                    'User-Agent': 'TVViewer-Windows',
-                },
-            )
-            with urllib.request.urlopen(req, timeout=15) as r:
-                raw = r.read()
-                data = json.loads(raw)
+            api_url = f"https://api.github.com/repos/{self.REPO}/releases?per_page=30"
+            headers = {
+                'Accept': 'application/vnd.github.v3+json',
+                'User-Agent': 'TVViewer-Windows',
+            }
+            raw = None
+            # 1) Сначала requests (он несёт certifi и сам подхватывает
+            # CA-сертификаты — самый надёжный путь в PyInstaller).
+            try:
+                import requests as _rq
+                resp = _rq.get(api_url, headers=headers, timeout=15)
+                resp.raise_for_status()
+                raw = resp.content
+                log_info('update', f"fetched via requests ({len(raw)} bytes)")
+            except Exception as e1:
+                log_warn('update', f"requests failed: {type(e1).__name__}: {e1}")
+                # 2) Fallback на urllib.
+                try:
+                    req = urllib.request.Request(api_url, headers=headers)
+                    with urllib.request.urlopen(req, timeout=15) as r:
+                        raw = r.read()
+                    log_info('update', f"fetched via urllib ({len(raw)} bytes)")
+                except Exception as e2:
+                    log_warn('update', f"urllib failed: {type(e2).__name__}: {e2}")
+                    # 3) Последняя надежда — urllib с unverified SSL
+                    # (для проверки обновлений приемлемо: ответ всё
+                    # равно публичный, инсталлятор отдельно проверять
+                    # не будем — он же приходит из github.com).
+                    try:
+                        import ssl as _ssl
+                        ctx = _ssl._create_unverified_context()
+                        req = urllib.request.Request(api_url, headers=headers)
+                        with urllib.request.urlopen(req, timeout=15,
+                                                    context=ctx) as r:
+                            raw = r.read()
+                        log_warn('update',
+                                 f"fetched via urllib (UNVERIFIED SSL) "
+                                 f"({len(raw)} bytes)")
+                    except Exception as e3:
+                        log_error('update.all_methods_failed', e3)
+                        raise
+            data = json.loads(raw)
             log_info('update', f"got {len(data) if isinstance(data, list) else 0} releases")
             wins = [rel for rel in data
                     if isinstance(rel, dict) and rel.get('tag_name', '').startswith('win-')]
@@ -4766,14 +4800,34 @@ class SettingsPage(QWidget):
         # --- Updates ---
         layout.addSpacing(8)
         layout.addWidget(self._section("Updates"))
+        # Round 263: показываем текущую версию ПРЯМО в Updates-секции
+        # (юзер: «сам тоже не пишет какая у него сейчас версия»). До этого
+        # версия была только в маленькой подписи внизу страницы.
+        cur_ver_label = QLabel(
+            f"Установлено: TVViewer v{WIN_VERSION_NAME} build {WIN_VERSION_CODE}")
+        cur_ver_label.setStyleSheet(
+            "color: white; font-size: 13px; font-weight: bold;"
+            " padding: 4px 0;")
+        layout.addWidget(cur_ver_label)
         upd_row = QHBoxLayout()
         self.btn_check_updates = QPushButton("Check for updates")
         self.btn_check_updates.clicked.connect(self._check_updates)
         upd_row.addWidget(self.btn_check_updates)
-        self.update_status = QLabel("")
-        self.update_status.setStyleSheet(f"color: {COLORS['text_secondary']}; font-size: 12px;")
+        # Round 263: дефолтный статус — показываем что мы знаем версию
+        # ДО клика на «Check». Иначе юзер думает «ничего не пишет».
+        self.update_status = QLabel(
+            f"Текущий build {WIN_VERSION_CODE}. Нажмите «Check for updates».")
+        self.update_status.setStyleSheet(
+            f"color: {COLORS['text_secondary']}; font-size: 12px;")
+        self.update_status.setWordWrap(True)
         upd_row.addWidget(self.update_status, 1)
         layout.addLayout(upd_row)
+        # Round 263: ручной fallback — открыть страницу релизов в
+        # браузере. Если auto-check молчит / network падает / SSL —
+        # юзер всегда может зайти руками и скачать TVViewer-update.exe.
+        btn_releases = QPushButton("Открыть страницу релизов на GitHub")
+        btn_releases.clicked.connect(self._open_releases_page)
+        layout.addWidget(btn_releases)
 
         # --- Help / report issue ---
         layout.addSpacing(8)
@@ -4995,6 +5049,16 @@ class SettingsPage(QWidget):
             QMessageBox.warning(self, "Open log folder", str(e))
 
     # ----- Updates -----
+    def _open_releases_page(self):
+        """Round 263: ручной fallback на случай когда auto-check не
+        достучался до GitHub API (SSL в PyInstaller / firewall / прокси)."""
+        try:
+            import webbrowser
+            webbrowser.open(
+                'https://github.com/donmax76/iptv/releases?q=win-v5.4&expanded=true')
+        except Exception as e:
+            log_error('open_releases_page', e)
+
     def _check_updates(self):
         log_info('update', f"manual check clicked, current build={WIN_VERSION_CODE}")
         self.btn_check_updates.setEnabled(False)
@@ -5005,24 +5069,31 @@ class SettingsPage(QWidget):
 
     def _on_update_check(self, info):
         self.btn_check_updates.setEnabled(True)
+        cur = WIN_VERSION_CODE
         if not isinstance(info, dict):
-            self.update_status.setText("Could not reach GitHub.")
+            self.update_status.setText(
+                f"Текущий build {cur}. GitHub недоступен. См. tvviewer.log.")
             log_warn('update', "manual check: info is None (network or parse error)")
+            # Round 263: даже когда сеть не отдала — показываем юзеру
+            # его текущую версию и подсказываем как смотреть лог.
             QMessageBox.information(
                 self, "Updates",
-                "Could not check for updates (no internet?).\n\n"
-                "Подробности — в tvviewer.log (кнопка «Open log folder»).")
+                f"Текущая установленная версия:\n"
+                f"TVViewer v{WIN_VERSION_NAME} build {cur}\n\n"
+                "Не удалось связаться с GitHub (нет сети / firewall /\n"
+                "блокировка SSL в этой сборке PyInstaller).\n\n"
+                "Подробности — в файле tvviewer.log (нажмите\n"
+                "«Open log folder» в этой же вкладке Настроек).")
             return
-        cur = WIN_VERSION_CODE
         latest = int(info.get('code', 0))
         log_info('update', f"check result: latest={latest} current={cur} url={info.get('url','')}")
         if latest <= cur:
             self.update_status.setText(
-                f"You have the latest build ({cur}). GitHub: {latest}.")
+                f"У вас последняя версия — build {cur}. На GitHub: {latest}.")
             QMessageBox.information(
                 self, "Updates",
                 f"You're on the latest version.\n\n"
-                f"Installed: build {cur}\n"
+                f"Installed: TVViewer v{WIN_VERSION_NAME} build {cur}\n"
                 f"GitHub:    build {latest}")
             return
         # Newer build available — offer to download & install
