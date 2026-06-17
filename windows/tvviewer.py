@@ -4665,17 +4665,30 @@ class SplashWindow(QWidget):
 
         layout.addSpacing(20)
 
-        # Прогресс-бар indeterminate.
-        bar = QProgressBar()
-        bar.setRange(0, 0)
-        bar.setTextVisible(False)
-        bar.setFixedHeight(6)
-        bar.setStyleSheet(
+        # Round 243: прогресс-бар — был indeterminate (setRange(0,0)),
+        # но QSS-override на ::chunk блокирует Qt-нативную animation
+        # marquee, и юзер видел статичную полоску. Делаем determinate
+        # с QPropertyAnimation 0→100% за 1.5 сек и зацикливаем (loopCount=-1)
+        # — визуально как пульсирующий load-indicator.
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedHeight(6)
+        self.progress_bar.setStyleSheet(
             "QProgressBar { background-color: rgba(255,255,255,30);"
             " border: none; border-radius: 3px; }"
             "QProgressBar::chunk { background-color: #7C6CF7;"
             " border-radius: 3px; }")
-        layout.addWidget(bar)
+        layout.addWidget(self.progress_bar)
+
+        self._progress_anim = QPropertyAnimation(self.progress_bar, b"value", self)
+        self._progress_anim.setDuration(1500)
+        self._progress_anim.setStartValue(0)
+        self._progress_anim.setEndValue(100)
+        self._progress_anim.setEasingCurve(QEasingCurve.InOutQuad)
+        self._progress_anim.setLoopCount(-1)  # бесконечно, пока splash жив
+        self._progress_anim.start()
 
     def paintEvent(self, event):
         # Фон с диагональным градиентом — фирменная палитра.
