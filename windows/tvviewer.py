@@ -1146,7 +1146,10 @@ class HomePage(QWidget):
         self.bg_b = QLabel(self)
         for w in (self.bg_a, self.bg_b):
             w.setScaledContents(True)
-            w.setStyleSheet("background-color: #0F0F1A;")
+            # Round 249: прозрачный фон у QLabel'ов чтобы пока фото не
+            # загрузилось был виден gradient из paintEvent (а не сплошной
+            # тёмный квадрат).
+            w.setStyleSheet("background: transparent;")
         self.bg_b.hide()
         # Тёмный overlay поверх фото для читаемости текста.
         self.dim = QLabel(self)
@@ -1162,9 +1165,28 @@ class HomePage(QWidget):
         self._cycle_timer.timeout.connect(self._cycle)
         self._cycle_timer.start()
 
+    def paintEvent(self, event):
+        # Round 249: gradient-фон как fallback пока picsum.photos не
+        # загрузилось (или офлайн). Фирменная палитра.
+        try:
+            from PyQt5.QtGui import QLinearGradient
+            painter = QPainter(self)
+            grad = QLinearGradient(0, 0, self.width(), self.height())
+            grad.setColorAt(0.0, QColor("#0F0F1A"))
+            grad.setColorAt(0.5, QColor("#1E1E3A"))
+            grad.setColorAt(1.0, QColor("#0F0F1A"))
+            painter.fillRect(self.rect(), QBrush(grad))
+            painter.end()
+        except Exception:
+            pass
+        super().paintEvent(event)
+
     def _build_ui(self):
-        # Контентный слой — поверх фонов.
+        # Контентный слой — поверх фонов. ВАЖНО: прозрачный фон, иначе
+        # глобальный QSS QWidget{background-color} закрасит фото.
         self.content = QWidget(self)
+        self.content.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.content.setStyleSheet("background: transparent;")
         col = QVBoxLayout(self.content)
         col.setContentsMargins(60, 60, 60, 60)
         col.setSpacing(20)
@@ -5251,7 +5273,7 @@ class SplashWindow(QWidget):
         # — визуально как пульсирующий load-indicator.
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
-        self.progress_bar.setValue(0)
+        self.progress_bar.setValue(5)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setFixedHeight(6)
         self.progress_bar.setStyleSheet(
@@ -5261,13 +5283,24 @@ class SplashWindow(QWidget):
             " border-radius: 3px; }")
         layout.addWidget(self.progress_bar)
 
-        self._progress_anim = QPropertyAnimation(self.progress_bar, b"value", self)
-        self._progress_anim.setDuration(1500)
-        self._progress_anim.setStartValue(0)
-        self._progress_anim.setEndValue(100)
-        self._progress_anim.setEasingCurve(QEasingCurve.InOutQuad)
-        self._progress_anim.setLoopCount(-1)  # бесконечно, пока splash жив
-        self._progress_anim.start()
+        self.status_label = QLabel("Загрузка…")
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setStyleSheet(
+            "color: rgba(255,255,255,180); font-size: 13px;"
+            " background: transparent;")
+        layout.addWidget(self.status_label)
+
+    def set_progress(self, value, text=None):
+        """Round 249: ручной апдейт прогресса. Анимация не тикает пока
+        главный поток строит MainWindow, поэтому двигаем бар по этапам
+        из main() с processEvents() между ними."""
+        try:
+            self.progress_bar.setValue(max(0, min(100, int(value))))
+            if text is not None:
+                self.status_label.setText(text)
+            QApplication.processEvents()
+        except Exception:
+            pass
 
     def paintEvent(self, event):
         # Фон с диагональным градиентом — фирменная палитра.
@@ -5303,11 +5336,15 @@ def main():
     # экран и думает что зависло.
     splash = SplashWindow()
     splash.show()
+    splash.set_progress(10, "Запуск…")
     app.processEvents()  # рендерим splash перед тяжёлым MainWindow()
+    splash.set_progress(35, "Подготовка интерфейса…")
     window = MainWindow()
+    splash.set_progress(80, "Почти готово…")
     # Apply persisted always-on-top preference
     if window.config.always_on_top:
         window.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+    splash.set_progress(100, "Готово")
     window.show()
     # Round 235: гасим splash после того как MainWindow отрисована,
     # с небольшой задержкой чтобы splash был виден хотя бы 600мс
