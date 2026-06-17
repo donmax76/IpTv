@@ -2328,7 +2328,10 @@ class PlayerPage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Top bar
+        # Round 256: верхняя панель (Back / Channel name / Favorite) и
+        # EPG-полоска ОБЁРНУТЫ в один widget _top_chrome — юзер
+        # «верхняя панель вообще не нужна» — по умолчанию скрываем.
+        # Виджеты остаются доступны для кода, который их трогает.
         top_bar = QHBoxLayout()
         top_bar.setContentsMargins(12, 8, 12, 8)
         self.btn_back = QPushButton("< Back")
@@ -2345,20 +2348,28 @@ class PlayerPage(QWidget):
         self.btn_fav.setObjectName("favBtn")
         self.btn_fav.clicked.connect(self.toggle_favorite)
         top_bar.addWidget(self.btn_fav)
-        layout.addLayout(top_bar)
 
-        # EPG info bar
+        # EPG info bar (тоже в _top_chrome).
         self.epg_bar = QLabel("")
         self.epg_bar.setStyleSheet(
             f"background-color: {COLORS['surface']}; color: {COLORS['secondary']};"
             f" padding: 6px 12px; font-size: 13px;")
-        layout.addWidget(self.epg_bar)
 
         self.epg_progress = QProgressBar()
         self.epg_progress.setMaximum(100)
         self.epg_progress.setTextVisible(False)
         self.epg_progress.setMaximumHeight(4)
-        layout.addWidget(self.epg_progress)
+
+        # Контейнер для всей «верхней панели» — прячем целиком.
+        self._top_chrome = QWidget()
+        chrome_col = QVBoxLayout(self._top_chrome)
+        chrome_col.setContentsMargins(0, 0, 0, 0)
+        chrome_col.setSpacing(0)
+        chrome_col.addLayout(top_bar)
+        chrome_col.addWidget(self.epg_bar)
+        chrome_col.addWidget(self.epg_progress)
+        self._top_chrome.hide()  # юзер: «верхняя панель вообще не нужна»
+        layout.addWidget(self._top_chrome)
 
         # Video frame with OSD banner overlay (parented to video_frame)
         self.video_frame = QFrame()
@@ -2778,14 +2789,18 @@ class PlayerPage(QWidget):
         def _row(label, callback):
             b = QPushButton(label)
             b.setMinimumHeight(48)
+            # Round 256: focused-стиль через property вместо :focus —
+            # VLC native HWND ворует Qt-focus, поэтому полагаться на
+            # hasFocus()/QSS :focus нельзя. Подсветку рисуем сами.
             b.setStyleSheet(
                 "QPushButton { background-color: rgba(60, 60, 92, 200);"
                 " color: white; border: 1px solid #7C6CF7;"
                 " border-radius: 8px; font-size: 14px;"
                 " padding: 8px 12px; text-align: left; }"
                 "QPushButton:hover { background-color: #7C6CF7; }"
-                "QPushButton:focus { background-color: #7C6CF7;"
-                " border: 2px solid white; }")
+                "QPushButton[focused=\"true\"] { background-color: #7C6CF7;"
+                " border: 2px solid white; font-weight: bold; }")
+            b.setProperty('focused', False)
             b.clicked.connect(callback)
             return b
 
@@ -2801,9 +2816,11 @@ class PlayerPage(QWidget):
             " padding: 10px 12px; margin-bottom: 6px;")
         inner.addWidget(self._center_menu_info)
 
-        # Round 254: храним кнопки списком — нужен для D-pad навигации
-        # (Up/Down в _handle_key).
+        # Round 254/256: храним кнопки списком — нужен для D-pad навигации
+        # (Up/Down в _handle_key) с явным трекером индекса (Qt-focus
+        # ворует VLC native HWND, hasFocus() ненадёжен).
         self._center_menu_buttons = []
+        self._center_menu_focused_idx = 0
         b1 = _row("⚙  " + t('settings'),
                   lambda: self._center_menu_action('settings'))
         b2 = _row("★  " + t('favorites'),
@@ -2819,6 +2836,54 @@ class PlayerPage(QWidget):
         outer.addWidget(card)
         # Сохраняем reference на card чтобы могли вернуть фокус.
         self._center_menu_card = card
+
+    def _apply_button_focus(self, buttons, idx):
+        """Round 256: вручную выставляем 'focused' property на нужной
+        кнопке и сбрасываем на остальных, потом форсим перерендер QSS.
+        Используется и для центр-меню, и для quick-overlay."""
+        if not buttons:
+            return
+        idx = idx % len(buttons)
+        for i, b in enumerate(buttons):
+            b.setProperty('focused', i == idx)
+            # Перевычислить стиль (Qt не переоценивает QSS-property
+            # автоматически — нужно unpolish/polish).
+            try:
+                b.style().unpolish(b)
+                b.style().polish(b)
+                b.update()
+            except Exception:
+                pass
+
+    def step_center_menu_focus(self, delta):
+        """Round 256: D-pad навигация по центр-меню. delta=+1/-1."""
+        if not hasattr(self, '_center_menu_buttons') or not self._center_menu_buttons:
+            return
+        self._center_menu_focused_idx = (
+            self._center_menu_focused_idx + delta) % len(self._center_menu_buttons)
+        self._apply_button_focus(self._center_menu_buttons,
+                                 self._center_menu_focused_idx)
+
+    def trigger_center_menu_focused(self):
+        if not hasattr(self, '_center_menu_buttons') or not self._center_menu_buttons:
+            return
+        idx = self._center_menu_focused_idx % len(self._center_menu_buttons)
+        self._center_menu_buttons[idx].click()
+
+    def step_quick_overlay_focus(self, delta):
+        """Round 256: D-pad навигация по quick-overlay."""
+        if not hasattr(self, '_quick_overlay_buttons') or not self._quick_overlay_buttons:
+            return
+        self._quick_overlay_focused_idx = (
+            self._quick_overlay_focused_idx + delta) % len(self._quick_overlay_buttons)
+        self._apply_button_focus(self._quick_overlay_buttons,
+                                 self._quick_overlay_focused_idx)
+
+    def trigger_quick_overlay_focused(self):
+        if not hasattr(self, '_quick_overlay_buttons') or not self._quick_overlay_buttons:
+            return
+        idx = self._quick_overlay_focused_idx % len(self._quick_overlay_buttons)
+        self._quick_overlay_buttons[idx].click()
 
     def _center_menu_action(self, action):
         """Round 244: handler центрального меню. Закрывает все overlays
@@ -2911,18 +2976,36 @@ class PlayerPage(QWidget):
         title.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
         col.addWidget(title)
 
+        # Round 256: список кнопок quick-overlay для D-pad навигации
+        # (юзер: «не возможно перемещать строки в меню которая
+        # открывается при нажатии вправо»). Стили — заметный focus.
+        self._quick_overlay_buttons = []
+        self._quick_overlay_focused_idx = 0
+
         def _btn(label, callback):
             b = QPushButton(label)
+            b.setMinimumHeight(40)
+            b.setStyleSheet(
+                "QPushButton { background-color: rgba(60, 60, 92, 200);"
+                " color: white; border: 1px solid #7C6CF7;"
+                " border-radius: 8px; font-size: 13px;"
+                " padding: 6px 10px; text-align: left; }"
+                "QPushButton:hover { background-color: #7C6CF7; }"
+                "QPushButton[focused=\"true\"] { background-color: #7C6CF7;"
+                " border: 2px solid white; font-weight: bold; }")
+            b.setProperty('focused', False)
             b.clicked.connect(callback)
+            col.addWidget(b)
+            self._quick_overlay_buttons.append(b)
             return b
 
-        col.addWidget(_btn(t('aspect'), self.cycle_aspect_ratio))
-        col.addWidget(_btn(t('speed'), self.cycle_speed))
-        col.addWidget(_btn(t('audio_track'), self.cycle_audio_track))
-        col.addWidget(_btn(t('sleep_timer'), self.configure_sleep_timer))
-        col.addWidget(_btn(t('fullscreen'), self.toggle_fullscreen))
-        col.addWidget(_btn(t('pip'), self._on_pip_clicked))
-        col.addWidget(_btn("♥ " + t('favorites'), self.toggle_favorite))
+        _btn(t('aspect'), self.cycle_aspect_ratio)
+        _btn(t('speed'), self.cycle_speed)
+        _btn(t('audio_track'), self.cycle_audio_track)
+        _btn(t('sleep_timer'), self.configure_sleep_timer)
+        _btn(t('fullscreen'), self.toggle_fullscreen)
+        _btn(t('pip'), self._on_pip_clicked)
+        _btn("♥ " + t('favorites'), self.toggle_favorite)
         col.addStretch()
 
     def _inject_overlay_toggle_buttons(self):
@@ -3091,12 +3174,11 @@ class PlayerPage(QWidget):
             self._update_center_menu_epg()
             self.center_menu_overlay.show()
             self.center_menu_overlay.raise_()
-            # Round 254: фокус на первой кнопке, иначе D-pad не работает
-            # пока юзер не ткнёт мышью.
+            # Round 256: подсветка первой кнопки через property-механизм
+            # (Qt-focus ненадёжен из-за нативного VLC окна).
             try:
-                if (hasattr(self, '_center_menu_buttons')
-                        and self._center_menu_buttons):
-                    self._center_menu_buttons[0].setFocus()
+                self._center_menu_focused_idx = 0
+                self._apply_button_focus(self._center_menu_buttons, 0)
             except Exception:
                 pass
         # stage 0 = всё закрыто (уже скрыли выше).
@@ -3125,6 +3207,13 @@ class PlayerPage(QWidget):
             self.channels_overlay.hide()
             self._slide_in(self.quick_overlay, direction='right')
             self.quick_overlay.raise_()
+            # Round 256: подсветка первой кнопки quick-overlay чтобы
+            # D-pad сразу мог по ней ходить.
+            try:
+                self._quick_overlay_focused_idx = 0
+                self._apply_button_focus(self._quick_overlay_buttons, 0)
+            except Exception:
+                pass
 
     # Round 233: 200мс slide-in/out для overlay-панелей. Аналог
     # Android Round 211 slide_in_left / slide_in_right.
@@ -5102,28 +5191,26 @@ class MainWindow(QMainWindow):
                         current.hide_all_overlays()
                         current._sync_overlay_host()
                         return True
-                    if key in (Qt.Key_Up, Qt.Key_Down):
-                        # Round 254: навигация фокусом по кнопкам меню.
-                        if hasattr(current, '_center_menu_buttons'):
-                            btns = current._center_menu_buttons
-                            focused = None
-                            for i, b in enumerate(btns):
-                                if b.hasFocus():
-                                    focused = i; break
-                            if focused is None:
-                                focused = 0
-                            else:
-                                focused = (focused + (1 if key == Qt.Key_Down else -1)) % len(btns)
-                            btns[focused].setFocus()
-                            return True
+                    if key == Qt.Key_Up:
+                        current.step_center_menu_focus(-1); return True
+                    if key == Qt.Key_Down:
+                        current.step_center_menu_focus(+1); return True
                     if key in (Qt.Key_Return, Qt.Key_Enter):
-                        if hasattr(current, '_center_menu_buttons'):
-                            for b in current._center_menu_buttons:
-                                if b.hasFocus():
-                                    b.click(); return True
+                        current.trigger_center_menu_focused(); return True
                 elif hasattr(current, 'quick_overlay') and current.quick_overlay.isVisible():
-                    if key in (Qt.Key_Left, Qt.Key_Right):
+                    # Round 256: quick-overlay — D-pad навигация по
+                    # кнопкам (юзер: «не возможно перемещать строки в
+                    # меню которая открывается при нажатии вправо»).
+                    if key == Qt.Key_Right:
                         current.toggle_quick_overlay(); return True
+                    if key == Qt.Key_Left:
+                        current.toggle_quick_overlay(); return True
+                    if key == Qt.Key_Up:
+                        current.step_quick_overlay_focus(-1); return True
+                    if key == Qt.Key_Down:
+                        current.step_quick_overlay_focus(+1); return True
+                    if key in (Qt.Key_Return, Qt.Key_Enter):
+                        current.trigger_quick_overlay_focused(); return True
                 else:
                     # Видео без оверлеев: стрелки = каналы/панели.
                     if key == Qt.Key_Left:
