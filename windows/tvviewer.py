@@ -2388,16 +2388,24 @@ class PlayerPage(QWidget):
         self._overlay_sync_timer.timeout.connect(self._sync_overlay_host)
         self._last_overlay_geom = None  # кэш геометрии — пропускаем no-op
         self._build_osd_banner()
+        # Round 255: даём splash перерисоваться между тяжёлыми overlay.
+        # PlayerPage — самый дорогой шаг init_ui(); без yield'ов между
+        # подсборками юзер видит замёрзший splash.
+        QApplication.processEvents()
         # Round 232 (Windows): аналоги Android-овых overlay-панелей.
         # Левая — список каналов с поиском; правая — быстрые настройки
         # (Aspect / Speed / Audio / Sleep / Fullscreen / PiP / Favorite).
         # Скрыты по умолчанию; toggle хоткеями L / R и кнопками в top-bar.
         self._build_channels_overlay()
+        QApplication.processEvents()
         self._build_quick_overlay()
+        QApplication.processEvents()
         # Round 244: цепочка как в Android — LEFT → каналы → категории
         # → центральное меню.
         self._build_categories_overlay()
+        QApplication.processEvents()
         self._build_center_menu()
+        QApplication.processEvents()
         # Кнопки в top-bar для тех у кого нет физической клавиатуры.
         try:
             self._inject_overlay_toggle_buttons()
@@ -4775,8 +4783,12 @@ class SettingsPage(QWidget):
 # Main Window
 # ============================================================
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, progress_cb=None):
         super().__init__()
+        # Round 255: progress_cb(percent, text) — колбек для splash.
+        # Вызывается между шагами init_ui чтобы юзер видел движение
+        # и анимацию прогресс-бара пока строятся страницы.
+        self._progress_cb = progress_cb or (lambda *a, **kw: None)
         self.config = Config()
         self.channels = []
         self.epg_data = {}
@@ -4870,34 +4882,45 @@ class MainWindow(QMainWindow):
         # Content area
         self.stack = QStackedWidget()
 
+        # Round 255: между каждой страницей вызываем progress_cb +
+        # processEvents — Qt прокачивает таймеры/перерисовки splash,
+        # юзер видит, что программа не висит.
+        self._progress_cb(40, "Плейлисты…")
         self.playlists_page = PlaylistsPage(self.config)
         self.playlists_page.playlist_selected.connect(self.load_playlist)
         self.stack.addWidget(self.playlists_page)
 
+        self._progress_cb(48, "Каналы…")
         self.channels_page = ChannelsPage(self.config, self.logo_cache)
         self.channels_page.channel_play.connect(self.play_channel)
         self.stack.addWidget(self.channels_page)
 
+        self._progress_cb(55, "Избранное…")
         self.favorites_page = FavoritesPage(self.config, self.logo_cache)
         self.favorites_page.channel_play.connect(self.play_channel)
         self.stack.addWidget(self.favorites_page)
 
+        self._progress_cb(62, "Плеер…")
         self.player_page = PlayerPage(self.config, self.logo_cache)
         self.player_page.back_requested.connect(self.show_channels)
         self.stack.addWidget(self.player_page)
 
+        self._progress_cb(70, "Настройки…")
         self.settings_page = SettingsPage(self.config)
         self.settings_page.settings_changed.connect(self._on_settings_changed)
         self.stack.addWidget(self.settings_page)
 
+        self._progress_cb(76, "Программа передач…")
         self.tv_guide_page = TvGuidePage(self.config, self.logo_cache)
         self.tv_guide_page.channel_play.connect(self.play_channel)
         self.stack.addWidget(self.tv_guide_page)
 
+        self._progress_cb(82, "Недавние…")
         self.recent_page = RecentPage(self.config, self.logo_cache)
         self.recent_page.channel_play.connect(self.play_channel)
         self.stack.addWidget(self.recent_page)
 
+        self._progress_cb(88, "Главный экран…")
         # Round 241: HomePage — добавляем в конец чтобы не сдвинуть
         # индексы существующих страниц. Index = 7.
         self.home_page = HomePage(self.config)
@@ -5680,8 +5703,24 @@ def main():
     for _ in range(4):
         app.processEvents()
         time.sleep(0.02)
-    window = MainWindow()
-    splash.set_progress(80, "Почти готово…")
+
+    # Round 255: progress_cb — между шагами init_ui обновляет splash и
+    # прокачивает Qt event loop. Юзер: «опять окно где пишется
+    # подготовка интерфейса висит в основном потоке». Передача в main
+    # потоке остаётся — Qt-виджеты MUST создаваться на GUI-потоке, но
+    # мы дробим работу на куски и между ними даём splash дышать.
+    def _progress(pct, txt):
+        try:
+            splash.set_progress(pct, txt)
+            # Несколько прокачек чтобы анимация прогресс-бара и repaint
+            # splash успели отработать ДО следующего тяжёлого шага.
+            for _ in range(3):
+                app.processEvents()
+        except Exception:
+            pass
+
+    window = MainWindow(progress_cb=_progress)
+    splash.set_progress(95, "Почти готово…")
     for _ in range(4):
         app.processEvents()
         time.sleep(0.02)
