@@ -337,6 +337,33 @@ def get_now_next(epg: EpgData, tvg_id: Optional[str], name: Optional[str] = None
     return current, next_prog
 
 
+def get_upcoming_programmes(epg: EpgData, tvg_id: Optional[str], name: Optional[str] = None, count: int = 3) -> List[Programme]:
+    """Return up to N upcoming (or currently-airing) programmes.
+    Round 234 (Windows port of Android Round 212): used to render
+    a 3-slot EPG grid in the overlay channel list."""
+    programmes: List[Programme] = []
+    for key in (
+        normalize_id(tvg_id) if tvg_id else "",
+        normalize_id(name) if name else "",
+        fuzzy_key(name) if name else "",
+        fuzzy_key(tvg_id) if tvg_id else "",
+    ):
+        if key and key in epg:
+            programmes = epg[key]
+            break
+    if not programmes:
+        return []
+    now = time.time()
+    upcoming: List[Programme] = []
+    for prog in programmes:
+        if prog.end < now:
+            continue
+        upcoming.append(prog)
+        if len(upcoming) >= count:
+            break
+    return upcoming
+
+
 def get_current_progress(programme: Optional[Programme]) -> float:
     """Get progress (0.0-1.0) of current programme."""
     if not programme:

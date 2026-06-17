@@ -73,7 +73,10 @@ except (ImportError, OSError, FileNotFoundError):
     HAS_VLC = False
 
 from m3u_parser import fetch_playlist, load_playlist_file, Channel, PlaylistResult
-from epg_parser import fetch_epg, get_now_next, get_current_progress, EpgData, normalize_id, fuzzy_key, trace
+from epg_parser import (
+    fetch_epg, get_now_next, get_current_progress, get_upcoming_programmes,
+    EpgData, normalize_id, fuzzy_key, trace,
+)
 import channel_meta_lookup
 
 # --- Crash auto-publish to ntfy.sh (token-less) ---
@@ -1822,6 +1825,11 @@ class PlayerPage(QWidget):
         self._overlay_list = QListWidget()
         self._overlay_list.setIconSize(QSize(28, 28))
         self._overlay_list.itemClicked.connect(self._overlay_channel_clicked)
+        # Round 234: правый клик показывает детали программы — порт
+        # Android Round 221k (channelDetailsPanel).
+        self._overlay_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._overlay_list.customContextMenuRequested.connect(
+            self._show_overlay_channel_details)
         col.addWidget(self._overlay_list, 1)
 
     def _build_quick_overlay(self):
@@ -1998,18 +2006,25 @@ class PlayerPage(QWidget):
                     continue
                 if shown >= cap:
                     break
-                # EPG: now-программа добавляется к названию, чтобы юзер
-                # видел что идёт. Берём только now (next в overlay не
-                # помещается без лишних 2 строк).
-                epg_suffix = ""
+                # Round 234 (Windows): EPG-сетка из 3 строк (now + 2
+                # предстоящих) — порт Android Round 212. Если данных нет
+                # — строки опускаются и item получает обычный 1-строчный
+                # формат.
+                epg_lines = []
                 if self.epg_data:
                     try:
-                        now_prog, _ = get_now_next(
-                            self.epg_data, ch.tvg_id, ch.name)
-                        if now_prog and now_prog.title:
-                            epg_suffix = f"\n   {now_prog.title}"
+                        upcoming = get_upcoming_programmes(
+                            self.epg_data, ch.tvg_id, ch.name, 3)
+                        for prog in upcoming:
+                            try:
+                                tstart = datetime.fromtimestamp(
+                                    prog.start).strftime('%H:%M')
+                                epg_lines.append(f"  {tstart}  {prog.title}")
+                            except (OSError, ValueError):
+                                pass
                     except Exception:
                         pass
+                epg_suffix = ("\n" + "\n".join(epg_lines)) if epg_lines else ""
                 item = QListWidgetItem(f"{idx+1}. {ch.name}{epg_suffix}")
                 item.setData(Qt.UserRole, idx)
                 icon = None
@@ -2032,6 +2047,49 @@ class PlayerPage(QWidget):
             except Exception:
                 pass
             self.channels_overlay.hide()
+
+    def _show_overlay_channel_details(self, pos):
+        """Round 234: модальный popup с now/next + описанием — порт
+        Android Round 221k channelDetailsPanel. Открывается правым
+        кликом по строке в overlay-списке."""
+        item = self._overlay_list.itemAt(pos)
+        if not item:
+            return
+        idx = item.data(Qt.UserRole)
+        if not isinstance(idx, int) or not (0 <= idx < len(self.channels)):
+            return
+        ch = self.channels[idx]
+        now_prog, next_prog = (None, None)
+        try:
+            now_prog, next_prog = get_now_next(self.epg_data, ch.tvg_id, ch.name)
+        except Exception:
+            pass
+        # Собираем тело сообщения.
+        lines = [ch.name]
+        if ch.group:
+            lines.append(f"[{ch.group}]")
+        lines.append("")
+        if now_prog:
+            try:
+                t1 = datetime.fromtimestamp(now_prog.start).strftime('%H:%M')
+                t2 = datetime.fromtimestamp(now_prog.end).strftime('%H:%M')
+                lines.append(f"⏵ {t1}–{t2}  {now_prog.title}")
+            except Exception:
+                lines.append(f"⏵ {now_prog.title}")
+            if now_prog.description:
+                lines.append(now_prog.description[:600])
+        else:
+            lines.append("— нет данных о текущей программе —")
+        if next_prog:
+            lines.append("")
+            try:
+                tnext = datetime.fromtimestamp(next_prog.start).strftime('%d.%m %H:%M')
+                lines.append(f"⏭ {tnext}  {next_prog.title}")
+            except Exception:
+                lines.append(f"⏭ {next_prog.title}")
+            if next_prog.description:
+                lines.append(next_prog.description[:600])
+        QMessageBox.information(self, ch.name, "\n".join(lines))
 
     def retranslate_ui(self):
         """Round 233: переводит все доступные подписи на лету."""
