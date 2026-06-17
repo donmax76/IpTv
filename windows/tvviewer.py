@@ -1121,6 +1121,36 @@ class LogoCache(QObject):
 
 
 # ============================================================
+# Round 253: загрузчик фоновой картинки HomePage в отдельном QThread.
+# QNetworkAccessManager в PyInstaller-сборке часто не имеет OpenSSL,
+# и picsum.photos (HTTPS-only) молча возвращал NoError + пустой
+# body. urllib работает через Python ssl, бандлится PyInstaller'ом
+# из коробки.
+# ============================================================
+class _PhotoFetcher(QThread):
+    image_ready = pyqtSignal(bytes)
+
+    def __init__(self, url, parent=None):
+        super().__init__(parent)
+        self._url = url
+
+    def run(self):
+        data = b""
+        try:
+            req = urllib.request.Request(
+                self._url,
+                headers={'User-Agent': 'TVViewer/Windows'})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = resp.read()
+        except Exception:
+            data = b""
+        try:
+            self.image_ready.emit(data)
+        except Exception:
+            pass
+
+
+# ============================================================
 # Round 241 (Windows): Home Page — порт Android HomeFragment.
 # Большие кнопки «Прямой эфир» и «Плейлисты» поверх циклящегося
 # фотофона с picsum.photos.
@@ -1252,6 +1282,15 @@ class HomePage(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self._refresh_default_label()
+        # Round 253: пере-запрашиваем фон если предыдущая попытка
+        # не сработала (фотки пустые).
+        try:
+            if (self.bg_a.pixmap() is None or self.bg_a.pixmap().isNull()) \
+               and (self.bg_b.pixmap() is None or self.bg_b.pixmap().isNull()):
+                self._photo_seed += 1
+                self._fetch_photo(self._photo_seed)
+        except Exception:
+            pass
         if hasattr(self, '_cycle_timer'):
             self._cycle_timer.start()
 
@@ -1274,31 +1313,49 @@ class HomePage(QWidget):
             self.content.raise_()
 
     def _fetch_photo(self, seed):
-        """Запрашиваем картинку через QNetworkAccessManager (async)."""
+        """Round 253: качаем картинку в отдельном QThread через urllib —
+        PyInstaller-бандл часто без OpenSSL для QNetworkAccessManager,
+        и picsum.photos HTTPS-запросы заваливались молча. urllib
+        работает напрямую через ssl-модуль Python."""
         try:
-            url = QUrl(f"{self.PHOTO_URL_BASE}{seed}")
-            req = QNetworkRequest(url)
-            req.setHeader(QNetworkRequest.UserAgentHeader, "TVViewer/Windows")
-            self._net.get(req)
+            url = f"{self.PHOTO_URL_BASE}{seed}"
+            t = _PhotoFetcher(url, self)
+            t.image_ready.connect(self._on_photo_bytes)
+            t.start()
+            # Держим ref чтобы GC не съел до finished.
+            if not hasattr(self, '_active_fetchers'):
+                self._active_fetchers = []
+            self._active_fetchers.append(t)
+            t.finished.connect(
+                lambda t=t: self._active_fetchers.remove(t)
+                if t in self._active_fetchers else None)
+        except Exception:
+            pass
+
+    def _on_photo_bytes(self, data):
+        try:
+            if not data:
+                return
+            pix = QPixmap()
+            if not pix.loadFromData(data):
+                return
+            target = self.bg_b if self._showing_a else self.bg_a
+            target.setPixmap(pix)
+            target.show()
+            self._fade_swap(target)
         except Exception:
             pass
 
     def _on_photo_loaded(self, reply):
+        # Legacy QNAM-обработчик — оставлен для совместимости если
+        # кто-то всё ещё дёргает старым путём.
         try:
             if reply.error() != QNetworkReply.NoError:
                 reply.deleteLater()
                 return
             data = bytes(reply.readAll())
             reply.deleteLater()
-            pix = QPixmap()
-            if not pix.loadFromData(data):
-                return
-            # Кросс-фейд: новая картинка в скрытый QLabel, потом
-            # поменять видимость с fade.
-            target = self.bg_b if self._showing_a else self.bg_a
-            target.setPixmap(pix)
-            target.show()
-            self._fade_swap(target)
+            self._on_photo_bytes(data)
         except Exception:
             pass
 
@@ -5448,16 +5505,41 @@ class SplashWindow(QWidget):
         layout.addWidget(self.status_label)
 
     def set_progress(self, value, text=None):
-        """Round 249: ручной апдейт прогресса. Анимация не тикает пока
-        главный поток строит MainWindow, поэтому двигаем бар по этапам
-        из main() с processEvents() между ними."""
+        """Round 253: бар плавно догоняет target через QTimer 30мс,
+        чтобы юзер видел движение даже когда главный поток ушёл
+        строить MainWindow. processEvents() в каждом step main()
+        даёт таймеру отработать."""
         try:
-            self.progress_bar.setValue(max(0, min(100, int(value))))
+            self._target_progress = max(0, min(100, int(value)))
             if text is not None:
                 self.status_label.setText(text)
+            if not hasattr(self, '_tick_timer'):
+                self._tick_timer = QTimer(self)
+                self._tick_timer.setInterval(30)
+                self._tick_timer.timeout.connect(self._tick_progress)
+                self._tick_timer.start()
             QApplication.processEvents()
         except Exception:
             pass
+
+    def _tick_progress(self):
+        try:
+            cur = self.progress_bar.value()
+            tgt = getattr(self, '_target_progress', cur)
+            if cur < tgt:
+                self.progress_bar.setValue(min(cur + 2, tgt))
+            elif cur > tgt:
+                self.progress_bar.setValue(max(cur - 2, tgt))
+        except Exception:
+            pass
+
+    def close(self):
+        try:
+            if hasattr(self, '_tick_timer'):
+                self._tick_timer.stop()
+        except Exception:
+            pass
+        super().close()
 
     def paintEvent(self, event):
         # Фон с диагональным градиентом — фирменная палитра.
@@ -5494,14 +5576,28 @@ def main():
     splash = SplashWindow()
     splash.show()
     splash.set_progress(10, "Запуск…")
-    app.processEvents()  # рендерим splash перед тяжёлым MainWindow()
+    # Round 253: даём splash время прорисоваться и тикнуть таймер
+    # пару раз ДО блокирующей сборки MainWindow. Иначе юзер видит
+    # «прогресс не двигается».
+    for _ in range(8):
+        app.processEvents()
+        time.sleep(0.02)
     splash.set_progress(35, "Подготовка интерфейса…")
+    for _ in range(4):
+        app.processEvents()
+        time.sleep(0.02)
     window = MainWindow()
     splash.set_progress(80, "Почти готово…")
+    for _ in range(4):
+        app.processEvents()
+        time.sleep(0.02)
     # Apply persisted always-on-top preference
     if window.config.always_on_top:
         window.setWindowFlag(Qt.WindowStaysOnTopHint, True)
     splash.set_progress(100, "Готово")
+    for _ in range(8):
+        app.processEvents()
+        time.sleep(0.02)
     window.show()
     # Round 235: гасим splash после того как MainWindow отрисована,
     # с небольшой задержкой чтобы splash был виден хотя бы 600мс
