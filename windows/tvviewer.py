@@ -137,7 +137,7 @@ _LETTER_TILE_PALETTE = (
     "#FDC094", "#74B9FF", "#FD79A8", "#E17055",
     "#A29BFE", "#55EFC4", "#6C5CE7", "#EC9A9A",
 )
-_LETTER_TILE_CACHE: Dict[Tuple[str, int], QIcon] = {}
+_LETTER_TILE_CACHE = {}  # (name, size) -> QIcon
 
 
 def _letter_tile_initials(name: str) -> str:
