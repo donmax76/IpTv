@@ -1,7 +1,6 @@
 {
-  "versionCode": 50,
+  "versionCode": 51,
   "versionName": "5.4",
-  "tag": "win-v5.4-build50",
-  "exeUrl":   "https://github.com/donmax76/IpTv/releases/download/win-v5.4-build50/TVViewer-update.exe",
-  "zipUrl":   "https://github.com/donmax76/IpTv/releases/download/win-v5.4-build50/TVViewer-Windows-Portable.zip"
+  "tag": "win-v5.4-build51",
+  "zipUrl":   "https://github.com/donmax76/IpTv/releases/download/win-v5.4-build51/TVViewer-Windows-Portable.zip"
 }
