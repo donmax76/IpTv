@@ -5861,27 +5861,41 @@ class MainWindow(QMainWindow):
         super().changeEvent(event)
 
     def moveEvent(self, event):
-        """Round 267: при перетаскивании синхронизируем overlay сразу,
-        не ждём 150мс тика _overlay_sync_timer. Без этого оверлей с
-        запозданием догонял окно — юзер: «при перетаскивании они с
-        запозданием перемещаются»."""
+        """Round 267/270: при перетаскивании синхронизируем overlay.
+        Round 270: ДЕБАУНСИМ через QTimer (был синхронный вызов на
+        КАЖДЫЙ пиксель — на медленных машинах юзер видел freeze
+        прямо при попытке потащить окно). Теперь сворачиваем 60+
+        событий в секунду в один тик через 30мс."""
         super().moveEvent(event)
+        self._schedule_overlay_sync()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._schedule_overlay_sync()
+
+    def _schedule_overlay_sync(self):
+        """Round 270: debounce — стопаем существующий таймер и
+        перестартуем. После 30мс без новых событий — один sync."""
         try:
             page = self.stack.currentWidget()
-            if isinstance(page, PlayerPage):
-                page._sync_overlay_host()
+            if not isinstance(page, PlayerPage):
+                return
+            if not hasattr(self, '_move_dbnc'):
+                self._move_dbnc = QTimer(self)
+                self._move_dbnc.setSingleShot(True)
+                self._move_dbnc.setInterval(30)
+                self._move_dbnc.timeout.connect(self._do_overlay_sync)
+            self._move_dbnc.start()
         except Exception:
             pass
 
-    def resizeEvent(self, event):
-        """Round 267: то же что moveEvent — синхронный обнов overlay."""
-        super().resizeEvent(event)
+    def _do_overlay_sync(self):
         try:
             page = self.stack.currentWidget()
             if isinstance(page, PlayerPage):
                 page._sync_overlay_host()
-        except Exception:
-            pass
+        except Exception as e:
+            log_error('_do_overlay_sync', e)
 
     def eventFilter(self, obj, event):
         """Round 248: глобальный перехват клавиш. Когда играет VLC, его
