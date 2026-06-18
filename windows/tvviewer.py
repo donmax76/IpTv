@@ -1330,11 +1330,11 @@ class UpdateCheckThread(QThread):
             code = int(obj.get('versionCode', 0))
             if code <= 0:
                 return None
-            # Round 269: ПРЕДПОЧИТАЕМ zipUrl — onefile EXE падает у юзеров
-            # с «Failed to load Python DLL python311.dll». ZIP надёжный
-            # как Android APK.
-            url = obj.get('zipUrl') or obj.get('exeUrl') or ''
-            has_exe = bool(obj.get('zipUrl') or obj.get('exeUrl'))
+            # Round 296: ПРЕДПОЧИТАЕМ exeUrl — юзер выбрал обновление
+            # одним exe. EXE собран с --runtime-tmpdir фиксом против
+            # «Failed to load Python DLL». zipUrl остаётся fallback'ом.
+            url = obj.get('exeUrl') or obj.get('zipUrl') or ''
+            has_exe = bool(obj.get('exeUrl') or obj.get('zipUrl'))
             log_info('update',
                      f"fast path ok: build={code} tag={obj.get('tag','')} "
                      f"exe={has_exe}")
@@ -1406,17 +1406,21 @@ class UpdateCheckThread(QThread):
             asset_names = [a.get('name', '') for a in assets]
             log_info('update', f"latest build={code} tag={rel.get('tag_name')} "
                                f"assets={asset_names}")
-            # Round 269: ПРЕДПОЧИТАЕМ ZIP над EXE — onefile EXE падает
-            # на юзерах с «Failed to load Python DLL python311.dll».
+            # Round 296: ПРЕДПОЧИТАЕМ update.exe (юзер выбрал обновление
+            # одним exe). EXE с --runtime-tmpdir фиксом. ZIP — fallback.
             zip_asset = next((a for a in assets
                               if a.get('name', '').lower().endswith('.zip')), None)
             exe_asset = next((a for a in assets
-                              if a.get('name', '').lower().endswith('.exe')), None)
+                              if 'update' in a.get('name', '').lower()
+                              and a.get('name', '').lower().endswith('.exe')), None)
+            if exe_asset is None:
+                exe_asset = next((a for a in assets
+                                  if a.get('name', '').lower().endswith('.exe')), None)
             url = ''
-            if zip_asset is not None:
-                url = zip_asset.get('browser_download_url') or ''
-            elif exe_asset is not None:
+            if exe_asset is not None:
                 url = exe_asset.get('browser_download_url') or ''
+            elif zip_asset is not None:
+                url = zip_asset.get('browser_download_url') or ''
             else:
                 url = rel.get('html_url', '')
             log_info('update', f"chosen url={url}")
@@ -1646,7 +1650,10 @@ def _swap_self_and_restart(new_exe_path: str):
     try:
         tmp = tempfile.gettempdir()
         log_path = os.path.join(tmp, 'tvviewer_update.log')
-        # BAT — основная работа: подождать, заменить, лог.
+        install_dir = os.path.dirname(current)
+        # BAT — основная работа: подождать пока процесс умрёт, заменить
+        # exe, лог. Round 296: Wait через timeout достаточно (старый
+        # процесс os._exit'нулся сразу).
         bat = (
             "@echo off\r\n"
             f'echo [%date% %time%] update start > "{log_path}"\r\n'
@@ -1658,10 +1665,13 @@ def _swap_self_and_restart(new_exe_path: str):
         with open(bat_path, 'w', encoding='ascii') as f:
             f.write(bat)
         # VBS — обёртка для невидимого запуска BAT, потом — новый EXE.
-        # WScript.Shell.Run window style 0 = Hidden, ждём окончания BAT,
-        # затем запускаем заменённый EXE и удаляем себя.
+        # Round 296: sh.CurrentDirectory = install_dir ОБЯЗАТЕЛЬНО —
+        # новый onefile-update.exe собран с --runtime-tmpdir _tvupd,
+        # распаковка Python-runtime идёт в CWD\_tvupd. Без задания CWD
+        # это был бы system32 (нет прав) → «Failed to load Python DLL».
         vbs = (
             'Set sh = CreateObject("WScript.Shell")\r\n'
+            f'sh.CurrentDirectory = "{install_dir}"\r\n'
             f'sh.Run "cmd /c ""{bat_path}""", 0, True\r\n'
             f'sh.Run """{current}""", 1, False\r\n'
             'Set fso = CreateObject("Scripting.FileSystemObject")\r\n'

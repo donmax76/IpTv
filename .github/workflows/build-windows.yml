@@ -111,18 +111,45 @@ jobs:
           -CompressionLevel Optimal
         Write-Host ("ZIP size: " + (Get-Item release_output\TVViewer-Windows-Portable.zip).Length)
 
-    # Round 269: УБРАН --onefile TVViewer-update.exe. PyInstaller --onefile
-    # извлекает Python-runtime в %TEMP%\_MEIxxxxxx и Windows у юзеров
-    # выдавал «Failed to load Python DLL python311.dll. LoadLibrary: Не
-    # найден указанный модуль». Юзер прислал скриншот этой ошибки. ZIP
-    # с --onedir bundle грузится надёжно (как Android APK), так и
-    # обновляемся им.
+    # Round 296: ВЕРНУЛИ --onefile TVViewer-update.exe (юзер: «без зип
+    # хочу», обновление одним exe). Фикс падения «Failed to load Python
+    # DLL python311.dll»: --runtime-tmpdir _tvupd распаковывает Python-
+    # runtime В ПАПКУ УСТАНОВКИ (CWD задаётся install_dir в _swap BAT),
+    # а не в %TEMP%, где антивирус/кириллица/очистка ломали загрузку.
+    # VLC внутрь НЕ кладём — он уже распакован в папке из ZIP, новый
+    # exe берёт libvlc.dll/plugins оттуда.
+    - name: Build update EXE (onefile, no VLC, runtime-tmpdir fix)
+      shell: pwsh
+      run: |
+        cd windows
+        pyinstaller --onefile --windowed --name TVViewer-update `
+          --runtime-tmpdir _tvupd `
+          --hidden-import m3u_parser `
+          --hidden-import epg_parser `
+          --hidden-import channel_meta_lookup `
+          --hidden-import version `
+          --add-data "m3u_parser.py;." `
+          --add-data "epg_parser.py;." `
+          --add-data "channel_meta_lookup.py;." `
+          --add-data "version.py;." `
+          --add-data "assets;assets" `
+          --icon assets/tvviewer.ico `
+          tvviewer.py
+        Copy-Item dist\TVViewer-update.exe ..\release_output\TVViewer-update.exe
+        Write-Host ("Update EXE size: " + (Get-Item ..\release_output\TVViewer-update.exe).Length)
 
     - name: Upload ZIP artifact
       uses: actions/upload-artifact@v4
       with:
         name: TVViewer-Windows-Portable
         path: release_output/TVViewer-Windows-Portable.zip
+        if-no-files-found: error
+
+    - name: Upload update EXE artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: TVViewer-update-exe
+        path: release_output/TVViewer-update.exe
         if-no-files-found: error
 
     # Round 264: bump windows-version.json on main — копируем Android
@@ -138,12 +165,14 @@ jobs:
         git fetch origin main
         git checkout main
         $build = "${{ github.run_number }}"
-        # Round 269: убран exeUrl — onefile EXE падал у юзеров. Только ZIP.
+        # Round 296: вернули exeUrl — обновление одним exe (юзер выбрал).
+        # zipUrl остаётся как fallback на случай если exe не скачается.
         $json = @"
         {
           "versionCode": $build,
           "versionName": "5.4",
           "tag": "win-v5.4-build$build",
+          "exeUrl":   "https://github.com/donmax76/IpTv/releases/download/win-v5.4-build$build/TVViewer-update.exe",
           "zipUrl":   "https://github.com/donmax76/IpTv/releases/download/win-v5.4-build$build/TVViewer-Windows-Portable.zip"
         }
         "@
@@ -175,6 +204,7 @@ jobs:
             баг PyInstaller --onefile.
         files: |
           release_output/TVViewer-Windows-Portable.zip
+          release_output/TVViewer-update.exe
         fail_on_unmatched_files: true
         make_latest: false
       env:
