@@ -2677,69 +2677,112 @@ class ChannelsPage(QWidget):
             filtered = sort_channels(filtered, sort_mode)
         self.filtered = filtered
 
-        # Show EPG titles only for small lists to keep the UI responsive
+        # Round 277: ВСЯ filter_channels стала incremental. Раньше она
+        # синхронно вставляла 3639 QListWidgetItems за один проход
+        # (~10 сек на медленных машинах) — watchdog ловил это как
+        # «main thread blocked 11.2s». Теперь:
+        #   • первые 200 рисуются СРАЗУ (юзер видит верх списка);
+        #   • остальные подсыпаются пачками по 100 через QTimer 30мс;
+        #   • летеер-тайлы дорисовываются позже (Round 273).
         show_epg = len(filtered) <= 500
-        # Round 273: watchdog показал 10.7 сек фриз в filter_channels на
-        # 3639 каналах. Главный виновник — make_letter_tile_icon: QPainter
-        # с антиалиасингом × 3639 = ~7 сек. Для больших списков
-        # рисуем letter-tile только для ПЕРВЫХ 200; остальные получают
-        # пустую иконку (заменится реальной когда logo_cache подтянет
-        # или при первом скролле через _refresh_logos).
-        big = len(filtered) > 500
-        ch_to_index = self.ch_to_index
-        logo_cache = self.logo_cache
+        self._filter_state = {
+            'filtered': filtered,
+            'show_epg': show_epg,
+            'epg': epg,
+            'favs': favs,
+        }
         lst = self.channel_list
         lst.setUpdatesEnabled(False)
         try:
             lst.clear()
-            for i, ch in enumerate(filtered):
-                epg_text = ""
-                if show_epg and epg:
-                    try:
-                        now_prog, _ = get_now_next(epg, ch.tvg_id, ch.name)
-                        if now_prog:
-                            try:
-                                tstart = datetime.fromtimestamp(now_prog.start).strftime('%H:%M')
-                                epg_text = f"  {tstart} {now_prog.title}"
-                            except (OSError, ValueError):
-                                pass
-                    except Exception:
-                        pass
-                fav = " ♥" if ch.url in favs else ""
-                group_txt = f" [{ch.group}]" if ch.group else ""
-                q = detect_quality(ch.name)
-                qbadge = f"  ◆{q}" if q else ""
-                item = QListWidgetItem(f"{i+1}. {ch.name}{qbadge}{fav}{group_txt}{epg_text}")
-                item.setData(Qt.UserRole, ch_to_index.get(id(ch), -1))
-                if q:
-                    item.setForeground(QColor(QUALITY_COLORS[q]))
-                # Round 221c: лого или letter-tile.
-                icon = None
-                if logo_cache is not None and ch.logo_url:
-                    try:
-                        icon = logo_cache.get(ch.logo_url)
-                    except Exception:
-                        icon = None
-                if icon is None and (not big or i < 200):
-                    icon = make_letter_tile_icon(ch.name)
-                if icon is not None:
-                    item.setIcon(icon)
-                lst.addItem(item)
+            first_batch = min(200, len(filtered))
+            for i in range(first_batch):
+                self._append_channel_item(i, filtered[i], show_epg, epg, favs,
+                                          tile=True)
         finally:
             lst.setUpdatesEnabled(True)
-        if big:
-            # Round 273: дорисовываем оставшиеся letter-tile'ы пачками
-            # через QTimer, не блокируя UI.
-            self._lazy_tile_idx = 200
-            if not hasattr(self, '_lazy_tile_timer'):
-                self._lazy_tile_timer = QTimer(self)
-                self._lazy_tile_timer.setInterval(50)
-                self._lazy_tile_timer.timeout.connect(self._lazy_fill_tiles)
-            self._lazy_tile_timer.start()
-        # Round 274: восстановили обновление счётчика — после Round 273
-        # эта строка случайно осталась внутри _lazy_fill_tiles и падала
-        # с NameError: 'filtered' is not defined.
         self.count_label.setText(f"{len(filtered)} channels")
+        if len(filtered) > 200:
+            self._chunk_idx = 200
+            if not hasattr(self, '_chunk_timer'):
+                self._chunk_timer = QTimer(self)
+                self._chunk_timer.setInterval(30)
+                self._chunk_timer.timeout.connect(self._fill_next_chunk)
+            self._chunk_timer.start()
+
+    def _append_channel_item(self, i, ch, show_epg, epg, favs, tile=False):
+        try:
+            ch_to_index = self.ch_to_index
+            logo_cache = self.logo_cache
+            lst = self.channel_list
+            epg_text = ""
+            if show_epg and epg:
+                try:
+                    now_prog, _ = get_now_next(epg, ch.tvg_id, ch.name)
+                    if now_prog:
+                        try:
+                            tstart = datetime.fromtimestamp(now_prog.start).strftime('%H:%M')
+                            epg_text = f"  {tstart} {now_prog.title}"
+                        except (OSError, ValueError):
+                            pass
+                except Exception:
+                    pass
+            fav = " ♥" if ch.url in favs else ""
+            group_txt = f" [{ch.group}]" if ch.group else ""
+            q = detect_quality(ch.name)
+            qbadge = f"  ◆{q}" if q else ""
+            item = QListWidgetItem(f"{i+1}. {ch.name}{qbadge}{fav}{group_txt}{epg_text}")
+            item.setData(Qt.UserRole, ch_to_index.get(id(ch), -1))
+            if q:
+                item.setForeground(QColor(QUALITY_COLORS[q]))
+            icon = None
+            if logo_cache is not None and ch.logo_url:
+                try:
+                    icon = logo_cache.get(ch.logo_url)
+                except Exception:
+                    icon = None
+            if icon is None and tile:
+                icon = make_letter_tile_icon(ch.name)
+            if icon is not None:
+                item.setIcon(icon)
+            lst.addItem(item)
+        except Exception as e:
+            log_error('_append_channel_item', e)
+
+    def _fill_next_chunk(self):
+        """Round 277: подсыпаем 100 каналов за тик, чтобы не блокировать
+        UI. Без этого filter_channels на 3639 каналах вешал главную
+        нитку на ~11 сек, что watchdog видел чётко в логе."""
+        try:
+            if not self.isVisible():
+                return
+            st = getattr(self, '_filter_state', None)
+            if not st:
+                self._chunk_timer.stop()
+                return
+            filtered = st['filtered']
+            end = min(self._chunk_idx + 100, len(filtered))
+            lst = self.channel_list
+            lst.setUpdatesEnabled(False)
+            try:
+                for i in range(self._chunk_idx, end):
+                    self._append_channel_item(i, filtered[i],
+                                              st['show_epg'], st['epg'],
+                                              st['favs'], tile=False)
+            finally:
+                lst.setUpdatesEnabled(True)
+            self._chunk_idx = end
+            if end >= len(filtered):
+                self._chunk_timer.stop()
+                # запускаем letter-tile дорисовку для остатка
+                self._lazy_tile_idx = 200
+                if not hasattr(self, '_lazy_tile_timer'):
+                    self._lazy_tile_timer = QTimer(self)
+                    self._lazy_tile_timer.setInterval(50)
+                    self._lazy_tile_timer.timeout.connect(self._lazy_fill_tiles)
+                self._lazy_tile_timer.start()
+        except Exception as e:
+            log_error('_fill_next_chunk', e)
 
     def _lazy_fill_tiles(self):
         """Round 273: фоновая раскладка letter-tile'ов пачками по 50.
@@ -6112,8 +6155,27 @@ class MainWindow(QMainWindow):
                 if isinstance(fw, QLineEdit):
                     return False
                 key = event.key()
-                # Обрабатываем только наши «плеерные» и глобальные
-                # клавиши; остальное отдаём Qt.
+                # Round 277: type-to-search для overlay channels —
+                # event.text() даёт реальный введённый символ независимо
+                # от раскладки (русский, азербайджанский, ...). Round 276
+                # ограничивался Qt.Key_A..Z = только латиница.
+                cur = self.stack.currentWidget()
+                if (isinstance(cur, PlayerPage)
+                        and hasattr(cur, 'channels_overlay')
+                        and cur.channels_overlay.isVisible()
+                        and hasattr(cur, '_overlay_search')):
+                    txt = event.text()
+                    # printable & не служебная клавиша → в строку поиска
+                    if (key == Qt.Key_Backspace
+                            or (txt and txt.isprintable() and txt != '\r'
+                                and txt != '\t' and txt != '\x1b')):
+                        se = cur._overlay_search
+                        se.setFocus()
+                        if key == Qt.Key_Backspace:
+                            se.setText(se.text()[:-1])
+                        else:
+                            se.setText(se.text() + txt)
+                        return True
                 if self._handle_key(key):
                     return True
         except Exception as e:
