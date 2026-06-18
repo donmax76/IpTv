@@ -1060,7 +1060,9 @@ class Config:
         self.last_channel_url = ""
         self.last_category = "All"
         self.volume = 80
-        self.network_caching_ms = 3000     # VLC :network-caching
+        # Round 284: дефолт 6000мс — соответствует Android ExoPlayer
+        # normal-режиму (DefaultLoadControl 6000/18000/200/1500).
+        self.network_caching_ms = 6000     # VLC :network-caching
         self.autoplay_last = False         # open last channel on startup
         self.remember_fullscreen = False   # restore fullscreen on player open
         self.sleep_timer_minutes = 0       # 0 = off
@@ -1142,7 +1144,7 @@ class Config:
                 self.last_channel_url = data.get('last_channel_url', '')
                 self.last_category = data.get('last_category', 'All')
                 self.volume = int(data.get('volume', 80))
-                self.network_caching_ms = int(data.get('network_caching_ms', 3000))
+                self.network_caching_ms = int(data.get('network_caching_ms', 6000))
                 self.autoplay_last = bool(data.get('autoplay_last', False))
                 self.remember_fullscreen = bool(data.get('remember_fullscreen', False))
                 self.sleep_timer_minutes = int(data.get('sleep_timer_minutes', 0))
@@ -4755,15 +4757,48 @@ class PlayerPage(QWidget):
         if not HAS_VLC:
             return
         try:
-            args = ['--no-xlib']
-            # Hardware decode toggle
-            if not getattr(self.config, 'hardware_decode', True):
+            # Round 284: тюним VLC под live-IPTV как другие плееры
+            # (Kodi, OttPlayer, Ace Stream) — больший буфер, отключение
+            # лишних оверхедов, аппаратный декодер по умолчанию.
+            # Юзер: «все каналы зависают а в других программах всё
+            # работает чётко без запинаний».
+            args = [
+                '--no-xlib',
+                '--no-video-title-show',       # без мигания title при переключении
+                '--no-stats',                  # отключаем сбор stats
+                '--no-osd',                    # OSD-текст рисуем сами
+                '--no-snapshot-preview',
+                '--no-sub-autodetect-file',    # не ищем сабы для live
+                '--clock-jitter=0',            # лучше audio/video sync
+                '--clock-synchro=0',           # без жёсткой синхронизации
+                # Round 284: 6 секунд буфера — как Android ExoPlayer
+                # «normal» режим (DefaultLoadControl 6000/18000/200/1500).
+                # Юзер: «в андроид версии всё работает хорошо». VLC
+                # дефолт 1000мс совсем мало для live-IPTV.
+                '--live-caching=6000',
+                '--network-caching=6000',
+                '--file-caching=6000',
+                # --sout-mux-caching не нужен (только для streaming-out).
+                # Звук: высокий приоритет и без resamplera-по-умолчанию,
+                # чтобы не было фоновых щелчков.
+                '--audio-resampler=soxr',
+                '--audio-time-stretch',
+            ]
+            # Hardware decode: по умолчанию `any` (VLC сам выберет d3d11va
+            # / dxva2). Юзер может отключить через настройки.
+            if getattr(self.config, 'hardware_decode', True):
+                args += ['--avcodec-hw=any']
+            else:
                 args += ['--avcodec-hw=none']
-            # Audio output backend on Windows ("" = auto)
+            # Windows: предпочитаем direct3d11 video output — современный
+            # драйвер, гораздо лучше чем устаревший legacy GDI.
+            if sys.platform == "win32":
+                args += ['--vout=direct3d11']
+            # Audio output backend (по умолчанию auto).
             ao = getattr(self.config, 'audio_output', '')
             if ao:
                 args += [f'--aout={ao}']
-            # Custom HTTP user-agent for streams
+            # Custom HTTP user-agent для стримов.
             ua = getattr(self.config, 'user_agent', '')
             if ua:
                 args += [f'--http-user-agent={ua}']
@@ -6309,7 +6344,7 @@ class SettingsPage(QWidget):
         if reply != QMessageBox.Yes:
             return
         self.config.volume = 80
-        self.config.network_caching_ms = 3000
+        self.config.network_caching_ms = 6000  # Round 284
         self.config.autoplay_last = False
         self.config.remember_fullscreen = False
         self.config.sleep_timer_minutes = 0
