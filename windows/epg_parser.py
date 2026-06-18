@@ -51,6 +51,11 @@ _FUZZY_TRAIL_DIGITS = re.compile(r'\d+$')
 _FUZZY_SUFFIXES = (
     'uhd', 'fhd', 'qhd', 'hd', 'sd', '4k', '8k',
     'uk', 'ru', 'us', 'az', 'ua', 'by', 'kz', 'tr', 'ge', 'am', 'uz', 'tj', 'kg',
+    # Round 291: «ТВ» / «TV» / «канал» / «channel» — общие постфиксы
+    # в названиях каналов на обеих сторонах матча (наш «Боевик» vs
+    # iptv-org «Боевик ТВ»). Плюс «plus», «orig» — варианты,
+    # отличающиеся от базы.
+    'tv', 'тв', 'channel', 'канал', 'plus', 'orig',
 )
 
 

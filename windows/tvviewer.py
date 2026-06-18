@@ -3915,10 +3915,17 @@ class PlayerPage(QWidget):
         self._overlay_search = QLineEdit()
         self._overlay_search.setPlaceholderText(t('search') + "…")
         # Round 278: кнопка «×» внутри QLineEdit — стирает всю строку
-        # одним кликом. Юзер: «нельзя разом удалить всю строку».
-        # Также Ctrl+A и Ctrl+Backspace работают нативно — eventFilter
-        # пропускает все клавиши пока QLineEdit имеет фокус.
+        # одним кликом. Round 291: явный StrongFocus + цветной фокус-
+        # ринг — чтобы каретка точно мигала и юзер видел где курсор.
         self._overlay_search.setClearButtonEnabled(True)
+        self._overlay_search.setFocusPolicy(Qt.StrongFocus)
+        self._overlay_search.setStyleSheet(
+            "QLineEdit { background-color: #1A1A2E; color: white;"
+            " border: 2px solid #00C8E6; border-radius: 8px;"
+            " padding: 8px 12px; font-size: 14px;"
+            " selection-background-color: #00C8E6; selection-color: white; }"
+            "QLineEdit:focus { border: 2px solid #26D4F5;"
+            " background-color: #0F0F1A; }")
         self._overlay_search.textChanged.connect(self._refresh_channels_overlay)
         # Round 278: при изменении ЗЕРКАЛИМ в ChannelsPage.search_edit —
         # иначе унаследованный фильтр оставался на вкладке Каналы и
@@ -7804,6 +7811,10 @@ def _app_icon_path() -> str:
 def main():
     app = QApplication(sys.argv)
     app.setFont(QFont('Segoe UI', 12))
+    # Round 291: forcing cursor blink ON — на Windows Tool-окнах
+    # (overlay_host) каретка иногда не мигала. Юзер: «в списках
+    # каналов нет видимого курсора в поле поиска».
+    app.setCursorFlashTime(530)
     # Round 272: запускаем watchdog ПЕРВЫМ делом — пусть он
     # ловит зависания на всём остальном инициализационном пути.
     _start_watchdog_heartbeat(app)
