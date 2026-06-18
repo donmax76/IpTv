@@ -1798,6 +1798,21 @@ class HomePage(QWidget):
         col.setSpacing(20)
         col.addStretch()
 
+        # Round 271: добавили лого над заголовком на HomePage.
+        try:
+            _ico = _app_icon_path()
+            if _ico:
+                src = QPixmap(_ico)
+                if not src.isNull():
+                    pm = src.scaled(96, 96, Qt.KeepAspectRatio,
+                                    Qt.SmoothTransformation)
+                    logo_lbl = QLabel()
+                    logo_lbl.setPixmap(pm)
+                    logo_lbl.setStyleSheet("background: transparent;")
+                    col.addWidget(logo_lbl)
+        except Exception:
+            pass
+
         title = QLabel(t('app_name'))
         title.setStyleSheet(
             "color: white; font-size: 48px; font-weight: bold;"
@@ -6697,28 +6712,37 @@ class SplashWindow(QWidget):
         layout.setAlignment(Qt.AlignCenter)
         layout.setSpacing(12)
 
-        # Logo — большая letter-tile-эстетика, в стиле приложения.
+        # Round 271: используем настоящее лого из assets/tvviewer.png
+        # (тот же файл, что у Android — ic_launcher_512.png). Юзер:
+        # «добавь лого для этой программы и иконку».
         logo = QLabel()
         logo.setFixedSize(140, 140)
         logo.setAlignment(Qt.AlignCenter)
-        pm = QPixmap(140, 140)
-        pm.fill(QColor(0, 0, 0, 0))
-        painter = QPainter(pm)
-        painter.setRenderHint(QPainter.Antialiasing)
-        # Градиент фиолетовый → бирюзовый (фирменные цвета Android).
-        from PyQt5.QtGui import QLinearGradient
-        grad = QLinearGradient(0, 0, 140, 140)
-        grad.setColorAt(0.0, QColor("#7C6CF7"))
-        grad.setColorAt(1.0, QColor("#00CEC9"))
-        painter.setBrush(QBrush(grad))
-        painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(0, 0, 140, 140, 26, 26)
-        # TV-иконка в центре (Unicode-символ через большой шрифт).
-        painter.setPen(QPen(QColor("white")))
-        f = QFont('Segoe UI Symbol', 64, QFont.Bold)
-        painter.setFont(f)
-        painter.drawText(pm.rect(), Qt.AlignCenter, "📺")
-        painter.end()
+        ico_path = _app_icon_path()
+        pm = QPixmap()
+        if ico_path:
+            src = QPixmap(ico_path)
+            if not src.isNull():
+                pm = src.scaled(140, 140, Qt.KeepAspectRatio,
+                                Qt.SmoothTransformation)
+        if pm.isNull():
+            # Fallback на старый градиент + emoji если файл не нашёлся.
+            pm = QPixmap(140, 140)
+            pm.fill(QColor(0, 0, 0, 0))
+            painter = QPainter(pm)
+            painter.setRenderHint(QPainter.Antialiasing)
+            from PyQt5.QtGui import QLinearGradient
+            grad = QLinearGradient(0, 0, 140, 140)
+            grad.setColorAt(0.0, QColor("#7C6CF7"))
+            grad.setColorAt(1.0, QColor("#00CEC9"))
+            painter.setBrush(QBrush(grad))
+            painter.setPen(Qt.NoPen)
+            painter.drawRoundedRect(0, 0, 140, 140, 26, 26)
+            painter.setPen(QPen(QColor("white")))
+            f = QFont('Segoe UI Symbol', 64, QFont.Bold)
+            painter.setFont(f)
+            painter.drawText(pm.rect(), Qt.AlignCenter, "📺")
+            painter.end()
         logo.setPixmap(pm)
         layout.addWidget(logo, alignment=Qt.AlignCenter)
 
@@ -6814,9 +6838,41 @@ class SplashWindow(QWidget):
         super().paintEvent(event)
 
 
+def _app_icon_path() -> str:
+    """Round 271: путь к assets/tvviewer.png (.ico для Windows). Юзер:
+    «добавь лого для этой программы и иконку»."""
+    candidates = []
+    if getattr(sys, 'frozen', False):
+        bundle = os.path.dirname(sys.executable)
+        candidates += [
+            os.path.join(bundle, 'tvviewer.png'),
+            os.path.join(bundle, 'assets', 'tvviewer.png'),
+            os.path.join(bundle, '_internal', 'tvviewer.png'),
+            os.path.join(bundle, '_internal', 'assets', 'tvviewer.png'),
+        ]
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates += [
+        os.path.join(here, 'assets', 'tvviewer.png'),
+        os.path.join(here, 'tvviewer.png'),
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    return ''
+
+
 def main():
     app = QApplication(sys.argv)
     app.setFont(QFont('Segoe UI', 12))
+    # Round 271: иконка приложения — отображается в таскбаре, alt-tab,
+    # окнах и в загловке. На сборке PyInstaller --icon встроит .ico
+    # в сам EXE; здесь дополнительно ставим runtime-иконку через PNG.
+    try:
+        _ico = _app_icon_path()
+        if _ico:
+            app.setWindowIcon(QIcon(_ico))
+    except Exception:
+        pass
     _install_crash_handler(app)
     # Round 258: Qt сам пишет warning/critical в stderr — перехватываем и
     # пишем в tvviewer.log. Иначе на --windowed сборке без консоли все

@@ -60,7 +60,11 @@ jobs:
       shell: pwsh
       run: |
         cd windows
+        # Round 271: --icon встраивает иконку в EXE (Windows taskbar /
+        # Alt-Tab / Explorer); --add-data assets копирует PNG в бандл
+        # для runtime (splash, setWindowIcon).
         pyinstaller --onedir --windowed --name TVViewer `
+          --icon assets/tvviewer.ico `
           --hidden-import m3u_parser `
           --hidden-import epg_parser `
           --hidden-import channel_meta_lookup `
@@ -69,6 +73,7 @@ jobs:
           --add-data "epg_parser.py;." `
           --add-data "channel_meta_lookup.py;." `
           --add-data "version.py;." `
+          --add-data "assets;assets" `
           --add-binary "libvlc.dll;." `
           --add-binary "libvlccore.dll;." `
           --add-data "plugins;plugins" `
