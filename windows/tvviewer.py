@@ -1452,20 +1452,64 @@ class DownloadUpdateThread(QThread):
         is_zip = self.url.lower().endswith('.zip')
         out_name = 'TVViewer.update.zip' if is_zip else 'TVViewer.update.exe'
         out_path = os.path.join(tmp_dir, out_name)
+        # Round 295: тройной транспорт как у UpdateCheckThread. Юзер
+        # увидел «SSL: CERTIFICATE_VERIFY_FAILED unable to get local
+        # issuer certificate» при скачивании обновления — PyInstaller-
+        # сборка не несёт cacert.pem. ZIP идёт с github.com (публичный),
+        # проверка сертификата не критична.
+        def _open(url):
+            headers = {'User-Agent': 'TVViewer-Windows'}
+            # 1) requests (несёт certifi)
+            try:
+                import requests as _rq
+                r = _rq.get(url, headers=headers, timeout=60, stream=True)
+                r.raise_for_status()
+                log_info('update', "download via requests")
+                return ('requests', r)
+            except Exception as e1:
+                log_warn('update', f"download requests failed: {type(e1).__name__}")
+            # 2) urllib системный SSL
+            try:
+                req = urllib.request.Request(url, headers=headers)
+                resp = urllib.request.urlopen(req, timeout=60)
+                log_info('update', "download via urllib")
+                return ('urllib', resp)
+            except Exception as e2:
+                log_warn('update', f"download urllib failed: {type(e2).__name__}")
+            # 3) urllib без проверки SSL
+            import ssl as _ssl
+            ctx = _ssl._create_unverified_context()
+            req = urllib.request.Request(url, headers=headers)
+            resp = urllib.request.urlopen(req, timeout=60, context=ctx)
+            log_warn('update', "download via urllib (UNVERIFIED SSL)")
+            return ('urllib', resp)
+
         try:
-            req = urllib.request.Request(self.url, headers={'User-Agent': 'TVViewer-Windows'})
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                total = int(resp.headers.get('Content-Length') or 0)
-                read = 0
+            kind, src = _open(self.url)
+            read = 0
+            if kind == 'requests':
+                total = int(src.headers.get('Content-Length') or 0)
+                with open(out_path, 'wb') as f:
+                    for chunk in src.iter_content(64 * 1024):
+                        if not chunk:
+                            continue
+                        f.write(chunk)
+                        read += len(chunk)
+                        if total > 0:
+                            self.progress.emit(int(read * 100 / total))
+                src.close()
+            else:
+                total = int(src.headers.get('Content-Length') or 0)
                 with open(out_path, 'wb') as f:
                     while True:
-                        chunk = resp.read(64 * 1024)
+                        chunk = src.read(64 * 1024)
                         if not chunk:
                             break
                         f.write(chunk)
                         read += len(chunk)
                         if total > 0:
                             self.progress.emit(int(read * 100 / total))
+                src.close()
             log_info('update', f"downloaded {read} bytes → {out_path}")
             self.finished.emit(out_path)
         except Exception as e:
