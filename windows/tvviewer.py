@@ -1199,8 +1199,11 @@ class UpdateCheckThread(QThread):
             code = int(obj.get('versionCode', 0))
             if code <= 0:
                 return None
-            url = obj.get('exeUrl') or obj.get('zipUrl') or ''
-            has_exe = bool(obj.get('exeUrl'))
+            # Round 269: ПРЕДПОЧИТАЕМ zipUrl — onefile EXE падает у юзеров
+            # с «Failed to load Python DLL python311.dll». ZIP надёжный
+            # как Android APK.
+            url = obj.get('zipUrl') or obj.get('exeUrl') or ''
+            has_exe = bool(obj.get('zipUrl') or obj.get('exeUrl'))
             log_info('update',
                      f"fast path ok: build={code} tag={obj.get('tag','')} "
                      f"exe={has_exe}")
@@ -1272,22 +1275,17 @@ class UpdateCheckThread(QThread):
             asset_names = [a.get('name', '') for a in assets]
             log_info('update', f"latest build={code} tag={rel.get('tag_name')} "
                                f"assets={asset_names}")
-            # Round 260: предпочитаем именно «update»-EXE (Round 257
-            # добавил TVViewer-update.exe в release). Если нет — любой
-            # .exe; если и того нет — fallback на ZIP URL.
-            asset = next((a for a in assets
-                          if 'update' in a.get('name', '').lower()
-                          and a.get('name', '').lower().endswith('.exe')), None)
-            if asset is None:
-                asset = next((a for a in assets
-                              if a.get('name', '').lower().endswith('.exe')), None)
+            # Round 269: ПРЕДПОЧИТАЕМ ZIP над EXE — onefile EXE падает
+            # на юзерах с «Failed to load Python DLL python311.dll».
             zip_asset = next((a for a in assets
                               if a.get('name', '').lower().endswith('.zip')), None)
+            exe_asset = next((a for a in assets
+                              if a.get('name', '').lower().endswith('.exe')), None)
             url = ''
-            if asset is not None:
-                url = asset.get('browser_download_url') or ''
-            elif zip_asset is not None:
+            if zip_asset is not None:
                 url = zip_asset.get('browser_download_url') or ''
+            elif exe_asset is not None:
+                url = exe_asset.get('browser_download_url') or ''
             else:
                 url = rel.get('html_url', '')
             log_info('update', f"chosen url={url}")
@@ -1296,7 +1294,7 @@ class UpdateCheckThread(QThread):
                 'name': rel.get('name', ''),
                 'tag': rel.get('tag_name', ''),
                 'url': url,
-                'has_exe': asset is not None,
+                'has_exe': zip_asset is not None or exe_asset is not None,
                 'notes': rel.get('body', ''),
             })
         except Exception as e:
@@ -1305,7 +1303,11 @@ class UpdateCheckThread(QThread):
 
 
 class DownloadUpdateThread(QThread):
-    """Downloads a new EXE to a temp file and reports progress."""
+    """Round 269: качаем ZIP (TVViewer-Windows-Portable.zip) и
+    распаковываем поверх установленной папки. Раньше был --onefile EXE,
+    но он падал на пользовательском Windows с «Failed to load Python DLL
+    python311.dll» (известный баг PyInstaller --onefile). ZIP — это то,
+    как обновляется Android (APK), и работает надёжно."""
     progress = pyqtSignal(int)  # 0..100
     finished = pyqtSignal(object)  # path or None
     error = pyqtSignal(str)
@@ -1316,7 +1318,9 @@ class DownloadUpdateThread(QThread):
 
     def run(self):
         tmp_dir = tempfile.gettempdir()
-        out_path = os.path.join(tmp_dir, 'TVViewer.update.exe')
+        is_zip = self.url.lower().endswith('.zip')
+        out_name = 'TVViewer.update.zip' if is_zip else 'TVViewer.update.exe'
+        out_path = os.path.join(tmp_dir, out_name)
         try:
             req = urllib.request.Request(self.url, headers={'User-Agent': 'TVViewer-Windows'})
             with urllib.request.urlopen(req, timeout=30) as resp:
@@ -1340,11 +1344,91 @@ class DownloadUpdateThread(QThread):
             except Exception: pass
 
 
+def _extract_zip_and_restart(zip_path: str):
+    """Round 269: распаковать ZIP поверх install-папки и перезапуститься.
+    Заменяет _swap_self_and_restart для ZIP-обновлений. Юзер: «выходит
+    окно Failed to load Python DLL» — это была проблема --onefile EXE.
+    Здесь ZIP содержит весь --onedir bundle, корректно работающий."""
+    if not getattr(sys, 'frozen', False):
+        return False
+    current_exe = sys.executable
+    install_dir = os.path.dirname(current_exe)
+    if not current_exe.lower().endswith('.exe'):
+        return False
+    try:
+        tmp = tempfile.gettempdir()
+        log_path = os.path.join(tmp, 'tvviewer_update.log')
+        # VBS-обёртка: ждёт выхода старого процесса, распаковывает ZIP
+        # поверх install_dir, удаляет ZIP, запускает новый EXE.
+        # PowerShell идёт скрытно через wscript.exe -> sh.Run windowStyle=0.
+        ps_cmd = (
+            f"Add-Type -AssemblyName System.IO.Compression.FileSystem; "
+            f"Start-Sleep -Seconds 2; "
+            f"try {{ "
+            f"  [System.IO.Compression.ZipFile]::ExtractToDirectory("
+            f"    '{zip_path}', '{install_dir}', $true) "
+            f"}} catch {{ "
+            f"  Add-Content -Path '{log_path}' -Value $_.Exception.Message "
+            f"}}"
+        )
+        # PowerShell ExtractToDirectory с overwrite=true (3-й параметр)
+        # доступен с .NET 4.5+ - на современных Windows есть.
+        bat = (
+            "@echo off\r\n"
+            f'echo [%date% %time%] update start > "{log_path}"\r\n'
+            f'powershell -NoProfile -WindowStyle Hidden -Command '
+            f'"{ps_cmd}" >> "{log_path}" 2>&1\r\n'
+            f'echo extract exit: %errorlevel% >> "{log_path}"\r\n'
+            f'del "{zip_path}" >> "{log_path}" 2>&1\r\n'
+        )
+        bat_path = os.path.join(tmp, 'tvviewer_update.bat')
+        with open(bat_path, 'w', encoding='ascii') as f:
+            f.write(bat)
+        vbs = (
+            'Set sh = CreateObject("WScript.Shell")\r\n'
+            f'sh.Run "cmd /c ""{bat_path}""", 0, True\r\n'
+            f'sh.Run """{current_exe}""", 1, False\r\n'
+            'Set fso = CreateObject("Scripting.FileSystemObject")\r\n'
+            'On Error Resume Next\r\n'
+            f'fso.DeleteFile "{bat_path}"\r\n'
+            'fso.DeleteFile WScript.ScriptFullName\r\n'
+        )
+        vbs_path = os.path.join(tmp, 'tvviewer_update.vbs')
+        with open(vbs_path, 'w', encoding='ascii') as f:
+            f.write(vbs)
+        flags = 0
+        if hasattr(subprocess, 'DETACHED_PROCESS'):
+            flags |= subprocess.DETACHED_PROCESS
+        if hasattr(subprocess, 'CREATE_NO_WINDOW'):
+            flags |= subprocess.CREATE_NO_WINDOW
+        subprocess.Popen(['wscript.exe', vbs_path], creationflags=flags,
+                         close_fds=True)
+        log_info('update',
+                 f"ZIP extract script launched, install_dir={install_dir}, "
+                 f"log at {log_path}")
+        return True
+    except Exception as e:
+        log_error('_extract_zip_and_restart', e)
+        return False
+
+
 def _swap_self_and_restart(new_exe_path: str):
     """Swap the running .exe with `new_exe_path` and restart.
 
     Only works for a frozen PyInstaller build. Returns True if a swap
     script was launched (caller should quit immediately afterwards).
+
+    Round 269: юзер: «зачем после обновления выходит окно терминала
+    где происходит пинг а потом закрывается и не открывается сама
+    программа». BAT с `ping` показывал cmd-окно несмотря на
+    CREATE_NO_WINDOW, и `start "" "{path}"` иногда не запускал EXE
+    обратно. Переписали через VBScript-обёртку:
+      • VBScript запускается через wscript.exe — никогда не показывает
+        окно.
+      • Внутри VBS вызываем cmd .bat с WindowStyle=0 (Hidden).
+      • Вместо `ping` используем `timeout /t 2 /nobreak`.
+      • `start` заменён на прямой запуск через CreateObject.Run,
+        чтобы избежать ошибок с пробелами в путях.
     """
     if not getattr(sys, 'frozen', False):
         return False
@@ -1352,24 +1436,46 @@ def _swap_self_and_restart(new_exe_path: str):
     if not current.lower().endswith('.exe'):
         return False
     try:
+        tmp = tempfile.gettempdir()
+        log_path = os.path.join(tmp, 'tvviewer_update.log')
+        # BAT — основная работа: подождать, заменить, лог.
         bat = (
             "@echo off\r\n"
-            "ping -n 3 127.0.0.1 >nul\r\n"
-            f'move /Y "{new_exe_path}" "{current}" >nul 2>&1\r\n'
-            f'start "" "{current}"\r\n'
-            'del "%~f0"\r\n'
+            f'echo [%date% %time%] update start > "{log_path}"\r\n'
+            "timeout /t 2 /nobreak >nul 2>&1\r\n"
+            f'move /Y "{new_exe_path}" "{current}" >> "{log_path}" 2>&1\r\n'
+            f'echo move exit: %errorlevel% >> "{log_path}"\r\n'
         )
-        bat_path = os.path.join(tempfile.gettempdir(), 'tvviewer_update.bat')
+        bat_path = os.path.join(tmp, 'tvviewer_update.bat')
         with open(bat_path, 'w', encoding='ascii') as f:
             f.write(bat)
+        # VBS — обёртка для невидимого запуска BAT, потом — новый EXE.
+        # WScript.Shell.Run window style 0 = Hidden, ждём окончания BAT,
+        # затем запускаем заменённый EXE и удаляем себя.
+        vbs = (
+            'Set sh = CreateObject("WScript.Shell")\r\n'
+            f'sh.Run "cmd /c ""{bat_path}""", 0, True\r\n'
+            f'sh.Run """{current}""", 1, False\r\n'
+            'Set fso = CreateObject("Scripting.FileSystemObject")\r\n'
+            'On Error Resume Next\r\n'
+            f'fso.DeleteFile "{bat_path}"\r\n'
+            'fso.DeleteFile WScript.ScriptFullName\r\n'
+        )
+        vbs_path = os.path.join(tmp, 'tvviewer_update.vbs')
+        with open(vbs_path, 'w', encoding='ascii') as f:
+            f.write(vbs)
+        # wscript.exe сам по себе не показывает окно для VBS-скриптов.
         flags = 0
         if hasattr(subprocess, 'DETACHED_PROCESS'):
             flags |= subprocess.DETACHED_PROCESS
         if hasattr(subprocess, 'CREATE_NO_WINDOW'):
             flags |= subprocess.CREATE_NO_WINDOW
-        subprocess.Popen(['cmd', '/c', bat_path], creationflags=flags)
+        subprocess.Popen(['wscript.exe', vbs_path], creationflags=flags,
+                         close_fds=True)
+        log_info('update', f"swap script launched, log at {log_path}")
         return True
-    except Exception:
+    except Exception as e:
+        log_error('_swap_self_and_restart', e)
         return False
 
 
@@ -1432,33 +1538,18 @@ class _LogoFetcher(QThread):
         err = ""
         data = b""
         headers = {'User-Agent': 'TVViewer/Windows'}
-        # Round 267: timeout 4 сек на попытку (было 12). 6 воркеров ×
-        # 3 транспорта × 12 сек = 216 сек простоя UI на мёртвой ссылке.
-        # 4 сек × 3 = 12 сек — приемлемо, и GIL не зажат так долго.
-        # 1) requests + certifi
+        # Round 269: ОДНА попытка urllib с 2с timeout. Юзер: «зависании
+        # происходят во всех окнах везде». На плейлисте 3639 каналов с
+        # битыми/недоступными лого 3 транспорта × 4с = 12с на одну ссылку
+        # × 3000+ = постоянное GIL-молотилово фоновых потоков. requests
+        # тяжёлая (Session, certifi, urllib3 — каждый раз пересоздаём).
+        # Возвращаемся к минимуму: один urllib-вызов, 2 сек, дальше next.
         try:
-            import requests as _rq
-            r = _rq.get(self._url, headers=headers, timeout=4,
-                        allow_redirects=True)
-            r.raise_for_status()
-            data = r.content
-        except Exception as e1:
-            err1 = f"requests:{type(e1).__name__}"
-            try:
-                req = urllib.request.Request(self._url, headers=headers)
-                with urllib.request.urlopen(req, timeout=4) as r:
-                    data = r.read()
-            except Exception as e2:
-                err2 = f"urllib:{type(e2).__name__}"
-                try:
-                    import ssl as _ssl
-                    ctx = _ssl._create_unverified_context()
-                    req = urllib.request.Request(self._url, headers=headers)
-                    with urllib.request.urlopen(req, timeout=4,
-                                                context=ctx) as r:
-                        data = r.read()
-                except Exception as e3:
-                    err = f"{err1}|{err2}|unverified:{type(e3).__name__}"
+            req = urllib.request.Request(self._url, headers=headers)
+            with urllib.request.urlopen(req, timeout=2) as r:
+                data = r.read()
+        except Exception as e:
+            err = f"{type(e).__name__}"
         try:
             self.done.emit(self._url, data, err)
         except Exception as e:
@@ -1476,7 +1567,11 @@ class LogoCache(QObject):
     """
     logo_ready = pyqtSignal()
 
-    MAX_CONCURRENT = 6
+    # Round 269: 6 → 2. Юзер видит фризы везде. На плейлисте 3639
+    # каналов 6 одновременных HTTP-потоков + GIL = постоянная фоновая
+    # нагрузка. Двух воркеров достаточно — лого подгружаются плавно
+    # без блокировки UI.
+    MAX_CONCURRENT = 2
     MAX_ICONS_IN_MEM = 2000
 
     def __init__(self, cache_dir: str, parent=None):
@@ -1491,6 +1586,11 @@ class LogoCache(QObject):
         self._inflight: set = set()
         self._queue: list = []
         self._workers: list = []  # QThread refs чтобы GC не убил
+        # Round 269: circuit breaker. Юзер: «зависании происходят во
+        # всех окнах везде». На плейлисте с битыми лого 6 воркеров
+        # молотили без остановки. После 50 подряд неудач — пауза 60с.
+        self._consecutive_fail = 0
+        self._paused_until = 0.0
         self._emit_timer = QTimer(self)
         self._emit_timer.setSingleShot(True)
         self._emit_timer.setInterval(400)
@@ -1530,6 +1630,12 @@ class LogoCache(QObject):
         return None
 
     def _pump(self):
+        # Round 269: circuit breaker — пока пауза, не спавним новых
+        # воркеров. Юзер не должен страдать из-за плейлиста с дохлыми
+        # лого-ссылками.
+        import time as _t
+        if _t.monotonic() < self._paused_until:
+            return
         while self._queue and len(self._inflight) < self.MAX_CONCURRENT:
             url = self._queue.pop(0)
             if url in self._inflight or url in self.icons or url in self.missing:
@@ -1549,19 +1655,31 @@ class LogoCache(QObject):
                 self.missing.add(url)
 
     def _on_done(self, url, data, err):
+        import time as _t
         self._inflight.discard(url)
         try:
             if err:
-                log_warn('logo', f"failed {url[:80]}: {err}")
                 self.missing.add(url)
+                self._consecutive_fail += 1
+                if self._consecutive_fail >= 50 and self._paused_until == 0:
+                    # Round 269: circuit breaker — пауза 60 сек после
+                    # 50 подряд неудач. Не молотим бесконечно.
+                    self._paused_until = _t.monotonic() + 60.0
+                    log_warn('logo',
+                             "50 consecutive failures, pausing 60s")
                 return
             if not data:
                 self.missing.add(url)
+                self._consecutive_fail += 1
                 return
             pm = QPixmap()
             if not pm.loadFromData(data):
                 self.missing.add(url)
+                self._consecutive_fail += 1
                 return
+            # успех — сбрасываем счётчик и снимаем паузу.
+            self._consecutive_fail = 0
+            self._paused_until = 0.0
             if pm.width() > 128 or pm.height() > 128:
                 pm = pm.scaled(128, 128, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             try:
@@ -5580,7 +5698,15 @@ class SettingsPage(QWidget):
             self._dl_dialog.accept()
         if not path:
             return
-        if _swap_self_and_restart(path):
+        # Round 269: ZIP → распаковать в install dir; EXE → swap (legacy).
+        # Юзер видел «Failed to load Python DLL» от --onefile EXE-update —
+        # теперь предпочитаем ZIP (надёжно, как Android APK).
+        ok = False
+        if path.lower().endswith('.zip'):
+            ok = _extract_zip_and_restart(path)
+        else:
+            ok = _swap_self_and_restart(path)
+        if ok:
             QApplication.quit()
         else:
             QMessageBox.information(
