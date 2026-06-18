@@ -2141,7 +2141,7 @@ class PlaylistsPage(QWidget):
             self.config.playlists.append({'name': name, 'url': path})
             added += 1
         if added:
-            self.config.save()
+            self.config.save_async()
             self.refresh_list()
             event.acceptProposedAction()
 
@@ -2361,7 +2361,7 @@ class PlaylistsPage(QWidget):
             url = url_edit.text().strip()
             if name and url:
                 self.config.playlists.append({'name': name, 'url': url})
-                self.config.save()
+                self.config.save_async()
                 self.refresh_list()
 
     def add_playlist_xtream(self):
@@ -2407,7 +2407,7 @@ class PlaylistsPage(QWidget):
                 return
             url = XtreamApi.build_m3u_url(srv, usr, pwd)
             self.config.playlists.append({'name': name, 'url': url})
-            self.config.save()
+            self.config.save_async()
             self.refresh_list()
             dlg.accept()
 
@@ -2449,7 +2449,7 @@ class PlaylistsPage(QWidget):
             QMessageBox.Yes | QMessageBox.No)
         if confirm == QMessageBox.Yes:
             self.config.playlists.append({'name': name, 'url': url})
-            self.config.save()
+            self.config.save_async()
             self.refresh_list()
 
     def add_playlist_file(self):
@@ -2459,14 +2459,14 @@ class PlaylistsPage(QWidget):
         if path:
             name = os.path.splitext(os.path.basename(path))[0]
             self.config.playlists.append({'name': name, 'url': path})
-            self.config.save()
+            self.config.save_async()
             self.refresh_list()
 
     def remove_playlist(self):
         row = self.playlist_list.currentRow()
         if row >= 0:
             self.config.playlists.pop(row)
-            self.config.save()
+            self.config.save_async()
             self.refresh_list()
 
 
@@ -2606,7 +2606,7 @@ class ChannelsPage(QWidget):
 
     def _on_sort_changed(self, _idx: int):
         self.config.channel_sort = self.sort_combo.currentData()
-        self.config.save()
+        self.config.save_async()
         self.filter_channels()
 
     def set_epg(self, epg_data):
@@ -2632,7 +2632,7 @@ class ChannelsPage(QWidget):
     def select_category(self, cat):
         self.selected_category = cat
         self.config.last_category = cat
-        self.config.save()
+        self.config.save_async()
         self.rebuild_categories()
         self.filter_channels()
 
@@ -3446,6 +3446,44 @@ class PlayerPage(QWidget):
         self.clock_timer.start(30000)
         self.update_clock()
 
+    def _build_mini_osd(self):
+        """Round 279: маленькая OSD-плашка, всплывает на 2 сек при
+        переключении канала или изменении громкости. Юзер: «при
+        переключении каналов или регулировки уровня громкости выводи
+        на экран информационную мини-панель о его текущем состоянии
+        или канале»."""
+        self._mini_osd = QLabel(self.overlay_host)
+        self._mini_osd.setStyleSheet(
+            "background-color: rgba(18, 18, 32, 230);"
+            " color: white; font-size: 18px; font-weight: bold;"
+            " border-radius: 10px; padding: 12px 18px;"
+            " border: 1px solid rgba(124, 108, 247, 180);")
+        self._mini_osd.setAlignment(Qt.AlignCenter)
+        self._mini_osd.hide()
+        self._mini_osd_timer = QTimer(self)
+        self._mini_osd_timer.setSingleShot(True)
+        self._mini_osd_timer.setInterval(2000)
+        self._mini_osd_timer.timeout.connect(self._mini_osd.hide)
+
+    def show_mini_osd(self, text):
+        try:
+            if not hasattr(self, '_mini_osd'):
+                self._build_mini_osd()
+            self._mini_osd.setText(text)
+            self._mini_osd.adjustSize()
+            pw = self.overlay_host.width()
+            ph = self.overlay_host.height()
+            if pw > 0 and ph > 0:
+                w = self._mini_osd.width()
+                h = self._mini_osd.height()
+                # Верхний центр поверх видео.
+                self._mini_osd.setGeometry((pw - w) // 2, 40, w, h)
+                self._mini_osd.show()
+                self._mini_osd.raise_()
+                self._mini_osd_timer.start()
+        except Exception as e:
+            log_error('show_mini_osd', e)
+
     def _build_osd_banner(self):
         """Floating channel info banner (parented to video_frame, shown briefly on switch)."""
         self.osd_banner = QWidget(self.overlay_host)
@@ -3453,6 +3491,8 @@ class PlayerPage(QWidget):
             "background-color: rgba(18, 18, 32, 220);"
             " border-radius: 10px;")
         self.osd_banner.hide()
+        # Round 279: создаём мини-OSD сразу
+        self._build_mini_osd()
         row = QHBoxLayout(self.osd_banner)
         row.setContentsMargins(12, 10, 16, 10)
         row.setSpacing(12)
@@ -3847,7 +3887,7 @@ class PlayerPage(QWidget):
         # MainWindow обновить ChannelsPage (если он есть).
         try:
             self.config.last_category = cat
-            self.config.save()
+            self.config.save_async()
             mw = self.window()
             cp = getattr(mw, 'channels_page', None)
             if cp is not None:
@@ -4580,6 +4620,8 @@ class PlayerPage(QWidget):
         self.channel_number_label.setText(f"{index + 1} / {len(channels)}")
         self.update_fav_btn()
         self.update_epg_display()
+        # Round 279: мини-OSD с номером и именем канала.
+        self.show_mini_osd(f"📺  {index + 1}/{len(channels)}   {ch.name}")
 
         # Restore per-channel preferences before play_url applies them
         st = self.config.get_channel_state(ch.url)
@@ -4614,7 +4656,7 @@ class PlayerPage(QWidget):
                 pass
 
         self.config.push_recent(ch.url)
-        self.config.save()
+        self.config.save_async()
         self._show_channel_banner()
 
     def _maybe_seek(self, pos_ms: int):
@@ -4763,6 +4805,9 @@ class PlayerPage(QWidget):
             ch = self.channels[self._pending_index]
             self.channel_name_label.setText(ch.name)
             self.channel_number_label.setText(f"{self._pending_index + 1} / {len(self.channels)}")
+            # Round 279: мини-OSD при пролистывании ↑/↓.
+            self.show_mini_osd(
+                f"📺  {self._pending_index + 1}/{len(self.channels)}   {ch.name}")
         self._zap_timer.start()
 
     def _commit_zap(self):
@@ -4776,6 +4821,10 @@ class PlayerPage(QWidget):
         self.config.volume = val
         if self.player:
             self.player.audio_set_volume(val)
+        # Round 279: мини-OSD с уровнем громкости.
+        bars = max(0, min(10, int(val / 10)))
+        bar_str = "█" * bars + "░" * (10 - bars)
+        self.show_mini_osd(f"🔊  {val}%   {bar_str}")
 
     def toggle_favorite(self):
         if not self.channels or self.current_index >= len(self.channels):
@@ -4785,7 +4834,7 @@ class PlayerPage(QWidget):
             self.config.favorites.discard(url)
         else:
             self.config.favorites.add(url)
-        self.config.save()
+        self.config.save_async()
         self.update_fav_btn()
 
     def update_fav_btn(self):
@@ -4889,27 +4938,34 @@ class PlayerPage(QWidget):
     # --- Audio track ---
 
     def cycle_audio_track(self):
+        # Round 279: VLC `audio_get_track_description` / `audio_set_track`
+        # могут блокировать на проблемных стримах. Уносим в фон.
         if not self.player:
             return
         try:
-            tracks = self.player.audio_get_track_description() or []
-            # Filter out the -1 "deactivate" pseudo-track
-            usable = [t for t in tracks if t and t[0] >= 0]
-            if len(usable) < 2:
-                self.epg_bar.setText("Single audio track")
-                return
-            cur = self.player.audio_get_track()
-            ids = [t[0] for t in usable]
-            try:
-                pos = ids.index(cur)
-            except ValueError:
-                pos = -1
-            nxt = usable[(pos + 1) % len(usable)]
-            self.player.audio_set_track(nxt[0])
-            name = nxt[1].decode(errors='ignore') if isinstance(nxt[1], (bytes, bytearray)) else str(nxt[1])
-            self.btn_audio.setText(f"Audio: {name[:12]}")
-        except Exception:
-            pass
+            import threading as _th
+            player = self.player
+            def _bg():
+                try:
+                    tracks = player.audio_get_track_description() or []
+                    usable = [t for t in tracks if t and t[0] >= 0]
+                    if len(usable) < 2:
+                        return
+                    cur = player.audio_get_track()
+                    ids = [t[0] for t in usable]
+                    try:
+                        pos = ids.index(cur)
+                    except ValueError:
+                        pos = -1
+                    nxt = usable[(pos + 1) % len(usable)]
+                    player.audio_set_track(nxt[0])
+                    log_info('vlc',
+                             f"audio track → {nxt[0]} ({len(usable)} total)")
+                except Exception as e:
+                    log_error('cycle_audio_track.bg', e)
+            _th.Thread(target=_bg, daemon=True, name='vlc-audio').start()
+        except Exception as e:
+            log_error('cycle_audio_track', e)
 
     # --- Fullscreen ---
 
@@ -4940,7 +4996,7 @@ class PlayerPage(QWidget):
 
     def _start_sleep_timer(self, minutes: int):
         self.config.sleep_timer_minutes = int(minutes)
-        self.config.save()
+        self.config.save_async()
         if minutes <= 0:
             self._sleep_deadline = 0
             self._sleep_timer.stop()
@@ -5185,7 +5241,7 @@ class RecentPage(QWidget):
 
     def _clear(self):
         self.config.recent_urls = []
-        self.config.save()
+        self.config.save_async()
         self.refresh(self.channels, self.epg_data)
 
     def retranslate_ui(self):
@@ -5731,7 +5787,7 @@ class SettingsPage(QWidget):
 
     def _save_buffer(self, _idx):
         self.config.network_caching_ms = int(self.buf_combo.currentData())
-        self.config.save()
+        self.config.save_async()
         self.settings_changed.emit()
 
     def _save_language(self, _idx):
@@ -5743,7 +5799,7 @@ class SettingsPage(QWidget):
         if not code or code == getattr(self.config, 'ui_language', 'ru'):
             return
         self.config.ui_language = code
-        self.config.save()
+        self.config.save_async()
         set_ui_language(code)
         self.settings_changed.emit()  # MainWindow дёрнет _retranslate_all
 
@@ -5766,7 +5822,7 @@ class SettingsPage(QWidget):
         if not code or code == getattr(self.config, 'theme_color', 'default'):
             return
         self.config.theme_color = code
-        self.config.save()
+        self.config.save_async()
         try:
             apply_theme(code)
             QApplication.instance().setStyleSheet(STYLESHEET)
@@ -5779,42 +5835,42 @@ class SettingsPage(QWidget):
         if not code:
             return
         self.config.clock_position = code
-        self.config.save()
+        self.config.save_async()
         self.settings_changed.emit()
 
     def _save_volume(self, v):
         self.config.volume = int(v)
-        self.config.save()
+        self.config.save_async()
         self.settings_changed.emit()
 
     def _save_sleep(self, v):
         self.config.sleep_timer_minutes = int(v)
-        self.config.save()
+        self.config.save_async()
 
     def _save_autoplay(self, checked):
         self.config.autoplay_last = bool(checked)
-        self.config.save()
+        self.config.save_async()
 
     def _save_fullscreen(self, checked):
         self.config.remember_fullscreen = bool(checked)
-        self.config.save()
+        self.config.save_async()
 
     def _save_always_on_top(self, checked):
         self.config.always_on_top = bool(checked)
-        self.config.save()
+        self.config.save_async()
         self.settings_changed.emit()
 
     def _save_hwdec(self, checked):
         self.config.hardware_decode = bool(checked)
-        self.config.save()
+        self.config.save_async()
 
     def _save_aout(self, _idx):
         self.config.audio_output = self.aout_combo.currentData() or ""
-        self.config.save()
+        self.config.save_async()
 
     def _save_ua(self):
         self.config.user_agent = self.ua_edit.text().strip()
-        self.config.save()
+        self.config.save_async()
 
     def _refresh_epg_list(self):
         self.epg_list.clear()
@@ -5828,7 +5884,7 @@ class SettingsPage(QWidget):
         if u in self.config.epg_urls:
             return
         self.config.epg_urls.append(u)
-        self.config.save()
+        self.config.save_async()
         self.epg_input.clear()
         self._refresh_epg_list()
         self.settings_changed.emit()
@@ -5839,7 +5895,7 @@ class SettingsPage(QWidget):
             return
         try:
             self.config.epg_urls.pop(row)
-            self.config.save()
+            self.config.save_async()
             self._refresh_epg_list()
             self.settings_changed.emit()
         except IndexError:
@@ -5847,12 +5903,12 @@ class SettingsPage(QWidget):
 
     def _clear_recent(self):
         self.config.recent_urls = []
-        self.config.save()
+        self.config.save_async()
         self.settings_changed.emit()
 
     def _clear_per_channel_state(self):
         self.config.per_channel_state = {}
-        self.config.save()
+        self.config.save_async()
 
     def _report_issue(self):
         try:
@@ -6031,7 +6087,7 @@ class SettingsPage(QWidget):
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             self.config.favorites.clear()
-            self.config.save()
+            self.config.save_async()
             self.settings_changed.emit()
 
     def _reset_settings(self):
@@ -6050,7 +6106,7 @@ class SettingsPage(QWidget):
         self.config.hardware_decode = True
         self.config.audio_output = ""
         self.config.channel_sort = "default"
-        self.config.save()
+        self.config.save_async()
         # Refresh UI
         self.vol_spin.setValue(self.config.volume)
         self._set_combo_by_value(self.buf_combo, self.config.network_caching_ms, 1)
@@ -6687,7 +6743,7 @@ class MainWindow(QMainWindow):
         self.switch_page(1)
         self.config.last_playlist_url = url
         self.config.last_playlist_name = name
-        self.config.save()
+        self.config.save_async()
 
         self.loader_thread = LoadPlaylistThread(url)
         self.loader_thread.finished.connect(lambda r: self.on_playlist_loaded(r, name))
@@ -6729,7 +6785,7 @@ class MainWindow(QMainWindow):
         epg_sources = []
         if result.epg_url:
             self.config.last_epg_url = result.epg_url
-            self.config.save()
+            self.config.save_async()
             epg_sources.append(result.epg_url)
         elif self.config.last_epg_url:
             epg_sources.append(self.config.last_epg_url)
@@ -6984,8 +7040,16 @@ class MainWindow(QMainWindow):
                     pass
 
     def closeEvent(self, event):
+        # Round 279: synchronous save at close — нужно гарантированно
+        # дописать config до выхода. release_vlc() уходит в фон чтобы
+        # не подвешивать выход.
+        try:
+            import threading as _th
+            _th.Thread(target=self.player_page.release_vlc,
+                       daemon=True, name='vlc-release').start()
+        except Exception as e:
+            log_error('closeEvent.release', e)
         self.player_page.stop()
-        self.player_page.release_vlc()
         self.config.save()
         event.accept()
 
