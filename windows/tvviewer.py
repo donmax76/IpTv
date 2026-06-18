@@ -2679,6 +2679,13 @@ class ChannelsPage(QWidget):
 
         # Show EPG titles only for small lists to keep the UI responsive
         show_epg = len(filtered) <= 500
+        # Round 273: watchdog показал 10.7 сек фриз в filter_channels на
+        # 3639 каналах. Главный виновник — make_letter_tile_icon: QPainter
+        # с антиалиасингом × 3639 = ~7 сек. Для больших списков
+        # рисуем letter-tile только для ПЕРВЫХ 200; остальные получают
+        # пустую иконку (заменится реальной когда logo_cache подтянет
+        # или при первом скролле через _refresh_logos).
+        big = len(filtered) > 500
         ch_to_index = self.ch_to_index
         logo_cache = self.logo_cache
         lst = self.channel_list
@@ -2686,9 +2693,6 @@ class ChannelsPage(QWidget):
         try:
             lst.clear()
             for i, ch in enumerate(filtered):
-                # Round 240: вернулись к стандартному плоскому формату.
-                # Делегат остался только в overlay плеера (там <500
-                # элементов и помещается).
                 epg_text = ""
                 if show_epg and epg:
                     try:
@@ -2716,10 +2720,46 @@ class ChannelsPage(QWidget):
                         icon = logo_cache.get(ch.logo_url)
                     except Exception:
                         icon = None
-                item.setIcon(icon if icon is not None else make_letter_tile_icon(ch.name))
+                if icon is None and (not big or i < 200):
+                    icon = make_letter_tile_icon(ch.name)
+                if icon is not None:
+                    item.setIcon(icon)
                 lst.addItem(item)
         finally:
             lst.setUpdatesEnabled(True)
+        if big:
+            # Round 273: дорисовываем оставшиеся letter-tile'ы пачками
+            # через QTimer, не блокируя UI.
+            self._lazy_tile_idx = 200
+            if not hasattr(self, '_lazy_tile_timer'):
+                self._lazy_tile_timer = QTimer(self)
+                self._lazy_tile_timer.setInterval(50)
+                self._lazy_tile_timer.timeout.connect(self._lazy_fill_tiles)
+            self._lazy_tile_timer.start()
+
+    def _lazy_fill_tiles(self):
+        """Round 273: фоновая раскладка letter-tile'ов пачками по 50.
+        Без этого UI замораживался на ~10 сек на плейлисте 3639+
+        каналов когда filter_channels рисовал все плашки синхронно."""
+        try:
+            lst = self.channel_list
+            if not self.isVisible():
+                # вкладка не активна — продолжим позже
+                return
+            end = min(self._lazy_tile_idx + 50, lst.count())
+            for i in range(self._lazy_tile_idx, end):
+                item = lst.item(i)
+                if item is None or not item.icon().isNull():
+                    continue
+                idx = item.data(Qt.UserRole)
+                if isinstance(idx, int) and 0 <= idx < len(self.channels):
+                    ch = self.channels[idx]
+                    item.setIcon(make_letter_tile_icon(ch.name))
+            self._lazy_tile_idx = end
+            if end >= lst.count():
+                self._lazy_tile_timer.stop()
+        except Exception as e:
+            log_error('_lazy_fill_tiles', e)
 
         self.count_label.setText(f"{len(filtered)} channels")
 
@@ -3104,7 +3144,12 @@ class PlayerPage(QWidget):
         self._number_input = ""
         self._sleep_deadline = 0  # monotonic ms; 0 = off
         self.init_ui()
-        self.init_vlc()
+        # Round 273: НЕ зовём init_vlc() здесь — `libvlc_new()` сканирует
+        # plugins/ и инициализирует кодеки 5-20 сек, и всё это
+        # блокирует main thread на старте. Watchdog поймал 14 сек
+        # фриза. VLC нужен только когда юзер реально что-то играет —
+        # инициализируем в первый play_url() или в background QThread
+        # сразу после показа MainWindow (см. MainWindow.__init__).
 
         # Sleep timer tick (once per minute)
         self._sleep_timer = QTimer(self)
@@ -4530,6 +4575,12 @@ class PlayerPage(QWidget):
         self.config.save_async()  # Round 260: фон, не блокируем переключение
 
     def play_url(self, url):
+        # Round 273: lazy VLC init — на старте мы это пропустили чтобы
+        # не блокировать UI на 14 сек. Перед первым проигрыванием
+        # инициализируем синхронно (если фоновый воркер не успел).
+        if not self.player and HAS_VLC:
+            log_info('vlc', "lazy init from play_url")
+            self.init_vlc()
         if not self.player:
             log_warn('play_url', "no VLC player available")
             self.epg_bar.setText("VLC not installed. Install VLC and python-vlc.")
@@ -5948,6 +5999,26 @@ class MainWindow(QMainWindow):
             log_error('applicationStateChanged.connect', e)
         # Silent auto-check for new build at startup (only for frozen EXE)
         QTimer.singleShot(3000, self._auto_check_updates)
+        # Round 273: прогреваем VLC в background-нитке через 800мс после
+        # старта. Если юзер кликнет канал ДО окончания прогрева — play_url
+        # сам сделает синхронный init_vlc (всё равно лучше чем 14 сек
+        # фриз на старте). vlc.Instance / media_player_new — нативные
+        # C-вызовы без Python-объектов, GIL не нужен и thread-safe.
+        QTimer.singleShot(800, self._warm_vlc_async)
+
+    def _warm_vlc_async(self):
+        try:
+            import threading as _th
+            def _worker():
+                try:
+                    log_info('vlc', "warming up in background")
+                    self.player_page.init_vlc()
+                    log_info('vlc', "warm-up done")
+                except Exception as e:
+                    log_error('vlc_warmup', e)
+            _th.Thread(target=_worker, daemon=True, name='vlc-warm').start()
+        except Exception as e:
+            log_error('_warm_vlc_async', e)
 
     def _on_app_state_changed(self, state):
         """Round 259: alt-tab → прячем overlay_host чтобы наши часы и
