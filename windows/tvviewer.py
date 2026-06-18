@@ -2736,6 +2736,10 @@ class ChannelsPage(QWidget):
                 self._lazy_tile_timer.setInterval(50)
                 self._lazy_tile_timer.timeout.connect(self._lazy_fill_tiles)
             self._lazy_tile_timer.start()
+        # Round 274: восстановили обновление счётчика — после Round 273
+        # эта строка случайно осталась внутри _lazy_fill_tiles и падала
+        # с NameError: 'filtered' is not defined.
+        self.count_label.setText(f"{len(filtered)} channels")
 
     def _lazy_fill_tiles(self):
         """Round 273: фоновая раскладка letter-tile'ов пачками по 50.
@@ -2760,8 +2764,6 @@ class ChannelsPage(QWidget):
                 self._lazy_tile_timer.stop()
         except Exception as e:
             log_error('_lazy_fill_tiles', e)
-
-        self.count_label.setText(f"{len(filtered)} channels")
 
     def _refresh_logos(self):
         """Called when new logos have been downloaded; update icons in place."""
