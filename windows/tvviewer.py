@@ -1432,28 +1432,29 @@ class _LogoFetcher(QThread):
         err = ""
         data = b""
         headers = {'User-Agent': 'TVViewer/Windows'}
+        # Round 267: timeout 4 сек на попытку (было 12). 6 воркеров ×
+        # 3 транспорта × 12 сек = 216 сек простоя UI на мёртвой ссылке.
+        # 4 сек × 3 = 12 сек — приемлемо, и GIL не зажат так долго.
         # 1) requests + certifi
         try:
             import requests as _rq
-            r = _rq.get(self._url, headers=headers, timeout=12,
+            r = _rq.get(self._url, headers=headers, timeout=4,
                         allow_redirects=True)
             r.raise_for_status()
             data = r.content
         except Exception as e1:
             err1 = f"requests:{type(e1).__name__}"
-            # 2) urllib system SSL
             try:
                 req = urllib.request.Request(self._url, headers=headers)
-                with urllib.request.urlopen(req, timeout=12) as r:
+                with urllib.request.urlopen(req, timeout=4) as r:
                     data = r.read()
             except Exception as e2:
                 err2 = f"urllib:{type(e2).__name__}"
-                # 3) unverified SSL
                 try:
                     import ssl as _ssl
                     ctx = _ssl._create_unverified_context()
                     req = urllib.request.Request(self._url, headers=headers)
-                    with urllib.request.urlopen(req, timeout=12,
+                    with urllib.request.urlopen(req, timeout=4,
                                                 context=ctx) as r:
                         data = r.read()
                 except Exception as e3:
@@ -2920,12 +2921,17 @@ class PlayerPage(QWidget):
         # часы и баннер живут в ОТДЕЛЬНОМ top-level прозрачном окне
         # overlay_host, которое плавает поверх видео и трекает его
         # геометрию. Так VLC физически не может их перекрыть.
+        # Round 267: убран WindowStaysOnTopHint — был причиной
+        # появления overlay над другими приложениями.
         self.overlay_host = QWidget(
             None,
-            Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint
+            Qt.FramelessWindowHint | Qt.Tool
             | Qt.NoDropShadowWindowHint)
         self.overlay_host.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.overlay_host.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        # Round 267: УБРАЛИ WA_ShowWithoutActivating — без активации
+        # окна QLineEdit поиска в channels_overlay не получал ввод
+        # клавиатуры. Юзер: «в списке каналов нет возможности ввести
+        # имя для поиска». Окно активируется при show — это ок.
         self.overlay_host.hide()
         # Таймер синхронизации позиции overlay_host с video_frame —
         # ловит перемещение/ресайз/фуллскрин главного окна.
@@ -2933,7 +2939,10 @@ class PlayerPage(QWidget):
         # Round 250: 200мс был агрессивный (CPU 5-10% и подвисания).
         # 800мс хватает чтобы отслеживать перемещение окна; реальная
         # реакция на ресайз/show/hide идёт через явные вызовы.
-        self._overlay_sync_timer.setInterval(800)
+        # Round 267: 800мс был слишком медленный — оверлеи отставали
+        # при перетаскивании окна. 150мс достаточно гладко и при этом
+        # дешёвый _sync_overlay_host (rmcache early return).
+        self._overlay_sync_timer.setInterval(150)
         self._overlay_sync_timer.timeout.connect(self._sync_overlay_host)
         self._last_overlay_geom = None  # кэш геометрии — пропускаем no-op
         self._build_osd_banner()
@@ -3585,15 +3594,22 @@ class PlayerPage(QWidget):
             if not getattr(self, '_overlay_owner_set', False):
                 mw = self.window()
                 if mw is not None and mw is not self:
+                    # Round 267: УБРАЛИ WindowStaysOnTopHint — именно
+                    # этот флаг делал overlay_host «topmost» на уровне
+                    # ОС и выводил его поверх ДРУГИХ приложений. Юзер:
+                    # «опять все эти элементы появляются поверх других
+                    # программ». Сам Qt.Tool + parent=MainWindow создаёт
+                    # на Windows owner-relationship — owned-окно
+                    # автоматически уходит назад вместе с owner-ом, а
+                    # выше owner-а его поднимаем сами через raise_().
                     self.overlay_host.setParent(
                         mw,
                         Qt.FramelessWindowHint | Qt.Tool
-                        | Qt.WindowStaysOnTopHint
                         | Qt.NoDropShadowWindowHint)
                     self.overlay_host.setAttribute(
                         Qt.WA_TranslucentBackground, True)
-                    self.overlay_host.setAttribute(
-                        Qt.WA_ShowWithoutActivating, True)
+                    # Round 267: НЕ ставим WA_ShowWithoutActivating —
+                    # тогда QLineEdit получает ввод клавиатуры.
                     self._overlay_owner_set = True
                     log_info('overlay', f"owner set to {type(mw).__name__}")
             self._sync_overlay_host()
@@ -3716,7 +3732,12 @@ class PlayerPage(QWidget):
             self._refresh_channels_overlay()
             self._slide_in(self.channels_overlay, direction='left')
             self.channels_overlay.raise_()
-            self._overlay_search.setFocus()
+            # Round 267: фокус сразу на СПИСОК (а не поиск), чтобы Up/Down
+            # стрелки сразу ходили по каналам. Юзер хочет видеть курсор
+            # на проигрываемом канале — это уже сделано в
+            # _refresh_channels_overlay через setCurrentRow + scrollToItem.
+            # Чтобы перейти к поиску — Tab или клик мышью.
+            self._overlay_list.setFocus()
         elif stage == 2:
             self._refresh_categories_overlay()
             self._slide_in(self.categories_overlay, direction='left')
@@ -3852,10 +3873,29 @@ class PlayerPage(QWidget):
     def _refresh_channels_overlay(self):
         if not hasattr(self, '_overlay_list'):
             return
+        # Round 267: фильтр overlay-поиска ИЛИ MainWindow ChannelsPage —
+        # если юзер фильтровал каналы на вкладке Каналы, открываем
+        # overlay с тем же фильтром, иначе показывает «полный список,
+        # а не отфильтрованный».
         q = (self._overlay_search.text() or "").strip().lower()
-        # Round 233: setUpdatesEnabled(False) — батч рендеринга.
-        # 500 cap без поиска — на 10k каналах иначе пауза 1-2 сек.
+        if not q:
+            try:
+                mw = self.window()
+                cp = getattr(mw, 'channels_page', None)
+                if cp is not None:
+                    cp_q = (cp.search_input.text() or "").strip().lower()
+                    if cp_q:
+                        q = cp_q
+                        # Подсвечиваем юзеру, что фильтр унаследован.
+                        self._overlay_search.blockSignals(True)
+                        self._overlay_search.setText(cp_q)
+                        self._overlay_search.blockSignals(False)
+            except Exception:
+                pass
         self._overlay_list.setUpdatesEnabled(False)
+        # Round 267: запоминаем, на какой строке overlay-списка лежит
+        # currently playing канал — для setCurrentRow в конце.
+        current_overlay_row = -1
         try:
             self._overlay_list.clear()
             shown = 0
@@ -3895,9 +3935,22 @@ class PlayerPage(QWidget):
                 })
                 item.setSizeHint(QSize(0, ChannelRowDelegate.ROW_HEIGHT))
                 self._overlay_list.addItem(item)
+                if idx == self.current_index:
+                    current_overlay_row = shown
                 shown += 1
         finally:
             self._overlay_list.setUpdatesEnabled(True)
+        # Round 267: фокус на текущем канале (юзер: «не фокусируется в
+        # списке на тот канал который сейчас показывает»).
+        if current_overlay_row >= 0:
+            try:
+                self._overlay_list.setCurrentRow(current_overlay_row)
+                from PyQt5.QtWidgets import QAbstractItemView
+                self._overlay_list.scrollToItem(
+                    self._overlay_list.currentItem(),
+                    QAbstractItemView.PositionAtCenter)
+            except Exception:
+                pass
 
     def _overlay_channel_clicked(self, item):
         idx = item.data(Qt.UserRole)
@@ -5661,6 +5714,29 @@ class MainWindow(QMainWindow):
         except Exception as e:
             log_error('changeEvent', e)
         super().changeEvent(event)
+
+    def moveEvent(self, event):
+        """Round 267: при перетаскивании синхронизируем overlay сразу,
+        не ждём 150мс тика _overlay_sync_timer. Без этого оверлей с
+        запозданием догонял окно — юзер: «при перетаскивании они с
+        запозданием перемещаются»."""
+        super().moveEvent(event)
+        try:
+            page = self.stack.currentWidget()
+            if isinstance(page, PlayerPage):
+                page._sync_overlay_host()
+        except Exception:
+            pass
+
+    def resizeEvent(self, event):
+        """Round 267: то же что moveEvent — синхронный обнов overlay."""
+        super().resizeEvent(event)
+        try:
+            page = self.stack.currentWidget()
+            if isinstance(page, PlayerPage):
+                page._sync_overlay_host()
+        except Exception:
+            pass
 
     def eventFilter(self, obj, event):
         """Round 248: глобальный перехват клавиш. Когда играет VLC, его
