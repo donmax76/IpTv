@@ -4674,34 +4674,61 @@ class PlayerPage(QWidget):
             log_warn('play_url', "no VLC player available")
             self.epg_bar.setText("VLC not installed. Install VLC and python-vlc.")
             return
+        # Round 279: ВСЁ переключение канала уходит в фоновый поток.
+        # Watchdog поймал блок 16.7 сек в `libvlc_media_player_set_media`
+        # (внутри stop() ждёт умирающий network thread). Юзеру это
+        # выглядит как полный фриз UI на 10-16 сек.
         try:
-            # Release previous media to avoid resource accumulation across channel switches
-            prev = self.current_media
-            media = self.vlc_instance.media_new(url)
-            media.add_option(f':network-caching={int(self.config.network_caching_ms)}')
-            self.player.set_media(media)
-            self.current_media = media
-            if prev is not None:
+            import threading as _th
+            # Берём HWND ДО входа в нитку — winId() должен вызываться
+            # только из GUI-потока.
+            hwnd = int(self.video_frame.winId()) if sys.platform == "win32" else None
+            xwin = int(self.video_frame.winId()) if sys.platform == "linux" else None
+            nsobj = int(self.video_frame.winId()) if sys.platform == "darwin" else None
+            volume = int(self.config.volume)
+            aspect = self.ASPECT_RATIOS[self._aspect_idx]
+            speed = float(self.SPEED_VALUES[self._speed_idx])
+            net_cache = int(self.config.network_caching_ms)
+            prev_media = self.current_media
+            vlc_inst = self.vlc_instance
+            player = self.player
+
+            def _swap():
                 try:
-                    prev.release()
+                    media = vlc_inst.media_new(url)
+                    media.add_option(f':network-caching={net_cache}')
+                    # set_media внутри STOP'ает текущий поток — это и
+                    # есть тот самый 16 сек блок.
+                    player.set_media(media)
+                    self.current_media = media
+                    if prev_media is not None:
+                        try:
+                            prev_media.release()
+                        except Exception as e:
+                            log_error('media_release', e)
+                    if hwnd is not None:
+                        player.set_hwnd(hwnd)
+                    elif xwin is not None:
+                        player.set_xwindow(xwin)
+                    elif nsobj is not None:
+                        player.set_nsobject(nsobj)
+                    player.audio_set_volume(volume)
+                    try:
+                        player.video_set_aspect_ratio(aspect.encode() if aspect else None)
+                    except Exception:
+                        pass
+                    try:
+                        player.set_rate(speed)
+                    except Exception as e:
+                        log_error('set_rate', e)
+                    player.play()
+                    log_info('play', f"set_media done for {url[:80]}")
                 except Exception as e:
-                    log_error('media_release', e)
-            if sys.platform == "win32":
-                self.player.set_hwnd(int(self.video_frame.winId()))
-            elif sys.platform == "linux":
-                self.player.set_xwindow(int(self.video_frame.winId()))
-            elif sys.platform == "darwin":
-                self.player.set_nsobject(int(self.video_frame.winId()))
-            self.player.audio_set_volume(self.config.volume)
-            # Restore aspect ratio & speed per current selection
-            self._apply_aspect_ratio()
-            try:
-                self.player.set_rate(self.SPEED_VALUES[self._speed_idx])
-            except Exception as e:
-                log_error('set_rate', e)
-            self.player.play()
+                    log_error('play_url.bg', e, extra=f"url={url[:80]}")
+
+            _th.Thread(target=_swap, daemon=True, name='vlc-swap').start()
+            # UI обновляется СРАЗУ — юзер видит, что клик принят.
             self.btn_play.setText("Pause")
-            # Remember last channel for autoplay-last (фоновый дамп)
             self.config.last_channel_url = url
             self.config.save_async()
         except Exception as e:
