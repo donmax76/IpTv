@@ -241,7 +241,12 @@ def _install_main_thread_watchdog():
                 _t.sleep(2.0)
                 now = _t.monotonic()
                 elapsed = now - _last_tick_ref[0]
-                # Триггер: >3 сек без тика И не чаще раза в 5 сек.
+                # Round 292: подавляем варнинг пока выставлен флаг
+                # _WATCHDOG_SUPPRESS — это период когда мы заведомо
+                # знаем что C-код держит GIL (libvlc_new, EPG-парс) и
+                # warning тут ложный.
+                if globals().get('_WATCHDOG_SUPPRESS', 0) > 0:
+                    continue
                 if elapsed > 3.0 and now - warned_at > 5.0:
                     try:
                         frames = _sys._current_frames()
@@ -278,6 +283,17 @@ def _start_watchdog_heartbeat(app):
         globals()['_WATCHDOG_TIMER'] = _tmr  # держим ref от GC
     except Exception as e:
         log_error('_start_watchdog_heartbeat', e)
+
+
+def _watchdog_suppress(on: bool):
+    """Round 292: помечает заведомо тяжёлые C-операции (libvlc_new,
+    XMLTV parse) чтобы watchdog не репортил «main thread blocked»
+    когда реального фриза нет — просто GIL держит C-код."""
+    try:
+        cur = globals().get('_WATCHDOG_SUPPRESS', 0)
+        globals()['_WATCHDOG_SUPPRESS'] = max(0, cur + (1 if on else -1))
+    except Exception:
+        pass
 
 
 _install_main_thread_watchdog()
@@ -1060,9 +1076,9 @@ class Config:
         self.last_channel_url = ""
         self.last_category = "All"
         self.volume = 80
-        # Round 284: дефолт 6000мс — соответствует Android ExoPlayer
-        # normal-режиму (DefaultLoadControl 6000/18000/200/1500).
-        self.network_caching_ms = 6000     # VLC :network-caching
+        # Round 292: 9000мс — выше Android normal (6000), ближе к high.
+        # Юзер жалуется на запинку видео — больший буфер устойчивее.
+        self.network_caching_ms = 9000
         self.autoplay_last = False         # open last channel on startup
         self.remember_fullscreen = False   # restore fullscreen on player open
         self.sleep_timer_minutes = 0       # 0 = off
@@ -1144,7 +1160,7 @@ class Config:
                 self.last_channel_url = data.get('last_channel_url', '')
                 self.last_category = data.get('last_category', 'All')
                 self.volume = int(data.get('volume', 80))
-                self.network_caching_ms = int(data.get('network_caching_ms', 6000))
+                self.network_caching_ms = int(data.get('network_caching_ms', 9000))
                 self.autoplay_last = bool(data.get('autoplay_last', False))
                 self.remember_fullscreen = bool(data.get('remember_fullscreen', False))
                 self.sleep_timer_minutes = int(data.get('sleep_timer_minutes', 0))
@@ -3550,6 +3566,21 @@ class PlayerPage(QWidget):
         self.persistent_clock.setText(datetime.now().strftime('%H:%M'))
         self.persistent_clock.adjustSize()
 
+        # Round 292: Лейбл с разрешением канала. Юзер: «не показывает
+        # текущее разрешения канала». Опрашиваем VLC после старта
+        # play_url через QTimer (видео-размер доступен только когда
+        # декодер уже зацепился, обычно 1-3 сек после set_media).
+        self.resolution_label = QLabel(self.overlay_host)
+        self.resolution_label.setStyleSheet(
+            "color: white; font-size: 12px; font-weight: bold;"
+            " background-color: rgba(0, 200, 230, 200);"
+            " border-radius: 4px; padding: 2px 8px;")
+        self.resolution_label.hide()
+        self._resolution_poll_timer = QTimer(self)
+        self._resolution_poll_timer.setInterval(1000)
+        self._resolution_poll_timer.timeout.connect(self._poll_resolution)
+        self._resolution_poll_count = 0
+
         # Round 245: нижняя панель кнопок СКРЫТА — как в Android-плеере,
         # где нет видимых нижних кнопок. Все управление перенесено в
         # right-overlay (RIGHT) и через хоткеи + osd_banner показывает
@@ -3912,20 +3943,37 @@ class PlayerPage(QWidget):
         title = QLabel(t('panel_channels'))
         title.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
         col.addWidget(title)
-        self._overlay_search = QLineEdit()
+        # Round 292: overlay_host — Qt.Tool top-level window. На
+        # Windows клик в QLineEdit ВНУТРИ Tool-окна часто не отдаёт
+        # ему keyboard focus (focus остаётся на owner-окне MainWindow).
+        # Каретка не мигает, ввод не идёт. Подкласс forcing-focus:
+        # переопределяем mousePressEvent, явно активируем хост-окно
+        # и setFocus(Qt.MouseFocusReason). Дополнительно — простой
+        # тестируемый stylesheet с белой кареткой через color.
+        class _FocusForcingLineEdit(QLineEdit):
+            def mousePressEvent(self, ev):
+                try:
+                    w = self.window()
+                    if w is not None:
+                        w.activateWindow()
+                        w.raise_()
+                except Exception:
+                    pass
+                self.setFocus(Qt.MouseFocusReason)
+                super().mousePressEvent(ev)
+        self._overlay_search = _FocusForcingLineEdit()
         self._overlay_search.setPlaceholderText(t('search') + "…")
-        # Round 278: кнопка «×» внутри QLineEdit — стирает всю строку
-        # одним кликом. Round 291: явный StrongFocus + цветной фокус-
-        # ринг — чтобы каретка точно мигала и юзер видел где курсор.
         self._overlay_search.setClearButtonEnabled(True)
         self._overlay_search.setFocusPolicy(Qt.StrongFocus)
+        # Высота 44px + крупный курсор — заметно даже на 4K.
+        self._overlay_search.setMinimumHeight(40)
         self._overlay_search.setStyleSheet(
             "QLineEdit { background-color: #1A1A2E; color: white;"
             " border: 2px solid #00C8E6; border-radius: 8px;"
-            " padding: 8px 12px; font-size: 14px;"
+            " padding: 8px 12px; font-size: 16px;"
             " selection-background-color: #00C8E6; selection-color: white; }"
-            "QLineEdit:focus { border: 2px solid #26D4F5;"
-            " background-color: #0F0F1A; }")
+            "QLineEdit:focus { border: 3px solid #26D4F5;"
+            " background-color: #050510; }")
         self._overlay_search.textChanged.connect(self._refresh_channels_overlay)
         # Round 278: при изменении ЗЕРКАЛИМ в ChannelsPage.search_edit —
         # иначе унаследованный фильтр оставался на вкладке Каналы и
@@ -4274,14 +4322,10 @@ class PlayerPage(QWidget):
         # раз при первом show — последующие setParent дешевле, но всё
         # равно пересоздают native window, так что флагуем.
         super().showEvent(event)
-        # Round 285: пока на PlayerPage — LogoCache в паузе. VLC
-        # буферизация + урегулирование декодинга нагружают CPU и сеть,
-        # параллельные urllib-фетчи только мешают.
-        try:
-            if self.logo_cache is not None:
-                self.logo_cache.set_paused(True)
-        except Exception:
-            pass
+        # Round 292: УБРАЛ Round 285 паузу LogoCache. Юзер: «нет
+        # логотипов каналов». Из-за паузы кэш никогда не качал лого
+        # если юзер открывал приложение и сразу шёл смотреть. Один
+        # урезанный воркер (MAX_CONCURRENT=1) с CPU не конкурирует.
         try:
             if not getattr(self, '_overlay_owner_set', False):
                 mw = self.window()
@@ -4922,19 +4966,29 @@ class PlayerPage(QWidget):
                 # «normal» режим (DefaultLoadControl 6000/18000/200/1500).
                 # Юзер: «в андроид версии всё работает хорошо». VLC
                 # дефолт 1000мс совсем мало для live-IPTV.
-                '--live-caching=6000',
-                '--network-caching=6000',
-                '--file-caching=6000',
-                # --sout-mux-caching не нужен (только для streaming-out).
-                # Звук: высокий приоритет и без resamplera-по-умолчанию,
-                # чтобы не было фоновых щелчков.
+                # Round 292: буфер 9 сек — Android «high» mode
+                # (DefaultLoadControl 20000/40000) использует ещё больше,
+                # но 9 сек на live достаточно чтобы не запинаться.
+                '--live-caching=9000',
+                '--network-caching=9000',
+                '--file-caching=9000',
                 '--audio-resampler=soxr',
                 '--audio-time-stretch',
+                # Round 292: явно отключаем deinterlace — на multistream
+                # IPTV он плодит запинки и съедает CPU.
+                '--deinterlace=0',
+                # Round 292: drop late frames вместо запинок — лучше
+                # потерять 1 кадр, чем застрять на нём.
+                '--drop-late-frames',
+                '--skip-frames',
             ]
-            # Hardware decode: по умолчанию `any` (VLC сам выберет d3d11va
-            # / dxva2). Юзер может отключить через настройки.
+            # Hardware decode: на Windows форсим d3d11va (явнее чем any).
+            # Юзер: «запинается видео». `any` иногда выбирает software.
             if getattr(self.config, 'hardware_decode', True):
-                args += ['--avcodec-hw=any']
+                if sys.platform == "win32":
+                    args += ['--avcodec-hw=d3d11va']
+                else:
+                    args += ['--avcodec-hw=any']
             else:
                 args += ['--avcodec-hw=none']
             # Round 288: НЕ форсируем --vout=direct3d11 — на некоторых
@@ -4970,6 +5024,46 @@ class PlayerPage(QWidget):
             log_error('init_vlc', e, extra=f"args={args}")
             self.vlc_instance = None
             self.player = None
+
+    def _poll_resolution(self):
+        """Round 292: каждую секунду спрашиваем VLC размер видео. Как
+        только не (0,0) — показываем в углу. После 15 секунд без
+        ответа сдаёмся."""
+        try:
+            if not self.player:
+                return
+            w, h = 0, 0
+            try:
+                w, h = self.player.video_get_size(0)
+            except Exception:
+                pass
+            self._resolution_poll_count += 1
+            if w > 0 and h > 0:
+                self.resolution_label.setText(f"{int(w)} × {int(h)}")
+                self.resolution_label.adjustSize()
+                pw = self.overlay_host.width()
+                pad = 14
+                # Под часами справа сверху.
+                clock_h = (self.persistent_clock.height()
+                           if hasattr(self, 'persistent_clock') else 30)
+                self.resolution_label.move(
+                    pw - self.resolution_label.width() - pad,
+                    10 + clock_h + 4)
+                self.resolution_label.show()
+                self.resolution_label.raise_()
+                self._resolution_poll_timer.stop()
+            elif self._resolution_poll_count >= 15:
+                self._resolution_poll_timer.stop()
+        except Exception as e:
+            log_error('_poll_resolution', e)
+
+    def _start_resolution_polling(self):
+        try:
+            self._resolution_poll_count = 0
+            self.resolution_label.hide()
+            self._resolution_poll_timer.start()
+        except Exception:
+            pass
 
     def _on_vlc_error(self, _event):
         try:
@@ -5249,6 +5343,11 @@ class PlayerPage(QWidget):
                     player.play()
                     log_info('play', f"set_media done for {url[:80]} "
                                      f"ua={ua_cfg[:40]} ref={referer_cfg}")
+                    # Round 292: запускаем опрос разрешения в GUI-нитке.
+                    try:
+                        QTimer.singleShot(0, self._start_resolution_polling)
+                    except Exception:
+                        pass
                 except Exception as e:
                     log_error('play_url.bg', e, extra=f"url={url[:80]}")
 
@@ -6582,7 +6681,7 @@ class SettingsPage(QWidget):
         if reply != QMessageBox.Yes:
             return
         self.config.volume = 80
-        self.config.network_caching_ms = 6000  # Round 284
+        self.config.network_caching_ms = 9000  # Round 292
         self.config.autoplay_last = False
         self.config.remember_fullscreen = False
         self.config.sleep_timer_minutes = 0
