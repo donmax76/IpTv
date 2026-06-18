@@ -1505,6 +1505,14 @@ class LogoCache(QObject):
     def get(self, url: str):
         if not url or url in self.missing:
             return None
+        # Round 268: ранний отсев невалидных URL — иначе фетчер делает
+        # 3 транспортных попытки × 4 сек = 12 сек впустую на каждой
+        # битой ссылке, и 6 воркеров постоянно сидят на дохлых URL,
+        # съедая CPU/диск-IO.
+        u = url.strip()
+        if not (u.startswith('http://') or u.startswith('https://')):
+            self.missing.add(url)
+            return None
         cached = self.icons.get(url)
         if cached is not None:
             return cached
@@ -3633,8 +3641,19 @@ class PlayerPage(QWidget):
         """Round 248/250: позиционируем top-level overlay_host точно над
         video_frame. Раскладываем дочерние оверлеи ТОЛЬКО когда
         геометрия реально изменилась — иначе таймер 5 раз в секунду
-        вызывал каскад setGeometry/repaint, что и давало зависания."""
+        вызывал каскад setGeometry/repaint, что и давало зависания.
+        Round 268: адаптивный интервал — 150мс пока что-то открыто,
+        1000мс когда оверлей пуст (только часы). Снижает фоновую
+        нагрузку при просмотре без панелей."""
         try:
+            any_overlay_visible = any(
+                getattr(self, n, None) is not None
+                and getattr(self, n).isVisible()
+                for n in ('channels_overlay', 'categories_overlay',
+                          'center_menu_overlay', 'quick_overlay'))
+            new_interval = 150 if any_overlay_visible else 1000
+            if self._overlay_sync_timer.interval() != new_interval:
+                self._overlay_sync_timer.setInterval(new_interval)
             if not self.video_frame.isVisible():
                 self.overlay_host.hide()
                 return
