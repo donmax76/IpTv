@@ -100,18 +100,45 @@ def parse_m3u(content: str) -> PlaylistResult:
 
 
 def fetch_playlist(url: str, timeout: int = 30) -> PlaylistResult:
-    """Fetch and parse an M3U playlist from a URL."""
+    """Fetch and parse an M3U playlist from a URL.
+
+    Round 282: `response.text` использует encoding из заголовков, и
+    если сервер не присылает charset (как ucoz.ru), requests дефолтит
+    к ISO-8859-1, в результате group-title="кино" приходит мусором и
+    категории «не показываются». Сначала пробуем UTF-8 на байтах, и
+    только если он рушится — отдаём requests парсить заголовки.
+    """
     headers = {
         'User-Agent': 'TVViewer/5.3 (Windows Desktop)',
     }
     with requests.get(url, headers=headers, timeout=timeout, allow_redirects=True) as response:
         response.raise_for_status()
-        content = response.text
+        raw = response.content
+        # utf-8-sig: подъедает BOM (\xef\xbb\xbf) если он есть.
+        content = None
+        for enc in ('utf-8-sig', 'utf-8', 'cp1251', 'latin-1'):
+            try:
+                content = raw.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        if content is None:
+            content = response.text
     return parse_m3u(content)
 
 
 def load_playlist_file(filepath: str) -> PlaylistResult:
-    """Load and parse an M3U playlist from a local file."""
-    with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-        content = f.read()
-    return parse_m3u(content)
+    """Load and parse an M3U playlist from a local file.
+
+    Round 282: пробуем UTF-8 без `errors='ignore'` — иначе кириллица
+    из cp1251-файлов молча терялась как «¤Õé¦®¬Ñð¦Ñ» и категории не
+    распознавались. Если UTF-8 не подходит — fallback на cp1251."""
+    with open(filepath, 'rb') as f:
+        raw = f.read()
+    for enc in ('utf-8', 'cp1251', 'latin-1'):
+        try:
+            return parse_m3u(raw.decode(enc))
+        except UnicodeDecodeError:
+            continue
+    # Безнадёжный fallback — пропускаем плохие байты.
+    return parse_m3u(raw.decode('utf-8', errors='ignore'))

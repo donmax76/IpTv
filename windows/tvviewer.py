@@ -1234,8 +1234,15 @@ class LoadPlaylistThread(QThread):
                 result = load_playlist_file(self.url)
             else:
                 result = fetch_playlist(self.url)
+            chs = getattr(result, 'channels', []) or []
+            groups = {c.group for c in chs if c.group}
+            # Round 282: показываем сколько групп найдено + 3 примера,
+            # чтобы быстро понять, парсятся ли категории. Юзер:
+            # «категории из плейлиста ... не показываются».
+            sample = sorted(groups)[:3]
             log_info('playlist',
-                     f"ok channels={len(getattr(result, 'channels', []) or [])}")
+                     f"ok channels={len(chs)} groups={len(groups)} "
+                     f"sample={sample}")
             self.finished.emit(result)
         except Exception as e:
             log_error('LoadPlaylistThread', e, extra=f"url={self.url}")
