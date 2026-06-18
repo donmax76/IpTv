@@ -139,6 +139,18 @@ if not _LOGGER.handlers:
         pass
 
 
+def _safe_call(fn, *args, **kwargs):
+    """Round 281: try/except-wrapped вызов, лог в случае ошибки. Удобно
+    подсовывать в daemon-Thread targets без писания лишних try'ев."""
+    try:
+        return fn(*args, **kwargs)
+    except Exception as e:
+        try:
+            log_error(getattr(fn, '__name__', 'safe_call'), e)
+        except Exception:
+            pass
+
+
 def log_error(tag: str, err, extra: str = ""):
     """Запись ошибки + traceback в tvviewer.log. Используется в except-
     блоках вместо silent pass."""
@@ -4820,10 +4832,18 @@ class PlayerPage(QWidget):
             except Exception: pass
 
     def _maybe_set_audio_track(self, track_id: int):
+        # Round 281: VLC audio_set_track блокирует 21+ сек на сложных
+        # стримах — watchdog поймал. Перенос в фон, как play_url и
+        # cycle_audio_track в Round 279.
         if not self.player:
             return
-        try: self.player.audio_set_track(track_id)
-        except Exception: pass
+        try:
+            import threading as _th
+            player = self.player
+            _th.Thread(target=lambda: _safe_call(player.audio_set_track, track_id),
+                       daemon=True, name='vlc-set-aud').start()
+        except Exception as e:
+            log_error('_maybe_set_audio_track', e)
 
     def _save_current_channel_state(self):
         if not self.channels or self.current_index >= len(self.channels):
