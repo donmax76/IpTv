@@ -102,19 +102,48 @@ def ensure_loaded(cache_dir: str = ".", on_loaded=None):
 
 
 def _fetch_and_cache(cache_path: str) -> Optional[str]:
+    """Round 280: тройной транспорт как у UpdateCheckThread —
+    requests → urllib → urllib без SSL. PyInstaller-сборка без
+    cacert.pem иначе молча падала и iptv-org логотипы не
+    подтягивались, поэтому tvviewer_logos оставался пуст."""
+    import urllib.request as _urlr
+    text = None
+    # 1) requests + certifi
     try:
         with requests.get(URL, timeout=60) as r:
             r.raise_for_status()
             text = r.text
+        trace("META", f"fetched via requests: {len(text)} bytes")
+    except Exception as e1:
+        trace("META", f"requests failed: {type(e1).__name__}: {e1}")
+        # 2) urllib системный SSL
         try:
-            with open(cache_path, 'w', encoding='utf-8') as f:
-                f.write(text)
-        except Exception:
-            pass
-        return text
-    except Exception as e:
-        trace("META", f"fetch failed: {type(e).__name__}: {e}")
+            req = _urlr.Request(URL, headers={'User-Agent': 'TVViewer'})
+            with _urlr.urlopen(req, timeout=60) as r:
+                text = r.read().decode('utf-8', errors='replace')
+            trace("META", f"fetched via urllib: {len(text)} bytes")
+        except Exception as e2:
+            trace("META", f"urllib failed: {type(e2).__name__}: {e2}")
+            # 3) urllib unverified SSL
+            try:
+                import ssl as _ssl
+                ctx = _ssl._create_unverified_context()
+                req = _urlr.Request(URL, headers={'User-Agent': 'TVViewer'})
+                with _urlr.urlopen(req, timeout=60, context=ctx) as r:
+                    text = r.read().decode('utf-8', errors='replace')
+                trace("META", f"fetched via urllib (UNVERIFIED): {len(text)} bytes")
+            except Exception as e3:
+                trace("META", f"all transports failed: {type(e3).__name__}: {e3}")
+                return None
+    if not text:
         return None
+    try:
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            f.write(text)
+        trace("META", f"saved to cache: {cache_path}")
+    except Exception as e:
+        trace("META", f"cache write failed: {e}")
+    return text
 
 
 def _parse_and_index(text: str):

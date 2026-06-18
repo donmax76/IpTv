@@ -858,7 +858,10 @@ COLORS = {
 # Меняют только primary / primary_dark / secondary; фон / карточки /
 # текст остаются для консистентности тёмной темы.
 THEME_PALETTES = {
-    'default': ('#7C6CF7', '#5A4DC5', '#4ECDC4'),  # фирменный фиолетовый
+    # Round 280: новый дефолт — бирюзово-голубая палитра как у референса
+    # (zedom-стиль). Юзер прислал скриншоты, попросил применить.
+    'default': ('#00C8E6', '#0099B3', '#26D4F5'),  # бирюзово-голубой
+    'purple':  ('#7C6CF7', '#5A4DC5', '#4ECDC4'),  # старый фирменный
     'blue':    ('#2196F3', '#1976D2', '#03DAC5'),
     'green':   ('#4CAF50', '#388E3C', '#00BCD4'),
     'orange':  ('#FF9800', '#F57C00', '#FFB74D'),
@@ -3447,40 +3450,186 @@ class PlayerPage(QWidget):
         self.update_clock()
 
     def _build_mini_osd(self):
-        """Round 279: маленькая OSD-плашка, всплывает на 2 сек при
-        переключении канала или изменении громкости. Юзер: «при
-        переключении каналов или регулировки уровня громкости выводи
-        на экран информационную мини-панель о его текущем состоянии
-        или канале»."""
-        self._mini_osd = QLabel(self.overlay_host)
+        """Round 280: канальная info-карта в стиле референса (zedom).
+        Логотип слева + название и БОЛЬШОЙ номер канала + EPG-прогресс
+        с временами и категория. Показывается на 4 сек при
+        переключении / изменении громкости."""
+        # Контейнер
+        self._mini_osd = QWidget(self.overlay_host)
         self._mini_osd.setStyleSheet(
-            "background-color: rgba(18, 18, 32, 230);"
-            " color: white; font-size: 18px; font-weight: bold;"
-            " border-radius: 10px; padding: 12px 18px;"
-            " border: 1px solid rgba(124, 108, 247, 180);")
-        self._mini_osd.setAlignment(Qt.AlignCenter)
+            "background-color: rgba(0, 0, 0, 200);"
+            " border-radius: 14px;"
+            " border: 2px solid rgba(0, 200, 230, 220);")
         self._mini_osd.hide()
+        outer = QHBoxLayout(self._mini_osd)
+        outer.setContentsMargins(16, 14, 22, 14)
+        outer.setSpacing(16)
+        # Левая колонка — логотип/плашка категории
+        self._osd_logo_lbl = QLabel()
+        self._osd_logo_lbl.setFixedSize(72, 72)
+        self._osd_logo_lbl.setAlignment(Qt.AlignCenter)
+        self._osd_logo_lbl.setStyleSheet(
+            "background-color: rgba(40, 40, 56, 220);"
+            " border-radius: 8px; color: #FFCB57;"
+            " font-weight: bold; font-size: 12px;")
+        outer.addWidget(self._osd_logo_lbl)
+        # Правая колонка — текст
+        right = QVBoxLayout()
+        right.setSpacing(2)
+        # Верхняя строка — плейлист/группа маленьким шрифтом
+        top_row = QHBoxLayout()
+        top_row.setSpacing(12)
+        self._osd_plist = QLabel("")
+        self._osd_plist.setStyleSheet(
+            "color: #B0C0CC; font-size: 12px; background: transparent;")
+        top_row.addWidget(self._osd_plist)
+        self._osd_group = QLabel("")
+        self._osd_group.setStyleSheet(
+            "color: #00C8E6; font-size: 12px; background: transparent;")
+        top_row.addWidget(self._osd_group)
+        top_row.addStretch()
+        right.addLayout(top_row)
+        # Главная строка — название канала + БОЛЬШОЙ номер
+        main_row = QHBoxLayout()
+        main_row.setSpacing(14)
+        self._osd_name = QLabel("")
+        self._osd_name.setStyleSheet(
+            "color: white; font-size: 22px; font-weight: bold;"
+            " background: transparent;")
+        main_row.addWidget(self._osd_name, 1)
+        self._osd_number = QLabel("")
+        self._osd_number.setStyleSheet(
+            "color: white; font-size: 40px; font-weight: bold;"
+            " background: transparent;")
+        self._osd_number.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        main_row.addWidget(self._osd_number)
+        right.addLayout(main_row)
+        # EPG-прогресс — время начала, текущая программа, время конца + бар
+        epg_row = QHBoxLayout()
+        epg_row.setSpacing(6)
+        self._osd_t1 = QLabel("")
+        self._osd_t1.setStyleSheet(
+            "color: white; font-size: 11px; background: transparent;")
+        self._osd_prog_title = QLabel("")
+        self._osd_prog_title.setStyleSheet(
+            "color: white; font-size: 11px; background: transparent;")
+        self._osd_t2 = QLabel("")
+        self._osd_t2.setStyleSheet(
+            "color: white; font-size: 11px; background: transparent;")
+        epg_row.addWidget(self._osd_t1)
+        epg_row.addWidget(self._osd_prog_title, 1)
+        epg_row.addWidget(self._osd_t2)
+        right.addLayout(epg_row)
+        self._osd_progress = QProgressBar()
+        self._osd_progress.setMaximum(100)
+        self._osd_progress.setTextVisible(False)
+        self._osd_progress.setMaximumHeight(3)
+        self._osd_progress.setStyleSheet(
+            "QProgressBar { background-color: rgba(255,255,255,40);"
+            " border: none; border-radius: 1px; }"
+            "QProgressBar::chunk { background-color: #00C8E6;"
+            " border-radius: 1px; }")
+        right.addWidget(self._osd_progress)
+        outer.addLayout(right, 1)
         self._mini_osd_timer = QTimer(self)
         self._mini_osd_timer.setSingleShot(True)
-        self._mini_osd_timer.setInterval(2000)
+        self._mini_osd_timer.setInterval(4000)
         self._mini_osd_timer.timeout.connect(self._mini_osd.hide)
+        # Простой fallback для громкости — отдельный текстовый bubble.
+        self._mini_osd_vol = QLabel(self.overlay_host)
+        self._mini_osd_vol.setStyleSheet(
+            "background-color: rgba(0, 0, 0, 200); color: white;"
+            " font-size: 16px; font-weight: bold;"
+            " border-radius: 10px; padding: 10px 16px;"
+            " border: 1px solid rgba(0, 200, 230, 200);")
+        self._mini_osd_vol.setAlignment(Qt.AlignCenter)
+        self._mini_osd_vol.hide()
+        self._mini_osd_vol_timer = QTimer(self)
+        self._mini_osd_vol_timer.setSingleShot(True)
+        self._mini_osd_vol_timer.setInterval(1500)
+        self._mini_osd_vol_timer.timeout.connect(self._mini_osd_vol.hide)
 
-    def show_mini_osd(self, text):
+    def show_channel_osd(self, channel, index, total):
+        """Round 280: канальная OSD-карта в стиле zedom — логотип,
+        большой номер, EPG-прогресс."""
         try:
             if not hasattr(self, '_mini_osd'):
                 self._build_mini_osd()
-            self._mini_osd.setText(text)
+            # Логотип канала или плашка-категория
+            pix = None
+            if self.logo_cache is not None and channel.logo_url:
+                icon = self.logo_cache.get(channel.logo_url)
+                if icon is not None:
+                    pix = icon.pixmap(72, 72)
+            if pix and not pix.isNull():
+                self._osd_logo_lbl.setPixmap(pix)
+                self._osd_logo_lbl.setText("")
+            else:
+                self._osd_logo_lbl.clear()
+                self._osd_logo_lbl.setText(
+                    (channel.group or channel.name[:2].upper())[:12])
+            # Подзаголовок: имя плейлиста + группа
+            try:
+                pl_name = (self.window().config.last_playlist_name or "playlist")[:20]
+            except Exception:
+                pl_name = "playlist"
+            self._osd_plist.setText(pl_name)
+            self._osd_group.setText(("▶ " + channel.group) if channel.group else "")
+            # Главное: имя + номер
+            self._osd_name.setText(channel.name)
+            self._osd_number.setText(str(index + 1))
+            # EPG
+            now_prog, next_prog = get_now_next(
+                self.epg_data, channel.tvg_id, channel.name)
+            if now_prog:
+                try:
+                    t1 = datetime.fromtimestamp(now_prog.start).strftime('%H:%M')
+                    t2 = datetime.fromtimestamp(now_prog.end).strftime('%H:%M')
+                    self._osd_t1.setText(t1)
+                    self._osd_t2.setText(t2)
+                    self._osd_prog_title.setText(now_prog.title or "")
+                    self._osd_progress.setValue(int(get_current_progress(now_prog) * 100))
+                except (OSError, ValueError):
+                    self._osd_t1.setText("")
+                    self._osd_t2.setText("")
+                    self._osd_prog_title.setText(now_prog.title or "")
+                    self._osd_progress.setValue(0)
+            else:
+                self._osd_t1.setText("")
+                self._osd_t2.setText("")
+                self._osd_prog_title.setText("—")
+                self._osd_progress.setValue(0)
+            # Позиционирование — нижний центр над видео
             self._mini_osd.adjustSize()
             pw = self.overlay_host.width()
             ph = self.overlay_host.height()
             if pw > 0 and ph > 0:
-                w = self._mini_osd.width()
-                h = self._mini_osd.height()
-                # Верхний центр поверх видео.
-                self._mini_osd.setGeometry((pw - w) // 2, 40, w, h)
+                w = min(640, max(420, self._mini_osd.sizeHint().width()))
+                h = self._mini_osd.sizeHint().height()
+                self._mini_osd.setGeometry((pw - w) // 2, ph - h - 60, w, h)
                 self._mini_osd.show()
                 self._mini_osd.raise_()
                 self._mini_osd_timer.start()
+        except Exception as e:
+            log_error('show_channel_osd', e)
+
+    def show_mini_osd(self, text):
+        """Round 280: облегчённая OSD только для громкости. Канал
+        переключается через show_channel_osd с полноценной карточкой."""
+        try:
+            if not hasattr(self, '_mini_osd_vol'):
+                self._build_mini_osd()
+            self._mini_osd_vol.setText(text)
+            self._mini_osd_vol.adjustSize()
+            pw = self.overlay_host.width()
+            ph = self.overlay_host.height()
+            if pw > 0 and ph > 0:
+                w = self._mini_osd_vol.width()
+                h = self._mini_osd_vol.height()
+                self._mini_osd_vol.setGeometry((pw - w) // 2, 40, w, h)
+                self._mini_osd_vol.show()
+                self._mini_osd_vol.raise_()
+                self._mini_osd_vol_timer.start()
         except Exception as e:
             log_error('show_mini_osd', e)
 
@@ -4620,8 +4769,8 @@ class PlayerPage(QWidget):
         self.channel_number_label.setText(f"{index + 1} / {len(channels)}")
         self.update_fav_btn()
         self.update_epg_display()
-        # Round 279: мини-OSD с номером и именем канала.
-        self.show_mini_osd(f"📺  {index + 1}/{len(channels)}   {ch.name}")
+        # Round 280: канальная OSD-карта в стиле референса.
+        self.show_channel_osd(ch, index, len(channels))
 
         # Restore per-channel preferences before play_url applies them
         st = self.config.get_channel_state(ch.url)
@@ -4805,9 +4954,8 @@ class PlayerPage(QWidget):
             ch = self.channels[self._pending_index]
             self.channel_name_label.setText(ch.name)
             self.channel_number_label.setText(f"{self._pending_index + 1} / {len(self.channels)}")
-            # Round 279: мини-OSD при пролистывании ↑/↓.
-            self.show_mini_osd(
-                f"📺  {self._pending_index + 1}/{len(self.channels)}   {ch.name}")
+            # Round 280: канальная OSD-карта при пролистывании ↑/↓.
+            self.show_channel_osd(ch, self._pending_index, len(self.channels))
         self._zap_timer.start()
 
     def _commit_zap(self):
