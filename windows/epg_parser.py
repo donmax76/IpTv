@@ -77,9 +77,18 @@ def fuzzy_key(s: str) -> str:
     """
     if not s:
         return ""
-    t = normalize_id(s)
-    # Минимум 3 символа после стрипа: защита от схлопывания "1tv" → "1"
-    # (стрип "tv") или "rbc" → "rb" (но "tv"/"rb" не в наших суффиксах).
+    # Round 294: стрипаем «(Тамбов)», «+0», «+1» и прочие региональные
+    # маркеры ДО normalize_id. Юзер: канал «Россия 1 +0 (Тамбов)» не
+    # матчился с iptv-org «Россия 1». Поэтому пре-кьюится 0 logo URLs.
+    cleaned = s
+    # 1) bracketed parts (Тамбов), [SD] и т.п.
+    cleaned = re.sub(r'\([^)]*\)', '', cleaned)
+    cleaned = re.sub(r'\[[^\]]*\]', '', cleaned)
+    # 2) Timeshift markers «+0», «+1», «-1», «−2» и т.п.
+    cleaned = re.sub(r'[+\-−]\d+', '', cleaned)
+    # 3) Множественные пробелы → один.
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    t = normalize_id(cleaned)
     while len(t) > 3:
         nt = _FUZZY_TRAIL_DIGITS.sub('', t)
         if 3 <= len(nt) < len(t):
@@ -168,13 +177,53 @@ def fetch_epg(epg_url: str, cache_dir: str = ".",
 
     t0 = time.time()
     try:
+        # Round 294: STREAMING-распаковка. Юзер: `MemoryError: Unable to
+        # allocate output buffer` в gzip.decompress(content) — XMLTV до
+        # 100 МБ сжатых = 400+ МБ распакованных, Python не может одним
+        # буфером в RAM. Стримим chunks и сразу декомпрессируем через
+        # gzip.GzipFile или iter_content для plain XML.
+        chunks = []
         with requests.get(epg_url, headers=headers, timeout=90,
-                          allow_redirects=True, stream=True) as response:
+                          allow_redirects=True, stream=True,
+                          verify=False) as response:
             response.raise_for_status()
             if progress:
                 progress(f"{host}: скачиваю EPG…")
             trace("EPG", f"fetchSingle({host}) HTTP {response.status_code}, downloading…", cache_dir)
-            content = response.content
+            # Читаем первые 2 байта для определения gzip.
+            it = response.iter_content(chunk_size=64 * 1024)
+            first = b""
+            for c in it:
+                first = c
+                break
+            is_gzip = first[:2] == b'\x1f\x8b'
+            trace("EPG", f"fetchSingle({host}) gzip={is_gzip}, decompressing on the fly…", cache_dir)
+            if is_gzip:
+                # Стримим декомпрессию через GzipFile поверх raw byte
+                # stream — не нужен полный buffer в RAM.
+                import io as _io
+                buf = _io.BytesIO()
+                buf.write(first)
+                for c in it:
+                    buf.write(c)
+                buf.seek(0)
+                with gzip.GzipFile(fileobj=buf, mode='rb') as gz:
+                    # Читаем декомпрессированный поток в куски —
+                    # склеиваем в bytearray (растёт линейно, без
+                    # удваивающихся аллокаций как у списка bytes).
+                    out = bytearray()
+                    while True:
+                        chunk = gz.read(1 * 1024 * 1024)
+                        if not chunk:
+                            break
+                        out.extend(chunk)
+                    content = bytes(out)
+            else:
+                # Plain XML — копим из iter_content.
+                out = bytearray(first)
+                for c in it:
+                    out.extend(c)
+                content = bytes(out)
     except Exception as e:
         trace("EPG", f"fetchSingle({host}) HTTP ERROR: {type(e).__name__}: {e}", cache_dir)
         if progress:
@@ -182,14 +231,9 @@ def fetch_epg(epg_url: str, cache_dir: str = ".",
         raise
 
     kb = len(content) // 1024
-    trace("EPG", f"fetchSingle({host}) downloaded {kb} KB in {int(time.time() - t0)}s", cache_dir)
+    trace("EPG", f"fetchSingle({host}) decompressed {kb} KB in {int(time.time() - t0)}s", cache_dir)
     if progress:
-        progress(f"{host}: скачано {kb} KB, парсю…")
-
-    is_gzip = content[:2] == b'\x1f\x8b'
-    trace("EPG", f"fetchSingle({host}) gzip={is_gzip}, parsing…", cache_dir)
-    if is_gzip:
-        content = gzip.decompress(content)
+        progress(f"{host}: распаковано {kb} KB, парсю…")
 
     epg_data = parse_xmltv_streaming(content, channel_filter)
 
