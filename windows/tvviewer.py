@@ -4345,7 +4345,23 @@ class PlayerPage(QWidget):
         _btn(t('fullscreen'), self.toggle_fullscreen)
         _btn(t('pip'), self._on_pip_clicked)
         _btn("♥ " + t('favorites'), self.toggle_favorite)
+        # Round 297: «Показать список каналов» — переключает в левый
+        # overlay списка каналов (как LEFT-пресс). Закрывает quick.
+        _btn("☰ Показать список каналов", self._show_channels_from_quick)
         col.addStretch()
+
+    def _show_channels_from_quick(self):
+        """Round 297: закрыть quick_overlay → открыть channels_overlay
+        (stage=1 LEFT-state-machine)."""
+        try:
+            if self.quick_overlay.isVisible():
+                self.quick_overlay.hide()
+            # Форсим состояние и применяем stage 1 (каналы).
+            self._left_stage = 0
+            self._left_dir = 1
+            self._apply_left_stage(1)
+        except Exception as e:
+            log_error('_show_channels_from_quick', e)
 
     def _inject_overlay_toggle_buttons(self):
         """В top_bar добавляем кнопки для toggle левой/правой панели."""
