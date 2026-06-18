@@ -778,7 +778,7 @@ TRANSLATIONS = {
     },
 }
 
-_CURRENT_LANG = 'ru'
+_CURRENT_LANG = 'en'  # Round 278: дефолт English (юзер)
 
 # Round 242: расширенный список языков — порт Android LocaleHelper.
 # Реальные переводы есть для ru/en/uk/az; для остальных fallback на ru.
@@ -801,37 +801,41 @@ SUPPORTED_LANGUAGES = [
 
 
 def _resolve_system_lang():
-    """Возвращает код 2-буквенный из системной локали, иначе 'ru'."""
+    """Round 278: дефолт English (а не ru)."""
     try:
         import locale as _locale
         code = (_locale.getdefaultlocale()[0] or "")[:2].lower()
-        return code if code in TRANSLATIONS else 'ru'
+        return code if code in TRANSLATIONS else 'en'
     except Exception:
-        return 'ru'
+        return 'en'
 
 
 def set_ui_language(lang: str):
-    """Round 242: 'system' резолвится в системную локаль; для языков
-    без перевода — fallback на ru."""
+    """Round 242/278: 'system' резолвится в системную локаль; для языков
+    без перевода — fallback на en (был ru)."""
     global _CURRENT_LANG
     if lang == 'system':
         _CURRENT_LANG = _resolve_system_lang()
     elif lang in TRANSLATIONS:
         _CURRENT_LANG = lang
     else:
-        _CURRENT_LANG = 'ru'
+        _CURRENT_LANG = 'en'
 
 
 def t(key: str, **kwargs) -> str:
-    """Lookup a translation. Falls back to ru, then to the key itself."""
-    table = TRANSLATIONS.get(_CURRENT_LANG) or TRANSLATIONS['ru']
-    s = table.get(key) or TRANSLATIONS['ru'].get(key) or key
+    """Lookup a translation. Falls back to en (Round 278: было ru), затем
+    к самому ключу."""
+    table = TRANSLATIONS.get(_CURRENT_LANG) or TRANSLATIONS.get('en') or TRANSLATIONS.get('ru')
+    s = table.get(key) if table else None
+    if not s:
+        s = (TRANSLATIONS.get('en') or TRANSLATIONS.get('ru') or {}).get(key) or key
     if kwargs:
         try:
             return s.format(**kwargs)
         except Exception:
             return s
     return s
+
 
 # --- Colors matching Android dark theme ---
 COLORS = {
@@ -891,9 +895,13 @@ QLineEdit {{
     border-radius: 8px;
     padding: 8px 12px;
     font-size: 14px;
+    /* Round 278: видимый и контрастный курсор ввода. */
+    selection-background-color: {COLORS['primary']};
+    selection-color: white;
 }}
 QLineEdit:focus {{
     border: 2px solid {COLORS['primary']};
+    background-color: #15152A;
 }}
 QPushButton {{
     background-color: {COLORS['card']};
@@ -1064,7 +1072,9 @@ class Config:
             sys_lang = (_locale.getdefaultlocale()[0] or "")[:2].lower()
         except Exception:
             pass
-        self.ui_language = sys_lang if sys_lang in ("ru", "en", "uk", "az") else "ru"
+        # Round 278: дефолт — English (юзер: «язык сделай по умолчанию
+        # английский»). Если системная локаль = ru/uk/az — берём её.
+        self.ui_language = sys_lang if sys_lang in ("ru", "en", "uk", "az") else "en"
         self.load()
 
     RECENT_LIMIT = 30
@@ -2507,6 +2517,7 @@ class ChannelsPage(QWidget):
         srow.setSpacing(6)
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText(t('search_channels'))
+        self.search_edit.setClearButtonEnabled(True)  # Round 278
         self.search_edit.textChanged.connect(self._on_search_text)
         srow.addWidget(self.search_edit, 1)
 
@@ -3591,7 +3602,16 @@ class PlayerPage(QWidget):
         col.addWidget(title)
         self._overlay_search = QLineEdit()
         self._overlay_search.setPlaceholderText(t('search') + "…")
+        # Round 278: кнопка «×» внутри QLineEdit — стирает всю строку
+        # одним кликом. Юзер: «нельзя разом удалить всю строку».
+        # Также Ctrl+A и Ctrl+Backspace работают нативно — eventFilter
+        # пропускает все клавиши пока QLineEdit имеет фокус.
+        self._overlay_search.setClearButtonEnabled(True)
         self._overlay_search.textChanged.connect(self._refresh_channels_overlay)
+        # Round 278: при изменении ЗЕРКАЛИМ в ChannelsPage.search_edit —
+        # иначе унаследованный фильтр оставался на вкладке Каналы и
+        # юзер мог думать, что overlay-стирание не работает.
+        self._overlay_search.textChanged.connect(self._mirror_search_to_channels_page)
         col.addWidget(self._overlay_search)
         self._overlay_list = QListWidget()
         self._overlay_list.setIconSize(QSize(28, 28))
@@ -4085,6 +4105,20 @@ class PlayerPage(QWidget):
                 o.hide()
         self.quick_overlay.hide()
         if stage == 1:
+            # Round 278: при ПЕРВОМ открытии унаследуем фильтр из
+            # ChannelsPage, дальше пользователь сам управляет.
+            try:
+                if not self._overlay_search.text().strip():
+                    mw = self.window()
+                    cp = getattr(mw, 'channels_page', None)
+                    if cp is not None:
+                        cp_q = (cp.search_edit.text() or "").strip()
+                        if cp_q:
+                            self._overlay_search.blockSignals(True)
+                            self._overlay_search.setText(cp_q)
+                            self._overlay_search.blockSignals(False)
+            except Exception:
+                pass
             self._refresh_channels_overlay()
             self._slide_in(self.channels_overlay, direction='left')
             self.channels_overlay.raise_()
@@ -4229,28 +4263,13 @@ class PlayerPage(QWidget):
     def _refresh_channels_overlay(self):
         if not hasattr(self, '_overlay_list'):
             return
-        # Round 267: фильтр overlay-поиска ИЛИ MainWindow ChannelsPage —
-        # если юзер фильтровал каналы на вкладке Каналы, открываем
-        # overlay с тем же фильтром, иначе показывает «полный список,
-        # а не отфильтрованный».
+        # Round 278: фильтр из ChannelsPage наследуется ТОЛЬКО при
+        # первом открытии overlay (см. _apply_left_stage), здесь —
+        # просто берём то, что в нашей строке поиска. Раньше после
+        # стирания фильтр самовозвращался из ChannelsPage. Юзер:
+        # «при удалении в поле поиска в списке каналов он удаляется
+        # и в конце возвращает написанное».
         q = (self._overlay_search.text() or "").strip().lower()
-        if not q:
-            try:
-                mw = self.window()
-                cp = getattr(mw, 'channels_page', None)
-                if cp is not None:
-                    # Round 276: правильный атрибут — search_edit (был
-                    # search_input, который не существует — AttributeError
-                    # глушился try/except и фильтр НЕ наследовался).
-                    cp_q = (cp.search_edit.text() or "").strip().lower()
-                    if cp_q:
-                        q = cp_q
-                        # Подсвечиваем юзеру, что фильтр унаследован.
-                        self._overlay_search.blockSignals(True)
-                        self._overlay_search.setText(cp_q)
-                        self._overlay_search.blockSignals(False)
-            except Exception:
-                pass
         self._overlay_list.setUpdatesEnabled(False)
         # Round 267: запоминаем, на какой строке overlay-списка лежит
         # currently playing канал — для setCurrentRow в конце.
@@ -4310,6 +4329,28 @@ class PlayerPage(QWidget):
                     QAbstractItemView.PositionAtCenter)
             except Exception:
                 pass
+
+    def _mirror_search_to_channels_page(self, text):
+        """Round 278: что юзер пишет (или стирает) в overlay-поиске —
+        попадает в ChannelsPage.search_edit. Иначе фильтр на вкладке
+        Каналы оставался жить своей жизнью и юзер видел «один и тот же
+        текст возвращается»."""
+        try:
+            mw = self.window()
+            cp = getattr(mw, 'channels_page', None)
+            if cp is None:
+                return
+            if cp.search_edit.text() != text:
+                cp.search_edit.blockSignals(True)
+                cp.search_edit.setText(text)
+                cp.search_edit.blockSignals(False)
+                # Дёргаем фильтр явно — мы заблокировали textChanged.
+                try:
+                    cp.filter_channels()
+                except Exception:
+                    pass
+        except Exception as e:
+            log_error('mirror_search', e)
 
     def _overlay_channel_clicked(self, item):
         idx = item.data(Qt.UserRole)
@@ -5230,6 +5271,7 @@ class TvGuidePage(QWidget):
 
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText(t('search_channels'))
+        self.search_edit.setClearButtonEnabled(True)  # Round 278
         self.search_edit.textChanged.connect(self._debounced_refresh)
         layout.addWidget(self.search_edit)
         layout.addSpacing(6)
@@ -6671,7 +6713,13 @@ class MainWindow(QMainWindow):
             if u not in epg_sources:
                 epg_sources.append(u)
         if epg_sources:
-            self.load_epg(epg_sources)
+            # Round 278: НЕ грузим EPG сразу. LoadEpgThread парсит ~50 МБ
+            # XMLTV под GIL, главная нитка остаётся почти без CPU 20+
+            # сек, и watchdog логирует это как «main thread blocked 11s».
+            # Откладываем на 5 сек после загрузки плейлиста — пользователь
+            # уже видит каналы, может что-то выбрать, и тогда уже идёт
+            # тяжёлая EPG-загрузка.
+            QTimer.singleShot(5000, lambda srcs=list(epg_sources): self.load_epg(srcs))
 
         # Autoplay last channel (best-effort: match by URL)
         if self.config.autoplay_last and self.config.last_channel_url:
