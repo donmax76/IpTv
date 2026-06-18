@@ -1704,6 +1704,88 @@ class _LogoFetcher(QThread):
             log_error('_LogoFetcher.emit', e)
 
 
+class LearnedLogos:
+    """Round 288: порт Android LearnedLogos. Постоянная on-disk таблица
+    {normalize(channel_name) → logo_url}, наполняется из каждого
+    распарсенного плейлиста с tvg-logo и переиспользуется когда тот же
+    канал встречается в плейлисте БЕЗ logo. Кап 10k entries чтобы JSON
+    не разъехался."""
+    MAX_ENTRIES = 10000
+    BAD_PREFIXES = ('https://www.google.com/s2/favicons',
+                    'http://www.google.com/s2/favicons',
+                    'data:',)
+
+    def __init__(self, cache_dir: str):
+        self.path = os.path.join(cache_dir, 'learned_logos.json')
+        self.map: dict = {}
+        try:
+            if os.path.exists(self.path):
+                with open(self.path, 'r', encoding='utf-8') as f:
+                    self.map = json.load(f) or {}
+        except Exception as e:
+            log_error('LearnedLogos.load', e)
+            self.map = {}
+        log_info('logo', f"learned: {len(self.map)} entries")
+
+    @staticmethod
+    def _norm(name: str) -> str:
+        if not name:
+            return ""
+        try:
+            from epg_parser import normalize_id
+            return normalize_id(name)
+        except Exception:
+            return name.lower()
+
+    def harvest(self, channels):
+        """Записываем (name → logo_url) из каждого канала с tvg-logo.
+        Google-favicon URL'ы блокируем — они помечены как мусор Android
+        Round 100."""
+        added = 0
+        for ch in channels or []:
+            url = (ch.logo_url or '').strip()
+            if not url or any(url.startswith(p) for p in self.BAD_PREFIXES):
+                continue
+            k = self._norm(ch.name)
+            if not k or k in self.map:
+                continue
+            self.map[k] = url
+            added += 1
+            if len(self.map) >= self.MAX_ENTRIES:
+                break
+        if added:
+            log_info('logo', f"learned +{added} (total {len(self.map)})")
+            try:
+                with open(self.path, 'w', encoding='utf-8') as f:
+                    json.dump(self.map, f, ensure_ascii=False, indent=0)
+            except Exception as e:
+                log_error('LearnedLogos.save', e)
+        return added
+
+    def lookup(self, name: str):
+        k = self._norm(name)
+        if not k:
+            return None
+        return self.map.get(k)
+
+    def fill_missing(self, channels):
+        """Заполняем logo_url у каналов, у которых его нет, из выученной
+        таблицы. Применяется после parse_m3u но до set_channels."""
+        if not self.map:
+            return 0
+        applied = 0
+        for ch in channels or []:
+            if ch.logo_url:
+                continue
+            url = self.lookup(ch.name)
+            if url:
+                ch.logo_url = url
+                applied += 1
+        if applied:
+            log_info('logo', f"learned applied {applied} logos")
+        return applied
+
+
 class LogoCache(QObject):
     """Async logo loader with disk cache, shared across pages.
 
@@ -4511,6 +4593,21 @@ class PlayerPage(QWidget):
         # «при удалении в поле поиска в списке каналов он удаляется
         # и в конце возвращает написанное».
         q = (self._overlay_search.text() or "").strip().lower()
+        # Round 288: ЧИТАЕМ selected_category из ChannelsPage — при
+        # выборе категории в overlay категорий мы её туда записываем,
+        # но raw overlay channels раньше всё равно показывал ВСЕ
+        # каналы, игнорируя категорию. Юзер: «при выборе категории
+        # он его не открывает». Теперь применяем тот же фильтр.
+        sel_cat = None
+        try:
+            mw = self.window()
+            cp = getattr(mw, 'channels_page', None)
+            if cp is not None:
+                sel_cat = getattr(cp, 'selected_category', None)
+                if sel_cat in (None, '', 'All'):
+                    sel_cat = None
+        except Exception:
+            sel_cat = None
         self._overlay_list.setUpdatesEnabled(False)
         # Round 267: запоминаем, на какой строке overlay-списка лежит
         # currently playing канал — для setCurrentRow в конце.
@@ -4518,8 +4615,10 @@ class PlayerPage(QWidget):
         try:
             self._overlay_list.clear()
             shown = 0
-            cap = 500 if not q else 10000
+            cap = 500 if not q and not sel_cat else 10000
             for idx, ch in enumerate(self.channels or []):
+                if sel_cat and (ch.group or "") != sel_cat:
+                    continue
                 if q and q not in (ch.name or "").lower():
                     continue
                 if shown >= cap:
@@ -4821,10 +4920,10 @@ class PlayerPage(QWidget):
                 args += ['--avcodec-hw=any']
             else:
                 args += ['--avcodec-hw=none']
-            # Windows: предпочитаем direct3d11 video output — современный
-            # драйвер, гораздо лучше чем устаревший legacy GDI.
-            if sys.platform == "win32":
-                args += ['--vout=direct3d11']
+            # Round 288: НЕ форсируем --vout=direct3d11 — на некоторых
+            # GPU/драйверах он даёт запинки каждые 1-2 сек. Юзер:
+            # «запинается видео». Без --vout VLC сам выберет
+            # совместимый (обычно direct3d11 на Win10+ или dxva2 на 7).
             # Audio output backend (по умолчанию auto).
             ao = getattr(self.config, 'audio_output', '')
             if ao:
@@ -4836,14 +4935,62 @@ class PlayerPage(QWidget):
             self.vlc_instance = vlc.Instance(*args)
             self.player = self.vlc_instance.media_player_new()
             log_info('vlc', f"instance ok, args={args}")
+            # Round 288: подписываемся на EncounteredError + EndReached
+            # для авто-реконнекта (Android делает до 8 попыток с
+            # экспонентой). На live-IPTV пакеты теряются — без
+            # реконнекта канал замораживается насовсем.
+            try:
+                em = self.player.event_manager()
+                from vlc import EventType as _Ev
+                em.event_attach(_Ev.MediaPlayerEncounteredError,
+                                self._on_vlc_error)
+                em.event_attach(_Ev.MediaPlayerEndReached,
+                                self._on_vlc_end)
+                self._reconnect_attempts = 0
+            except Exception as e:
+                log_error('vlc.event_attach', e)
         except Exception as e:
             log_error('init_vlc', e, extra=f"args={args}")
             self.vlc_instance = None
             self.player = None
 
+    def _on_vlc_error(self, _event):
+        try:
+            self._schedule_reconnect("error")
+        except Exception as e:
+            log_error('_on_vlc_error', e)
+
+    def _on_vlc_end(self, _event):
+        try:
+            # EndReached на live-стриме = разрыв сети, не нормальный
+            # конец файла. Реконнектимся.
+            self._schedule_reconnect("end-reached")
+        except Exception as e:
+            log_error('_on_vlc_end', e)
+
+    def _schedule_reconnect(self, reason: str):
+        """Round 288: до 8 попыток с экспонентой 1/2/4/8/15с (capped).
+        Юзер: «канал замораживается» — это часто разрыв TCP, без
+        реконнекта VLC сам не оживает."""
+        if not self.channels or self.current_index >= len(self.channels):
+            return
+        attempts = getattr(self, '_reconnect_attempts', 0)
+        if attempts >= 8:
+            log_warn('vlc.reconnect', f"giving up after {attempts} tries")
+            return
+        delay = min(15000, 1000 * (2 ** attempts))
+        self._reconnect_attempts = attempts + 1
+        url = self.channels[self.current_index].url
+        log_info('vlc.reconnect',
+                 f"#{attempts+1}/8 reason={reason} delay={delay}ms url={url[:60]}")
+        QTimer.singleShot(delay, lambda u=url: self.play_url(u))
+
     def play_channel(self, index, channels, epg_data):
         # Save state for previously-playing channel before switching
         self._save_current_channel_state()
+        # Round 288: сбрасываем reconnect-счётчик при ручном выборе
+        # канала (это уже не неудача, а новое намерение).
+        self._reconnect_attempts = 0
 
         self.channels = channels
         self.current_index = index
@@ -4919,33 +5066,51 @@ class PlayerPage(QWidget):
             log_error('_maybe_set_audio_track', e)
 
     def _save_current_channel_state(self):
+        """Round 288: VLC get_time() / get_length() / audio_get_track()
+        могут блокировать 3-5 сек на мёртвых стримах. Watchdog поймал
+        4.3 сек фриза в get_time через switch_page → stop. Уносим в
+        daemon-нитку — позиция/громкость в редких случаях останутся
+        чуть устаревшими, но UI всегда отзывчив."""
         if not self.channels or self.current_index >= len(self.channels):
             return
         ch = self.channels[self.current_index]
         if not ch or not ch.url:
             return
-        state = {
+        # Снимаем синхронные значения из GUI-нитки.
+        base_state = {
             'aspect_idx': self._aspect_idx,
             'speed_idx': self._speed_idx,
             'volume': self.vol_slider.value() if hasattr(self, 'vol_slider') else self.config.volume,
         }
-        if self.player:
+        url = ch.url
+        player = self.player
+
+        def _bg():
+            state = dict(base_state)
+            if player:
+                try:
+                    t = player.get_time()
+                    length = player.get_length()
+                    if t and t > 30000 and length > 0 and t < length - 30000:
+                        state['position_ms'] = int(t)
+                except Exception:
+                    pass
+                try:
+                    track = player.audio_get_track()
+                    if track is not None and track >= 0:
+                        state['audio_track'] = int(track)
+                except Exception:
+                    pass
             try:
-                t = self.player.get_time()
-                length = self.player.get_length()
-                # Only persist position for VOD (length > 0); skip live streams.
-                if t and t > 30000 and length > 0 and t < length - 30000:
-                    state['position_ms'] = int(t)
-            except Exception:
-                pass
-            try:
-                track = self.player.audio_get_track()
-                if track is not None and track >= 0:
-                    state['audio_track'] = int(track)
-            except Exception:
-                pass
-        self.config.save_channel_state(ch.url, state)
-        self.config.save_async()  # Round 260: фон, не блокируем переключение
+                self.config.save_channel_state(url, state)
+                self.config.save_async()
+            except Exception as e:
+                log_error('_save_current_channel_state.bg', e)
+        try:
+            import threading as _th
+            _th.Thread(target=_bg, daemon=True, name='vlc-save-state').start()
+        except Exception as e:
+            log_error('_save_current_channel_state', e)
 
     def _ensure_vlc_then_play(self):
         """Round 283: фоновая инициализация VLC + откладываемый play_url.
@@ -5013,10 +5178,31 @@ class PlayerPage(QWidget):
             vlc_inst = self.vlc_instance
             player = self.player
 
+            # Round 288: per-channel User-Agent + auto-Referer.
+            # Android выводит Referer из origin'а url когда юзер ничего
+            # не настроил — много CIS-стримов (tv.izone.az, etc) шлют
+            # 403 без Referer. UA берём из config либо стандартный VLC.
+            ua_cfg = getattr(self.config, 'user_agent', '') or \
+                     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            referer_cfg = getattr(self.config, 'http_referer', '')
+            if not referer_cfg:
+                try:
+                    from urllib.parse import urlparse as _urlp
+                    p = _urlp(url)
+                    if p.scheme and p.netloc:
+                        referer_cfg = f"{p.scheme}://{p.netloc}/"
+                except Exception:
+                    referer_cfg = ''
+
             def _swap():
                 try:
                     media = vlc_inst.media_new(url)
                     media.add_option(f':network-caching={net_cache}')
+                    # Round 288: HTTP headers — UA + Referer на media.
+                    if ua_cfg:
+                        media.add_option(f':http-user-agent={ua_cfg}')
+                    if referer_cfg:
+                        media.add_option(f':http-referrer={referer_cfg}')
                     # set_media внутри STOP'ает текущий поток — это и
                     # есть тот самый 16 сек блок.
                     player.set_media(media)
@@ -5042,7 +5228,8 @@ class PlayerPage(QWidget):
                     except Exception as e:
                         log_error('set_rate', e)
                     player.play()
-                    log_info('play', f"set_media done for {url[:80]}")
+                    log_info('play', f"set_media done for {url[:80]} "
+                                     f"ua={ua_cfg[:40]} ref={referer_cfg}")
                 except Exception as e:
                     log_error('play_url.bg', e, extra=f"url={url[:80]}")
 
@@ -6417,6 +6604,11 @@ class MainWindow(QMainWindow):
         # Shared logo cache (async network + on-disk cache)
         cache_root = os.path.join(self.cache_dir, "tvviewer_logos")
         self.logo_cache = LogoCache(cache_root, self)
+        # Round 288: learned-logos — постоянная таблица «имя канала →
+        # logo URL», копит то, что приходило с tvg-logo в РАНЬШЕ
+        # открытых плейлистах. Когда тот же канал в следующем плейлисте
+        # идёт без logo — fallback на learned.
+        self.learned_logos = LearnedLogos(self.cache_dir)
         # Pre-warm iptv-org channels DB чтобы лого/tvg-id для каналов
         # без tvg-logo стали доступны через несколько секунд после
         # старта (Android делает то же в TVViewerApp.onCreate).
@@ -7029,14 +7221,26 @@ class MainWindow(QMainWindow):
 
     def on_playlist_loaded(self, result: PlaylistResult, name: str):
         self.channels = result.channels
-        # Fallback логотипов через iptv-org channels.json (как Android
-        # ChannelMetaLookup). Если плейлист не несёт tvg-logo, пробуем
-        # найти по имени канала. Если БД ещё не загружена — повторим
-        # после её загрузки через коллбэк.
+        # Round 288: тройная стратегия логотипов — порт Android.
+        #   1) tvg-logo из плейлиста (уже разобран parse_m3u)
+        #   2) learned_logos — что копили из ПРЕДЫДУЩИХ плейлистов
+        #   3) iptv-org channels.json — синхронно, если БД уже в памяти
+        try:
+            if hasattr(self, 'learned_logos'):
+                self.learned_logos.fill_missing(self.channels)
+        except Exception as e:
+            log_error('learned_logos.fill', e)
         try:
             channel_meta_lookup.fill_missing_logos(self.channels)
         except Exception:
             pass
+        # Round 288: harvest — учим logo'и из ЭТОГО плейлиста для
+        # будущих. Делается ПОСЛЕ fill чтобы тоже подобрать iptv-org.
+        try:
+            if hasattr(self, 'learned_logos'):
+                self.learned_logos.harvest(self.channels)
+        except Exception as e:
+            log_error('learned_logos.harvest', e)
         self.channels_page.set_channels(self.channels, name, self.epg_data)
         self.channels_page.status_label.setText(f"{len(self.channels)} channels loaded")
         # Кикаем загрузку iptv-org БД (no-op если уже загружена), и
