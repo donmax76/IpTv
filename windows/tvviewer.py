@@ -1719,7 +1719,11 @@ class LogoCache(QObject):
     # каналов 6 одновременных HTTP-потоков + GIL = постоянная фоновая
     # нагрузка. Двух воркеров достаточно — лого подгружаются плавно
     # без блокировки UI.
-    MAX_CONCURRENT = 2
+    # Round 285: 2 → 1. Юзер: «программа тормозит». На слабых машинах
+    # параллельные urllib-фетчи + VLC буферизация + main thread =
+    # перегрузка контекст-свитчами. Один воркер тянет лого
+    # последовательно, на overall-времени почти не сказывается.
+    MAX_CONCURRENT = 1
     MAX_ICONS_IN_MEM = 2000
 
     def __init__(self, cache_dir: str, parent=None):
@@ -1777,12 +1781,28 @@ class LogoCache(QObject):
             self._pump()
         return None
 
+    def set_paused(self, paused: bool):
+        """Round 285: глобальная пауза кэша. PlayerPage ставит paused=True
+        пока юзер смотрит видео — кэш не запускает новые лого-фетчи и
+        не конкурирует с VLC за CPU/сеть. Уже стартовавшие воркеры
+        дойдут естественно."""
+        try:
+            self._paused = bool(paused)
+            if not paused:
+                self._pump()
+        except Exception as e:
+            log_error('LogoCache.set_paused', e)
+
     def _pump(self):
         # Round 269: circuit breaker — пока пауза, не спавним новых
         # воркеров. Юзер не должен страдать из-за плейлиста с дохлыми
         # лого-ссылками.
         import time as _t
         if _t.monotonic() < self._paused_until:
+            return
+        # Round 285: глобальная пауза от PlayerPage — пока юзер смотрит
+        # видео, не запускаем новые лого-фетчи.
+        if getattr(self, '_paused', False):
             return
         while self._queue and len(self._inflight) < self.MAX_CONCURRENT:
             url = self._queue.pop(0)
@@ -4165,6 +4185,14 @@ class PlayerPage(QWidget):
         # раз при первом show — последующие setParent дешевле, но всё
         # равно пересоздают native window, так что флагуем.
         super().showEvent(event)
+        # Round 285: пока на PlayerPage — LogoCache в паузе. VLC
+        # буферизация + урегулирование декодинга нагружают CPU и сеть,
+        # параллельные urllib-фетчи только мешают.
+        try:
+            if self.logo_cache is not None:
+                self.logo_cache.set_paused(True)
+        except Exception:
+            pass
         try:
             if not getattr(self, '_overlay_owner_set', False):
                 mw = self.window()
@@ -4197,10 +4225,13 @@ class PlayerPage(QWidget):
     def hideEvent(self, event):
         # Round 248: уходя из плеера прячем overlay_host (иначе он
         # останется висеть поверх других вкладок) и стопаем таймер.
+        # Round 285: возобновляем LogoCache, юзер ушёл из плеера.
         super().hideEvent(event)
         try:
             self._overlay_sync_timer.stop()
             self.overlay_host.hide()
+            if self.logo_cache is not None:
+                self.logo_cache.set_paused(False)
         except Exception:
             pass
 
