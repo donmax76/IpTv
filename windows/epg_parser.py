@@ -177,65 +177,56 @@ def fetch_epg(epg_url: str, cache_dir: str = ".",
 
     t0 = time.time()
     try:
-        # Round 294: STREAMING-распаковка. Юзер: `MemoryError: Unable to
-        # allocate output buffer` в gzip.decompress(content) — XMLTV до
-        # 100 МБ сжатых = 400+ МБ распакованных, Python не может одним
-        # буфером в RAM. Стримим chunks и сразу декомпрессируем через
-        # gzip.GzipFile или iter_content для plain XML.
-        chunks = []
-        with requests.get(epg_url, headers=headers, timeout=90,
-                          allow_redirects=True, stream=True,
-                          verify=False) as response:
-            response.raise_for_status()
-            if progress:
-                progress(f"{host}: скачиваю EPG…")
-            trace("EPG", f"fetchSingle({host}) HTTP {response.status_code}, downloading…", cache_dir)
-            # Читаем первые 2 байта для определения gzip.
-            it = response.iter_content(chunk_size=64 * 1024)
-            first = b""
-            for c in it:
-                first = c
-                break
-            is_gzip = first[:2] == b'\x1f\x8b'
-            trace("EPG", f"fetchSingle({host}) gzip={is_gzip}, decompressing on the fly…", cache_dir)
+        # Round 298: ИСТИННЫЙ streaming через ВРЕМЕННЫЙ ФАЙЛ на диске,
+        # а не BytesIO. Юзер всё ещё ловил MemoryError на buf.write(c)
+        # потому что Round 294 копил 100 МБ сжатых в BytesIO. Диск
+        # вмещает любой размер, RAM не нужен.
+        import tempfile as _tf
+        tmp_fd, tmp_path = _tf.mkstemp(suffix='.epgdl', prefix='tvv_')
+        os.close(tmp_fd)
+        size_compressed = 0
+        try:
+            with requests.get(epg_url, headers=headers, timeout=90,
+                              allow_redirects=True, stream=True,
+                              verify=False) as response:
+                response.raise_for_status()
+                if progress:
+                    progress(f"{host}: скачиваю EPG…")
+                trace("EPG", f"fetchSingle({host}) HTTP {response.status_code}, "
+                             f"streaming to disk…", cache_dir)
+                with open(tmp_path, 'wb') as out_f:
+                    for c in response.iter_content(chunk_size=64 * 1024):
+                        if not c:
+                            continue
+                        out_f.write(c)
+                        size_compressed += len(c)
+            # Определяем gzip по первым 2 байтам файла.
+            with open(tmp_path, 'rb') as in_f:
+                first2 = in_f.read(2)
+            is_gzip = first2 == b'\x1f\x8b'
+            trace("EPG",
+                  f"fetchSingle({host}) downloaded {size_compressed//1024} KB, "
+                  f"gzip={is_gzip}, decompressing…", cache_dir)
+            # Декомпрессируем (или просто читаем) и парсим — БЕЗ
+            # промежуточного огромного буфера, поэлементно через
+            # parse_xmltv_streaming. Buffer 4 МБ для GzipFile = быстрый
+            # IO без давления на heap.
             if is_gzip:
-                # Стримим декомпрессию через GzipFile поверх raw byte
-                # stream — не нужен полный buffer в RAM.
-                import io as _io
-                buf = _io.BytesIO()
-                buf.write(first)
-                for c in it:
-                    buf.write(c)
-                buf.seek(0)
-                with gzip.GzipFile(fileobj=buf, mode='rb') as gz:
-                    # Читаем декомпрессированный поток в куски —
-                    # склеиваем в bytearray (растёт линейно, без
-                    # удваивающихся аллокаций как у списка bytes).
-                    out = bytearray()
-                    while True:
-                        chunk = gz.read(1 * 1024 * 1024)
-                        if not chunk:
-                            break
-                        out.extend(chunk)
-                    content = bytes(out)
+                with gzip.open(tmp_path, 'rb') as gz:
+                    epg_data = parse_xmltv_streaming_fileobj(
+                        gz, channel_filter)
             else:
-                # Plain XML — копим из iter_content.
-                out = bytearray(first)
-                for c in it:
-                    out.extend(c)
-                content = bytes(out)
+                with open(tmp_path, 'rb') as plain:
+                    epg_data = parse_xmltv_streaming_fileobj(
+                        plain, channel_filter)
+        finally:
+            try: os.remove(tmp_path)
+            except Exception: pass
     except Exception as e:
         trace("EPG", f"fetchSingle({host}) HTTP ERROR: {type(e).__name__}: {e}", cache_dir)
         if progress:
             progress(f"{host}: ошибка — {type(e).__name__}")
         raise
-
-    kb = len(content) // 1024
-    trace("EPG", f"fetchSingle({host}) decompressed {kb} KB in {int(time.time() - t0)}s", cache_dir)
-    if progress:
-        progress(f"{host}: распаковано {kb} KB, парсю…")
-
-    epg_data = parse_xmltv_streaming(content, channel_filter)
 
     progs_total = sum(len(v) for v in epg_data.values())
     trace("EPG",
@@ -248,15 +239,26 @@ def fetch_epg(epg_url: str, cache_dir: str = ".",
     return epg_data
 
 
+def parse_xmltv_streaming_fileobj(
+        fileobj,
+        channel_filter: Optional[Set[str]] = None) -> EpgData:
+    """Round 298: парсит XMLTV прямо из file-like (можно из gzip.GzipFile
+    или открытого XML-файла). Никаких RAM-аллокаций на полный XML —
+    ET.iterparse читает поток chunk-by-chunk сам."""
+    return _parse_xmltv_from(fileobj, channel_filter)
+
+
 def parse_xmltv_streaming(content: bytes,
                           channel_filter: Optional[Set[str]] = None) -> EpgData:
-    """Stream-parse XMLTV. Collects:
-       - <channel id="..."> with their <display-name> children
-       - <programme channel="..." start="..." stop="..."> with title
+    """Backward-compat wrapper around _parse_xmltv_from(BytesIO(content))."""
+    return _parse_xmltv_from(io.BytesIO(content), channel_filter)
 
-    After streaming, mirrors programmes under each channel's normalized
-    display-name(s) so playlists matching by name (no tvg-id) work too.
-    """
+
+def _parse_xmltv_from(fileobj,
+                      channel_filter: Optional[Set[str]] = None) -> EpgData:
+    """Round 298: общий поточный парсер. Принимает любой file-like
+    (BytesIO для backward-compat, gzip.GzipFile или открытый файл для
+    fetch_epg). ET.iterparse читает поток сам — без RAM-аллокаций."""
     epg: EpgData = {}
     display_names_by_id: Dict[str, List[str]] = {}
 
@@ -264,8 +266,7 @@ def parse_xmltv_streaming(content: bytes,
     cur_display_names: List[str] = []
 
     try:
-        # iterparse cuts memory dramatically vs ET.fromstring on 50+ MB files.
-        ctx = ET.iterparse(io.BytesIO(content), events=('start', 'end'))
+        ctx = ET.iterparse(fileobj, events=('start', 'end'))
         # Round 290: каждые 100 элементов отпускаем GIL (раньше 500
         # было недостаточно — watchdog ловил 11+ сек блокировки во
         # время EPG-парсинга на старте). 100 даёт 30+ yield'ов в

@@ -131,7 +131,22 @@ def ensure_loaded(cache_dir: str = ".", on_loaded=None):
             if text is None:
                 text = _fetch_and_cache(cache_path)
             if text:
-                _parse_and_index(text)
+                # Round 298: подавляем watchdog на время iptv-org
+                # парсинга 50k+ каналов — JSON-парсер держит GIL ~15 сек
+                # и watchdog ложно репортит «main thread blocked 16s».
+                try:
+                    import tvviewer as _tv
+                    _tv._watchdog_suppress(True)
+                except Exception:
+                    pass
+                try:
+                    _parse_and_index(text)
+                finally:
+                    try:
+                        import tvviewer as _tv
+                        _tv._watchdog_suppress(False)
+                    except Exception:
+                        pass
             if not fresh:
                 # Even if we used a stale cache, re-fetch in background
                 # so the next session has new data.

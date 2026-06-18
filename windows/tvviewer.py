@@ -1246,25 +1246,35 @@ class LoadPlaylistThread(QThread):
         self.url = url
 
     def run(self):
-        try:
-            log_info('playlist', f"loading {self.url}")
-            if os.path.isfile(self.url):
-                result = load_playlist_file(self.url)
-            else:
-                result = fetch_playlist(self.url)
-            chs = getattr(result, 'channels', []) or []
-            groups = {c.group for c in chs if c.group}
-            # Round 282: показываем сколько групп найдено + 3 примера,
-            # чтобы быстро понять, парсятся ли категории. Юзер:
-            # «категории из плейлиста ... не показываются».
-            sample = sorted(groups)[:3]
-            log_info('playlist',
-                     f"ok channels={len(chs)} groups={len(groups)} "
-                     f"sample={sample}")
-            self.finished.emit(result)
-        except Exception as e:
-            log_error('LoadPlaylistThread', e, extra=f"url={self.url}")
-            self.error.emit(str(e))
+        # Round 298: 3 попытки с экспонентой 1с/2с/4с — некоторые CDN
+        # (ucoz, flussonic) рандомно обрывают TCP при первом запросе.
+        # Юзер: `RemoteDisconnected: Remote end closed connection`.
+        import time as _t
+        last_err = None
+        for attempt in range(3):
+            try:
+                log_info('playlist',
+                         f"loading {self.url} (try {attempt+1}/3)")
+                if os.path.isfile(self.url):
+                    result = load_playlist_file(self.url)
+                else:
+                    result = fetch_playlist(self.url)
+                chs = getattr(result, 'channels', []) or []
+                groups = {c.group for c in chs if c.group}
+                sample = sorted(groups)[:3]
+                log_info('playlist',
+                         f"ok channels={len(chs)} groups={len(groups)} "
+                         f"sample={sample}")
+                self.finished.emit(result)
+                return
+            except Exception as e:
+                last_err = e
+                log_warn('playlist',
+                         f"try {attempt+1} failed: {type(e).__name__}: {e}")
+                if attempt < 2:
+                    _t.sleep((attempt + 1) * 1.5)
+        log_error('LoadPlaylistThread', last_err, extra=f"url={self.url}")
+        self.error.emit(str(last_err))
 
 
 class UpdateCheckThread(QThread):
