@@ -15,12 +15,39 @@ from typing import Dict, Optional
 
 import requests
 
-from epg_parser import normalize_id, trace
+import re as _re
+
+from epg_parser import normalize_id, fuzzy_key, trace
 
 
 URL = "https://iptv-org.github.io/api/channels.json"
 CACHE_FILE = "iptv_org_channels.json"
 CACHE_LIFETIME_SEC = 7 * 24 * 60 * 60  # 7 days
+
+# Round 286: стрипаем «провайдерские» префиксы из имени канала перед
+# матчингом с iptv-org. У юзера каналы идут как «VF Боевик 275», в базе
+# хранится «Боевик ТВ» — точный матч не срабатывал, папка tvviewer_logos
+# оставалась пустая.
+_PROVIDER_PREFIX_RE = _re.compile(
+    r'^(?:VF|VIP|HD|FHD|UHD|4K|8K|SD|TV|TV1|TV2|★|♥|HQ|LQ)\s+',
+    _re.IGNORECASE)
+# Также: ведущие/висящие цифры, флаги emoji.
+_LEADING_TRAILING_TRASH_RE = _re.compile(
+    r'^[\s\d._\-:|]+|[\s\d._\-:|]+$')
+
+
+def _clean_for_lookup(name: str) -> str:
+    if not name:
+        return ""
+    s = name
+    # Несколько раз убираем разные префиксы (VF VIP Боевик → Боевик).
+    for _ in range(4):
+        new = _PROVIDER_PREFIX_RE.sub('', s).strip()
+        if new == s:
+            break
+        s = new
+    s = _LEADING_TRAILING_TRASH_RE.sub('', s)
+    return s
 
 
 @dataclass
@@ -40,9 +67,34 @@ def is_loaded() -> bool:
 
 
 def lookup(channel_name: str) -> Optional[Meta]:
+    """Round 286: трёхуровневый матч с iptv-org.
+      1) точный normalize_id (как раньше);
+      2) после очистки «провайдерских» префиксов VF/VIP/HD/...;
+      3) fuzzy_key — стрипает HD/SD/4K и регион-суффиксы.
+    Это даёт логотипы каналам типа «VF Боевик 275»."""
     if not _loaded or not channel_name:
         return None
-    return _by_name.get(normalize_id(channel_name))
+    # 1) Точный матч.
+    m = _by_name.get(normalize_id(channel_name))
+    if m is not None:
+        return m
+    # 2) Чистка провайдерских префиксов.
+    cleaned = _clean_for_lookup(channel_name)
+    if cleaned and cleaned != channel_name:
+        m = _by_name.get(normalize_id(cleaned))
+        if m is not None:
+            return m
+        # 3) fuzzy_key на очищенной строке.
+        fk = fuzzy_key(cleaned)
+        if fk:
+            m = _by_name.get(fk)
+            if m is not None:
+                return m
+    # 4) fuzzy_key на исходном имени.
+    fk = fuzzy_key(channel_name)
+    if fk:
+        return _by_name.get(fk)
+    return None
 
 
 def ensure_loaded(cache_dir: str = ".", on_loaded=None):
@@ -161,29 +213,56 @@ def _parse_and_index(text: str):
         logo = o.get("logo") or None
         if not logo and not tvg_id:
             continue
-        key = normalize_id(name)
-        if key and key not in _by_name:
-            _by_name[key] = Meta(logo_url=logo, tvg_id=tvg_id)
+        meta = Meta(logo_url=logo, tvg_id=tvg_id)
+        # Round 286: индексируем под нормализованным именем, fuzzy_key
+        # и под всеми alt_names (тоже под обеими ключами). Это даёт
+        # шанс матча для «VF Боевик 275» → «Боевик».
+        keys = []
+        nk = normalize_id(name)
+        if nk:
+            keys.append(nk)
+        fk = fuzzy_key(name)
+        if fk and fk != nk:
+            keys.append(fk)
         for alt in (o.get("alt_names") or []):
-            k = normalize_id(alt)
-            if k and k not in _by_name:
-                _by_name[k] = Meta(logo_url=logo, tvg_id=tvg_id)
+            alt_nk = normalize_id(alt)
+            if alt_nk and alt_nk not in keys:
+                keys.append(alt_nk)
+            alt_fk = fuzzy_key(alt)
+            if alt_fk and alt_fk not in keys:
+                keys.append(alt_fk)
+        for k in keys:
+            if k not in _by_name:
+                _by_name[k] = meta
 
 
 def fill_missing_logos(channels) -> int:
     """For each channel without logo_url / tvg_id, try iptv-org by name.
     Returns number of channels enriched. Mutates Channel objects in place.
-    No-op if database not loaded yet."""
+    No-op if database not loaded yet.
+
+    Round 286: пишем в trace распределение — сколько уже было с tvg-logo,
+    сколько подсосали из iptv-org, сколько так и не нашлось. Юзер: «папка
+    tvviewer_logos пуста».
+    """
     if not _loaded or not channels:
         return 0
     enriched = 0
+    had_logo = 0
+    still_missing = 0
     for ch in channels:
-        meta = lookup(ch.name)
-        if not meta:
+        if ch.logo_url:
+            had_logo += 1
             continue
-        if not ch.logo_url and meta.logo_url:
+        meta = lookup(ch.name)
+        if meta and meta.logo_url:
             ch.logo_url = meta.logo_url
             enriched += 1
-        if not ch.tvg_id and meta.tvg_id:
-            ch.tvg_id = meta.tvg_id
+            if not ch.tvg_id and meta.tvg_id:
+                ch.tvg_id = meta.tvg_id
+        else:
+            still_missing += 1
+    trace("META",
+          f"fill_missing_logos: had={had_logo} enriched={enriched} "
+          f"missing={still_missing} of {len(channels)}")
     return enriched
