@@ -5217,11 +5217,13 @@ class PlayerPage(QWidget):
                     # есть тот самый 16 сек блок.
                     player.set_media(media)
                     self.current_media = media
-                    if prev_media is not None:
-                        try:
-                            prev_media.release()
-                        except Exception as e:
-                            log_error('media_release', e)
+                    # Round 291: НЕ вызываем prev_media.release() —
+                    # player.set_media() внутри VLC уже сделал
+                    # libvlc_media_release на старой. Наш повторный
+                    # release был double-free, watchdog поймал:
+                    #   OSError: access violation writing 0x...24
+                    # Python-обёртка vlc.Media отпустит свою ссылку
+                    # через GC когда prev_media выйдет из scope.
                     if hwnd is not None:
                         player.set_hwnd(hwnd)
                     elif xwin is not None:
@@ -5546,10 +5548,11 @@ class PlayerPage(QWidget):
             except Exception: pass
 
     def release_vlc(self):
-        if self.current_media is not None:
-            try: self.current_media.release()
-            except Exception: pass
-            self.current_media = None
+        # Round 291: НЕ вызываем self.current_media.release() — Python
+        # обёртка vlc.Media сама делает libvlc_media_release в __del__
+        # когда ссылка обнуляется. Ручной release + последующее None
+        # давало double-free на части систем.
+        self.current_media = None
         if self.player is not None:
             try: self.player.release()
             except Exception: pass
