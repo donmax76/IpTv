@@ -4599,6 +4599,7 @@ class PlayerPage(QWidget):
         # каналы, игнорируя категорию. Юзер: «при выборе категории
         # он его не открывает». Теперь применяем тот же фильтр.
         sel_cat = None
+        recent_set = set()
         try:
             mw = self.window()
             cp = getattr(mw, 'channels_page', None)
@@ -4606,8 +4607,14 @@ class PlayerPage(QWidget):
                 sel_cat = getattr(cp, 'selected_category', None)
                 if sel_cat in (None, '', 'All'):
                     sel_cat = None
+            # Round 289: «★ Recent» работает не по group, а по
+            # recent_urls — отдельная ветка как в ChannelsPage.
+            if sel_cat == '★ Recent' or sel_cat == 'Recent':
+                recent_set = set(getattr(self.config, 'recent_urls', []) or [])
         except Exception:
             sel_cat = None
+        log_info('overlay', f"refresh: cat={sel_cat!r} q={q!r} "
+                            f"channels={len(self.channels or [])}")
         self._overlay_list.setUpdatesEnabled(False)
         # Round 267: запоминаем, на какой строке overlay-списка лежит
         # currently playing канал — для setCurrentRow в конце.
@@ -4617,7 +4624,10 @@ class PlayerPage(QWidget):
             shown = 0
             cap = 500 if not q and not sel_cat else 10000
             for idx, ch in enumerate(self.channels or []):
-                if sel_cat and (ch.group or "") != sel_cat:
+                if recent_set:
+                    if ch.url not in recent_set:
+                        continue
+                elif sel_cat and (ch.group or "") != sel_cat:
                     continue
                 if q and q not in (ch.name or "").lower():
                     continue
