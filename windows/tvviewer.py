@@ -3462,11 +3462,9 @@ class PlayerPage(QWidget):
         QApplication.processEvents()
         self._build_center_menu()
         QApplication.processEvents()
-        # Кнопки в top-bar для тех у кого нет физической клавиатуры.
-        try:
-            self._inject_overlay_toggle_buttons()
-        except Exception:
-            pass
+        # Round 293: УБРАНЫ кнопки «☰ Каналы» / «⚙ Настройки» над
+        # видео. Юзер: «убери кнопки которые появляются во время
+        # просмотра слева и справо». Всё доступно через LEFT/RIGHT.
 
         # Auto-hide banner timer
         # Round 245: банер информации — как в Android-плеере:
@@ -3965,6 +3963,20 @@ class PlayerPage(QWidget):
         self._overlay_search.setPlaceholderText(t('search') + "…")
         self._overlay_search.setClearButtonEnabled(True)
         self._overlay_search.setFocusPolicy(Qt.StrongFocus)
+        # Round 293: явный QPalette — Qt берёт цвет каретки из
+        # QPalette.Text. На некоторых Windows-темах QSS color не доходит
+        # до палитры и каретка получалась цвета фона (невидимая).
+        try:
+            from PyQt5.QtGui import QPalette
+            pal = self._overlay_search.palette()
+            pal.setColor(QPalette.Text, QColor("#FFFFFF"))
+            pal.setColor(QPalette.WindowText, QColor("#FFFFFF"))
+            pal.setColor(QPalette.Base, QColor("#050510"))
+            pal.setColor(QPalette.Highlight, QColor("#00C8E6"))
+            pal.setColor(QPalette.HighlightedText, QColor("#FFFFFF"))
+            self._overlay_search.setPalette(pal)
+        except Exception:
+            pass
         # Высота 44px + крупный курсор — заметно даже на 4K.
         self._overlay_search.setMinimumHeight(40)
         self._overlay_search.setStyleSheet(
@@ -4447,17 +4459,27 @@ class PlayerPage(QWidget):
             self._overlay_toggle_bar.raise_()
 
     def left_press(self):
-        """Round 251: LEFT — ping-pong по стадиям. Открывает поэтапно
-        и так же поэтапно закрывает (юзер: «когда он открыт влево он
-        так же должен поэтапно закрываться»).
-
+        """Round 251/293: LEFT — ping-pong по стадиям.
           стадии: 0=закрыто 1=каналы 2=категории 3=центр-меню
-          LEFT идёт 0→1→2→3, на максимуме разворачивается 3→2→1→0.
+        Round 293: если фактически ничего не открыто (юзер: «при
+        нажатии влево если нет открытого меню то всегда открывался
+        первым список каналов»), форсим stage=0 ДО шага, чтобы LEFT
+        всегда давал «каналы» а не следующую стадию-фантом из старого
+        состояния.
         """
         if not hasattr(self, 'channels_overlay'):
             return
         self._sync_overlay_host()
-        stage = getattr(self, '_left_stage', 0)
+        # Round 293: ресинхронизируем _left_stage с реальной видимостью.
+        any_visible = any(
+            getattr(self, n, None) is not None
+            and getattr(self, n).isVisible()
+            for n in ('channels_overlay', 'categories_overlay',
+                      'center_menu_overlay'))
+        if not any_visible:
+            self._left_stage = 0
+            self._left_dir = 1
+        stage = self._left_stage
         direction = getattr(self, '_left_dir', 1)
         if stage >= 3:
             direction = -1
@@ -7360,11 +7382,26 @@ class MainWindow(QMainWindow):
                 self.learned_logos.harvest(self.channels)
         except Exception as e:
             log_error('learned_logos.harvest', e)
+        # Round 293: PRE-QUEUE логотипы в LogoCache СРАЗУ. Раньше URL'ы
+        # ставились в очередь только когда какая-то страница их
+        # рендерила. Если юзер сразу шёл на PlayerPage и оставался там,
+        # никто никогда не вызывал get() — папка оставалась пустой
+        # хотя URL'ы у нас были. Юзер: «и опять нет лого каналов».
+        try:
+            if self.logo_cache is not None:
+                queued = 0
+                for ch in self.channels:
+                    if ch.logo_url:
+                        self.logo_cache.get(ch.logo_url)
+                        queued += 1
+                log_info('logo', f"pre-queued {queued} logo URLs")
+        except Exception as e:
+            log_error('logo.prequeue', e)
         self.channels_page.set_channels(self.channels, name, self.epg_data)
         self.channels_page.status_label.setText(f"{len(self.channels)} channels loaded")
         # Кикаем загрузку iptv-org БД (no-op если уже загружена), и
         # после готовности заново применяем fill_missing_logos +
-        # обновляем UI.
+        # обновляем UI + ставим в очередь LogoCache.
         def on_meta_ready():
             enriched = 0
             try:
@@ -7373,6 +7410,14 @@ class MainWindow(QMainWindow):
                 pass
             if enriched:
                 trace("META", f"enriched {enriched} channels with iptv-org logos/tvg-ids")
+                # Round 293: после enrich тоже пре-кьюим новые logo URL.
+                try:
+                    if self.logo_cache is not None:
+                        for ch in self.channels:
+                            if ch.logo_url:
+                                self.logo_cache.get(ch.logo_url)
+                except Exception:
+                    pass
                 # Перерисовываем оба списка
                 if hasattr(self, 'channels_page'):
                     self.channels_page.set_channels(self.channels, name, self.epg_data)
