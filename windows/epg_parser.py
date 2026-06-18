@@ -217,13 +217,14 @@ def parse_xmltv_streaming(content: bytes,
     try:
         # iterparse cuts memory dramatically vs ET.fromstring on 50+ MB files.
         ctx = ET.iterparse(io.BytesIO(content), events=('start', 'end'))
-        # Round 281: каждые 500 элементов отпускаем GIL, чтобы main
-        # thread мог тикать. Без этого watchdog ловил «main thread
-        # blocked 9-11 сек» во время EPG-парсинга при старте.
+        # Round 290: каждые 100 элементов отпускаем GIL (раньше 500
+        # было недостаточно — watchdog ловил 11+ сек блокировки во
+        # время EPG-парсинга на старте). 100 даёт 30+ yield'ов в
+        # секунду, heartbeat успевает тикать.
         _iter_n = 0
         for event, elem in ctx:
             _iter_n += 1
-            if _iter_n % 500 == 0:
+            if _iter_n % 100 == 0:
                 time.sleep(0)  # уступаем GIL планировщику
             tag = elem.tag
             if event == 'start':
