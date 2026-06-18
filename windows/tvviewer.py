@@ -3744,7 +3744,7 @@ class PlayerPage(QWidget):
                 mw.switch_page(1)
                 # Сразу даём фокус на поисковую строку каналов.
                 try:
-                    mw.channels_page.search_input.setFocus()
+                    mw.channels_page.search_edit.setFocus()
                 except Exception:
                     pass
         except Exception:
@@ -4196,7 +4196,10 @@ class PlayerPage(QWidget):
                 mw = self.window()
                 cp = getattr(mw, 'channels_page', None)
                 if cp is not None:
-                    cp_q = (cp.search_input.text() or "").strip().lower()
+                    # Round 276: правильный атрибут — search_edit (был
+                    # search_input, который не существует — AttributeError
+                    # глушился try/except и фильтр НЕ наследовался).
+                    cp_q = (cp.search_edit.text() or "").strip().lower()
                     if cp_q:
                         q = cp_q
                         # Подсвечиваем юзеру, что фильтр унаследован.
@@ -6070,41 +6073,31 @@ class MainWindow(QMainWindow):
         super().changeEvent(event)
 
     def moveEvent(self, event):
-        """Round 267/270: при перетаскивании синхронизируем overlay.
-        Round 270: ДЕБАУНСИМ через QTimer (был синхронный вызов на
-        КАЖДЫЙ пиксель — на медленных машинах юзер видел freeze
-        прямо при попытке потащить окно). Теперь сворачиваем 60+
-        событий в секунду в один тик через 30мс."""
+        """Round 276: при drag-е окна оверлей должен лететь ВМЕСТЕ
+        с окном. Раньше дебаунс 30мс давал отставание. Теперь:
+        моментально дёргаем lightweight sync (только setGeometry на
+        overlay_host), а полную перерасстановку детей делает обычный
+        _overlay_sync_timer тиком 150мс."""
         super().moveEvent(event)
-        self._schedule_overlay_sync()
+        self._fast_overlay_track()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self._schedule_overlay_sync()
+        self._fast_overlay_track()
 
-    def _schedule_overlay_sync(self):
-        """Round 270: debounce — стопаем существующий таймер и
-        перестартуем. После 30мс без новых событий — один sync."""
+    def _fast_overlay_track(self):
         try:
             page = self.stack.currentWidget()
             if not isinstance(page, PlayerPage):
                 return
-            if not hasattr(self, '_move_dbnc'):
-                self._move_dbnc = QTimer(self)
-                self._move_dbnc.setSingleShot(True)
-                self._move_dbnc.setInterval(30)
-                self._move_dbnc.timeout.connect(self._do_overlay_sync)
-            self._move_dbnc.start()
+            host = getattr(page, 'overlay_host', None)
+            vf = getattr(page, 'video_frame', None)
+            if host is None or vf is None or not vf.isVisible():
+                return
+            tl = vf.mapToGlobal(vf.rect().topLeft())
+            host.setGeometry(tl.x(), tl.y(), vf.width(), vf.height())
         except Exception:
             pass
-
-    def _do_overlay_sync(self):
-        try:
-            page = self.stack.currentWidget()
-            if isinstance(page, PlayerPage):
-                page._sync_overlay_host()
-        except Exception as e:
-            log_error('_do_overlay_sync', e)
 
     def eventFilter(self, obj, event):
         """Round 248: глобальный перехват клавиш. Когда играет VLC, его
@@ -6377,6 +6370,36 @@ class MainWindow(QMainWindow):
                             lst.setCurrentRow(row - 1)
                         elif key == Qt.Key_Down and row < lst.count() - 1:
                             lst.setCurrentRow(row + 1)
+                        return True
+                    # Round 276: «type to search» — буква/цифра отдаёт
+                    # фокус строке поиска и пишет символ туда. Юзер:
+                    # «опять нет возможности в списке каналов делать
+                    # поиск нельзя вписать что либо». Tool-окно
+                    # overlay_host неуверенно отдаёт фокус QLineEdit
+                    # через мышиный клик, поэтому ловим клавишу здесь
+                    # и явно перебрасываем.
+                    is_text = (
+                        (Qt.Key_A <= key <= Qt.Key_Z) or
+                        (Qt.Key_0 <= key <= Qt.Key_9) or
+                        key == Qt.Key_Space or
+                        key == Qt.Key_Backspace
+                    )
+                    if is_text and hasattr(current, '_overlay_search'):
+                        se = current._overlay_search
+                        se.setFocus()
+                        if key == Qt.Key_Backspace:
+                            txt = se.text()
+                            se.setText(txt[:-1])
+                        else:
+                            ch_str = ''
+                            if Qt.Key_A <= key <= Qt.Key_Z:
+                                ch_str = chr(ord('a') + (key - Qt.Key_A))
+                            elif Qt.Key_0 <= key <= Qt.Key_9:
+                                ch_str = chr(ord('0') + (key - Qt.Key_0))
+                            elif key == Qt.Key_Space:
+                                ch_str = ' '
+                            if ch_str:
+                                se.setText(se.text() + ch_str)
                         return True
                 elif (hasattr(current, 'categories_overlay')
                       and current.categories_overlay.isVisible()):
