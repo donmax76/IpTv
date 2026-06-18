@@ -6138,23 +6138,27 @@ class MainWindow(QMainWindow):
             pass
 
     def _on_startup_update_check(self, info):
+        # Round 275: НЕ показываем модальный диалог на старте — он
+        # блокировал main thread и watchdog логировал его как
+        # «main thread blocked 12s». Теперь просто пишем в лог +
+        # подсветка в Settings; юзер сам нажмёт «Check for updates»,
+        # если захочет обновиться.
         if not isinstance(info, dict):
             return
         latest = int(info.get('code', 0))
         if latest <= WIN_VERSION_CODE:
             return
-        msg = (f"New build {latest} available (you have {WIN_VERSION_CODE}).\n\n"
-               f"{(info.get('notes') or '')[:400]}\n\n"
-               f"Download and install now?")
-        reply = QMessageBox.question(
-            self, "Update available", msg,
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
-        if reply != QMessageBox.Yes:
-            return
-        url = info.get('url') or ''
-        if not url.lower().endswith('.exe'):
-            return
-        self.settings_page._do_download(url, latest)
+        log_info('update',
+                 f"new build {latest} available (current {WIN_VERSION_CODE}). "
+                 f"User can install via Settings → Check for updates.")
+        try:
+            if hasattr(self, 'settings_page') and hasattr(self.settings_page, 'update_status'):
+                self.settings_page.update_status.setText(
+                    f"Доступен build {latest}. "
+                    f"Установлен build {WIN_VERSION_CODE}. "
+                    f"Нажмите «Check for updates».")
+        except Exception as e:
+            log_error('startup_update_notify', e)
 
     def init_ui(self):
         central = QWidget()
@@ -6833,6 +6837,23 @@ def _install_crash_handler(app):
     # Round 258: используем уже-инициализированный _LOGGER (см. начало
     # файла), basicConfig здесь больше не нужен.
 
+    # Round 275: rate-limit — каскад исключений (например NameError в
+    # таймере раз в 50мс) генерил каскад модальных QMessageBox и
+    # синхронных ntfy.sh POST'ов. Watchdog показал _excepthook
+    # блокирующим main thread по 12 сек. Теперь:
+    #   - модальный диалог показываем ОДИН РАЗ за сессию;
+    #   - ntfy.sh публикуем в фоновом потоке;
+    #   - дубликаты логируем без UI.
+    state = {'shown': False, 'last_sig': None, 'count': 0}
+
+    def _publish_async(title, body):
+        try:
+            import threading as _th
+            _th.Thread(target=lambda: _publish_to_ntfy(title, body),
+                       daemon=True, name='ntfy').start()
+        except Exception:
+            pass
+
     def _excepthook(exc_type, exc_value, exc_tb):
         try:
             tb_text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
@@ -6840,7 +6861,17 @@ def _install_crash_handler(app):
                 _LOGGER.error("Unhandled exception:\n%s", tb_text)
             except Exception:
                 pass
-            # Offer to file an issue
+            # Сигнатура для дедупа — тип + последний фрейм.
+            try:
+                last_line = tb_text.strip().split('\n')[-1][:120]
+                sig = f"{exc_type.__name__}:{last_line}"
+            except Exception:
+                sig = str(exc_type)
+            state['count'] += 1
+            # Тот же тип ошибки повторяется — не дёргаем UI.
+            if sig == state['last_sig'] or state['shown']:
+                return
+            state['last_sig'] = sig
             try:
                 from urllib.parse import quote
                 short = (exc_value.args[0] if getattr(exc_value, 'args', None) else str(exc_value))[:80]
@@ -6851,12 +6882,12 @@ def _install_crash_handler(app):
                     f"**Python**: {_platform.python_version()}\n\n"
                     "**Traceback**:\n```\n" + tb_text[-4000:] + "\n```\n"
                 )
-                # Auto-publish to ntfy.sh — same topic as Android, so the
-                # developer can read crashes from any client without
-                # additional setup.
-                _publish_to_ntfy(f"[Windows crash] {short}", body)
-                url = ("https://github.com/donmax76/iptv/issues/new"
+                # Round 275: ntfy.sh в фоне — больше не вешает main thread.
+                _publish_async(f"[Windows crash] {short}", body)
+                url = ("https://github.com/donmax76/IpTv/issues/new"
                        f"?title={quote('[Windows crash] ' + short)}&body={quote(body)}")
+                # Один раз за сессию — диалог. Дальше всё в лог.
+                state['shown'] = True
                 msg = QMessageBox()
                 msg.setIcon(QMessageBox.Critical)
                 msg.setWindowTitle("TVViewer crashed")
@@ -6864,9 +6895,6 @@ def _install_crash_handler(app):
                 msg.setInformativeText(str(exc_value)[:300])
                 msg.setDetailedText(tb_text[-3000:])
                 btn_report = msg.addButton("Report on GitHub", QMessageBox.AcceptRole)
-                # Round 242: «Copy» кнопка — порт Android
-                # CrashReportActivity.copyBtn. Юзер копирует stacktrace
-                # в буфер для вставки в чат с разработчиком.
                 btn_copy = msg.addButton("Copy stacktrace", QMessageBox.ActionRole)
                 msg.addButton(QMessageBox.Close)
                 msg.exec_()
