@@ -4881,16 +4881,52 @@ class PlayerPage(QWidget):
         self.config.save_channel_state(ch.url, state)
         self.config.save_async()  # Round 260: фон, не блокируем переключение
 
-    def play_url(self, url):
-        # Round 273: lazy VLC init — на старте мы это пропустили чтобы
-        # не блокировать UI на 14 сек. Перед первым проигрыванием
-        # инициализируем синхронно (если фоновый воркер не успел).
-        if not self.player and HAS_VLC:
-            log_info('vlc', "lazy init from play_url")
+    def _ensure_vlc_then_play(self):
+        """Round 283: фоновая инициализация VLC + откладываемый play_url.
+        Юзер видит «Подключаю канал…» 20-30 сек вместо фриза UI."""
+        try:
+            log_info('vlc', "lazy init from play_url (background)")
             self.init_vlc()
-        if not self.player:
+            url = getattr(self, '_pending_play_url', None)
+            if url and self.player:
+                # Возвращаемся в GUI-нитку для второй фазы (set_media и т.п.).
+                QTimer.singleShot(0, lambda: self.play_url(url))
+        except Exception as e:
+            log_error('_ensure_vlc_then_play', e)
+        finally:
+            self._ensure_running = False
+
+    def play_url(self, url):
+        # Round 283: ВСЁ — в фон, включая первую инициализацию VLC.
+        # Юзер кликнул канал ДО окончания warm-up'а → раньше play_url
+        # делал init_vlc СИНХРОННО на main thread, watchdog ловил
+        # 22 секунды фриза в libvlc_new. Теперь ставим в очередь
+        # _pending_play_url и стартуем _ensure_vlc_then_play в нитке.
+        if not HAS_VLC:
             log_warn('play_url', "no VLC player available")
-            self.epg_bar.setText("VLC not installed. Install VLC and python-vlc.")
+            self.epg_bar.setText("VLC not installed.")
+            return
+        self._pending_play_url = url
+        try:
+            self.show_mini_osd("⏳  Подключаю канал…")
+        except Exception:
+            pass
+        if not self.player:
+            # VLC ещё не готов — запускаем init+play в одной нитке.
+            # Защита от двойного init: если ensure-нитка уже бежит,
+            # просто обновляем _pending_play_url (последний клик
+            # выиграет), новой нитки не плодим.
+            if getattr(self, '_ensure_running', False):
+                log_info('vlc', "ensure already running, pending updated")
+                return
+            try:
+                import threading as _th
+                self._ensure_running = True
+                _th.Thread(target=self._ensure_vlc_then_play,
+                           daemon=True, name='vlc-ensure').start()
+            except Exception as e:
+                self._ensure_running = False
+                log_error('play_url.ensure', e)
             return
         # Round 279: ВСЁ переключение канала уходит в фоновый поток.
         # Watchdog поймал блок 16.7 сек в `libvlc_media_player_set_media`
