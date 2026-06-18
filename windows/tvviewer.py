@@ -190,6 +190,87 @@ def _install_threading_hook():
 
 _install_threading_hook()
 
+
+def _install_main_thread_watchdog():
+    """Round 272: ловит зависания main-thread и пишет stack trace в лог.
+
+    Юзер: «в логе ничего нет того что происходит с формой почему оно
+    тормозит и зависает, нужно чтобы были ошибки». Зависание само по
+    себе НЕ exception — Python не знает, что main thread заблокирован
+    в `socket.recv` / `subprocess` / тяжёлом for-цикле. Watchdog:
+
+      1) main thread тикает heartbeat в shared variable раз в 1 сек
+         через QTimer (когда Qt event loop работает — heartbeat идёт).
+      2) Background-thread каждые 2 сек проверяет heartbeat. Если он
+         не обновлялся >3 сек — main thread где-то завис.
+      3) Вытаскивает stack trace main-thread'а через sys._current_frames()
+         и пишет в лог как WARNING. Юзер видит, ГДЕ именно стояли.
+    """
+    try:
+        import threading as _th
+        import time as _t
+        import traceback as _tb
+        import sys as _sys
+        # main-thread heartbeat (взять id один раз при инсталляции).
+        try:
+            _main_tid = _th.main_thread().ident
+        except Exception:
+            _main_tid = None
+        if _main_tid is None:
+            return
+        _last_tick = [_t.monotonic()]
+        # Стартанём QTimer только когда QApplication уже создан — это
+        # делает watchdog_start() из main(). Тут просто экспонируем.
+        _last_tick_ref = _last_tick
+
+        def _watcher():
+            warned_at = 0.0
+            while True:
+                _t.sleep(2.0)
+                now = _t.monotonic()
+                elapsed = now - _last_tick_ref[0]
+                # Триггер: >3 сек без тика И не чаще раза в 5 сек.
+                if elapsed > 3.0 and now - warned_at > 5.0:
+                    try:
+                        frames = _sys._current_frames()
+                        frame = frames.get(_main_tid)
+                        if frame is not None:
+                            tb = "".join(_tb.format_stack(frame))
+                        else:
+                            tb = "(no frame for main thread)"
+                        log_warn('watchdog',
+                                 f"main thread blocked {elapsed:.1f}s\n{tb}")
+                        warned_at = now
+                    except Exception as e:
+                        log_error('watchdog.dump', e)
+
+        _th.Thread(target=_watcher, daemon=True, name='wd').start()
+        globals()['_WATCHDOG_LAST_TICK'] = _last_tick
+        log_info('watchdog', f"installed, main_tid={_main_tid}")
+    except Exception as e:
+        log_error('_install_main_thread_watchdog', e)
+
+
+def _start_watchdog_heartbeat(app):
+    """Round 272: запускает QTimer тика watchdog после QApplication."""
+    try:
+        import time as _t
+        last = globals().get('_WATCHDOG_LAST_TICK')
+        if last is None:
+            return
+        from PyQt5.QtCore import QTimer as _QT
+        _tmr = _QT()
+        _tmr.setInterval(1000)
+        _tmr.timeout.connect(lambda: last.__setitem__(0, _t.monotonic()))
+        _tmr.start()
+        globals()['_WATCHDOG_TIMER'] = _tmr  # держим ref от GC
+    except Exception as e:
+        log_error('_start_watchdog_heartbeat', e)
+
+
+_install_main_thread_watchdog()
+
+
 def _read_log_tail(path: str, max_chars: int = 4000) -> str:
     try:
         with open(path, 'r', encoding='utf-8', errors='replace') as f:
@@ -1345,10 +1426,19 @@ class DownloadUpdateThread(QThread):
 
 
 def _extract_zip_and_restart(zip_path: str):
-    """Round 269: распаковать ZIP поверх install-папки и перезапуститься.
-    Заменяет _swap_self_and_restart для ZIP-обновлений. Юзер: «выходит
-    окно Failed to load Python DLL» — это была проблема --onefile EXE.
-    Здесь ZIP содержит весь --onedir bundle, корректно работающий."""
+    """Round 269/272: распаковать ZIP поверх install-папки и
+    перезапуститься. Юзер: «идёт обновление оно после закрывается и
+    открывается также старая версия» — значит распаковка падала из-за
+    блокировки TVViewer.exe (файл-handle ещё держится).
+
+    Round 272 укрепляет скрипт:
+      • Wait-Process по PID родителя ДО распаковки (не таймаут).
+      • Expand-Archive -Force — устойчивее .NET ExtractToDirectory на
+        залоченных файлах, плюс при ошибке пробует .NET fallback.
+      • Лог в %TEMP%\\tvviewer_update.log с уровнями каждой операции.
+      • Hard-exit процесса (os._exit(0)) перед запуском VBS — снимает
+        файл-блокировку с TVViewer.exe мгновенно.
+    """
     if not getattr(sys, 'frozen', False):
         return False
     current_exe = sys.executable
@@ -1358,34 +1448,58 @@ def _extract_zip_and_restart(zip_path: str):
     try:
         tmp = tempfile.gettempdir()
         log_path = os.path.join(tmp, 'tvviewer_update.log')
-        # VBS-обёртка: ждёт выхода старого процесса, распаковывает ZIP
-        # поверх install_dir, удаляет ZIP, запускает новый EXE.
-        # PowerShell идёт скрытно через wscript.exe -> sh.Run windowStyle=0.
+        own_pid = os.getpid()
+        # PowerShell: ждём смерти родителя по PID, потом Expand-Archive
+        # с -Force; при ошибке — fallback на .NET ZipFile.
         ps_cmd = (
-            f"Add-Type -AssemblyName System.IO.Compression.FileSystem; "
-            f"Start-Sleep -Seconds 2; "
-            f"try {{ "
-            f"  [System.IO.Compression.ZipFile]::ExtractToDirectory("
-            f"    '{zip_path}', '{install_dir}', $true) "
-            f"}} catch {{ "
-            f"  Add-Content -Path '{log_path}' -Value $_.Exception.Message "
-            f"}}"
+            "$ErrorActionPreference='Continue'; "
+            f"$pid_parent = {own_pid}; "
+            "try { Wait-Process -Id $pid_parent -Timeout 30 } catch {}; "
+            "Start-Sleep -Milliseconds 500; "
+            f"$zip = '{zip_path}'; "
+            f"$dst = '{install_dir}'; "
+            f"$log = '{log_path}'; "
+            "Add-Content $log \"[ps] starting extract zip=$zip dst=$dst\"; "
+            "$ok = $false; "
+            "try { "
+            "  Expand-Archive -Path $zip -DestinationPath $dst -Force; "
+            "  $ok = $true; "
+            "  Add-Content $log '[ps] Expand-Archive OK' "
+            "} catch { "
+            "  Add-Content $log \"[ps] Expand-Archive failed: $_\" "
+            "}; "
+            "if (-not $ok) { "
+            "  try { "
+            "    Add-Type -AssemblyName System.IO.Compression.FileSystem; "
+            "    [System.IO.Compression.ZipFile]::ExtractToDirectory("
+            "      $zip, $dst, $true); "
+            "    $ok = $true; "
+            "    Add-Content $log '[ps] .NET extract OK' "
+            "  } catch { "
+            "    Add-Content $log \"[ps] .NET extract failed: $_\" "
+            "  } "
+            "}; "
+            "Remove-Item $zip -ErrorAction SilentlyContinue; "
+            "Add-Content $log \"[ps] done ok=$ok\""
         )
-        # PowerShell ExtractToDirectory с overwrite=true (3-й параметр)
-        # доступен с .NET 4.5+ - на современных Windows есть.
         bat = (
             "@echo off\r\n"
-            f'echo [%date% %time%] update start > "{log_path}"\r\n'
-            f'powershell -NoProfile -WindowStyle Hidden -Command '
-            f'"{ps_cmd}" >> "{log_path}" 2>&1\r\n'
-            f'echo extract exit: %errorlevel% >> "{log_path}"\r\n'
-            f'del "{zip_path}" >> "{log_path}" 2>&1\r\n'
+            f'echo [%date% %time%] update start, parent pid={own_pid} '
+            f'> "{log_path}"\r\n'
+            f'powershell.exe -NoProfile -ExecutionPolicy Bypass '
+            f'-WindowStyle Hidden -Command "{ps_cmd}" '
+            f'>> "{log_path}" 2>&1\r\n'
+            f'echo [%date% %time%] bat exit: %errorlevel% >> "{log_path}"\r\n'
         )
         bat_path = os.path.join(tmp, 'tvviewer_update.bat')
         with open(bat_path, 'w', encoding='ascii') as f:
             f.write(bat)
+        # VBS ждёт BAT, потом стартует НОВЫЙ TVViewer.exe из install_dir
+        # (с явным указанием working directory — иначе start запускал бы
+        # из %TEMP% и относительные пути в коде ломались бы).
         vbs = (
             'Set sh = CreateObject("WScript.Shell")\r\n'
+            f'sh.CurrentDirectory = "{install_dir}"\r\n'
             f'sh.Run "cmd /c ""{bat_path}""", 0, True\r\n'
             f'sh.Run """{current_exe}""", 1, False\r\n'
             'Set fso = CreateObject("Scripting.FileSystemObject")\r\n'
@@ -1405,7 +1519,7 @@ def _extract_zip_and_restart(zip_path: str):
                          close_fds=True)
         log_info('update',
                  f"ZIP extract script launched, install_dir={install_dir}, "
-                 f"log at {log_path}")
+                 f"log at {log_path}, parent_pid={own_pid}")
         return True
     except Exception as e:
         log_error('_extract_zip_and_restart', e)
@@ -5722,7 +5836,14 @@ class SettingsPage(QWidget):
         else:
             ok = _swap_self_and_restart(path)
         if ok:
+            # Round 272: ХАРД-выход. QApplication.quit() асинхронный,
+            # background QThread'ы держат файл-блокировку на TVViewer.exe,
+            # и Expand-Archive не может перезаписать. Юзер видел «после
+            # закрывается и открывается также старая версия». os._exit
+            # снимает блокировку моментально; VBS-watcher уже стартует
+            # новый EXE после Wait-Process.
             QApplication.quit()
+            os._exit(0)
         else:
             QMessageBox.information(
                 self, "Update downloaded",
@@ -6864,6 +6985,9 @@ def _app_icon_path() -> str:
 def main():
     app = QApplication(sys.argv)
     app.setFont(QFont('Segoe UI', 12))
+    # Round 272: запускаем watchdog ПЕРВЫМ делом — пусть он
+    # ловит зависания на всём остальном инициализационном пути.
+    _start_watchdog_heartbeat(app)
     # Round 271: иконка приложения — отображается в таскбаре, alt-tab,
     # окнах и в загловке. На сборке PyInstaller --icon встроит .ico
     # в сам EXE; здесь дополнительно ставим runtime-иконку через PNG.
