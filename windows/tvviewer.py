@@ -5719,6 +5719,12 @@ class PlayerPage(QWidget):
     def cycle_audio_track(self):
         # Round 279: VLC `audio_get_track_description` / `audio_set_track`
         # могут блокировать на проблемных стримах. Уносим в фон.
+        # Round 310: добавляем OSD-фидбек. Юзер: «нажимаю на кнопку
+        # Аудио и ничего». Большинство live IPTV-стримов несут одну
+        # дорожку, и тихий no-op выглядит как сломанная кнопка. Теперь
+        # показываем имя текущей дорожки + total, либо «одна дорожка»
+        # если переключать нечего. OSD дёргаем через QTimer.singleShot(0)
+        # — _bg бежит не в Qt-нитке.
         if not self.player:
             return
         try:
@@ -5727,8 +5733,19 @@ class PlayerPage(QWidget):
             def _bg():
                 try:
                     tracks = player.audio_get_track_description() or []
+                    # Логируем все полученные дорожки для диагностики.
+                    raw = [(t[0], (t[1].decode('utf-8', 'replace')
+                                   if isinstance(t[1], (bytes, bytearray))
+                                   else str(t[1])))
+                           for t in tracks if t]
+                    log_info('vlc', f"audio tracks: {raw}")
                     usable = [t for t in tracks if t and t[0] >= 0]
                     if len(usable) < 2:
+                        msg = (f"🔊 Одна аудио-дорожка"
+                               if len(usable) <= 1
+                               else f"🔊 Нет переключаемых дорожек")
+                        QTimer.singleShot(0,
+                            lambda m=msg: self.show_mini_osd(m))
                         return
                     cur = player.audio_get_track()
                     ids = [t[0] for t in usable]
@@ -5738,8 +5755,15 @@ class PlayerPage(QWidget):
                         pos = -1
                     nxt = usable[(pos + 1) % len(usable)]
                     player.audio_set_track(nxt[0])
+                    name = nxt[1]
+                    if isinstance(name, (bytes, bytearray)):
+                        name = name.decode('utf-8', 'replace')
                     log_info('vlc',
-                             f"audio track → {nxt[0]} ({len(usable)} total)")
+                             f"audio track → {nxt[0]} '{name}' "
+                             f"({len(usable)} total)")
+                    msg = f"🔊 {name}  ({pos + 2 if pos + 2 <= len(usable) else 1}/{len(usable)})"
+                    QTimer.singleShot(0,
+                        lambda m=msg: self.show_mini_osd(m))
                 except Exception as e:
                     log_error('cycle_audio_track.bg', e)
             _th.Thread(target=_bg, daemon=True, name='vlc-audio').start()
