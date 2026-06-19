@@ -4554,18 +4554,39 @@ class PlayerPage(QWidget):
             self._overlay_toggle_bar.raise_()
 
     def left_press(self):
-        """Round 251/293: LEFT — ping-pong по стадиям.
+        """Round 300: ЦИКЛИЧЕСКАЯ state machine — без ping-pong.
           стадии: 0=закрыто 1=каналы 2=категории 3=центр-меню
-        Round 293: если фактически ничего не открыто (юзер: «при
-        нажатии влево если нет открытого меню то всегда открывался
-        первым список каналов»), форсим stage=0 ДО шага, чтобы LEFT
-        всегда давал «каналы» а не следующую стадию-фантом из старого
-        состояния.
+        LEFT идёт 0→1→2→3→0→1→…; стадия 2 (категории) ПРОПУСКАЕТСЯ
+        если категорий < 2. Юзер: «1.Список каналов 2.Категории если
+        есть 3.Меню настройки 4.Очищаем экран ничего уже нет».
         """
         if not hasattr(self, 'channels_overlay'):
             return
         self._sync_overlay_host()
-        # Round 293: ресинхронизируем _left_stage с реальной видимостью.
+        self._step_left_stage(+1)
+
+    def right_press_state_machine(self):
+        """Round 300: RIGHT — обратный ход по той же цепочке если
+        что-то открыто слева. Юзер: «Так же в обратном порядке при
+        нажатии вправо если открыто что либо слева»."""
+        if not hasattr(self, 'channels_overlay'):
+            return
+        any_visible = any(
+            getattr(self, n, None) is not None
+            and getattr(self, n).isVisible()
+            for n in ('channels_overlay', 'categories_overlay',
+                      'center_menu_overlay'))
+        if not any_visible:
+            return False  # ничего не открыто — RIGHT уходит к другому хендлеру
+        self._sync_overlay_host()
+        self._step_left_stage(-1)
+        return True
+
+    def _step_left_stage(self, direction: int):
+        """Round 300: шагаем по 0→1→2→3 циклически, пропуская стадии,
+        у которых нечего показывать (категории < 2 элементов)."""
+        # Ресинхронизация с реальной видимостью — если оверлеи скрыли
+        # извне (Esc, alt-tab, .hide_all_overlays), начинаем с 0.
         any_visible = any(
             getattr(self, n, None) is not None
             and getattr(self, n).isVisible()
@@ -4573,17 +4594,26 @@ class PlayerPage(QWidget):
                       'center_menu_overlay'))
         if not any_visible:
             self._left_stage = 0
-            self._left_dir = 1
         stage = self._left_stage
-        direction = getattr(self, '_left_dir', 1)
-        if stage >= 3:
-            direction = -1
-        elif stage <= 0:
-            direction = 1
-        stage += direction
-        stage = max(0, min(3, stage))
+        # Считаем сколько категорий реально есть — если меньше 2
+        # (только «All»), пропускаем стадию 2 в любом направлении.
+        try:
+            cats_count = 0
+            for ch in (self.channels or []):
+                if ch.group:
+                    cats_count += 1
+                    if cats_count > 1:
+                        break
+            has_categories = cats_count > 0
+        except Exception:
+            has_categories = False
+        # Шаг циклически по mod 4.
+        for _ in range(4):
+            stage = (stage + direction) % 4
+            if stage == 2 and not has_categories:
+                continue  # пропускаем категории если их нет
+            break
         self._left_stage = stage
-        self._left_dir = direction
         self._apply_left_stage(stage)
 
     def _apply_left_stage(self, stage):
@@ -7308,12 +7338,11 @@ class MainWindow(QMainWindow):
                     current.back_requested.emit(); return True
                 if hasattr(current, 'channels_overlay') and current.channels_overlay.isVisible():
                     if key == Qt.Key_Right:
-                        # Round 254: RIGHT теперь ЗАКРЫВАЕТ список каналов
-                        # (юзер: «при нажатии вправо он должен закрываться
-                        # чего нет»). Используем left_press который делает
-                        # обратный шаг state-machine, либо полностью прячем.
-                        current.hide_all_overlays()
-                        current._sync_overlay_host()
+                        # Round 300: RIGHT идёт ОБРАТНО по той же
+                        # цепочке (юзер: «Так же в обратном порядке
+                        # при нажатии вправо»). Из stage=1 → stage=0
+                        # (закрыто).
+                        current.right_press_state_machine()
                         return True
                     if key == Qt.Key_Left:
                         current.left_press(); return True
@@ -7381,17 +7410,16 @@ class MainWindow(QMainWindow):
                     if key == Qt.Key_Left:
                         current.left_press(); return True
                     if key == Qt.Key_Right:
-                        current.categories_overlay.hide(); return True
+                        # Round 300: stage=2 → stage=1 (каналы).
+                        current.right_press_state_machine(); return True
                 elif (hasattr(current, 'center_menu_overlay')
                       and current.center_menu_overlay.isVisible()):
                     if key == Qt.Key_Left:
                         current.left_press(); return True
                     if key == Qt.Key_Right:
-                        # Round 254: RIGHT закрывает центр-меню (симметрично
-                        # списку каналов).
-                        current.hide_all_overlays()
-                        current._sync_overlay_host()
-                        return True
+                        # Round 300: stage=3 → stage=2 (категории) или
+                        # → stage=1 если категорий нет.
+                        current.right_press_state_machine(); return True
                     if key == Qt.Key_Up:
                         current.step_center_menu_focus(-1); return True
                     if key == Qt.Key_Down:
