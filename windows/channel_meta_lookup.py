@@ -262,12 +262,14 @@ def fill_missing_logos(channels) -> int:
         return 0
     enriched = 0
     had_logo = 0
-    still_missing = 0
-    # Round 307: первые 5 НЕ-найденных каналов + ключи, под которыми они
-    # искались, — дампим в trace. Юзер: enriched 0/3639 при db_size=63876,
-    # значит не сетевой сбой, а фуззи-индексы расходятся. Так увидим
-    # конкретные примеры и поправим маппинг.
-    misses_sample = []
+    no_match = 0
+    match_no_logo = 0
+    # Round 307/308: первые 3 «не нашли вовсе» + первые 3 «нашли но
+    # лого пусто» — дампим в trace. Юзер: enriched 0/3639 при
+    # db_size=63876, значит не сетевой сбой, а либо фуззи-индексы
+    # расходятся, либо iptv-org держит у нужных каналов logo=null.
+    no_match_sample = []
+    match_no_logo_sample = []
     for ch in channels:
         if ch.logo_url:
             had_logo += 1
@@ -278,16 +280,28 @@ def fill_missing_logos(channels) -> int:
             enriched += 1
             if not ch.tvg_id and meta.tvg_id:
                 ch.tvg_id = meta.tvg_id
+        elif meta:
+            # Канал в iptv-org есть, но logo=null. Подсосём tvg_id если
+            # его не было — пригодится для EPG-матча.
+            if not ch.tvg_id and meta.tvg_id:
+                ch.tvg_id = meta.tvg_id
+            match_no_logo += 1
+            if len(match_no_logo_sample) < 3:
+                match_no_logo_sample.append(
+                    f"'{ch.name}'→id='{meta.tvg_id or ''}'")
         else:
-            still_missing += 1
-            if len(misses_sample) < 5:
+            no_match += 1
+            if len(no_match_sample) < 3:
                 from epg_parser import normalize_id, fuzzy_key
-                misses_sample.append(
-                    f"'{ch.name}' → nk='{normalize_id(ch.name)}' "
+                no_match_sample.append(
+                    f"'{ch.name}'→nk='{normalize_id(ch.name)}',"
                     f"fk='{fuzzy_key(ch.name)}'")
     trace("META",
           f"fill_missing_logos: had={had_logo} enriched={enriched} "
-          f"missing={still_missing} of {len(channels)}")
-    if misses_sample:
-        trace("META", "miss samples: " + " | ".join(misses_sample))
+          f"match_no_logo={match_no_logo} no_match={no_match} "
+          f"of {len(channels)}")
+    if no_match_sample:
+        trace("META", "no_match samples: " + " | ".join(no_match_sample))
+    if match_no_logo_sample:
+        trace("META", "match_no_logo samples: " + " | ".join(match_no_logo_sample))
     return enriched

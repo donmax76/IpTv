@@ -7324,6 +7324,18 @@ class MainWindow(QMainWindow):
         if idx == 2:
             self.favorites_page.refresh(self.channels, self.epg_data)
         elif idx == 5:
+            # Round 308: ленивый старт EPG. Если юзер впервые открывает
+            # вкладку ТВ-программа и есть отложенные источники (см.
+            # on_playlist_loaded), кикаем загрузку именно сейчас.
+            try:
+                pending = getattr(self, '_pending_epg_sources', None)
+                if pending:
+                    log_info('epg', f"TvGuide opened, starting EPG load "
+                                    f"({len(pending)} sources)")
+                    self._pending_epg_sources = None
+                    self.load_epg(pending)
+            except Exception as e:
+                log_error('lazy_epg_load', e)
             self.tv_guide_page.set_data(self.channels, self.epg_data)
         elif idx == 6:
             self.recent_page.refresh(self.channels, self.epg_data)
@@ -7674,19 +7686,38 @@ class MainWindow(QMainWindow):
                 log_info('logo',
                          f"iptv-org enriched {enriched}/{len(self.channels)} "
                          f"channels")
-                # Round 307: если матчинг нашёл 0 — печатаем 3 примера
-                # имён + ключей, под которыми они искались, чтобы
-                # сравнить с тем, как iptv-org их индексирует.
+                # Round 307/308: счётчики/примеры разделены по типу
+                # промаха — «вообще не нашли» vs «нашли но iptv-org
+                # держит logo=null». Подробности уже логируются в trace
+                # из fill_missing_logos; дублируем в tvviewer.log для
+                # юзера, чтобы не открывать два файла.
                 if enriched == 0 and self.channels:
                     try:
                         from epg_parser import normalize_id, fuzzy_key
-                        samples = []
-                        for ch in self.channels[:3]:
-                            samples.append(
-                                f"'{ch.name}'→nk='{normalize_id(ch.name)}',"
-                                f"fk='{fuzzy_key(ch.name)}'")
-                        log_info('logo',
-                                 "miss samples: " + " | ".join(samples))
+                        no_match = []
+                        match_no_logo = []
+                        for ch in self.channels:
+                            if ch.logo_url:
+                                continue
+                            m = channel_meta_lookup.lookup(ch.name)
+                            if m is None:
+                                if len(no_match) < 3:
+                                    no_match.append(
+                                        f"'{ch.name}'→nk='{normalize_id(ch.name)}',"
+                                        f"fk='{fuzzy_key(ch.name)}'")
+                            elif m.logo_url is None:
+                                if len(match_no_logo) < 3:
+                                    match_no_logo.append(
+                                        f"'{ch.name}'→id='{m.tvg_id or ''}'")
+                            if len(no_match) >= 3 and len(match_no_logo) >= 3:
+                                break
+                        if no_match:
+                            log_info('logo',
+                                     "no_match samples: " + " | ".join(no_match))
+                        if match_no_logo:
+                            log_info('logo',
+                                     "match_no_logo samples: "
+                                     + " | ".join(match_no_logo))
                     except Exception:
                         pass
                 # Возвращаемся в main thread для UI.
@@ -7729,25 +7760,17 @@ class MainWindow(QMainWindow):
             if u not in epg_sources:
                 epg_sources.append(u)
         if epg_sources:
-            # Round 278: НЕ грузим EPG сразу. LoadEpgThread парсит ~50 МБ
-            # XMLTV под GIL, главная нитка остаётся почти без CPU 20+
-            # сек, и watchdog логирует это как «main thread blocked 11s».
-            # Откладываем на 5 сек после загрузки плейлиста — пользователь
-            # уже видит каналы, может что-то выбрать, и тогда уже идёт
-            # тяжёлая EPG-загрузка.
-            # Round 307: 5с → 45с. Лог build 91 показал, что EPG-парсер
-            # стартовал параллельно с VLC warm-up в bg-нитке и оба
-            # боролись за GIL — libvlc_new занял 30 сек (вместо ожидаемых
-            # 1-2), первое нажатие на канал отдало юзеру чёрный экран
-            # потому что vlc.Instance ещё не создан. Подробно:
-            #   12:19:51 warm-up start
-            #   12:19:51 EPG start (5с-таймер)
-            #   12:20:09 user click → lazy_init ждёт warm-up
-            #   12:20:21 warm-up done (через 30с после старта)
-            #   12:20:24 EPG done
-            # 45с дают warm-up'у завершиться раньше EPG-парса и юзер
-            # успевает запустить первый канал без чёрного экрана.
-            QTimer.singleShot(45000, lambda srcs=list(epg_sources): self.load_epg(srcs))
+            # Round 308: НЕ грузим EPG автоматически. Сохраняем источники
+            # и грузим только когда юзер открывает вкладку «ТВ-программа»
+            # или жмёт ↻. Лог build 92 показал: даже с 45с-задержкой и
+            # sleep(0.001) EPG-парсер блокирует main thread на 10.6с
+            # (watchdog словил), а libvlc уже играет канал и тот же
+            # GIL мешает плавности видео. Пусть EPG живёт только если
+            # юзер реально хочет её посмотреть.
+            self._pending_epg_sources = list(epg_sources)
+            log_info('epg',
+                     f"deferred load: {len(epg_sources)} sources, "
+                     f"will fire on TvGuide tab open")
 
         # Autoplay last channel (best-effort: match by URL)
         if self.config.autoplay_last and self.config.last_channel_url:
