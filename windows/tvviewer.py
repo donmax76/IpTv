@@ -7346,6 +7346,16 @@ class MainWindow(QMainWindow):
         клавиши работали даже когда фокус забрало нативное VLC-окно).
         Возвращает True если клавиша обработана."""
         try:
+            # Round 303: в PIP-режиме (frameless 480×270 always-on-top)
+            # бывает не очевидно как из него выйти — bottom-nav скрыт,
+            # верхняя панель плеера микроскопическая, кнопка PiP в right-
+            # overlay требует RIGHT-пресса и не всегда видна юзеру.
+            # Юзер: «нет возможности выйти из режима PIP». Принимаем
+            # P или Esc на уровне MainWindow как универсальный exit-PIP.
+            if getattr(self, '_pip_active', False):
+                if key in (Qt.Key_P, Qt.Key_Escape):
+                    self.toggle_pip_mode()
+                    return True
             current = self.stack.currentWidget()
             if isinstance(current, PlayerPage):
                 # Esc / Backspace — закрыть оверлей или вернуться назад.
