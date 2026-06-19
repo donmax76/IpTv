@@ -4101,15 +4101,16 @@ class PlayerPage(QWidget):
         # тестируемый stylesheet с белой кареткой через color.
         class _FocusForcingLineEdit(QLineEdit):
             def mousePressEvent(self, ev):
-                # Round 320/321: Qt.Tool top-level окно на Windows не
-                # становится активным от клика по дочернему виджету.
-                # Round 320 пробовал SetForegroundWindow, но Windows
-                # часто блокирует его (LockSetForegroundWindow для
-                # анти-фокус-кражи). Стандартный обход — синтетический
-                # ALT-press через keybd_event: ОС считает что юзер
-                # нажал ALT и снимает блокировку для нашего процесса
-                # до следующего user input. Этот же приём использует
-                # PuTTY, AutoHotkey и куча Windows-утилит.
+                # Round 320/321/323/324: пройти все слои Qt+Win32
+                # активации. Каретка QLineEdit мигает ТОЛЬКО когда
+                # `widget.hasFocus()` И `widget.window().isActiveWindow()`.
+                # Round 323 дал overlay_host владельца — это убрало
+                # отказ Windows активировать Tool-окно. Но Qt-сторонний
+                # isActiveWindow() обновляется ТОЛЬКО когда платформа
+                # отдаёт WindowActivate-эвент. На некоторых билдах он
+                # не приходит вовремя. Дополнительно дёргаем
+                # QApplication.setActiveWindow и шлём синтетический
+                # WindowActivate.
                 super().mousePressEvent(ev)
                 try:
                     w = self.window()
@@ -4120,27 +4121,55 @@ class PlayerPage(QWidget):
                             import ctypes
                             hwnd = int(w.winId())
                             user32 = ctypes.windll.user32
-                            # ALT-press + ALT-release окружает наш
-                            # SetForegroundWindow, снимая блокировку.
-                            # VK_MENU = 0x12, KEYEVENTF_KEYUP = 0x02
                             user32.keybd_event(0x12, 0, 0, 0)
                             user32.SetForegroundWindow(hwnd)
                             user32.keybd_event(0x12, 0, 0x02, 0)
                             user32.BringWindowToTop(hwnd)
+                            # Round 324: AttachThreadInput сцепляет нашу
+                            # GUI-нитку с потоком foreground-окна — это
+                            # обходит ещё один уровень блокировок.
+                            try:
+                                fg = user32.GetForegroundWindow()
+                                if fg:
+                                    fg_tid = user32.GetWindowThreadProcessId(fg, 0)
+                                    cur_tid = ctypes.windll.kernel32.GetCurrentThreadId()
+                                    if fg_tid and cur_tid and fg_tid != cur_tid:
+                                        user32.AttachThreadInput(fg_tid, cur_tid, True)
+                                        user32.SetFocus(hwnd)
+                                        user32.AttachThreadInput(fg_tid, cur_tid, False)
+                            except Exception:
+                                pass
                         except Exception:
                             w.activateWindow()
                             w.raise_()
                     else:
                         w.activateWindow()
                         w.raise_()
+                    # Round 324: явно делаем overlay_host активным окном
+                    # на Qt-стороне — иначе isActiveWindow() остаётся
+                    # False и QLineEdit не запускает caret blink timer.
+                    try:
+                        QApplication.setActiveWindow(w)
+                    except Exception:
+                        pass
                 except Exception:
                     pass
                 self.setFocus(Qt.MouseFocusReason)
+                # Round 324: синтетический FocusIn — на случай если
+                # platform-plugin не выдал событие.
+                try:
+                    from PyQt5.QtGui import QFocusEvent
+                    from PyQt5.QtCore import QEvent, QCoreApplication
+                    QCoreApplication.postEvent(
+                        self, QFocusEvent(QEvent.FocusIn, Qt.MouseFocusReason))
+                except Exception:
+                    pass
                 # Повторно через 0мс — иногда WM_SETFOCUS приходит
                 # после нашего setFocus и сбрасывает его обратно.
                 try:
                     QTimer.singleShot(0,
-                        lambda s=self: s.setFocus(Qt.MouseFocusReason))
+                        lambda s=self: (s.setFocus(Qt.MouseFocusReason),
+                                        s.update()))
                 except Exception:
                     pass
         self._overlay_search = _FocusForcingLineEdit()
