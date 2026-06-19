@@ -2942,15 +2942,22 @@ class ChannelsPage(QWidget):
         lst.setUpdatesEnabled(False)
         try:
             lst.clear()
-            first_batch = min(200, len(filtered))
+            # Round 305: первичная пачка 200 → 50. Юзер: «при первом
+            # запуске программа замирает есть зависание формы два раза».
+            # Один из источников — set_epg/set_channels вызывают
+            # filter_channels с EPG-данными, и 200 синхронных
+            # _append_channel_item с фуззи-лукапом и letter-tile рендером
+            # давали ~1.5 сек заморозки. 50 хватает для верха viewport,
+            # остальное подсыпается QTimer'ом без вешания UI.
+            first_batch = min(50, len(filtered))
             for i in range(first_batch):
                 self._append_channel_item(i, filtered[i], show_epg, epg, favs,
                                           tile=True)
         finally:
             lst.setUpdatesEnabled(True)
         self.count_label.setText(f"{len(filtered)} channels")
-        if len(filtered) > 200:
-            self._chunk_idx = 200
+        if len(filtered) > 50:
+            self._chunk_idx = 50
             if not hasattr(self, '_chunk_timer'):
                 self._chunk_timer = QTimer(self)
                 self._chunk_timer.setInterval(30)
@@ -3022,7 +3029,8 @@ class ChannelsPage(QWidget):
             if end >= len(filtered):
                 self._chunk_timer.stop()
                 # запускаем letter-tile дорисовку для остатка
-                self._lazy_tile_idx = 200
+                # Round 305: 200 → 50 синхронной первичной пачки.
+                self._lazy_tile_idx = 50
                 if not hasattr(self, '_lazy_tile_timer'):
                     self._lazy_tile_timer = QTimer(self)
                     self._lazy_tile_timer.setInterval(50)
@@ -7636,25 +7644,43 @@ class MainWindow(QMainWindow):
         # Кикаем загрузку iptv-org БД (no-op если уже загружена), и
         # после готовности заново применяем fill_missing_logos +
         # обновляем UI + ставим в очередь LogoCache.
+        # Round 305: fill_missing_logos уходит в фоновый поток. Юзер:
+        # «при первом запуске программа замирает». На 3639 каналов ×
+        # 4 регекс-вызова (нормализация + fuzzy) синхронный цикл
+        # давал ~3-5 сек заморозки на main thread, когда iptv-org
+        # параллельно подгружался. Доступ к _by_name dict — read-only
+        # после parse, мутация ch.logo_url GIL-safe; UI-апдейт
+        # (pre-queue + set_channels) возвращаем в main через QTimer.
         def on_meta_ready():
-            enriched = 0
-            try:
-                enriched = channel_meta_lookup.fill_missing_logos(self.channels)
-            except Exception:
-                pass
-            if enriched:
-                trace("META", f"enriched {enriched} channels with iptv-org logos/tvg-ids")
-                # Round 293: после enrich тоже пре-кьюим новые logo URL.
+            import threading as _th
+
+            def _bg():
                 try:
-                    if self.logo_cache is not None:
-                        for ch in self.channels:
-                            if ch.logo_url:
-                                self.logo_cache.get(ch.logo_url)
+                    enriched = channel_meta_lookup.fill_missing_logos(
+                        self.channels)
                 except Exception:
-                    pass
-                # Перерисовываем оба списка
-                if hasattr(self, 'channels_page'):
-                    self.channels_page.set_channels(self.channels, name, self.epg_data)
+                    enriched = 0
+                # Возвращаемся в main thread для UI.
+                def _ui():
+                    if not enriched:
+                        return
+                    trace("META",
+                          f"enriched {enriched} channels with iptv-org "
+                          f"logos/tvg-ids")
+                    try:
+                        if self.logo_cache is not None:
+                            for ch in self.channels:
+                                if ch.logo_url:
+                                    self.logo_cache.get(ch.logo_url)
+                    except Exception:
+                        pass
+                    if hasattr(self, 'channels_page'):
+                        self.channels_page.set_channels(
+                            self.channels, name, self.epg_data)
+                QTimer.singleShot(0, _ui)
+
+            _th.Thread(target=_bg, daemon=True,
+                       name='meta-fill').start()
         channel_meta_lookup.ensure_loaded(self.cache_dir,
                                           on_loaded=lambda: QTimer.singleShot(0, on_meta_ready))
 
