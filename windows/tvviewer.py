@@ -2739,6 +2739,22 @@ class ChannelsPage(QWidget):
         self.search_edit.setPlaceholderText(t('search_channels'))
         self.search_edit.setClearButtonEnabled(True)  # Round 278
         self.search_edit.textChanged.connect(self._on_search_text)
+        # Round 302: каретка в этом QLineEdit брала цвет из QPalette.Text
+        # (по умолчанию чёрный на тёмной теме Windows) — на тёмном фоне
+        # её просто не было видно. Юзер: «в списке каналов в поле поиск
+        # при клике на него нет видимого курсора». Та же фиксация, что
+        # для _overlay_search в Round 293.
+        try:
+            from PyQt5.QtGui import QPalette
+            pal = self.search_edit.palette()
+            pal.setColor(QPalette.Text, QColor("#FFFFFF"))
+            pal.setColor(QPalette.WindowText, QColor("#FFFFFF"))
+            pal.setColor(QPalette.Base, QColor(COLORS['surface']))
+            pal.setColor(QPalette.Highlight, QColor(COLORS['primary']))
+            pal.setColor(QPalette.HighlightedText, QColor("#FFFFFF"))
+            self.search_edit.setPalette(pal)
+        except Exception:
+            pass
         srow.addWidget(self.search_edit, 1)
 
         self.sort_combo = QComboBox()
@@ -3646,11 +3662,13 @@ class PlayerPage(QWidget):
         # текущее разрешения канала». Опрашиваем VLC после старта
         # play_url через QTimer (видео-размер доступен только когда
         # декодер уже зацепился, обычно 1-3 сек после set_media).
-        self.resolution_label = QLabel(self.overlay_host)
-        self.resolution_label.setStyleSheet(
-            "color: white; font-size: 12px; font-weight: bold;"
-            " background-color: rgba(0, 200, 230, 200);"
-            " border-radius: 4px; padding: 2px 8px;")
+        # Round 302: фон и шрифт как у часов — юзер: «разрешение под
+        # часами его фон и шрифт сделай так же как и часы». ClockLabel
+        # рендерит белый текст с чёрной обводкой без layered-window,
+        # подходит для поверх-видео-оверлея.
+        self.resolution_label = ClockLabel(self.overlay_host)
+        self.resolution_label.setFont(QFont('Segoe UI', 24, QFont.Bold))
+        self.resolution_label.setStyleSheet("background: transparent;")
         self.resolution_label.hide()
         self._resolution_poll_timer = QTimer(self)
         self._resolution_poll_timer.setInterval(1000)
@@ -6109,6 +6127,18 @@ class TvGuidePage(QWidget):
         self.search_edit.setPlaceholderText(t('search_channels'))
         self.search_edit.setClearButtonEnabled(True)  # Round 278
         self.search_edit.textChanged.connect(self._debounced_refresh)
+        # Round 302: видимый курсор — см. ChannelsPage.search_edit.
+        try:
+            from PyQt5.QtGui import QPalette
+            pal = self.search_edit.palette()
+            pal.setColor(QPalette.Text, QColor("#FFFFFF"))
+            pal.setColor(QPalette.WindowText, QColor("#FFFFFF"))
+            pal.setColor(QPalette.Base, QColor(COLORS['surface']))
+            pal.setColor(QPalette.Highlight, QColor(COLORS['primary']))
+            pal.setColor(QPalette.HighlightedText, QColor("#FFFFFF"))
+            self.search_edit.setPalette(pal)
+        except Exception:
+            pass
         layout.addWidget(self.search_edit)
         layout.addSpacing(6)
 
