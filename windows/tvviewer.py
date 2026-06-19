@@ -7515,6 +7515,22 @@ class MainWindow(QMainWindow):
         self.player_page = PlayerPage(self.config, self.logo_cache)
         self.player_page.back_requested.connect(self.show_channels)
         self.stack.addWidget(self.player_page)
+        # Round 323: устанавливаем owner-relationship для overlay_host —
+        # Qt.Tool top-level окну с parent=None Windows отказывает в
+        # активации от клика по дочернему виджету. С owner=MainWindow
+        # активация разрешена и WM_SETFOCUS доходит до QLineEdit.
+        # Юзер: «опять» — Round 320/321 (SetForegroundWindow + ALT
+        # press) сами по себе не решают проблему пока окно не имеет
+        # владельца.
+        try:
+            host = getattr(self.player_page, 'overlay_host', None)
+            if host is not None:
+                flags = host.windowFlags()
+                host.setParent(self, flags)
+                host.setAttribute(Qt.WA_TranslucentBackground, True)
+                host.hide()
+        except Exception as e:
+            log_error('overlay_host.setParent', e)
 
         self._progress_cb(70, "Настройки…")
         self.settings_page = SettingsPage(self.config)
