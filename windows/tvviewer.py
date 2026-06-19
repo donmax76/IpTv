@@ -80,6 +80,8 @@ from m3u_parser import fetch_playlist, load_playlist_file, Channel, PlaylistResu
 from epg_parser import (
     fetch_epg, get_now_next, get_current_progress, get_upcoming_programmes,
     EpgData, normalize_id, fuzzy_key, trace,
+    save_to_cache as save_epg_cache,
+    load_from_cache as load_epg_cache,
 )
 import channel_meta_lookup
 
@@ -7943,6 +7945,43 @@ class MainWindow(QMainWindow):
             # с 60-секундным окном (VLC уже инициализирован, юзер
             # запустил первый канал), плюс ленивый триггер если юзер
             # открывает TvGuide раньше.
+            # Round 317: первым делом пробуем on-disk кэш EPG. Если он
+            # свежий (< 6 ч) — юзер видит ТВ-программу СРАЗУ, без
+            # 60-секундного ожидания и без 30 сек парса XMLTV.
+            # save/load_from_cache были в epg_parser.py, но вообще не
+            # вызывались — каждый запуск качал и парсил 50 МБ XMLTV.
+            # Кэш-load делаем в bg-нитке — JSON может быть 10+ МБ.
+            try:
+                import threading as _th
+                def _load_epg_cache_bg():
+                    try:
+                        cached = load_epg_cache(self.cache_dir)
+                        if cached:
+                            log_info('epg',
+                                     f"loaded {len(cached)} channels "
+                                     f"from cache")
+                            def _ui():
+                                # Race-guard: если за время bg-load'а
+                                # уже прилетели свежие данные через
+                                # on_epg_loaded — не перезаписываем
+                                # их кэшем.
+                                if self.epg_data:
+                                    log_info('epg',
+                                             "cache load skipped: fresh "
+                                             "data already present")
+                                    return
+                                self.epg_data = cached
+                                self.channels_page.set_epg(cached)
+                                if hasattr(self, 'tv_guide_page'):
+                                    self.tv_guide_page.set_data(
+                                        self.channels, cached)
+                            self._invoke_on_main.emit(_ui)
+                    except Exception as e:
+                        log_error('epg.load_from_cache.bg', e)
+                _th.Thread(target=_load_epg_cache_bg, daemon=True,
+                           name='epg-cache-load').start()
+            except Exception as e:
+                log_error('epg.load_from_cache', e)
             self._pending_epg_sources = list(epg_sources)
             log_info('epg',
                      f"scheduled load: {len(epg_sources)} sources in 60s "
@@ -7994,6 +8033,16 @@ class MainWindow(QMainWindow):
                 self.tv_guide_page.set_data(self.channels, self.epg_data)
             except Exception as e:
                 log_error('on_epg_loaded.tvguide', e)
+            # Round 317: сохраняем в кэш в bg-нитке. json.dump на 5942
+            # каналов с программами — это 5-50 МБ JSON, может занять
+            # секунду на медленном диске. Не хотим вешать main.
+            try:
+                import threading as _th
+                _th.Thread(
+                    target=lambda: save_epg_cache(data, self.cache_dir),
+                    daemon=True, name='epg-cache-save').start()
+            except Exception as e:
+                log_error('on_epg_loaded.cache_save', e)
 
     def _run_on_main(self, fn):
         """Round 313: слот для _invoke_on_main на MainWindow."""
