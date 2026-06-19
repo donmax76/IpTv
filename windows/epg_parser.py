@@ -31,7 +31,11 @@ class Programme:
 EpgData = Dict[str, List[Programme]]
 
 CACHE_FILE = "epg_cache.json"
-CACHE_LIFETIME = 6 * 3600  # 6 hours
+# Round 319: 6 ч → 24 ч. На стороне юзера парсинг XMLTV занимает 30 сек
+# и держит GIL — каретка/клики проваливаются. Раз кэш-load теперь
+# подключён (Round 317), TTL имеет смысл расширить, чтобы свежий
+# fetch требовался реже. EPG-сетка часто меняется только раз в сутки.
+CACHE_LIFETIME = 24 * 3600  # 24 hours
 TRACE_FILE = "tvviewer_trace.txt"
 TRACE_MAX_BYTES = 500_000
 
@@ -278,10 +282,16 @@ def _parse_xmltv_from(fileobj,
         # 1мс — реально освобождает GIL (lock-acquire требует
         # non-zero delay). Парсер всего на ~5% медленнее, но VLC
         # успевает инициализироваться параллельно.
+        # Round 319: 100 → 25 элементов, sleep остаётся 0.001. Юзер:
+        # «через минуту каретка появляется», т.е. парсер всё ещё
+        # держит GIL слишком долго между yield'ами. Учетверяем частоту
+        # yield'ов — 25 элементов это ~0.3 мс работы, плюс 1 мс sleep =
+        # ~30% времени Qt event loop получает CPU гарантированно.
+        # Парсер замедляется на ~10%, но UI остаётся отзывчивым.
         _iter_n = 0
         for event, elem in ctx:
             _iter_n += 1
-            if _iter_n % 100 == 0:
+            if _iter_n % 25 == 0:
                 time.sleep(0.001)  # реально освобождает GIL на Windows
             tag = elem.tag
             if event == 'start':

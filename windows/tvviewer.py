@@ -4889,59 +4889,58 @@ class PlayerPage(QWidget):
             sel_cat = None
         log_info('overlay', f"refresh: cat={sel_cat!r} q={q!r} "
                             f"channels={len(self.channels or [])}")
+        # Round 319: если идёт chunk-fill от прошлого вызова, останавливаем.
+        try:
+            if hasattr(self, '_overlay_chunk_timer'):
+                self._overlay_chunk_timer.stop()
+        except Exception:
+            pass
+        # Round 319: чанковая загрузка как в ChannelsPage.filter_channels.
+        # Раньше populate 500 элементов с EPG-лукапом шёл синхронно
+        # на main thread за 1-3 сек. Юзер: «при клике на поле он
+        # список рефреширует и опять ничего» — клик в поле поиска шёл
+        # в очередь, пока главная нитка добивала populate. Теперь
+        # первичная пачка 30, остальное чанками по 50 через QTimer
+        # 25мс — клик/каретка обрабатываются между чанками.
+        cap = 500 if not q and not sel_cat else 10000
+        filtered = []
+        for idx, ch in enumerate(self.channels or []):
+            if recent_set:
+                if ch.url not in recent_set:
+                    continue
+            elif sel_cat and (ch.group or "") != sel_cat:
+                continue
+            if q and q not in (ch.name or "").lower():
+                continue
+            filtered.append((idx, ch))
+            if len(filtered) >= cap:
+                break
+        # Сохраняем стейт для дочанков.
+        self._overlay_filter_state = {
+            'items': filtered,
+            'next_idx': 0,
+            'current_row': -1,
+        }
         self._overlay_list.setUpdatesEnabled(False)
-        # Round 267: запоминаем, на какой строке overlay-списка лежит
-        # currently playing канал — для setCurrentRow в конце.
-        current_overlay_row = -1
         try:
             self._overlay_list.clear()
-            shown = 0
-            cap = 500 if not q and not sel_cat else 10000
-            for idx, ch in enumerate(self.channels or []):
-                if recent_set:
-                    if ch.url not in recent_set:
-                        continue
-                elif sel_cat and (ch.group or "") != sel_cat:
-                    continue
-                if q and q not in (ch.name or "").lower():
-                    continue
-                if shown >= cap:
-                    break
-                # Round 239: EPG и лого вычисляем ОДИН РАЗ при
-                # populate, кладём в data — paint() читает готовое.
-                now_p, upc = (None, [])
-                if self.epg_data:
-                    try:
-                        now_p, _ = get_now_next(self.epg_data, ch.tvg_id, ch.name)
-                        upc = get_upcoming_programmes(
-                            self.epg_data, ch.tvg_id, ch.name, 3)
-                    except Exception:
-                        pass
-                icon = None
-                if self.logo_cache is not None and ch.logo_url:
-                    try:
-                        icon = self.logo_cache.get(ch.logo_url)
-                    except Exception:
-                        icon = None
-                item = QListWidgetItem(f"{idx+1}. {ch.name}")
-                item.setData(Qt.UserRole, idx)
-                item.setData(Qt.UserRole + 1, {
-                    'name': ch.name or '',
-                    'group': ch.group or '',
-                    'number': str(idx + 1),
-                    'quality': detect_quality(ch.name or ''),
-                    '_channel': ch,
-                    '_now': now_p,
-                    '_upcoming': upc,
-                    '_icon': icon,
-                })
-                item.setSizeHint(QSize(0, ChannelRowDelegate.ROW_HEIGHT))
-                self._overlay_list.addItem(item)
-                if idx == self.current_index:
-                    current_overlay_row = shown
-                shown += 1
+            first = min(30, len(filtered))
+            for k in range(first):
+                self._append_overlay_item(*filtered[k])
+            self._overlay_filter_state['next_idx'] = first
         finally:
             self._overlay_list.setUpdatesEnabled(True)
+        if len(filtered) > 30:
+            if not hasattr(self, '_overlay_chunk_timer'):
+                self._overlay_chunk_timer = QTimer(self)
+                self._overlay_chunk_timer.setInterval(25)
+                self._overlay_chunk_timer.timeout.connect(
+                    self._fill_overlay_chunk)
+            self._overlay_chunk_timer.start()
+        # currentRow для играющего канала ставим уже когда чанки
+        # дойдут до него; до тех пор просто оставляем -1.
+        current_overlay_row = self._overlay_filter_state.get('current_row',
+                                                             -1)
         # Round 267: фокус на текущем канале (юзер: «не фокусируется в
         # списке на тот канал который сейчас показывает»).
         if current_overlay_row >= 0:
@@ -4953,6 +4952,71 @@ class PlayerPage(QWidget):
                     QAbstractItemView.PositionAtCenter)
             except Exception:
                 pass
+
+    def _append_overlay_item(self, idx, ch):
+        """Round 319: добавляет ОДИН канал в _overlay_list. Выделен из
+        _refresh_channels_overlay чтобы переиспользовать в чанках."""
+        now_p, upc = (None, [])
+        if self.epg_data:
+            try:
+                now_p, _ = get_now_next(self.epg_data, ch.tvg_id, ch.name)
+                upc = get_upcoming_programmes(
+                    self.epg_data, ch.tvg_id, ch.name, 3)
+            except Exception:
+                pass
+        icon = None
+        if self.logo_cache is not None and ch.logo_url:
+            try:
+                icon = self.logo_cache.get(ch.logo_url)
+            except Exception:
+                icon = None
+        item = QListWidgetItem(f"{idx+1}. {ch.name}")
+        item.setData(Qt.UserRole, idx)
+        item.setData(Qt.UserRole + 1, {
+            'name': ch.name or '',
+            'group': ch.group or '',
+            'number': str(idx + 1),
+            'quality': detect_quality(ch.name or ''),
+            '_channel': ch,
+            '_now': now_p,
+            '_upcoming': upc,
+            '_icon': icon,
+        })
+        item.setSizeHint(QSize(0, ChannelRowDelegate.ROW_HEIGHT))
+        self._overlay_list.addItem(item)
+        if idx == self.current_index:
+            st = getattr(self, '_overlay_filter_state', None)
+            if st is not None and st.get('current_row', -1) < 0:
+                st['current_row'] = self._overlay_list.count() - 1
+                try:
+                    self._overlay_list.setCurrentRow(st['current_row'])
+                    from PyQt5.QtWidgets import QAbstractItemView
+                    self._overlay_list.scrollToItem(
+                        self._overlay_list.currentItem(),
+                        QAbstractItemView.PositionAtCenter)
+                except Exception:
+                    pass
+
+    def _fill_overlay_chunk(self):
+        """Round 319: подсыпаем 50 каналов в _overlay_list за тик.
+        Между чанками QTimer 25мс возвращает GIL/event loop main thread'у —
+        клики на поле поиска обрабатываются мгновенно, каретка мигает."""
+        st = getattr(self, '_overlay_filter_state', None)
+        if not st:
+            self._overlay_chunk_timer.stop()
+            return
+        items = st['items']
+        start = st['next_idx']
+        end = min(start + 50, len(items))
+        self._overlay_list.setUpdatesEnabled(False)
+        try:
+            for k in range(start, end):
+                self._append_overlay_item(*items[k])
+        finally:
+            self._overlay_list.setUpdatesEnabled(True)
+        st['next_idx'] = end
+        if end >= len(items):
+            self._overlay_chunk_timer.stop()
 
     def _mirror_search_to_channels_page(self, text):
         """Round 278: что юзер пишет (или стирает) в overlay-поиске —
