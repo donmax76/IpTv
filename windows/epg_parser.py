@@ -271,11 +271,18 @@ def _parse_xmltv_from(fileobj,
         # было недостаточно — watchdog ловил 11+ сек блокировки во
         # время EPG-парсинга на старте). 100 даёт 30+ yield'ов в
         # секунду, heartbeat успевает тикать.
+        # Round 307: time.sleep(0) на Windows вызывает Sleep(0) который
+        # уступает квант шедулеру, НО GIL остаётся у этого потока. В
+        # итоге vlc.Instance() в bg-нитке всё равно не запускался —
+        # libvlc_new занимал 30 сек вместо 1-2. time.sleep(0.001) —
+        # 1мс — реально освобождает GIL (lock-acquire требует
+        # non-zero delay). Парсер всего на ~5% медленнее, но VLC
+        # успевает инициализироваться параллельно.
         _iter_n = 0
         for event, elem in ctx:
             _iter_n += 1
             if _iter_n % 100 == 0:
-                time.sleep(0)  # уступаем GIL планировщику
+                time.sleep(0.001)  # реально освобождает GIL на Windows
             tag = elem.tag
             if event == 'start':
                 if tag == 'channel':

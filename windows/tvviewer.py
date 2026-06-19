@@ -7674,6 +7674,21 @@ class MainWindow(QMainWindow):
                 log_info('logo',
                          f"iptv-org enriched {enriched}/{len(self.channels)} "
                          f"channels")
+                # Round 307: если матчинг нашёл 0 — печатаем 3 примера
+                # имён + ключей, под которыми они искались, чтобы
+                # сравнить с тем, как iptv-org их индексирует.
+                if enriched == 0 and self.channels:
+                    try:
+                        from epg_parser import normalize_id, fuzzy_key
+                        samples = []
+                        for ch in self.channels[:3]:
+                            samples.append(
+                                f"'{ch.name}'→nk='{normalize_id(ch.name)}',"
+                                f"fk='{fuzzy_key(ch.name)}'")
+                        log_info('logo',
+                                 "miss samples: " + " | ".join(samples))
+                    except Exception:
+                        pass
                 # Возвращаемся в main thread для UI.
                 def _ui():
                     queued = 0
@@ -7720,7 +7735,19 @@ class MainWindow(QMainWindow):
             # Откладываем на 5 сек после загрузки плейлиста — пользователь
             # уже видит каналы, может что-то выбрать, и тогда уже идёт
             # тяжёлая EPG-загрузка.
-            QTimer.singleShot(5000, lambda srcs=list(epg_sources): self.load_epg(srcs))
+            # Round 307: 5с → 45с. Лог build 91 показал, что EPG-парсер
+            # стартовал параллельно с VLC warm-up в bg-нитке и оба
+            # боролись за GIL — libvlc_new занял 30 сек (вместо ожидаемых
+            # 1-2), первое нажатие на канал отдало юзеру чёрный экран
+            # потому что vlc.Instance ещё не создан. Подробно:
+            #   12:19:51 warm-up start
+            #   12:19:51 EPG start (5с-таймер)
+            #   12:20:09 user click → lazy_init ждёт warm-up
+            #   12:20:21 warm-up done (через 30с после старта)
+            #   12:20:24 EPG done
+            # 45с дают warm-up'у завершиться раньше EPG-парса и юзер
+            # успевает запустить первый канал без чёрного экрана.
+            QTimer.singleShot(45000, lambda srcs=list(epg_sources): self.load_epg(srcs))
 
         # Autoplay last channel (best-effort: match by URL)
         if self.config.autoplay_last and self.config.last_channel_url:

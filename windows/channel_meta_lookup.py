@@ -263,6 +263,11 @@ def fill_missing_logos(channels) -> int:
     enriched = 0
     had_logo = 0
     still_missing = 0
+    # Round 307: первые 5 НЕ-найденных каналов + ключи, под которыми они
+    # искались, — дампим в trace. Юзер: enriched 0/3639 при db_size=63876,
+    # значит не сетевой сбой, а фуззи-индексы расходятся. Так увидим
+    # конкретные примеры и поправим маппинг.
+    misses_sample = []
     for ch in channels:
         if ch.logo_url:
             had_logo += 1
@@ -275,7 +280,14 @@ def fill_missing_logos(channels) -> int:
                 ch.tvg_id = meta.tvg_id
         else:
             still_missing += 1
+            if len(misses_sample) < 5:
+                from epg_parser import normalize_id, fuzzy_key
+                misses_sample.append(
+                    f"'{ch.name}' → nk='{normalize_id(ch.name)}' "
+                    f"fk='{fuzzy_key(ch.name)}'")
     trace("META",
           f"fill_missing_logos: had={had_logo} enriched={enriched} "
           f"missing={still_missing} of {len(channels)}")
+    if misses_sample:
+        trace("META", "miss samples: " + " | ".join(misses_sample))
     return enriched
