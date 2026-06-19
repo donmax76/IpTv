@@ -3425,6 +3425,14 @@ class ChannelRowDelegate(QStyledItemDelegate):
 # ============================================================
 class PlayerPage(QWidget):
     back_requested = pyqtSignal()
+    # Round 313: универсальный «сделай это на main-нитке» сигнал.
+    # Qt пишет «QObject::startTimer: Timers can only be used with threads
+    # started with QThread» когда наши daemon-Thread'ы (vlc-swap,
+    # vlc-audio, vlc-audio-menu, meta-fill) дёргают QTimer.singleShot(0,…)
+    # для возврата в GUI. Чистый pyqtSignal эмитится thread-safe и
+    # вызывает слот в нитке владельца — никаких таймеров не создаётся,
+    # warning не печатается.
+    _invoke_on_main = pyqtSignal(object)
 
     ASPECT_RATIOS = ["", "16:9", "4:3", "1:1", "16:10", "2.35:1"]
     SPEED_VALUES = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
@@ -3443,6 +3451,8 @@ class PlayerPage(QWidget):
         self._speed_idx = 2  # 1.0x
         self._number_input = ""
         self._sleep_deadline = 0  # monotonic ms; 0 = off
+        # Round 313: подключаем диспатчер ДО любого QTimer-кода.
+        self._invoke_on_main.connect(self._run_on_main)
         self.init_ui()
         # Round 273: НЕ зовём init_vlc() здесь — `libvlc_new()` сканирует
         # plugins/ и инициализирует кодеки 5-20 сек, и всё это
@@ -5259,6 +5269,15 @@ class PlayerPage(QWidget):
         except Exception as e:
             log_error('_poll_resolution', e)
 
+    def _run_on_main(self, fn):
+        """Round 313: слот для _invoke_on_main. Запускается в нитке-владельце
+        сигнала (main). Просто вызывает переданный callable."""
+        try:
+            if callable(fn):
+                fn()
+        except Exception as e:
+            log_error('_run_on_main', e)
+
     def _start_resolution_polling(self):
         try:
             self._resolution_poll_count = 0
@@ -5434,7 +5453,8 @@ class PlayerPage(QWidget):
             url = getattr(self, '_pending_play_url', None)
             if url and self.player:
                 # Возвращаемся в GUI-нитку для второй фазы (set_media и т.п.).
-                QTimer.singleShot(0, lambda: self.play_url(url))
+                # Round 313: через сигнал, без QTimer-warning из bg-нитки.
+                self._invoke_on_main.emit(lambda u=url: self.play_url(u))
         except Exception as e:
             log_error('_ensure_vlc_then_play', e)
         finally:
@@ -5546,8 +5566,10 @@ class PlayerPage(QWidget):
                     log_info('play', f"set_media done for {url[:80]} "
                                      f"ua={ua_cfg[:40]} ref={referer_cfg}")
                     # Round 292: запускаем опрос разрешения в GUI-нитке.
+                    # Round 313: через сигнал — _swap бежит в plain
+                    # threading.Thread, QTimer оттуда ругается.
                     try:
-                        QTimer.singleShot(0, self._start_resolution_polling)
+                        self._invoke_on_main.emit(self._start_resolution_polling)
                     except Exception:
                         pass
                 except Exception as e:
@@ -5750,7 +5772,8 @@ class PlayerPage(QWidget):
                 except Exception as e:
                     log_error('show_audio_track_menu.bg', e)
                     items, cur = [], -1
-                QTimer.singleShot(0,
+                # Round 313: сигнал вместо QTimer — без warning'а.
+                self._invoke_on_main.emit(
                     lambda i=items, c=cur: self._present_audio_menu(i, c))
             _th.Thread(target=_bg, daemon=True, name='vlc-audio-menu').start()
         except Exception as e:
@@ -5835,7 +5858,8 @@ class PlayerPage(QWidget):
                         msg = (f"🔊 Одна аудио-дорожка"
                                if len(usable) <= 1
                                else f"🔊 Нет переключаемых дорожек")
-                        QTimer.singleShot(0,
+                        # Round 313: сигнал вместо QTimer.
+                        self._invoke_on_main.emit(
                             lambda m=msg: self.show_mini_osd(m))
                         return
                     cur = player.audio_get_track()
@@ -5853,7 +5877,8 @@ class PlayerPage(QWidget):
                              f"audio track → {nxt[0]} '{name}' "
                              f"({len(usable)} total)")
                     msg = f"🔊 {name}  ({pos + 2 if pos + 2 <= len(usable) else 1}/{len(usable)})"
-                    QTimer.singleShot(0,
+                    # Round 313: сигнал вместо QTimer.
+                    self._invoke_on_main.emit(
                         lambda m=msg: self.show_mini_osd(m))
                 except Exception as e:
                     log_error('cycle_audio_track.bg', e)
@@ -7030,8 +7055,15 @@ class SettingsPage(QWidget):
 # Main Window
 # ============================================================
 class MainWindow(QMainWindow):
+    # Round 313: дублёр PlayerPage._invoke_on_main для MainWindow-
+    # уровневых bg-нитей (meta-fill, ensure_loaded callback). Любой
+    # callable, переданный сюда из threading.Thread, исполняется в
+    # main-нитке без QTimer-warning'а.
+    _invoke_on_main = pyqtSignal(object)
+
     def __init__(self, progress_cb=None):
         super().__init__()
+        self._invoke_on_main.connect(self._run_on_main)
         # Round 255: progress_cb(percent, text) — колбек для splash.
         # Вызывается между шагами init_ui чтобы юзер видел движение
         # и анимацию прогресс-бара пока строятся страницы.
@@ -7846,12 +7878,17 @@ class MainWindow(QMainWindow):
                     if enriched and hasattr(self, 'channels_page'):
                         self.channels_page.set_channels(
                             self.channels, name, self.epg_data)
-                QTimer.singleShot(0, _ui)
+                # Round 313: сигнал → main thread без QTimer-warning'а.
+                self._invoke_on_main.emit(_ui)
 
             _th.Thread(target=_bg, daemon=True,
                        name='meta-fill').start()
-        channel_meta_lookup.ensure_loaded(self.cache_dir,
-                                          on_loaded=lambda: QTimer.singleShot(0, on_meta_ready))
+        # Round 313: ensure_loaded зовёт on_loaded из своего worker'а
+        # (не QThread). Через сигнал, чтобы on_meta_ready исполнилось
+        # в main без warning'а.
+        channel_meta_lookup.ensure_loaded(
+            self.cache_dir,
+            on_loaded=lambda: self._invoke_on_main.emit(on_meta_ready))
 
         # Build the EPG source list: playlist's url-tvg + last_epg_url + extra
         # epg_urls + built-in defaults so EPG works out-of-the-box even when
@@ -7928,6 +7965,14 @@ class MainWindow(QMainWindow):
                 self.tv_guide_page.set_data(self.channels, self.epg_data)
             except Exception as e:
                 log_error('on_epg_loaded.tvguide', e)
+
+    def _run_on_main(self, fn):
+        """Round 313: слот для _invoke_on_main на MainWindow."""
+        try:
+            if callable(fn):
+                fn()
+        except Exception as e:
+            log_error('MainWindow._run_on_main', e)
 
     def _fire_deferred_epg(self, reason: str = "timer"):
         """Round 311: одноразовый трамплин для отложенной EPG-загрузки.
