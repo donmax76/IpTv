@@ -1340,12 +1340,18 @@ class UpdateCheckThread(QThread):
 
     def _try_fast_path(self):
         """Round 264: Android-style fast path — читаем windows-version.json
-        с raw.githubusercontent.com (CDN, ~100мс) вместо пагинации API."""
+        с raw.githubusercontent.com (CDN, ~100мс) вместо пагинации API.
+        Round 315: добавлен cache-busting `?t=<ts>` — у raw-githubusercontent
+        TTL ~5 минут на CDN, и Cache-Control в запросе CDN игнорирует.
+        Юзер: «есть build 99 уже 2 минуты, а обновление видит только 98»."""
         try:
-            log_info('update', f"fast path: {self.FAST_VERSION_JSON}")
-            raw = self._fetch(self.FAST_VERSION_JSON,
+            import time as _t
+            url = f"{self.FAST_VERSION_JSON}?t={int(_t.time())}"
+            log_info('update', f"fast path: {url}")
+            raw = self._fetch(url,
                               {'User-Agent': 'TVViewer-Windows',
-                               'Cache-Control': 'no-cache'})
+                               'Cache-Control': 'no-cache',
+                               'Pragma': 'no-cache'})
             if not raw:
                 return None
             obj = json.loads(raw)
