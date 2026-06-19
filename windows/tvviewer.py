@@ -7348,18 +7348,10 @@ class MainWindow(QMainWindow):
         if idx == 2:
             self.favorites_page.refresh(self.channels, self.epg_data)
         elif idx == 5:
-            # Round 308: ленивый старт EPG. Если юзер впервые открывает
-            # вкладку ТВ-программа и есть отложенные источники (см.
-            # on_playlist_loaded), кикаем загрузку именно сейчас.
-            try:
-                pending = getattr(self, '_pending_epg_sources', None)
-                if pending:
-                    log_info('epg', f"TvGuide opened, starting EPG load "
-                                    f"({len(pending)} sources)")
-                    self._pending_epg_sources = None
-                    self.load_epg(pending)
-            except Exception as e:
-                log_error('lazy_epg_load', e)
+            # Round 308/311: ленивый старт EPG раньше срабатывания
+            # 60-секундного автотаймера. Если юзер открыл TV-гид
+            # сразу — нет смысла ждать минуту, грузим прямо сейчас.
+            self._fire_deferred_epg(reason='TvGuide opened')
             self.tv_guide_page.set_data(self.channels, self.epg_data)
         elif idx == 6:
             self.recent_page.refresh(self.channels, self.epg_data)
@@ -7787,17 +7779,18 @@ class MainWindow(QMainWindow):
             if u not in epg_sources:
                 epg_sources.append(u)
         if epg_sources:
-            # Round 308: НЕ грузим EPG автоматически. Сохраняем источники
-            # и грузим только когда юзер открывает вкладку «ТВ-программа»
-            # или жмёт ↻. Лог build 92 показал: даже с 45с-задержкой и
-            # sleep(0.001) EPG-парсер блокирует main thread на 10.6с
-            # (watchdog словил), а libvlc уже играет канал и тот же
-            # GIL мешает плавности видео. Пусть EPG живёт только если
-            # юзер реально хочет её посмотреть.
+            # Round 308/311: восстановили автозагрузку, но с большой
+            # задержкой и lazy-fallback. Юзер: «пропала тв программа,
+            # нет её» — Round 308 ждал открытия вкладки TV-Гид, и до
+            # тех пор EPG вообще не приходила. Возврат к авто-загрузке
+            # с 60-секундным окном (VLC уже инициализирован, юзер
+            # запустил первый канал), плюс ленивый триггер если юзер
+            # открывает TvGuide раньше.
             self._pending_epg_sources = list(epg_sources)
             log_info('epg',
-                     f"deferred load: {len(epg_sources)} sources, "
-                     f"will fire on TvGuide tab open")
+                     f"scheduled load: {len(epg_sources)} sources in 60s "
+                     f"(or sooner if TvGuide tab is opened)")
+            QTimer.singleShot(60000, self._fire_deferred_epg)
 
         # Autoplay last channel (best-effort: match by URL)
         if self.config.autoplay_last and self.config.last_channel_url:
@@ -7835,8 +7828,30 @@ class MainWindow(QMainWindow):
         if data:
             self.epg_data = data
             self.channels_page.set_epg(data)
-            if self.stack.currentIndex() == 5:
+            # Round 311: всегда обновляем TvGuide, даже если юзер сейчас
+            # не на этой вкладке. Раньше при открытии TvGuide пока EPG
+            # ещё грузилась, юзер видел «▶ —» в каждой строке, потом
+            # уходил на другую вкладку, а когда возвращался — данных
+            # всё ещё не было пока не свитчнется заново.
+            try:
                 self.tv_guide_page.set_data(self.channels, self.epg_data)
+            except Exception as e:
+                log_error('on_epg_loaded.tvguide', e)
+
+    def _fire_deferred_epg(self, reason: str = "timer"):
+        """Round 311: одноразовый трамплин для отложенной EPG-загрузки.
+        Вызывается из 60-секундного QTimer'а или из switch_page(5) — в
+        обоих случаях стартует только один раз благодаря None-флагу."""
+        try:
+            pending = getattr(self, '_pending_epg_sources', None)
+            if not pending:
+                return
+            self._pending_epg_sources = None
+            log_info('epg', f"deferred load firing ({reason}): "
+                            f"{len(pending)} sources")
+            self.load_epg(pending)
+        except Exception as e:
+            log_error('_fire_deferred_epg', e)
 
     def _on_epg_refresh(self):
         """Round 257/259: ручная или авто-перезагрузка EPG. Юзер:
