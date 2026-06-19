@@ -1352,11 +1352,12 @@ class UpdateCheckThread(QThread):
             code = int(obj.get('versionCode', 0))
             if code <= 0:
                 return None
-            # Round 296: ПРЕДПОЧИТАЕМ exeUrl — юзер выбрал обновление
-            # одним exe. EXE собран с --runtime-tmpdir фиксом против
-            # «Failed to load Python DLL». zipUrl остаётся fallback'ом.
-            url = obj.get('exeUrl') or obj.get('zipUrl') or ''
-            has_exe = bool(obj.get('exeUrl') or obj.get('zipUrl'))
+            # Round 301: вернулись к ZIP-only. Round 296 пытался дать
+            # юзеру одним EXE, но onefile упал у него с
+            # «_PYI_APPLICATION_HOME_DIR is not defined!». exeUrl
+            # остаётся как fallback на случай старых релизов в JSON.
+            url = obj.get('zipUrl') or obj.get('exeUrl') or ''
+            has_exe = bool(obj.get('zipUrl') or obj.get('exeUrl'))
             log_info('update',
                      f"fast path ok: build={code} tag={obj.get('tag','')} "
                      f"exe={has_exe}")
@@ -1428,8 +1429,9 @@ class UpdateCheckThread(QThread):
             asset_names = [a.get('name', '') for a in assets]
             log_info('update', f"latest build={code} tag={rel.get('tag_name')} "
                                f"assets={asset_names}")
-            # Round 296: ПРЕДПОЧИТАЕМ update.exe (юзер выбрал обновление
-            # одним exe). EXE с --runtime-tmpdir фиксом. ZIP — fallback.
+            # Round 301: ПРЕДПОЧИТАЕМ ZIP. Onefile EXE падал у юзера
+            # с «_PYI_APPLICATION_HOME_DIR is not defined!». exe_asset
+            # сохраняем как fallback для совместимости со старыми релизами.
             zip_asset = next((a for a in assets
                               if a.get('name', '').lower().endswith('.zip')), None)
             exe_asset = next((a for a in assets
@@ -1439,10 +1441,10 @@ class UpdateCheckThread(QThread):
                 exe_asset = next((a for a in assets
                                   if a.get('name', '').lower().endswith('.exe')), None)
             url = ''
-            if exe_asset is not None:
-                url = exe_asset.get('browser_download_url') or ''
-            elif zip_asset is not None:
+            if zip_asset is not None:
                 url = zip_asset.get('browser_download_url') or ''
+            elif exe_asset is not None:
+                url = exe_asset.get('browser_download_url') or ''
             else:
                 url = rel.get('html_url', '')
             log_info('update', f"chosen url={url}")
