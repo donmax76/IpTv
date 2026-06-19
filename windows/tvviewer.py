@@ -8514,8 +8514,21 @@ def main():
     # «QObject::startTimer: …» и пр. терялись.
     try:
         from PyQt5.QtCore import qInstallMessageHandler, QtMsgType
+        # Round 316: фильтр шумных libpng-варнингов из лого с битым ICC.
+        # Юзер: «libpng warning: iCCP: known incorrect sRGB profile —
+        # что это?». PNG'и с iptv-org/api/logos.json сделаны старым
+        # Photoshop'ом и несут битый sRGB chunk — картинка рисуется
+        # нормально, но libpng печатает варнинг через qWarning. Глушим
+        # только этот класс сообщений, остальные Qt-варнинги (включая
+        # любые наши собственные) пишем как раньше.
+        _QT_NOISE_SUBSTRINGS = (
+            'libpng warning: iCCP',
+        )
         def _qt_msg_handler(mode, ctx, message):
             try:
+                if mode == QtMsgType.QtWarningMsg and any(
+                        s in message for s in _QT_NOISE_SUBSTRINGS):
+                    return
                 if mode == QtMsgType.QtDebugMsg:
                     log_info('qt', message)
                 elif mode == QtMsgType.QtWarningMsg:
