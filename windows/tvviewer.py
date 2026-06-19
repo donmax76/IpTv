@@ -7342,7 +7342,24 @@ class MainWindow(QMainWindow):
             if host is None or vf is None or not vf.isVisible():
                 return
             tl = vf.mapToGlobal(vf.rect().topLeft())
-            host.setGeometry(tl.x(), tl.y(), vf.width(), vf.height())
+            w, h = vf.width(), vf.height()
+            # Round 322: setGeometry на Qt.Tool top-level окне с
+            # WA_TranslucentBackground идёт через event queue и
+            # обновляется с лагом — во время drag юзер видит как
+            # оверлей «отстаёт» от перетаскиваемой формы. Дёргаем
+            # SetWindowPos напрямую через user32 — мгновенно меняет
+            # позицию HWND без Qt-очереди.
+            if sys.platform == 'win32':
+                try:
+                    import ctypes
+                    hwnd = int(host.winId())
+                    # HWND_TOPMOST=-1, SWP_NOACTIVATE=0x10, SWP_NOZORDER=0x4
+                    ctypes.windll.user32.SetWindowPos(
+                        hwnd, 0, tl.x(), tl.y(), w, h, 0x10 | 0x4)
+                except Exception:
+                    host.setGeometry(tl.x(), tl.y(), w, h)
+            else:
+                host.setGeometry(tl.x(), tl.y(), w, h)
         except Exception:
             pass
 
