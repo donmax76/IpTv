@@ -206,11 +206,11 @@ _install_threading_hook()
 def _install_main_thread_watchdog():
     """Round 272: ловит зависания main-thread и пишет stack trace в лог.
 
-    Юзер: «в логе ничего нет того что происходит с формой почему оно
-    тормозит и зависает, нужно чтобы были ошибки». Зависание само по
-    себе НЕ exception — Python не знает, что main thread заблокирован
-    в `socket.recv` / `subprocess` / тяжёлом for-цикле. Watchdog:
-
+    Round 299: ИДЕМПОТЕНТНО. Юзер словил баг — channel_meta_lookup
+    делал `import tvviewer` и module-level вызов запускал watchdog
+    ВТОРОЙ раз, дубликат watcher'а репортил «blocked 30/60/90/120/180s»
+    бесконечно (его _last_tick никогда не тикался, бил false-alarm
+    каждые 6 сек). Теперь — флаг и ранний выход.
       1) main thread тикает heartbeat в shared variable раз в 1 сек
          через QTimer (когда Qt event loop работает — heartbeat идёт).
       2) Background-thread каждые 2 сек проверяет heartbeat. Если он
@@ -218,6 +218,9 @@ def _install_main_thread_watchdog():
       3) Вытаскивает stack trace main-thread'а через sys._current_frames()
          и пишет в лог как WARNING. Юзер видит, ГДЕ именно стояли.
     """
+    if globals().get('_WATCHDOG_INSTALLED'):
+        return
+    globals()['_WATCHDOG_INSTALLED'] = True
     try:
         import threading as _th
         import time as _t
@@ -297,6 +300,15 @@ def _watchdog_suppress(on: bool):
 
 
 _install_main_thread_watchdog()
+
+
+# Round 299: инъектируем suppress-callback в channel_meta_lookup чтобы
+# тот мог глушить watchdog во время iptv-org JSON-парсинга БЕЗ
+# `import tvviewer` (который запускал бы повторный module-init).
+try:
+    channel_meta_lookup._WATCHDOG_SUPPRESS_CB = _watchdog_suppress
+except Exception:
+    pass
 
 
 def _read_log_tail(path: str, max_chars: int = 4000) -> str:
@@ -4500,6 +4512,9 @@ class PlayerPage(QWidget):
             self._position_osd()
             self._position_overlays()
             self._position_persistent_clock()
+            # Round 299: лейбл разрешения тоже фиксим — иначе при
+            # переходе в fullscreen старая позиция оказывалась в центре.
+            self._position_resolution_label()
             # Round 248: когда открыт интерактивный оверлей — окно
             # ловит мышь; когда видны только часы/баннер — пропускаем
             # клики на видео (иначе нельзя кликнуть по плееру).
@@ -5126,6 +5141,27 @@ class PlayerPage(QWidget):
             log_error('init_vlc', e, extra=f"args={args}")
             self.vlc_instance = None
             self.player = None
+
+    def _position_resolution_label(self):
+        """Round 299: вынесено отдельно — `_sync_overlay_host` дёргает
+        это при каждом ресайзе/переходе в fullscreen, иначе лейбл
+        оставался в старой позиции и казалось что «сдвигается в центр»."""
+        try:
+            if not hasattr(self, 'resolution_label'):
+                return
+            if not self.resolution_label.isVisible():
+                return
+            self.resolution_label.adjustSize()
+            pw = self.overlay_host.width()
+            pad = 14
+            clock_h = (self.persistent_clock.height()
+                       if hasattr(self, 'persistent_clock') else 30)
+            x = max(pad, pw - self.resolution_label.width() - pad)
+            y = 10 + clock_h + 4
+            self.resolution_label.move(x, y)
+            self.resolution_label.raise_()
+        except Exception as e:
+            log_error('_position_resolution_label', e)
 
     def _poll_resolution(self):
         """Round 292: каждую секунду спрашиваем VLC размер видео. Как
