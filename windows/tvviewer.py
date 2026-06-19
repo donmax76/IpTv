@@ -7044,27 +7044,74 @@ class MainWindow(QMainWindow):
             pass
 
     def _on_startup_update_check(self, info):
-        # Round 275: НЕ показываем модальный диалог на старте — он
-        # блокировал main thread и watchdog логировал его как
-        # «main thread blocked 12s». Теперь просто пишем в лог +
-        # подсветка в Settings; юзер сам нажмёт «Check for updates»,
-        # если захочет обновиться.
+        """Round 299: возвращён promptpop на старте, юзер: «нет проверки
+        на обновление при открытии приложения». Используем
+        QMessageBox.open() (НЕ exec_) — non-blocking диалог. Round 299
+        пофиксил false-positive watchdog'а, так что блокировку диалога
+        теперь watchdog корректно отличит от реального фриза."""
         if not isinstance(info, dict):
             return
         latest = int(info.get('code', 0))
         if latest <= WIN_VERSION_CODE:
             return
         log_info('update',
-                 f"new build {latest} available (current {WIN_VERSION_CODE}). "
-                 f"User can install via Settings → Check for updates.")
+                 f"new build {latest} available (current {WIN_VERSION_CODE})")
+        # Также пишем в Settings status — как раньше.
         try:
             if hasattr(self, 'settings_page') and hasattr(self.settings_page, 'update_status'):
                 self.settings_page.update_status.setText(
                     f"Доступен build {latest}. "
-                    f"Установлен build {WIN_VERSION_CODE}. "
-                    f"Нажмите «Check for updates».")
+                    f"Установлен build {WIN_VERSION_CODE}.")
+        except Exception:
+            pass
+        # Non-modal prompt — открывается без блокировки event loop'а.
+        try:
+            notes = (info.get('notes') or '').strip()
+            preview = notes[:300] + ('…' if len(notes) > 300 else '')
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Information)
+            msg.setWindowTitle("Доступно обновление")
+            msg.setText(f"Новый build {latest} доступен.\n"
+                        f"Установлен build {WIN_VERSION_CODE}.")
+            if preview:
+                msg.setInformativeText(preview)
+            msg.setStandardButtons(
+                QMessageBox.Yes | QMessageBox.No)
+            msg.setDefaultButton(QMessageBox.Yes)
+            msg.button(QMessageBox.Yes).setText("Обновить сейчас")
+            msg.button(QMessageBox.No).setText("Позже")
+            # Сохраняем ссылку на info чтобы _on_startup_update_choice
+            # знала откуда брать URL.
+            self._pending_update_info = info
+            msg.finished.connect(self._on_startup_update_choice)
+            self._startup_update_msg = msg  # держим ref
+            msg.open()  # non-blocking
         except Exception as e:
-            log_error('startup_update_notify', e)
+            log_error('startup_update_prompt', e)
+
+    def _on_startup_update_choice(self, code):
+        """Round 299: пользователь ответил на стартовое обновление-prompt."""
+        try:
+            if code != QMessageBox.Yes:
+                return
+            info = getattr(self, '_pending_update_info', None)
+            if not info:
+                return
+            url = info.get('url') or ''
+            if not url:
+                return
+            # Переключаемся в Settings и стартуем download.
+            try:
+                self.switch_page(4)  # settings page
+            except Exception:
+                pass
+            latest = int(info.get('code', 0))
+            try:
+                self.settings_page._do_download(url, latest)
+            except Exception as e:
+                log_error('startup_update_download', e)
+        except Exception as e:
+            log_error('_on_startup_update_choice', e)
 
     def init_ui(self):
         central = QWidget()
