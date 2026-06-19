@@ -7675,8 +7675,11 @@ class MainWindow(QMainWindow):
                 # Юзер: «лого каналов так же нет». Так увидим, реально
                 # ли БД пустая (network fail) или просто fuzzy не матчит.
                 db_size = len(getattr(channel_meta_lookup, '_by_name', {}))
+                logos_size = len(getattr(channel_meta_lookup,
+                                         '_logos_by_id', {}))
                 log_info('logo',
-                         f"iptv-org ready: db_size={db_size}")
+                         f"iptv-org ready: db_size={db_size} "
+                         f"logos_size={logos_size}")
                 try:
                     enriched = channel_meta_lookup.fill_missing_logos(
                         self.channels)

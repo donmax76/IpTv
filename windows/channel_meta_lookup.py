@@ -22,6 +22,16 @@ from epg_parser import normalize_id, fuzzy_key, trace
 
 URL = "https://iptv-org.github.io/api/channels.json"
 CACHE_FILE = "iptv_org_channels.json"
+# Round 309: отдельный фид с логотипами. iptv-org/api/channels.json
+# держит у многих каналов logo=null, а реальные картинки лежат тут
+# и привязаны к channel_id (= tvg-id из channels.json). Лог build 93:
+#   match_no_logo samples: 'Sky Sports News HD 50 UK'→id='SkySportsNews.ie'
+#                          | 'Крик-ТВ'→id='KrikTV.ru'
+#                          | 'РБК HD 50'→id='RBKTV.ru'
+# Все три iptv-org знает, у всех в channels.json logo=null. Заливаем
+# logos.json и подсасываем картинку по tvg_id.
+LOGOS_URL = "https://iptv-org.github.io/api/logos.json"
+LOGOS_CACHE_FILE = "iptv_org_logos.json"
 CACHE_LIFETIME_SEC = 7 * 24 * 60 * 60  # 7 days
 
 # Round 286: стрипаем «провайдерские» префиксы из имени канала перед
@@ -58,6 +68,10 @@ class Meta:
 
 _lock = threading.Lock()
 _by_name: Dict[str, Meta] = {}
+# Round 309: tvg-id → logo URL из iptv-org/api/logos.json (отдельный
+# фид, см. LOGOS_URL). Один tvg-id может иметь несколько лого
+# (разные размеры/форматы) — сохраняем первый встретившийся.
+_logos_by_id: Dict[str, str] = {}
 _loaded = False
 _loading = False
 
@@ -150,13 +164,40 @@ def ensure_loaded(cache_dir: str = ".", on_loaded=None):
                 # so the next session has new data.
                 threading.Thread(target=lambda: _fetch_and_cache(cache_path),
                                  daemon=True).start()
+            # Round 309: рядом с channels.json грузим logos.json и
+            # индексируем по tvg-id. Кэш такой же 7-дневный.
+            try:
+                logos_path = os.path.join(cache_dir, LOGOS_CACHE_FILE)
+                ltext: Optional[str] = None
+                lfresh = False
+                if os.path.exists(logos_path):
+                    lage = time.time() - os.path.getmtime(logos_path)
+                    if lage < CACHE_LIFETIME_SEC:
+                        try:
+                            with open(logos_path, 'r', encoding='utf-8') as f:
+                                ltext = f.read()
+                            lfresh = True
+                        except Exception:
+                            ltext = None
+                if ltext is None:
+                    ltext = _fetch_and_cache_logos(logos_path)
+                if ltext:
+                    _parse_and_index_logos(ltext)
+                if not lfresh:
+                    threading.Thread(
+                        target=lambda: _fetch_and_cache_logos(logos_path),
+                        daemon=True).start()
+            except Exception as le:
+                trace("META", f"logos load failed: {type(le).__name__}: {le}",
+                      cache_dir)
         except Exception as e:
             trace("META", f"ensure_loaded failed: {type(e).__name__}: {e}", cache_dir)
         finally:
             with _lock:
                 _loaded = True
                 _loading = False
-            trace("META", f"loaded {len(_by_name)} channel meta entries", cache_dir)
+            trace("META", f"loaded {len(_by_name)} channel meta entries, "
+                          f"{len(_logos_by_id)} logos", cache_dir)
             if on_loaded:
                 try:
                     on_loaded()
@@ -164,6 +205,72 @@ def ensure_loaded(cache_dir: str = ".", on_loaded=None):
                     pass
 
     threading.Thread(target=worker, daemon=True).start()
+
+
+def _fetch_and_cache_logos(cache_path: str) -> Optional[str]:
+    """Round 309: тот же тройной транспорт что у channels.json."""
+    import urllib.request as _urlr
+    text = None
+    try:
+        with requests.get(LOGOS_URL, timeout=60) as r:
+            r.raise_for_status()
+            text = r.text
+        trace("META", f"logos fetched via requests: {len(text)} bytes")
+    except Exception as e1:
+        trace("META", f"logos requests failed: {type(e1).__name__}: {e1}")
+        try:
+            req = _urlr.Request(LOGOS_URL, headers={'User-Agent': 'TVViewer'})
+            with _urlr.urlopen(req, timeout=60) as r:
+                text = r.read().decode('utf-8', errors='replace')
+            trace("META", f"logos fetched via urllib: {len(text)} bytes")
+        except Exception as e2:
+            trace("META", f"logos urllib failed: {type(e2).__name__}: {e2}")
+            try:
+                import ssl as _ssl
+                ctx = _ssl._create_unverified_context()
+                req = _urlr.Request(LOGOS_URL,
+                                    headers={'User-Agent': 'TVViewer'})
+                with _urlr.urlopen(req, timeout=60, context=ctx) as r:
+                    text = r.read().decode('utf-8', errors='replace')
+                trace("META", f"logos fetched via urllib (UNVERIFIED): "
+                              f"{len(text)} bytes")
+            except Exception as e3:
+                trace("META", f"logos all transports failed: "
+                              f"{type(e3).__name__}: {e3}")
+                return None
+    if not text:
+        return None
+    try:
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            f.write(text)
+    except Exception as e:
+        trace("META", f"logos cache write failed: {e}")
+    return text
+
+
+def _parse_and_index_logos(text: str):
+    """Round 309: indexing iptv-org/api/logos.json — list of entries
+    with `channel` (tvg-id) and `url` fields. Keep the first URL per id."""
+    try:
+        arr = json.loads(text)
+    except Exception:
+        return
+    for o in arr:
+        if not isinstance(o, dict):
+            continue
+        ch_id = o.get("channel") or ""
+        url = o.get("url") or ""
+        if not ch_id or not url:
+            continue
+        if ch_id not in _logos_by_id:
+            _logos_by_id[ch_id] = url
+
+
+def lookup_logo_by_id(tvg_id: str) -> Optional[str]:
+    """Round 309: подсасываем картинку по tvg-id из logos.json."""
+    if not tvg_id:
+        return None
+    return _logos_by_id.get(tvg_id)
 
 
 def _fetch_and_cache(cache_path: str) -> Optional[str]:
@@ -285,6 +392,14 @@ def fill_missing_logos(channels) -> int:
             # его не было — пригодится для EPG-матча.
             if not ch.tvg_id and meta.tvg_id:
                 ch.tvg_id = meta.tvg_id
+            # Round 309: пробуем logos.json по tvg-id. iptv-org держит
+            # картинки в отдельном фиде, и для каналов с null в
+            # channels.json там часто есть валидный URL.
+            alt_logo = lookup_logo_by_id(meta.tvg_id or ch.tvg_id)
+            if alt_logo:
+                ch.logo_url = alt_logo
+                enriched += 1
+                continue
             match_no_logo += 1
             if len(match_no_logo_sample) < 3:
                 match_no_logo_sample.append(
