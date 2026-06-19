@@ -3619,7 +3619,11 @@ class PlayerPage(QWidget):
         ctrl.addWidget(self.btn_speed)
 
         self.btn_audio = QPushButton("Audio")
-        self.btn_audio.clicked.connect(self.cycle_audio_track)
+        # Round 312: открываем меню вместо циклического переключения.
+        # Юзер: «нет выбора аудио дорожки» — Round 310 показал OSD но
+        # сам цикл по 2-3 дорожкам это не «выбор». Теперь — QMenu со
+        # всеми дорожками, текущая отмечена ✓.
+        self.btn_audio.clicked.connect(self.show_audio_track_menu)
         ctrl.addWidget(self.btn_audio)
 
         self.btn_sleep = QPushButton("Sleep")
@@ -4391,7 +4395,8 @@ class PlayerPage(QWidget):
 
         _btn(t('aspect'), self.cycle_aspect_ratio)
         _btn(t('speed'), self.cycle_speed)
-        _btn(t('audio_track'), self.cycle_audio_track)
+        # Round 312: меню вместо цикла — см. self.show_audio_track_menu.
+        _btn(t('audio_track'), self.show_audio_track_menu)
         _btn(t('sleep_timer'), self.configure_sleep_timer)
         _btn(t('fullscreen'), self.toggle_fullscreen)
         _btn(t('pip'), self._on_pip_clicked)
@@ -5715,6 +5720,92 @@ class PlayerPage(QWidget):
         self.btn_speed.setText(f"{speed:g}x")
 
     # --- Audio track ---
+
+    def show_audio_track_menu(self):
+        """Round 312: всплывающее меню со списком всех аудиодорожек.
+        Юзер: «нет выбора аудио дорожки» — циклическое переключение
+        не давало возможности перейти к конкретной (особенно когда
+        дорожек 3-4 на разных языках). VLC-вызов получения списка
+        дорожек делаем в фоне, само меню — в Qt-нитке через
+        QTimer.singleShot."""
+        if not self.player:
+            return
+        try:
+            import threading as _th
+            player = self.player
+            def _bg():
+                try:
+                    tracks = player.audio_get_track_description() or []
+                    cur = player.audio_get_track()
+                    items = []
+                    for t in tracks:
+                        if not t:
+                            continue
+                        tid = t[0]
+                        name = t[1]
+                        if isinstance(name, (bytes, bytearray)):
+                            name = name.decode('utf-8', 'replace')
+                        items.append((tid, name))
+                    log_info('vlc', f"audio menu tracks: {items} current={cur}")
+                except Exception as e:
+                    log_error('show_audio_track_menu.bg', e)
+                    items, cur = [], -1
+                QTimer.singleShot(0,
+                    lambda i=items, c=cur: self._present_audio_menu(i, c))
+            _th.Thread(target=_bg, daemon=True, name='vlc-audio-menu').start()
+        except Exception as e:
+            log_error('show_audio_track_menu', e)
+
+    def _present_audio_menu(self, items, cur):
+        """Round 312: рисует QMenu возле btn_audio. items = [(id, name)]."""
+        try:
+            from PyQt5.QtWidgets import QMenu
+            menu = QMenu(self)
+            menu.setStyleSheet(
+                "QMenu { background-color: #1A1A2E; color: white;"
+                " border: 1px solid #7C6CF7; }"
+                "QMenu::item { padding: 8px 24px; }"
+                "QMenu::item:selected { background-color: #7C6CF7; }")
+            if not items:
+                act = menu.addAction("Нет аудиодорожек")
+                act.setEnabled(False)
+            else:
+                import threading as _th
+                player = self.player
+                for tid, name in items:
+                    label = ("✓ " if tid == cur else "    ") + (
+                        name or f"Track {tid}")
+                    act = menu.addAction(label)
+                    def _make_handler(track_id=tid, track_name=name):
+                        def _h():
+                            def _bg():
+                                try:
+                                    player.audio_set_track(track_id)
+                                    log_info('vlc',
+                                             f"audio track → {track_id} "
+                                             f"'{track_name}'")
+                                except Exception as e:
+                                    log_error('audio_set_track.bg', e)
+                            _th.Thread(target=_bg, daemon=True,
+                                       name='vlc-set-aud').start()
+                            try:
+                                self.show_mini_osd(
+                                    f"🔊 {track_name or 'Track ' + str(track_id)}")
+                            except Exception:
+                                pass
+                        return _h
+                    act.triggered.connect(_make_handler())
+            # Позиционируем под кнопкой если она видна, иначе по курсору.
+            btn = getattr(self, 'btn_audio', None)
+            if btn is not None and btn.isVisible():
+                from PyQt5.QtCore import QPoint
+                pos = btn.mapToGlobal(QPoint(0, btn.height()))
+                menu.exec_(pos)
+            else:
+                from PyQt5.QtGui import QCursor
+                menu.exec_(QCursor.pos())
+        except Exception as e:
+            log_error('_present_audio_menu', e)
 
     def cycle_audio_track(self):
         # Round 279: VLC `audio_get_track_description` / `audio_set_track`
