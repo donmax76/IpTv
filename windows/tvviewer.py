@@ -3667,7 +3667,8 @@ class PlayerPage(QWidget):
         # рендерит белый текст с чёрной обводкой без layered-window,
         # подходит для поверх-видео-оверлея.
         self.resolution_label = ClockLabel(self.overlay_host)
-        self.resolution_label.setFont(QFont('Segoe UI', 24, QFont.Bold))
+        # Round 304: шрифт вдвое меньше часов (часы 24pt → разрешение 12pt).
+        self.resolution_label.setFont(QFont('Segoe UI', 12, QFont.Bold))
         self.resolution_label.setStyleSheet("background: transparent;")
         self.resolution_label.hide()
         self._resolution_poll_timer = QTimer(self)
