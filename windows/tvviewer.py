@@ -4101,29 +4101,38 @@ class PlayerPage(QWidget):
         # тестируемый stylesheet с белой кареткой через color.
         class _FocusForcingLineEdit(QLineEdit):
             def mousePressEvent(self, ev):
-                # Round 320: Qt.Tool top-level окно на Windows не
-                # становится активным от клика по дочернему виджету —
-                # WM_SETFOCUS не приходит. Юзер: «как только фокус
-                # программы переходит на другую программу а потом сного
-                # на нашу, тогда каретка появляется». Делаем активацию
-                # ЧЕРЕЗ Windows API напрямую — Qt.activateWindow()
-                # здесь молча no-op'ает. Дополнительно дёргаем фокус
-                # отложенно через QTimer чтобы пройти после всех
-                # очередей событий клика.
+                # Round 320/321: Qt.Tool top-level окно на Windows не
+                # становится активным от клика по дочернему виджету.
+                # Round 320 пробовал SetForegroundWindow, но Windows
+                # часто блокирует его (LockSetForegroundWindow для
+                # анти-фокус-кражи). Стандартный обход — синтетический
+                # ALT-press через keybd_event: ОС считает что юзер
+                # нажал ALT и снимает блокировку для нашего процесса
+                # до следующего user input. Этот же приём использует
+                # PuTTY, AutoHotkey и куча Windows-утилит.
                 super().mousePressEvent(ev)
                 try:
                     w = self.window()
-                    if w is not None:
-                        w.raise_()
-                        if sys.platform == 'win32':
-                            try:
-                                import ctypes
-                                hwnd = int(w.winId())
-                                ctypes.windll.user32.SetForegroundWindow(hwnd)
-                            except Exception:
-                                w.activateWindow()
-                        else:
+                    if w is None:
+                        return
+                    if sys.platform == 'win32':
+                        try:
+                            import ctypes
+                            hwnd = int(w.winId())
+                            user32 = ctypes.windll.user32
+                            # ALT-press + ALT-release окружает наш
+                            # SetForegroundWindow, снимая блокировку.
+                            # VK_MENU = 0x12, KEYEVENTF_KEYUP = 0x02
+                            user32.keybd_event(0x12, 0, 0, 0)
+                            user32.SetForegroundWindow(hwnd)
+                            user32.keybd_event(0x12, 0, 0x02, 0)
+                            user32.BringWindowToTop(hwnd)
+                        except Exception:
                             w.activateWindow()
+                            w.raise_()
+                    else:
+                        w.activateWindow()
+                        w.raise_()
                 except Exception:
                     pass
                 self.setFocus(Qt.MouseFocusReason)
