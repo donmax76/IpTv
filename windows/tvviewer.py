@@ -7590,9 +7590,12 @@ class MainWindow(QMainWindow):
                 btn.setObjectName("navBtn")
             btn.setStyleSheet(STYLESHEET)
 
-    def load_playlist(self, name, url):
+    def load_playlist(self, name, url, switch_to_channels=True):
         self.channels_page.status_label.setText("Loading...")
-        self.switch_page(1)
+        # Round 306: switch_to_channels=False — auto_load_last на старте
+        # грузит плейлист, но Home-страницу не сбрасывает.
+        if switch_to_channels:
+            self.switch_page(1)
         self.config.last_playlist_url = url
         self.config.last_playlist_name = name
         self.config.save_async()
@@ -7655,26 +7658,36 @@ class MainWindow(QMainWindow):
             import threading as _th
 
             def _bg():
+                # Round 306: лог размер iptv-org БД + результат
+                # enrichment'а в main tvviewer.log (не только trace).
+                # Юзер: «лого каналов так же нет». Так увидим, реально
+                # ли БД пустая (network fail) или просто fuzzy не матчит.
+                db_size = len(getattr(channel_meta_lookup, '_by_name', {}))
+                log_info('logo',
+                         f"iptv-org ready: db_size={db_size}")
                 try:
                     enriched = channel_meta_lookup.fill_missing_logos(
                         self.channels)
-                except Exception:
+                except Exception as e:
+                    log_error('fill_missing_logos', e)
                     enriched = 0
+                log_info('logo',
+                         f"iptv-org enriched {enriched}/{len(self.channels)} "
+                         f"channels")
                 # Возвращаемся в main thread для UI.
                 def _ui():
-                    if not enriched:
-                        return
-                    trace("META",
-                          f"enriched {enriched} channels with iptv-org "
-                          f"logos/tvg-ids")
+                    queued = 0
                     try:
                         if self.logo_cache is not None:
                             for ch in self.channels:
                                 if ch.logo_url:
                                     self.logo_cache.get(ch.logo_url)
+                                    queued += 1
                     except Exception:
                         pass
-                    if hasattr(self, 'channels_page'):
+                    log_info('logo',
+                             f"post-meta pre-queued {queued} logo URLs")
+                    if enriched and hasattr(self, 'channels_page'):
                         self.channels_page.set_channels(
                             self.channels, name, self.epg_data)
                 QTimer.singleShot(0, _ui)
@@ -7881,7 +7894,14 @@ class MainWindow(QMainWindow):
         url = self.config.last_playlist_url
         name = self.config.last_playlist_name
         if url:
-            self.load_playlist(name or "Playlist", url)
+            # Round 306: юзер: «почему при открытии программы не
+            # открывается первым окно Главная?». auto_load_last всегда
+            # дёргал load_playlist → switch_page(1), поэтому Home
+            # мелькала и тут же сменялась Channels. Грузим плейлист в
+            # фоне, но СТРАНИЦУ не переключаем — пусть юзер сам
+            # кликает «Каналы» когда захочет.
+            self.load_playlist(name or "Playlist", url,
+                               switch_to_channels=False)
 
     def _on_settings_changed(self):
         # Push new default volume to the running player
