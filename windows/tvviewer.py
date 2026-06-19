@@ -4101,15 +4101,39 @@ class PlayerPage(QWidget):
         # тестируемый stylesheet с белой кареткой через color.
         class _FocusForcingLineEdit(QLineEdit):
             def mousePressEvent(self, ev):
+                # Round 320: Qt.Tool top-level окно на Windows не
+                # становится активным от клика по дочернему виджету —
+                # WM_SETFOCUS не приходит. Юзер: «как только фокус
+                # программы переходит на другую программу а потом сного
+                # на нашу, тогда каретка появляется». Делаем активацию
+                # ЧЕРЕЗ Windows API напрямую — Qt.activateWindow()
+                # здесь молча no-op'ает. Дополнительно дёргаем фокус
+                # отложенно через QTimer чтобы пройти после всех
+                # очередей событий клика.
+                super().mousePressEvent(ev)
                 try:
                     w = self.window()
                     if w is not None:
-                        w.activateWindow()
                         w.raise_()
+                        if sys.platform == 'win32':
+                            try:
+                                import ctypes
+                                hwnd = int(w.winId())
+                                ctypes.windll.user32.SetForegroundWindow(hwnd)
+                            except Exception:
+                                w.activateWindow()
+                        else:
+                            w.activateWindow()
                 except Exception:
                     pass
                 self.setFocus(Qt.MouseFocusReason)
-                super().mousePressEvent(ev)
+                # Повторно через 0мс — иногда WM_SETFOCUS приходит
+                # после нашего setFocus и сбрасывает его обратно.
+                try:
+                    QTimer.singleShot(0,
+                        lambda s=self: s.setFocus(Qt.MouseFocusReason))
+                except Exception:
+                    pass
         self._overlay_search = _FocusForcingLineEdit()
         self._overlay_search.setPlaceholderText(t('search') + "…")
         self._overlay_search.setClearButtonEnabled(True)
