@@ -3613,9 +3613,25 @@ class PlayerPage(QWidget):
         ctrl.addSpacing(20)
         ctrl.addWidget(QLabel("Vol:"))
         self.vol_slider = QSlider(Qt.Horizontal)
-        self.vol_slider.setRange(0, 100)
+        # Round 314: усиление громкости. Юзер: «добавь усиление громкости».
+        # VLC audio_set_volume принимает 0..200 (software gain до +6 dB,
+        # выше — клиппинг). Отметка 100 — нормальный максимум, выше —
+        # буст. Цветной хендл (см. stylesheet ниже) визуально намекает.
+        self.vol_slider.setRange(0, 200)
         self.vol_slider.setValue(self.config.volume)
-        self.vol_slider.setMaximumWidth(150)
+        self.vol_slider.setMaximumWidth(220)
+        self.vol_slider.setTickPosition(QSlider.TicksBelow)
+        self.vol_slider.setTickInterval(50)  # отметки 0/50/100/150/200
+        self.vol_slider.setStyleSheet(
+            "QSlider::groove:horizontal { height: 6px; background: #2A2A40;"
+            " border-radius: 3px; }"
+            "QSlider::sub-page:horizontal { background:"
+            " qlineargradient(x1:0, y1:0, x2:1, y2:0,"
+            " stop:0 #7C6CF7, stop:0.5 #7C6CF7,"
+            " stop:0.5 #FF6B6B, stop:1 #FF3333);"
+            " border-radius: 3px; }"
+            "QSlider::handle:horizontal { background: white; width: 14px;"
+            " margin: -5px 0; border-radius: 7px; }")
         self.vol_slider.valueChanged.connect(self.set_volume)
         ctrl.addWidget(self.vol_slider)
 
@@ -5344,7 +5360,8 @@ class PlayerPage(QWidget):
                     self._aspect_idx = int(st['aspect_idx']) % len(self.ASPECT_RATIOS)
                 if 'speed_idx' in st:
                     self._speed_idx = int(st['speed_idx']) % len(self.SPEED_VALUES)
-                if 'volume' in st and 0 <= int(st['volume']) <= 100:
+                # Round 314: 0..200 — усиление громкости.
+                if 'volume' in st and 0 <= int(st['volume']) <= 200:
                     self.vol_slider.setValue(int(st['volume']))
             except Exception as e:
                 log_error('restore_channel_state', e, extra=f"url={ch.url[:80]}")
@@ -5627,10 +5644,13 @@ class PlayerPage(QWidget):
         self.config.volume = val
         if self.player:
             self.player.audio_set_volume(val)
-        # Round 279: мини-OSD с уровнем громкости.
-        bars = max(0, min(10, int(val / 10)))
-        bar_str = "█" * bars + "░" * (10 - bars)
-        self.show_mini_osd(f"🔊  {val}%   {bar_str}")
+        # Round 279/314: мини-OSD с уровнем громкости. Диапазон 0..200,
+        # бар на 20 ячеек (по 10% каждая). При значениях > 100 значок
+        # 🔊 меняется на ⚡ — визуальный сигнал «бустим, возможен клиппинг».
+        bars = max(0, min(20, int(val / 10)))
+        bar_str = "█" * bars + "░" * (20 - bars)
+        icon = "⚡" if val > 100 else "🔊"
+        self.show_mini_osd(f"{icon}  {val}%   {bar_str}")
 
     def toggle_favorite(self):
         if not self.channels or self.current_index >= len(self.channels):
@@ -6052,7 +6072,8 @@ class PlayerPage(QWidget):
         elif key == Qt.Key_F:
             self.toggle_favorite()
         elif key == Qt.Key_Plus or key == Qt.Key_VolumeUp:
-            self.vol_slider.setValue(min(100, self.vol_slider.value() + 5))
+            # Round 314: верхняя граница 200 — усиление громкости.
+            self.vol_slider.setValue(min(200, self.vol_slider.value() + 5))
         elif key == Qt.Key_Minus or key == Qt.Key_VolumeDown:
             self.vol_slider.setValue(max(0, self.vol_slider.value() - 5))
         elif key == Qt.Key_F11:
@@ -6476,7 +6497,8 @@ class SettingsPage(QWidget):
         vol_row = QHBoxLayout()
         vol_row.addWidget(QLabel("Default volume:"))
         self.vol_spin = QSpinBox()
-        self.vol_spin.setRange(0, 100)
+        # Round 314: до 200% — усиление громкости (см. PlayerPage).
+        self.vol_spin.setRange(0, 200)
         self.vol_spin.setSuffix("%")
         self.vol_spin.setValue(self.config.volume)
         self.vol_spin.valueChanged.connect(self._save_volume)
@@ -7666,7 +7688,8 @@ class MainWindow(QMainWindow):
                                 getattr(current, '_saved_volume_before_mute', 50))
                         return True
                     if key in (Qt.Key_Plus, Qt.Key_Equal, Qt.Key_VolumeUp):
-                        current.vol_slider.setValue(min(100, current.vol_slider.value() + 5))
+                        # Round 314: верхняя граница 200 — усиление.
+                        current.vol_slider.setValue(min(200, current.vol_slider.value() + 5))
                         return True
                     if key in (Qt.Key_Minus, Qt.Key_Underscore, Qt.Key_VolumeDown):
                         current.vol_slider.setValue(max(0, current.vol_slider.value() - 5))
