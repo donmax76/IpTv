@@ -7779,8 +7779,8 @@ class SettingsPage(QWidget):
 
     def _clear_favorites(self):
         reply = QMessageBox.question(
-            self, "Clear favorites",
-            "Remove all favorites?",
+            self, t('clear_favorites'),
+            t('clear_favorites_confirm'),
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.Yes:
             self.config.favorites.clear()
@@ -7789,8 +7789,8 @@ class SettingsPage(QWidget):
 
     def _reset_settings(self):
         reply = QMessageBox.question(
-            self, "Reset settings",
-            "Reset all settings to defaults? Playlists and favorites are kept.",
+            self, t('reset_confirm_title'),
+            t('reset_confirm_body'),
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply != QMessageBox.Yes:
             return
