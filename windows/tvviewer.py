@@ -5132,6 +5132,25 @@ class PlayerPage(QWidget):
             # Round 299: лейбл разрешения тоже фиксим — иначе при
             # переходе в fullscreen старая позиция оказывалась в центре.
             self._position_resolution_label()
+            # Round 330: переезд _mini_osd (канальная карточка с именем).
+            # Юзер: «при открытии он запускает последний канал и на
+            # полный экран когда делает он информационную панель с
+            # именем и т.д. поднимает на верх сдвигает». Карточка
+            # позиционировалась в координатах windowed-размера, потом
+            # окно переходило в fullscreen, и старый y оказывался
+            # около верхнего края.
+            try:
+                if hasattr(self, '_mini_osd') and self._mini_osd.isVisible():
+                    pw = self.overlay_host.width()
+                    ph = self.overlay_host.height()
+                    if pw > 0 and ph > 0:
+                        mw = min(640, max(420, self._mini_osd.sizeHint().width()))
+                        mh = self._mini_osd.sizeHint().height()
+                        self._mini_osd.setGeometry((pw - mw) // 2,
+                                                   ph - mh - 60, mw, mh)
+                        self._mini_osd.raise_()
+            except Exception:
+                pass
             # Round 248: когда открыт интерактивный оверлей — окно
             # ловит мышь; когда видны только часы/баннер — пропускаем
             # клики на видео (иначе нельзя кликнуть по плееру).
@@ -8308,7 +8327,23 @@ class MainWindow(QMainWindow):
             self.tv_guide_page.set_data(self.channels, self.epg_data)
         elif idx == 6:
             self.recent_page.refresh(self.channels, self.epg_data)
-        self.player_page.stop()
+        # Round 330: НЕ stop()-аем VLC при switch_page. Юзер: «при
+        # возврате назад он не воспроизводит канал нужно выбрать его
+        # заново из списка и запустить тогда показывает». Раньше любой
+        # switch_page дёргал stop() — даже при уходе из плеера в
+        # настройки и обратно. Теперь канал продолжает играть в фоне
+        # (HWND видеа просто скрыт пока юзер не на плеере), при возврате
+        # на player_page видео сразу видимо без переинициализации.
+        # Сохраняем per-channel state (volume/aspect/position) при
+        # уходе с плеера — раньше это делал _save_current_channel_state
+        # внутри stop().
+        try:
+            cur_w = self.stack.currentWidget()
+            if (isinstance(cur_w, PlayerPage)
+                    and not isinstance(self.stack.widget(idx), PlayerPage)):
+                self.player_page._save_current_channel_state()
+        except Exception:
+            pass
         self.stack.setCurrentIndex(idx)
         self.update_nav_highlight(idx)
         # Round 328: «← Назад» enabled только когда есть куда возвращаться.
@@ -8971,7 +9006,7 @@ class MainWindow(QMainWindow):
             self.player_page._start_sleep_timer(self.config.sleep_timer_minutes)
 
     def show_channels(self):
-        self.player_page.stop()
+        # Round 330: тоже не стопаем — пусть играет.
         # Round 326: fullscreen сохраняем при выходе из плеера тоже.
         # nav_bar появится автоматически (см. switch_page).
         self.switch_page(1)
