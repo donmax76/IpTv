@@ -7707,9 +7707,14 @@ class MainWindow(QMainWindow):
         try:
             log_info('nav', f"switch_page → {idx}")
             going_to_player = (idx == 3)
-            if not going_to_player and self.isFullScreen():
-                self.showNormal()
-                self._apply_fullscreen_chrome(False)
+            # Round 257/326: раньше при переходе на ЛЮБУЮ страницу
+            # кроме плеера форс-выходили из fullscreen. Юзер: «при
+            # нажатии на кнопку настройки при полноэкранном
+            # отображении программы оно уходит с фулл скрин так быть
+            # не должно». Теперь fullscreen сохраняется — nav_bar и
+            # shortcut_bar просто становятся видимыми (setVisible
+            # ниже), и юзер может ходить по вкладкам не выходя из
+            # полноэкранного режима.
             if hasattr(self, 'nav_bar'):
                 self.nav_bar.setVisible(not going_to_player)
             if hasattr(self, 'shortcut_bar'):
@@ -8354,8 +8359,8 @@ class MainWindow(QMainWindow):
 
     def show_channels(self):
         self.player_page.stop()
-        if self.isFullScreen():
-            self.showNormal()
+        # Round 326: fullscreen сохраняем при выходе из плеера тоже.
+        # nav_bar появится автоматически (см. switch_page).
         self.switch_page(1)
 
     def _on_home_live(self):
