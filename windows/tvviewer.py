@@ -38,7 +38,7 @@ from PyQt5.QtWidgets import (
     QDialog, QDialogButtonBox, QFormLayout, QMessageBox, QScrollArea,
     QComboBox, QSlider, QToolBar, QAction, QSizePolicy, QAbstractItemView,
     QGraphicsOpacityEffect, QStyledItemDelegate, QStyle,
-    QGraphicsDropShadowEffect,
+    QGraphicsDropShadowEffect, QSpinBox, QCheckBox,
 )
 from PyQt5.QtCore import (
     Qt, QTimer, pyqtSignal, QThread, QSize, QUrl, QObject,
