@@ -5755,6 +5755,16 @@ class PlayerPage(QWidget):
     def switch_channel(self, direction):
         if not self.channels:
             return
+        # Round 325: Up/Down переключают канал ВНУТРИ отфильтрованного
+        # списка, если активен поиск или выбрана категория. Юзер: «при
+        # поиске канала ... когда хочешь переключить на другой канал
+        # с помощью клавиш верх и низ он переключает уже не в найденном
+        # списке каналов а в общем». ChannelsPage.filtered отражает
+        # активный фильтр (overlay-поиск миррорится туда через
+        # _mirror_search_to_channels_page).
+        nav_list = self._get_navigation_list()
+        if not nav_list:
+            return
         # Debounce zapping: rapid +1/-1 just updates the pending index and
         # fires play_channel once after the user stops, instead of starting
         # and stopping VLC for every keypress.
@@ -5764,16 +5774,57 @@ class PlayerPage(QWidget):
             self._zap_timer.setSingleShot(True)
             self._zap_timer.setInterval(350)
             self._zap_timer.timeout.connect(self._commit_zap)
-        self._pending_index = (self._pending_index + direction) % len(self.channels)
-        self.current_index = self._pending_index
+        # Текущий канал в self.channels — находим его позицию в
+        # отфильтрованном списке. Если фильтр совпадает с self.channels
+        # (нет активного фильтра), это просто индекс == self._pending_index.
+        cur_ch = (self.channels[self._pending_index]
+                  if 0 <= self._pending_index < len(self.channels) else None)
+        try:
+            pos = nav_list.index(cur_ch) if cur_ch is not None else 0
+        except ValueError:
+            # Текущий канал не входит в фильтр (например, юзер сменил
+            # фильтр после старта канала) — начинаем с края списка.
+            pos = -1 if direction > 0 else len(nav_list)
+        new_pos = (pos + direction) % len(nav_list)
+        new_ch = nav_list[new_pos]
+        # Конвертируем обратно в индекс self.channels — play_channel
+        # принимает индекс из self.channels.
+        try:
+            new_idx = self.channels.index(new_ch)
+        except ValueError:
+            return
+        self._pending_index = new_idx
+        self.current_index = new_idx
         # Visual feedback while zapping
-        if self.channels:
-            ch = self.channels[self._pending_index]
-            self.channel_name_label.setText(ch.name)
-            self.channel_number_label.setText(f"{self._pending_index + 1} / {len(self.channels)}")
-            # Round 280: канальная OSD-карта при пролистывании ↑/↓.
-            self.show_channel_osd(ch, self._pending_index, len(self.channels))
+        ch = self.channels[new_idx]
+        self.channel_name_label.setText(ch.name)
+        # n/N в OSD показываем в координатах ФИЛЬТРА когда он активен,
+        # иначе общего списка — так юзер видит «3 из 5» при поиске.
+        total = len(nav_list)
+        shown_n = new_pos + 1
+        self.channel_number_label.setText(f"{shown_n} / {total}")
+        # Round 280: канальная OSD-карта при пролистывании ↑/↓.
+        self.show_channel_osd(ch, new_pos, total)
         self._zap_timer.start()
+
+    def _get_navigation_list(self):
+        """Round 325: возвращает текущий отфильтрованный список каналов
+        для Up/Down навигации. Если фильтра нет — возвращает self.channels."""
+        try:
+            mw = self.window()
+            cp = getattr(mw, 'channels_page', None)
+            if cp is None:
+                return self.channels
+            filtered = getattr(cp, 'filtered', None)
+            if not filtered:
+                return self.channels
+            # Если фильтр совпадает с полным списком — нет смысла
+            # ходить через index() лишний раз.
+            if len(filtered) == len(self.channels):
+                return self.channels
+            return filtered
+        except Exception:
+            return self.channels
 
     def _commit_zap(self):
         idx = getattr(self, '_pending_index', self.current_index)
