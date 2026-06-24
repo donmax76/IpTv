@@ -1312,27 +1312,48 @@ COLORS = {
 }
 
 # Round 247: цветовые темы — порт Android Round 211 themes.xml.
-# Меняют только primary / primary_dark / secondary; фон / карточки /
-# текст остаются для консистентности тёмной темы.
+# Round 335: теперь меняем И background/surface/card — юзер: «цветовая
+# схема не везде работает основной фон программы остаётся без
+# изменения». Кортеж: (primary, primary_dark, secondary, background,
+# surface, card). Background — самый тёмный (основной фон), surface —
+# nav-bar / диалоги, card — карточки списка. Все три выбраны
+# подкрашенными в сторону primary для целостного вида.
 THEME_PALETTES = {
-    # Round 280: новый дефолт — бирюзово-голубая палитра как у референса
-    # (zedom-стиль). Юзер прислал скриншоты, попросил применить.
-    'default': ('#00C8E6', '#0099B3', '#26D4F5'),  # бирюзово-голубой
-    'purple':  ('#7C6CF7', '#5A4DC5', '#4ECDC4'),  # старый фирменный
-    'blue':    ('#2196F3', '#1976D2', '#03DAC5'),
-    'green':   ('#4CAF50', '#388E3C', '#00BCD4'),
-    'orange':  ('#FF9800', '#F57C00', '#FFB74D'),
-    'red':     ('#F44336', '#D32F2F', '#FF7043'),
+    # Round 280: новый дефолт — бирюзово-голубая палитра как у референса.
+    'default': ('#00C8E6', '#0099B3', '#26D4F5',
+                '#06141B', '#0F2530', '#16313D'),
+    'purple':  ('#7C6CF7', '#5A4DC5', '#4ECDC4',
+                '#10101F', '#1E1E2E', '#28283C'),
+    'blue':    ('#2196F3', '#1976D2', '#03DAC5',
+                '#0A1421', '#13243A', '#1B304E'),
+    'green':   ('#4CAF50', '#388E3C', '#00BCD4',
+                '#0A1A0E', '#13301A', '#1B4225'),
+    'orange':  ('#FF9800', '#F57C00', '#FFB74D',
+                '#1F140A', '#332010', '#46301A'),
+    'red':     ('#F44336', '#D32F2F', '#FF7043',
+                '#1F0E0E', '#331818', '#462020'),
 }
 
 
 def apply_theme(theme_code):
     """Round 247: меняет COLORS['primary'/'primary_dark'/'secondary']
     и пересобирает глобальную STYLESHEET. После вызова приложение
-    должно перепривязать app.setStyleSheet(STYLESHEET)."""
+    должно перепривязать app.setStyleSheet(STYLESHEET).
+    Round 335: дополнительно меняет background / surface / card."""
     global COLORS, STYLESHEET
     palette = THEME_PALETTES.get(theme_code) or THEME_PALETTES['default']
-    COLORS['primary'], COLORS['primary_dark'], COLORS['secondary'] = palette
+    if len(palette) >= 6:
+        (COLORS['primary'], COLORS['primary_dark'], COLORS['secondary'],
+         COLORS['background'], COLORS['surface'], COLORS['card']) = palette[:6]
+        # card_hover чуть светлее card.
+        try:
+            from PyQt5.QtGui import QColor as _QC
+            c = _QC(COLORS['card']).lighter(125).name()
+            COLORS['card_hover'] = c
+        except Exception:
+            COLORS['card_hover'] = COLORS['card']
+    else:
+        COLORS['primary'], COLORS['primary_dark'], COLORS['secondary'] = palette[:3]
     # Перегенерируем STYLESHEET — это f-string, нужно собрать заново.
     STYLESHEET = _build_stylesheet()
 
@@ -3670,6 +3691,23 @@ class FavoritesPage(QWidget):
 # лого + имя + категорию + 3-slot EPG-сетку + полоску прогресса
 # по текущей передаче. Имитирует Android Material card-style row.
 # ============================================================
+class NoWheelComboBox(QComboBox):
+    """Round 335: QComboBox по дефолту перехватывает wheelEvent для
+    листания значений. Юзер: «при прокрутки мышкой окна он изменяет
+    содержимое комбо бокса а должен прокручивать вверх или низ само
+    окно скролбар». Глушим колесо на закрытом combo — пускаем event
+    наверх к родительскому QScrollArea."""
+    def wheelEvent(self, ev):
+        ev.ignore()
+
+
+class NoWheelSpinBox(QSpinBox):
+    """Round 335: то же для QSpinBox — колесо больше не меняет значение
+    при прокрутке окна настроек."""
+    def wheelEvent(self, ev):
+        ev.ignore()
+
+
 class ClockLabel(QLabel):
     """Round 260: часы поверх видео без QGraphicsDropShadowEffect.
 
@@ -7322,7 +7360,7 @@ class SettingsPage(QWidget):
         self._lang_lbl.setProperty('_t_key', 'language')
         self._lang_lbl.setProperty('_t_suffix', ':')
         lang_row.addWidget(self._lang_lbl)
-        self.lang_combo = QComboBox()
+        self.lang_combo = NoWheelComboBox()
         # Round 242: расширенный список языков как Android LocaleHelper.
         # 'system' = автодетект из локали ОС. Реально перевод есть для
         # ru/en/uk/az; остальные показываются по дефолту (ru).
@@ -7346,7 +7384,7 @@ class SettingsPage(QWidget):
         self._buf_lbl = QLabel(t('buffer_label'))
         self._buf_lbl.setProperty('_t_key', 'buffer_label')
         buf_row.addWidget(self._buf_lbl)
-        self.buf_combo = QComboBox()
+        self.buf_combo = NoWheelComboBox()
         _buf_keys = ['buffer_low', 'buffer_normal', 'buffer_high', 'buffer_very_high']
         for k, v in zip(_buf_keys, (1500, 3000, 6000, 10000)):
             self.buf_combo.addItem(t(k), v)
@@ -7361,7 +7399,7 @@ class SettingsPage(QWidget):
         self._vol_lbl = QLabel(t('default_volume'))
         self._vol_lbl.setProperty('_t_key', 'default_volume')
         vol_row.addWidget(self._vol_lbl)
-        self.vol_spin = QSpinBox()
+        self.vol_spin = NoWheelSpinBox()
         # Round 314: до 200% — усиление громкости (см. PlayerPage).
         self.vol_spin.setRange(0, 200)
         self.vol_spin.setSuffix("%")
@@ -7376,7 +7414,7 @@ class SettingsPage(QWidget):
         self._theme_lbl = QLabel(t('color_theme'))
         self._theme_lbl.setProperty('_t_key', 'color_theme')
         theme_row.addWidget(self._theme_lbl)
-        self.theme_combo = QComboBox()
+        self.theme_combo = NoWheelComboBox()
         _theme_keys = ['theme_default', 'theme_blue', 'theme_green', 'theme_orange', 'theme_red']
         _theme_codes = ['default', 'blue', 'green', 'orange', 'red']
         for k, code in zip(_theme_keys, _theme_codes):
@@ -7396,7 +7434,7 @@ class SettingsPage(QWidget):
         self._clock_lbl = QLabel(t('clock_in_player_label'))
         self._clock_lbl.setProperty('_t_key', 'clock_in_player_label')
         clock_row.addWidget(self._clock_lbl)
-        self.clock_combo = QComboBox()
+        self.clock_combo = NoWheelComboBox()
         _clock_keys = ['clock_top_right', 'clock_top_left', 'clock_bottom_right',
                        'clock_bottom_left', 'clock_off']
         _clock_codes = ['top_right', 'top_left', 'bottom_right', 'bottom_left', 'off']
@@ -7417,7 +7455,7 @@ class SettingsPage(QWidget):
         self._sleep_lbl = QLabel(t('sleep_timer_default'))
         self._sleep_lbl.setProperty('_t_key', 'sleep_timer_default')
         sleep_row.addWidget(self._sleep_lbl)
-        self.sleep_spin = QSpinBox()
+        self.sleep_spin = NoWheelSpinBox()
         self.sleep_spin.setRange(0, 240)
         self.sleep_spin.setSuffix(t('sleep_minutes_off'))
         self.sleep_spin.setProperty('_t_suffix_key', 'sleep_minutes_off')
@@ -7463,7 +7501,7 @@ class SettingsPage(QWidget):
         self._ao_lbl = QLabel(t('audio_output'))
         self._ao_lbl.setProperty('_t_key', 'audio_output')
         ao_row.addWidget(self._ao_lbl)
-        self.aout_combo = QComboBox()
+        self.aout_combo = NoWheelComboBox()
         _ao_keys = ['audio_output_auto', 'audio_output_directsound',
                     'audio_output_mmdevice', 'audio_output_waveout']
         _ao_codes = ['', 'directsound', 'mmdevice', 'waveout']
@@ -7671,7 +7709,12 @@ class SettingsPage(QWidget):
 
     def _save_theme(self, _idx):
         """Round 247: меняем цветовую тему — apply_theme +
-        re-применяем stylesheet к QApplication. Без перезапуска."""
+        re-применяем stylesheet к QApplication. Без перезапуска.
+        Round 335: force unpolish/polish на все виджеты — иначе
+        QMainWindow/nav_bar/прочие с inline-setStyleSheet остаются
+        со старыми цветами (юзер: «основной фон программы остаётся
+        без изменения»). Плюс перепривязываем известные inline-
+        styled виджеты главного окна."""
         code = self.theme_combo.currentData()
         if not code or code == getattr(self.config, 'theme_color', 'default'):
             return
@@ -7679,9 +7722,25 @@ class SettingsPage(QWidget):
         self.config.save_async()
         try:
             apply_theme(code)
-            QApplication.instance().setStyleSheet(STYLESHEET)
-        except Exception:
-            pass
+            app = QApplication.instance()
+            app.setStyleSheet(STYLESHEET)
+            # Force re-polish — иначе Qt держит вычисленные стили в кеше.
+            for w in app.allWidgets():
+                try:
+                    w.style().unpolish(w)
+                    w.style().polish(w)
+                    w.update()
+                except Exception:
+                    pass
+            # Перепривязываем известные виджеты с inline-COLORS-стилем.
+            try:
+                mw = self.window()
+                if hasattr(mw, '_refresh_themed_widgets'):
+                    mw._refresh_themed_widgets()
+            except Exception:
+                pass
+        except Exception as e:
+            log_error('_save_theme', e)
         self.settings_changed.emit()
 
     def _save_clock_position(self, _idx):
@@ -8508,6 +8567,27 @@ class MainWindow(QMainWindow):
         if self._handle_key(event.key()):
             return
         super().keyPressEvent(event)
+
+    def _refresh_themed_widgets(self):
+        """Round 335: пере-применяем inline-стили, использующие COLORS,
+        после смены темы. apply_theme + QApplication.setStyleSheet
+        обновляет глобальную таблицу, но виджеты с f-string inline
+        styleSheet остаются со старыми цветами потому что f-string
+        вычисляется один раз при создании."""
+        try:
+            if hasattr(self, 'nav_bar'):
+                self.nav_bar.setStyleSheet(
+                    f"background-color: {COLORS['surface']};")
+            if hasattr(self, 'shortcut_bar'):
+                self.shortcut_bar.setStyleSheet(
+                    f"background-color: {COLORS['background']};"
+                    f" color: {COLORS['text_hint']};"
+                    " padding: 4px 12px; font-size: 11px;"
+                    f" border-top: 1px solid {COLORS['surface']};")
+            # Принудительный перерисов главного окна.
+            self.update()
+        except Exception as e:
+            log_error('_refresh_themed_widgets', e)
 
     def go_back(self):
         """Round 328: возврат на предыдущую страницу из истории.
