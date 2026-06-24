@@ -5894,6 +5894,26 @@ class PlayerPage(QWidget):
                 self._reconnect_attempts = 0
             except Exception as e:
                 log_error('vlc.event_attach', e)
+            # Round 333: stall-watchdog. EncounteredError + EndReached
+            # ловят падение, но при «тихом» зависании (TCP-пакеты
+            # перестали приходить, буфер опустел, плеер думает что
+            # играет) VLC не эмитит ни одного эвента и канал
+            # замораживается насовсем. Каждые 5 сек смотрим
+            # get_time() — если значение не меняется 3 тика подряд
+            # (15 сек) при is_playing()==True, считаем что стрим
+            # подвис и дёргаем reconnect. Юзер: «при длительном
+            # просмотре канал зависает и поле не востанавливается».
+            try:
+                if not hasattr(self, '_stall_watch_timer'):
+                    self._stall_last_time = -1
+                    self._stall_strikes = 0
+                    self._stall_watch_timer = QTimer(self)
+                    self._stall_watch_timer.setInterval(5000)
+                    self._stall_watch_timer.timeout.connect(
+                        self._check_stall)
+                    self._stall_watch_timer.start()
+            except Exception as e:
+                log_error('stall_watch.install', e)
         except Exception as e:
             log_error('init_vlc', e, extra=f"args={args}")
             self.vlc_instance = None
@@ -5975,6 +5995,37 @@ class PlayerPage(QWidget):
         except Exception as e:
             log_error('_on_vlc_error', e)
 
+    def _check_stall(self):
+        """Round 333: каждые 5с проверяем что get_time() двигается.
+        is_playing==True + неизменный get_time за 15с = реконнект."""
+        try:
+            p = self.player
+            if not p:
+                return
+            if not p.is_playing():
+                self._stall_strikes = 0
+                self._stall_last_time = -1
+                return
+            try:
+                cur_t = int(p.get_time() or 0)
+            except Exception:
+                cur_t = -1
+            last = getattr(self, '_stall_last_time', -1)
+            if cur_t > 0 and cur_t == last:
+                self._stall_strikes = getattr(self, '_stall_strikes', 0) + 1
+                if self._stall_strikes >= 3:
+                    log_warn('vlc.stall',
+                             f"no progress for ~15s at t={cur_t}ms — "
+                             f"reconnecting")
+                    self._stall_strikes = 0
+                    self._stall_last_time = -1
+                    self._schedule_reconnect("stalled")
+            else:
+                self._stall_strikes = 0
+                self._stall_last_time = cur_t
+        except Exception as e:
+            log_error('_check_stall', e)
+
     def _on_vlc_end(self, _event):
         try:
             # EndReached на live-стриме = разрыв сети, не нормальный
@@ -6006,6 +6057,9 @@ class PlayerPage(QWidget):
         # Round 288: сбрасываем reconnect-счётчик при ручном выборе
         # канала (это уже не неудача, а новое намерение).
         self._reconnect_attempts = 0
+        # Round 333: stall-strikes тоже сбрасываем — это новый канал.
+        self._stall_strikes = 0
+        self._stall_last_time = -1
 
         self.channels = channels
         self.current_index = index
