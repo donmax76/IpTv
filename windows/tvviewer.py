@@ -590,6 +590,8 @@ TRANSLATIONS = {
         'section_advanced': 'Дополнительно (VLC)',
         'section_epg_sources': 'Источники EPG (мульти-EPG)',
         'section_data': 'Данные',
+        'section_navigation': 'Навигация',
+        'no_playlists_yet': 'Нет сохранённых плейлистов',
         'section_updates': 'Обновления',
         'section_help': 'Помощь',
         'section_appearance': 'Внешний вид',
@@ -757,6 +759,8 @@ TRANSLATIONS = {
         'section_advanced': 'Advanced (VLC)',
         'section_epg_sources': 'EPG sources (multi-EPG)',
         'section_data': 'Data',
+        'section_navigation': 'Navigation',
+        'no_playlists_yet': 'No saved playlists yet',
         'section_updates': 'Updates',
         'section_help': 'Help',
         'section_appearance': 'Appearance',
@@ -926,6 +930,8 @@ TRANSLATIONS = {
         'section_advanced': 'Розширені (VLC)',
         'section_epg_sources': 'Джерела EPG (мульти-EPG)',
         'section_data': 'Дані',
+        'section_navigation': 'Навігація',
+        'no_playlists_yet': 'Немає збережених плейлистів',
         'section_updates': 'Оновлення',
         'section_help': 'Довідка',
         'section_appearance': 'Зовнішній вигляд',
@@ -1093,6 +1099,8 @@ TRANSLATIONS = {
         'section_advanced': 'Əlavə (VLC)',
         'section_epg_sources': 'EPG mənbələri (multi-EPG)',
         'section_data': 'Məlumatlar',
+        'section_navigation': 'Naviqasiya',
+        'no_playlists_yet': 'Saxlanmış pleylist yoxdur',
         'section_updates': 'Yeniləmələr',
         'section_help': 'Kömək',
         'section_appearance': 'Görünüş',
@@ -7554,6 +7562,40 @@ class SettingsPage(QWidget):
         self._epg_hint.setStyleSheet(f"color: {COLORS['text_hint']}; font-size: 11px;")
         layout.addWidget(self._epg_hint)
 
+        # --- Quick-nav section (Round 336) ---
+        # Юзер: «в меню настройки добавь плейлисты и тв гид вообщем
+        # всё что есть в нижнем меню». Кнопки-дубликаты bottom-nav'а
+        # прямо в настройках чтобы не лезть на нижнюю панель.
+        # Само "Settings" не дублируем — мы уже в нём.
+        layout.addSpacing(8)
+        layout.addWidget(self._section('section_navigation'))
+        self.playlists_summary = QLabel("")
+        self.playlists_summary.setStyleSheet(
+            f"color: {COLORS['text_secondary']}; font-size: 12px;")
+        self.playlists_summary.setWordWrap(True)
+        layout.addWidget(self.playlists_summary)
+        self._nav_btn_specs = [
+            ('home',      7, '🏠'),
+            ('playlists', 0, '📋'),
+            ('channels',  1, '📺'),
+            ('tv_guide',  5, '📅'),
+            ('favorites', 2, '★'),
+            ('recent',    6, '⏱'),
+        ]
+        self._nav_buttons_settings = []
+        nav_grid = QHBoxLayout()
+        nav_grid.setSpacing(8)
+        for tkey, idx, icon in self._nav_btn_specs:
+            b = QPushButton(f"{icon}  {t(tkey)}")
+            b.setProperty('_t_key', tkey)
+            b.setProperty('_t_prefix', f"{icon}  ")
+            b.setMinimumHeight(36)
+            b.clicked.connect(lambda _c=False, _i=idx: self._jump_to_page(_i))
+            nav_grid.addWidget(b)
+            self._nav_buttons_settings.append(b)
+        layout.addLayout(nav_grid)
+        self._refresh_playlists_summary()
+
         # --- Data section ---
         layout.addSpacing(8)
         layout.addWidget(self._section('section_data'))
@@ -7784,6 +7826,34 @@ class SettingsPage(QWidget):
     def _save_ua(self):
         self.config.user_agent = self.ua_edit.text().strip()
         self.config.save_async()
+
+    def _refresh_playlists_summary(self):
+        """Round 336: краткий список плейлистов под секцией Playlists."""
+        try:
+            pls = getattr(self.config, 'playlists', []) or []
+            cur = getattr(self.config, 'last_playlist_name', '') or ''
+            if not pls:
+                self.playlists_summary.setText(t('no_playlists_yet'))
+                return
+            lines = []
+            for pl in pls[:6]:
+                name = pl.get('name', '') if isinstance(pl, dict) else ''
+                marker = " ✓" if name == cur else ""
+                lines.append(f"• {name}{marker}")
+            if len(pls) > 6:
+                lines.append(f"… +{len(pls) - 6}")
+            self.playlists_summary.setText("\n".join(lines))
+        except Exception as e:
+            log_error('_refresh_playlists_summary', e)
+
+    def _jump_to_page(self, idx: int):
+        """Round 336: универсальный переход на вкладку из nav-grid."""
+        try:
+            mw = self.window()
+            if hasattr(mw, 'switch_page'):
+                mw.switch_page(idx)
+        except Exception as e:
+            log_error('_jump_to_page', e, extra=f"idx={idx}")
 
     def _refresh_epg_list(self):
         self.epg_list.clear()
