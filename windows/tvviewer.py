@@ -583,6 +583,74 @@ TRANSLATIONS = {
         'update_no_internet': "Не удалось связаться с сервером (нет интернета?)",
         'restart_required': "Требуется перезапуск приложения",
         'no_playlist_yet': "Сначала добавьте плейлист на вкладке «Плейлисты».",
+    
+        # Round 350: live-retranslate keys.
+        'section_playback': 'Воспроизведение',
+        'section_behaviour': 'Поведение',
+        'section_advanced': 'Дополнительно (VLC)',
+        'section_epg_sources': 'Источники EPG (мульти-EPG)',
+        'section_data': 'Данные',
+        'section_updates': 'Обновления',
+        'section_help': 'Помощь',
+        'section_appearance': 'Внешний вид',
+        'section_about': 'О программе',
+        'section_language': 'Язык',
+        'section_diagnostics': 'Диагностика',
+        'vlc_installed': 'VLC: Установлен',
+        'vlc_not_found': 'VLC: Не найден — установите VLC и python-vlc',
+        'buffer_low': 'Низкий (1500 мс)',
+        'buffer_normal': 'Нормальный (3000 мс)',
+        'buffer_high': 'Высокий (6000 мс)',
+        'buffer_very_high': 'Очень высокий (10000 мс)',
+        'clock_top_right': 'Верх-право',
+        'clock_top_left': 'Верх-лево',
+        'clock_bottom_right': 'Низ-право',
+        'clock_bottom_left': 'Низ-лево',
+        'clock_off': 'Скрыть',
+        'clock_in_player_label': 'Часы в плеере:',
+        'theme_default': '🟣 Фиолетовый (по умолчанию)',
+        'theme_blue': '🔵 Синий',
+        'theme_green': '🟢 Зелёный',
+        'theme_orange': '🟠 Оранжевый',
+        'theme_red': '🔴 Красный',
+        'sleep_minutes_off': ' мин (0 = выкл)',
+        'sleep_timer_default': 'Таймер сна (по умолч.):',
+        'hardware_decode_recommended': 'Аппаратное декодирование (рекомендуется)',
+        'open_player_fullscreen': 'Открывать плеер в полноэкранном режиме',
+        'autoplay_last_help': 'Авто-воспроизведение последнего канала при запуске',
+        'always_on_top_mini': 'Поверх всех окон (режим мини-плеера)',
+        'audio_output_auto': 'Авто',
+        'audio_output_directsound': 'DirectSound',
+        'audio_output_mmdevice': 'MMDevice (WASAPI)',
+        'audio_output_waveout': 'WaveOut',
+        'ua_note_restart': 'Примечание: изменения вступят в силу после перезапуска.',
+        'epg_url_placeholder': 'https://example.com/epg.xml.gz',
+        'epg_merged_note': 'Программы из всех источников объединяются. url-tvg плейлиста используется всегда.',
+        'reset_settings_button': 'Сбросить настройки',
+        'reset_confirm_title': 'Сбросить настройки',
+        'reset_confirm_body': 'Сбросить все настройки к значениям по умолчанию? Плейлисты и избранное сохранятся.',
+        'clear_favorites_confirm': 'Удалить все избранные?',
+        'clear_recent_confirm': 'Очистить список недавних?',
+        'clear_per_channel_state_confirm': 'Очистить состояние всех каналов?',
+        'checking_updates': 'Проверяю…',
+        'current_build_status_template': 'Текущий build {build}. Нажмите «Проверить обновления».',
+        'installed_template': 'Установлено: {name} build {build}',
+        'aspect_auto': 'Соотношение: авто',
+        'vol_label': 'Громк:',
+        'btn_back': '< Назад',
+        'btn_channel': 'Канал',
+        'dialog_add_playlist': 'Добавить плейлист',
+        'form_name': 'Имя:',
+        'form_url': 'URL:',
+        'form_server': 'Сервер:',
+        'form_username': 'Логин:',
+        'form_password': 'Пароль:',
+        'placeholder_playlist_name': 'Имя плейлиста',
+        'placeholder_url': 'http://... или https://...',
+        'placeholder_xtream_name': 'Мой Xtream',
+        'panel_categories': 'Категории',
+        'btn_show_channels': '☰ Показать список каналов',
+        'menu_search': 'Поиск',
     },
     'en': {
         'app_name': "M3U IPTV",
@@ -682,6 +750,74 @@ TRANSLATIONS = {
         'update_no_internet': "Could not reach the server (no internet?)",
         'restart_required': "Application restart required",
         'no_playlist_yet': "Add a playlist first on the Playlists tab.",
+    
+        # Round 350: live-retranslate keys.
+        'section_playback': 'Playback',
+        'section_behaviour': 'Behaviour',
+        'section_advanced': 'Advanced (VLC)',
+        'section_epg_sources': 'EPG sources (multi-EPG)',
+        'section_data': 'Data',
+        'section_updates': 'Updates',
+        'section_help': 'Help',
+        'section_appearance': 'Appearance',
+        'section_about': 'About',
+        'section_language': 'Language',
+        'section_diagnostics': 'Diagnostics',
+        'vlc_installed': 'VLC: Installed',
+        'vlc_not_found': 'VLC: Not found - install VLC and python-vlc',
+        'buffer_low': 'Low (1500 ms)',
+        'buffer_normal': 'Normal (3000 ms)',
+        'buffer_high': 'High (6000 ms)',
+        'buffer_very_high': 'Very high (10000 ms)',
+        'clock_top_right': 'Top-right',
+        'clock_top_left': 'Top-left',
+        'clock_bottom_right': 'Bottom-right',
+        'clock_bottom_left': 'Bottom-left',
+        'clock_off': 'Hide',
+        'clock_in_player_label': 'Clock in player:',
+        'theme_default': '🟣 Purple (default)',
+        'theme_blue': '🔵 Blue',
+        'theme_green': '🟢 Green',
+        'theme_orange': '🟠 Orange',
+        'theme_red': '🔴 Red',
+        'sleep_minutes_off': ' min (0 = off)',
+        'sleep_timer_default': 'Sleep timer (default):',
+        'hardware_decode_recommended': 'Hardware decoding (recommended)',
+        'open_player_fullscreen': 'Open player in fullscreen',
+        'autoplay_last_help': 'Autoplay last channel on startup',
+        'always_on_top_mini': 'Always on top (mini-player mode)',
+        'audio_output_auto': 'Auto',
+        'audio_output_directsound': 'DirectSound',
+        'audio_output_mmdevice': 'MMDevice (WASAPI)',
+        'audio_output_waveout': 'WaveOut',
+        'ua_note_restart': 'Note: changes take effect after restart.',
+        'epg_url_placeholder': 'https://example.com/epg.xml.gz',
+        'epg_merged_note': 'Programmes from all sources are merged. The playlist\'s url-tvg is always used.',
+        'reset_settings_button': 'Reset settings',
+        'reset_confirm_title': 'Reset settings',
+        'reset_confirm_body': 'Reset all settings to defaults? Playlists and favorites are kept.',
+        'clear_favorites_confirm': 'Remove all favorites?',
+        'clear_recent_confirm': 'Clear recent list?',
+        'clear_per_channel_state_confirm': 'Clear per-channel state?',
+        'checking_updates': 'Checking…',
+        'current_build_status_template': 'Current build {build}. Click "Check for updates".',
+        'installed_template': 'Installed: {name} build {build}',
+        'aspect_auto': 'Aspect: auto',
+        'vol_label': 'Vol:',
+        'btn_back': '< Back',
+        'btn_channel': 'Channel',
+        'dialog_add_playlist': 'Add Playlist',
+        'form_name': 'Name:',
+        'form_url': 'URL:',
+        'form_server': 'Server:',
+        'form_username': 'Username:',
+        'form_password': 'Password:',
+        'placeholder_playlist_name': 'Playlist name',
+        'placeholder_url': 'http://... or https://...',
+        'placeholder_xtream_name': 'My Xtream',
+        'panel_categories': 'Categories',
+        'btn_show_channels': '☰ Show channel list',
+        'menu_search': 'Search',
     },
     'uk': {
         'app_name': "M3U IPTV",
@@ -783,6 +919,74 @@ TRANSLATIONS = {
         'tv_guide_label': "Телепрограма",
         'search_channels': "Пошук каналів...",
         'no_playlist_yet': "Спочатку додайте плейлист на вкладці «Плейлисти».",
+    
+        # Round 350: live-retranslate keys.
+        'section_playback': 'Відтворення',
+        'section_behaviour': 'Поведінка',
+        'section_advanced': 'Розширені (VLC)',
+        'section_epg_sources': 'Джерела EPG (мульти-EPG)',
+        'section_data': 'Дані',
+        'section_updates': 'Оновлення',
+        'section_help': 'Довідка',
+        'section_appearance': 'Зовнішній вигляд',
+        'section_about': 'Про програму',
+        'section_language': 'Мова',
+        'section_diagnostics': 'Діагностика',
+        'vlc_installed': 'VLC: Встановлено',
+        'vlc_not_found': 'VLC: Не знайдено — встановіть VLC і python-vlc',
+        'buffer_low': 'Низький (1500 мс)',
+        'buffer_normal': 'Нормальний (3000 мс)',
+        'buffer_high': 'Високий (6000 мс)',
+        'buffer_very_high': 'Дуже високий (10000 мс)',
+        'clock_top_right': 'Верх-право',
+        'clock_top_left': 'Верх-ліво',
+        'clock_bottom_right': 'Низ-право',
+        'clock_bottom_left': 'Низ-ліво',
+        'clock_off': 'Сховати',
+        'clock_in_player_label': 'Годинник у плеєрі:',
+        'theme_default': '🟣 Фіолетовий (за замовч.)',
+        'theme_blue': '🔵 Синій',
+        'theme_green': '🟢 Зелений',
+        'theme_orange': '🟠 Помаранчевий',
+        'theme_red': '🔴 Червоний',
+        'sleep_minutes_off': ' хв (0 = вимк)',
+        'sleep_timer_default': 'Таймер сну (за замовч.):',
+        'hardware_decode_recommended': 'Апаратне декодування (рекомендовано)',
+        'open_player_fullscreen': 'Відкривати плеєр у повноекранному режимі',
+        'autoplay_last_help': 'Авто-відтворення останнього каналу при запуску',
+        'always_on_top_mini': 'Поверх усіх вікон (режим міні-плеєра)',
+        'audio_output_auto': 'Авто',
+        'audio_output_directsound': 'DirectSound',
+        'audio_output_mmdevice': 'MMDevice (WASAPI)',
+        'audio_output_waveout': 'WaveOut',
+        'ua_note_restart': 'Примітка: зміни наберуть чинності після перезапуску.',
+        'epg_url_placeholder': 'https://example.com/epg.xml.gz',
+        'epg_merged_note': 'Програми з усіх джерел об\'єднуються. url-tvg плейліста використовується завжди.',
+        'reset_settings_button': 'Скинути налаштування',
+        'reset_confirm_title': 'Скинути налаштування',
+        'reset_confirm_body': 'Скинути всі налаштування до значень за замовчуванням? Плейлісти та обране зберігаються.',
+        'clear_favorites_confirm': 'Видалити всі обрані?',
+        'clear_recent_confirm': 'Очистити список нещодавніх?',
+        'clear_per_channel_state_confirm': 'Очистити стан усіх каналів?',
+        'checking_updates': 'Перевіряю…',
+        'current_build_status_template': 'Поточний build {build}. Натисніть «Перевірити оновлення».',
+        'installed_template': 'Встановлено: {name} build {build}',
+        'aspect_auto': 'Співвідношення: авто',
+        'vol_label': 'Гучн:',
+        'btn_back': '< Назад',
+        'btn_channel': 'Канал',
+        'dialog_add_playlist': 'Додати плейліст',
+        'form_name': 'Назва:',
+        'form_url': 'URL:',
+        'form_server': 'Сервер:',
+        'form_username': 'Логін:',
+        'form_password': 'Пароль:',
+        'placeholder_playlist_name': 'Назва плейліста',
+        'placeholder_url': 'http://... або https://...',
+        'placeholder_xtream_name': 'Мій Xtream',
+        'panel_categories': 'Категорії',
+        'btn_show_channels': '☰ Показати список каналів',
+        'menu_search': 'Пошук',
     },
     'az': {
         'app_name': "M3U IPTV",
@@ -882,6 +1086,74 @@ TRANSLATIONS = {
         'update_no_internet': "Serverə bağlanmaq mümkün olmadı",
         'restart_required': "Tətbiqi yenidən başlatmaq lazımdır",
         'no_playlist_yet': "Əvvəlcə «Pleylistlər» bölməsində pleylist əlavə edin.",
+    
+        # Round 350: live-retranslate keys.
+        'section_playback': 'Oxutma',
+        'section_behaviour': 'Davranış',
+        'section_advanced': 'Əlavə (VLC)',
+        'section_epg_sources': 'EPG mənbələri (multi-EPG)',
+        'section_data': 'Məlumatlar',
+        'section_updates': 'Yeniləmələr',
+        'section_help': 'Kömək',
+        'section_appearance': 'Görünüş',
+        'section_about': 'Haqqında',
+        'section_language': 'Dil',
+        'section_diagnostics': 'Diaqnostika',
+        'vlc_installed': 'VLC: Quraşdırılıb',
+        'vlc_not_found': 'VLC: Tapılmadı - VLC və python-vlc quraşdırın',
+        'buffer_low': 'Aşağı (1500 ms)',
+        'buffer_normal': 'Normal (3000 ms)',
+        'buffer_high': 'Yüksək (6000 ms)',
+        'buffer_very_high': 'Çox yüksək (10000 ms)',
+        'clock_top_right': 'Yuxarı-sağ',
+        'clock_top_left': 'Yuxarı-sol',
+        'clock_bottom_right': 'Aşağı-sağ',
+        'clock_bottom_left': 'Aşağı-sol',
+        'clock_off': 'Gizlət',
+        'clock_in_player_label': 'Pleyerdə saat:',
+        'theme_default': '🟣 Bənövşəyi (varsayılan)',
+        'theme_blue': '🔵 Mavi',
+        'theme_green': '🟢 Yaşıl',
+        'theme_orange': '🟠 Narıncı',
+        'theme_red': '🔴 Qırmızı',
+        'sleep_minutes_off': ' dəq (0 = söndür)',
+        'sleep_timer_default': 'Yuxu taymeri (varsayılan):',
+        'hardware_decode_recommended': 'Aparat dekodlama (tövsiyə olunur)',
+        'open_player_fullscreen': 'Pleyeri tam ekranda aç',
+        'autoplay_last_help': 'Başlanğıcda son kanalı avto-oxut',
+        'always_on_top_mini': 'Həmişə üstdə (mini-pleyer rejimi)',
+        'audio_output_auto': 'Avto',
+        'audio_output_directsound': 'DirectSound',
+        'audio_output_mmdevice': 'MMDevice (WASAPI)',
+        'audio_output_waveout': 'WaveOut',
+        'ua_note_restart': 'Qeyd: dəyişikliklər yenidən başladıqdan sonra qüvvəyə minir.',
+        'epg_url_placeholder': 'https://example.com/epg.xml.gz',
+        'epg_merged_note': 'Bütün mənbələrdən proqramlar birləşdirilir. Pleylistin url-tvg-si həmişə istifadə olunur.',
+        'reset_settings_button': 'Tənzimləmələri sıfırla',
+        'reset_confirm_title': 'Tənzimləmələri sıfırla',
+        'reset_confirm_body': 'Bütün tənzimləmələri varsayılana sıfırlamaq? Pleylistlər və seçilmişlər saxlanılır.',
+        'clear_favorites_confirm': 'Bütün seçilmişləri silmək?',
+        'clear_recent_confirm': 'Son baxılanlar siyahısını təmizləmək?',
+        'clear_per_channel_state_confirm': 'Kanal vəziyyətlərini təmizləmək?',
+        'checking_updates': 'Yoxlanılır…',
+        'current_build_status_template': 'Cari build {build}. «Yeniləmələri yoxla» düyməsini basın.',
+        'installed_template': 'Quraşdırılıb: {name} build {build}',
+        'aspect_auto': 'Nisbət: avto',
+        'vol_label': 'Səs:',
+        'btn_back': '< Geri',
+        'btn_channel': 'Kanal',
+        'dialog_add_playlist': 'Pleylist əlavə et',
+        'form_name': 'Ad:',
+        'form_url': 'URL:',
+        'form_server': 'Server:',
+        'form_username': 'İstifadəçi:',
+        'form_password': 'Şifrə:',
+        'placeholder_playlist_name': 'Pleylist adı',
+        'placeholder_url': 'http://... və ya https://...',
+        'placeholder_xtream_name': 'Mənim Xtream-im',
+        'panel_categories': 'Kateqoriyalar',
+        'btn_show_channels': '☰ Kanal siyahısını göstər',
+        'menu_search': 'Axtar',
     },
 }
 
@@ -942,6 +1214,84 @@ def t(key: str, **kwargs) -> str:
         except Exception:
             return s
     return s
+
+
+def _retranslate_widgets(root):
+    """Round 350: live-retranslate любой ветки виджетов.
+
+    Поддерживаемые QObject properties:
+      '_t_key'            -> setText / placeholder для QLabel / QPushButton /
+                             QCheckBox / QAction. Если задан '_t_suffix' —
+                             добавляется в конец.
+      '_t_kwargs'         -> dict подстановок для t(key, **kwargs).
+      '_t_prefix'         -> произвольный префикс к переведённой строке.
+      '_t_suffix_key'     -> для QSpinBox.setSuffix
+      '_t_placeholder_key'-> для QLineEdit.setPlaceholderText
+      '_t_item_keys'      -> список ключей, по одному на каждый item
+                             QComboBox; индекс соответствует индексу item.
+    """
+    # Импортируем тут чтобы избежать циклической загрузки.
+    from PyQt5.QtWidgets import (
+        QLabel, QPushButton, QCheckBox, QSpinBox, QLineEdit, QComboBox,
+        QAction,
+    )
+
+    def _apply_text(widget, key):
+        try:
+            kw = widget.property('_t_kwargs') or {}
+            if not isinstance(kw, dict):
+                kw = {}
+            text = t(key, **kw)
+            prefix = widget.property('_t_prefix') or ''
+            suffix = widget.property('_t_suffix') or ''
+            widget.setText(f"{prefix}{text}{suffix}")
+        except Exception:
+            pass
+
+    # QLabel / QPushButton / QCheckBox
+    for cls in (QLabel, QPushButton, QCheckBox):
+        for w in root.findChildren(cls):
+            key = w.property('_t_key')
+            if key:
+                _apply_text(w, key)
+
+    # QSpinBox suffix
+    for w in root.findChildren(QSpinBox):
+        sk = w.property('_t_suffix_key')
+        if sk:
+            try:
+                w.setSuffix(t(sk))
+            except Exception:
+                pass
+
+    # QLineEdit placeholder
+    for w in root.findChildren(QLineEdit):
+        pk = w.property('_t_placeholder_key')
+        if pk:
+            try:
+                w.setPlaceholderText(t(pk))
+            except Exception:
+                pass
+
+    # QComboBox items
+    for w in root.findChildren(QComboBox):
+        keys = w.property('_t_item_keys')
+        if keys:
+            try:
+                for i, k in enumerate(keys):
+                    if i < w.count() and k:
+                        w.setItemText(i, t(k))
+            except Exception:
+                pass
+
+    # QAction (для toolbars/menus)
+    for a in root.findChildren(QAction):
+        key = a.property('_t_key')
+        if key:
+            try:
+                a.setText(t(key))
+            except Exception:
+                pass
 
 
 # --- Colors matching Android dark theme ---
@@ -2236,11 +2586,12 @@ class HomePage(QWidget):
         except Exception:
             pass
 
-        title = QLabel(t('app_name'))
-        title.setStyleSheet(
+        self._home_title = QLabel(t('app_name'))
+        self._home_title.setProperty('_t_key', 'app_name')
+        self._home_title.setStyleSheet(
             "color: white; font-size: 48px; font-weight: bold;"
             " background: transparent;")
-        col.addWidget(title)
+        col.addWidget(self._home_title)
 
         self.subtitle = QLabel("TVViewer")
         self.subtitle.setStyleSheet(
@@ -2250,7 +2601,9 @@ class HomePage(QWidget):
         col.addSpacing(40)
 
         # Большая фиолетовая кнопка «Прямой эфир».
-        self.btn_live = QPushButton("▶  " + (t('play') if t('play') != 'play' else "Прямой эфир"))
+        self.btn_live = QPushButton("▶  " + t('live'))
+        self.btn_live.setProperty('_t_key', 'live')
+        self.btn_live.setProperty('_t_prefix', '▶  ')
         self.btn_live.setMinimumHeight(70)
         self.btn_live.setMinimumWidth(360)
         self.btn_live.setStyleSheet(
@@ -2264,6 +2617,8 @@ class HomePage(QWidget):
 
         # Вторая кнопка — «Плейлисты».
         self.btn_playlists = QPushButton("📋  " + t('playlists'))
+        self.btn_playlists.setProperty('_t_key', 'playlists')
+        self.btn_playlists.setProperty('_t_prefix', '📋  ')
         self.btn_playlists.setMinimumHeight(60)
         self.btn_playlists.setMinimumWidth(360)
         self.btn_playlists.setStyleSheet(
@@ -2292,6 +2647,13 @@ class HomePage(QWidget):
             self.default_label.setText(f"📂  {name}")
         else:
             self.default_label.setText("")
+
+    def retranslate_ui(self):
+        """Round 350: live-retranslate всех тагированных виджетов."""
+        try:
+            _retranslate_widgets(self)
+        except Exception as e:
+            log_error('HomePage.retranslate_ui', e)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -2603,7 +2965,7 @@ class PlaylistsPage(QWidget):
             self.playlist_list.addItem(item)
 
     def retranslate_ui(self):
-        """Round 265: применяем переводы ко всем сохранённым QLabel/QPushButton."""
+        """Round 265/350: применяем переводы ко всем сохранённым QLabel/QPushButton."""
         try:
             if hasattr(self, '_title'):
                 self._title.setText(t('app_name'))
@@ -2631,6 +2993,8 @@ class PlaylistsPage(QWidget):
                 self._btn_paste.setText(t('from_clipboard'))
             if hasattr(self, '_btn_remove'):
                 self._btn_remove.setText(t('remove'))
+            # Generic sweep for anything tagged with _t_key.
+            _retranslate_widgets(self)
         except Exception as e:
             log_error('PlaylistsPage.retranslate_ui', e)
 
@@ -2641,16 +3005,16 @@ class PlaylistsPage(QWidget):
 
     def add_playlist_url(self):
         dlg = QDialog(self)
-        dlg.setWindowTitle("Add Playlist")
+        dlg.setWindowTitle(t('dialog_add_playlist'))
         dlg.setStyleSheet(STYLESHEET)
         dlg.setMinimumWidth(450)
         form = QFormLayout(dlg)
         name_edit = QLineEdit()
-        name_edit.setPlaceholderText("Playlist name")
+        name_edit.setPlaceholderText(t('placeholder_playlist_name'))
         url_edit = QLineEdit()
-        url_edit.setPlaceholderText("http://... or https://...")
-        form.addRow("Name:", name_edit)
-        form.addRow("URL:", url_edit)
+        url_edit.setPlaceholderText(t('placeholder_url'))
+        form.addRow(t('form_name'), name_edit)
+        form.addRow(t('form_url'), url_edit)
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         btns.accepted.connect(dlg.accept)
         btns.rejected.connect(dlg.reject)
@@ -2668,22 +3032,22 @@ class PlaylistsPage(QWidget):
         Юзер вводит сервер/login/пароль — мы аутентифицируемся,
         и если auth OK — собираем M3U-URL и добавляем."""
         dlg = QDialog(self)
-        dlg.setWindowTitle("Xtream Codes")
+        dlg.setWindowTitle(t('xtream_codes'))
         dlg.setStyleSheet(STYLESHEET)
         dlg.setMinimumWidth(450)
         form = QFormLayout(dlg)
         name_edit = QLineEdit()
-        name_edit.setPlaceholderText("My Xtream")
+        name_edit.setPlaceholderText(t('placeholder_xtream_name'))
         server_edit = QLineEdit()
         server_edit.setPlaceholderText("http://example.com:8080")
         user_edit = QLineEdit()
         user_edit.setPlaceholderText("login")
         pass_edit = QLineEdit()
         pass_edit.setEchoMode(QLineEdit.Password)
-        form.addRow("Name:", name_edit)
-        form.addRow("Server:", server_edit)
-        form.addRow("Username:", user_edit)
-        form.addRow("Password:", pass_edit)
+        form.addRow(t('form_name'), name_edit)
+        form.addRow(t('form_server'), server_edit)
+        form.addRow(t('form_username'), user_edit)
+        form.addRow(t('form_password'), pass_edit)
         status = QLabel("")
         status.setStyleSheet(f"color: {COLORS['text_secondary']};")
         form.addRow(status)
@@ -3188,6 +3552,18 @@ class ChannelsPage(QWidget):
                 return
         super().keyPressEvent(event)
 
+    def retranslate_ui(self):
+        """Round 350: live-retranslate. Главный title + search placeholder
+        + любые тагированные виджеты."""
+        try:
+            if hasattr(self, 'title_label'):
+                self.title_label.setText(t('channels'))
+            if hasattr(self, 'search_edit'):
+                self.search_edit.setPlaceholderText(t('search_channels'))
+            _retranslate_widgets(self)
+        except Exception as e:
+            log_error('ChannelsPage.retranslate_ui', e)
+
 
 # ============================================================
 # Favorites Page
@@ -3281,6 +3657,7 @@ class FavoritesPage(QWidget):
             if hasattr(self, 'count_label') and self.channels:
                 self.count_label.setText(
                     f"{len(getattr(self, 'fav_channels', []))} · {t('favorites')}")
+            _retranslate_widgets(self)
         except Exception as e:
             log_error('FavoritesPage.retranslate_ui', e)
 
@@ -3570,10 +3947,11 @@ class PlayerPage(QWidget):
         # Виджеты остаются доступны для кода, который их трогает.
         top_bar = QHBoxLayout()
         top_bar.setContentsMargins(12, 8, 12, 8)
-        self.btn_back = QPushButton("< Back")
+        self.btn_back = QPushButton(t('back'))
+        self.btn_back.setProperty('_t_key', 'back')
         self.btn_back.clicked.connect(self.back_requested.emit)
         top_bar.addWidget(self.btn_back)
-        self.channel_name_label = QLabel("Channel")
+        self.channel_name_label = QLabel(t('channel'))
         self.channel_name_label.setFont(QFont('Segoe UI', 16, QFont.Bold))
         top_bar.addWidget(self.channel_name_label)
         top_bar.addStretch()
@@ -3684,21 +4062,26 @@ class PlayerPage(QWidget):
         ctrl = QHBoxLayout()
         ctrl.setContentsMargins(12, 8, 12, 8)
 
-        self.btn_prev = QPushButton("< Prev")
+        self.btn_prev = QPushButton(t('prev'))
+        self.btn_prev.setProperty('_t_key', 'prev')
         self.btn_prev.clicked.connect(lambda: self.switch_channel(-1))
         ctrl.addWidget(self.btn_prev)
 
-        self.btn_play = QPushButton("Pause")
+        self.btn_play = QPushButton(t('pause'))
+        self.btn_play.setProperty('_t_key', 'pause')
         self.btn_play.setObjectName("primaryBtn")
         self.btn_play.clicked.connect(self.toggle_play)
         ctrl.addWidget(self.btn_play)
 
-        self.btn_next = QPushButton("Next >")
+        self.btn_next = QPushButton(t('next'))
+        self.btn_next.setProperty('_t_key', 'next')
         self.btn_next.clicked.connect(lambda: self.switch_channel(1))
         ctrl.addWidget(self.btn_next)
 
         ctrl.addSpacing(20)
-        ctrl.addWidget(QLabel("Vol:"))
+        self._vol_label = QLabel(t('vol_label'))
+        self._vol_label.setProperty('_t_key', 'vol_label')
+        ctrl.addWidget(self._vol_label)
         self.vol_slider = QSlider(Qt.Horizontal)
         # Round 314: усиление громкости. Юзер: «добавь усиление громкости».
         # VLC audio_set_volume принимает 0..200 (software gain до +6 dB,
@@ -3723,7 +4106,8 @@ class PlayerPage(QWidget):
         ctrl.addWidget(self.vol_slider)
 
         # Extra player controls
-        self.btn_aspect = QPushButton("Aspect: auto")
+        self.btn_aspect = QPushButton(t('aspect_auto'))
+        self.btn_aspect.setProperty('_t_key', 'aspect_auto')
         self.btn_aspect.clicked.connect(self.cycle_aspect_ratio)
         ctrl.addWidget(self.btn_aspect)
 
@@ -3731,7 +4115,8 @@ class PlayerPage(QWidget):
         self.btn_speed.clicked.connect(self.cycle_speed)
         ctrl.addWidget(self.btn_speed)
 
-        self.btn_audio = QPushButton("Audio")
+        self.btn_audio = QPushButton(t('audio_track'))
+        self.btn_audio.setProperty('_t_key', 'audio_track')
         # Round 312: открываем меню вместо циклического переключения.
         # Юзер: «нет выбора аудио дорожки» — Round 310 показал OSD но
         # сам цикл по 2-3 дорожкам это не «выбор». Теперь — QMenu со
@@ -3739,12 +4124,14 @@ class PlayerPage(QWidget):
         self.btn_audio.clicked.connect(self.show_audio_track_menu)
         ctrl.addWidget(self.btn_audio)
 
-        self.btn_sleep = QPushButton("Sleep")
+        self.btn_sleep = QPushButton(t('sleep_timer'))
+        self.btn_sleep.setProperty('_t_key', 'sleep_timer')
         self.btn_sleep.clicked.connect(self.configure_sleep_timer)
         ctrl.addWidget(self.btn_sleep)
 
-        self.btn_pip = QPushButton("PiP")
-        self.btn_pip.setToolTip("Mini player mode (P)")
+        self.btn_pip = QPushButton(t('pip'))
+        self.btn_pip.setProperty('_t_key', 'pip')
+        self.btn_pip.setToolTip(t('mini_player'))
         self.btn_pip.clicked.connect(self._on_pip_clicked)
         ctrl.addWidget(self.btn_pip)
 
@@ -4160,9 +4547,10 @@ class PlayerPage(QWidget):
         col = QVBoxLayout(self.channels_overlay)
         col.setContentsMargins(10, 10, 10, 10)
         col.setSpacing(8)
-        title = QLabel(t('panel_channels'))
-        title.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
-        col.addWidget(title)
+        self._channels_overlay_title = QLabel(t('panel_channels'))
+        self._channels_overlay_title.setProperty('_t_key', 'panel_channels')
+        self._channels_overlay_title.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
+        col.addWidget(self._channels_overlay_title)
         # Round 292: overlay_host — Qt.Tool top-level window. На
         # Windows клик в QLineEdit ВНУТРИ Tool-окна часто не отдаёт
         # ему keyboard focus (focus остаётся на owner-окне MainWindow).
@@ -4311,9 +4699,10 @@ class PlayerPage(QWidget):
         col = QVBoxLayout(self.categories_overlay)
         col.setContentsMargins(10, 10, 10, 10)
         col.setSpacing(8)
-        title = QLabel(t('panel_quick') if False else "Категории")
-        title.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
-        col.addWidget(title)
+        self._categories_overlay_title = QLabel(t('panel_categories'))
+        self._categories_overlay_title.setProperty('_t_key', 'panel_categories')
+        self._categories_overlay_title.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
+        col.addWidget(self._categories_overlay_title)
         self._cat_list = QListWidget()
         # Round 254: чёткое выделение фокуса. Юзер: «фокуса и выделения
         # выбранной строки нигде не видно». Толстая обводка + светлая
@@ -4350,10 +4739,11 @@ class PlayerPage(QWidget):
         inner = QVBoxLayout(card)
         inner.setContentsMargins(20, 20, 20, 20)
         inner.setSpacing(10)
-        title = QLabel(t('settings'))
-        title.setStyleSheet("color: white; font-size: 18px;"
+        self._center_menu_title = QLabel(t('settings'))
+        self._center_menu_title.setProperty('_t_key', 'settings')
+        self._center_menu_title.setStyleSheet("color: white; font-size: 18px;"
                             " font-weight: bold; padding-bottom: 4px;")
-        inner.addWidget(title)
+        inner.addWidget(self._center_menu_title)
 
         def _row(label, callback):
             b = QPushButton(label)
@@ -4392,12 +4782,16 @@ class PlayerPage(QWidget):
         self._center_menu_focused_idx = 0
         b1 = _row("⚙  " + t('settings'),
                   lambda: self._center_menu_action('settings'))
+        b1.setProperty('_t_key', 'settings'); b1.setProperty('_t_prefix', '⚙  ')
         b2 = _row("★  " + t('favorites'),
                   lambda: self._center_menu_action('favorites'))
+        b2.setProperty('_t_key', 'favorites'); b2.setProperty('_t_prefix', '★  ')
         b3 = _row("⏱  " + t('recent'),
                   lambda: self._center_menu_action('recent'))
-        b4 = _row("🔍  Поиск",
+        b3.setProperty('_t_key', 'recent'); b3.setProperty('_t_prefix', '⏱  ')
+        b4 = _row("🔍  " + t('menu_search'),
                   lambda: self._center_menu_action('search'))
+        b4.setProperty('_t_key', 'menu_search'); b4.setProperty('_t_prefix', '🔍  ')
         for bb in (b1, b2, b3, b4):
             bb.setFocusPolicy(Qt.StrongFocus)
             inner.addWidget(bb)
@@ -4541,9 +4935,10 @@ class PlayerPage(QWidget):
         col = QVBoxLayout(self.quick_overlay)
         col.setContentsMargins(10, 10, 10, 10)
         col.setSpacing(8)
-        title = QLabel(t('panel_quick'))
-        title.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
-        col.addWidget(title)
+        self._quick_overlay_title = QLabel(t('panel_quick'))
+        self._quick_overlay_title.setProperty('_t_key', 'panel_quick')
+        self._quick_overlay_title.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
+        col.addWidget(self._quick_overlay_title)
 
         # Round 256: список кнопок quick-overlay для D-pad навигации
         # (юзер: «не возможно перемещать строки в меню которая
@@ -4568,17 +4963,26 @@ class PlayerPage(QWidget):
             self._quick_overlay_buttons.append(b)
             return b
 
-        _btn(t('aspect'), self.cycle_aspect_ratio)
-        _btn(t('speed'), self.cycle_speed)
+        b_aspect = _btn(t('aspect'), self.cycle_aspect_ratio)
+        b_aspect.setProperty('_t_key', 'aspect')
+        b_speed = _btn(t('speed'), self.cycle_speed)
+        b_speed.setProperty('_t_key', 'speed')
         # Round 312: меню вместо цикла — см. self.show_audio_track_menu.
-        _btn(t('audio_track'), self.show_audio_track_menu)
-        _btn(t('sleep_timer'), self.configure_sleep_timer)
-        _btn(t('fullscreen'), self.toggle_fullscreen)
-        _btn(t('pip'), self._on_pip_clicked)
-        _btn("♥ " + t('favorites'), self.toggle_favorite)
+        b_audio = _btn(t('audio_track'), self.show_audio_track_menu)
+        b_audio.setProperty('_t_key', 'audio_track')
+        b_sleep = _btn(t('sleep_timer'), self.configure_sleep_timer)
+        b_sleep.setProperty('_t_key', 'sleep_timer')
+        b_fs = _btn(t('fullscreen'), self.toggle_fullscreen)
+        b_fs.setProperty('_t_key', 'fullscreen')
+        b_pip = _btn(t('pip'), self._on_pip_clicked)
+        b_pip.setProperty('_t_key', 'pip')
+        b_fav = _btn("♥ " + t('favorites'), self.toggle_favorite)
+        b_fav.setProperty('_t_key', 'favorites')
+        b_fav.setProperty('_t_prefix', '♥ ')
         # Round 297: «Показать список каналов» — переключает в левый
         # overlay списка каналов (как LEFT-пресс). Закрывает quick.
-        _btn("☰ Показать список каналов", self._show_channels_from_quick)
+        b_show = _btn(t('btn_show_channels'), self._show_channels_from_quick)
+        b_show.setProperty('_t_key', 'btn_show_channels')
         col.addStretch()
 
     def _show_channels_from_quick(self):
@@ -4609,6 +5013,8 @@ class PlayerPage(QWidget):
         bar.setContentsMargins(8, 8, 8, 8)
         bar.setSpacing(8)
         self.btn_panel_channels = QPushButton("☰ " + t('channels'))
+        self.btn_panel_channels.setProperty('_t_key', 'channels')
+        self.btn_panel_channels.setProperty('_t_prefix', '☰ ')
         self.btn_panel_channels.setStyleSheet(
             "background-color: rgba(15, 15, 26, 200); color: white;"
             " padding: 8px 14px; border-radius: 6px; border: 1px solid #7C6CF7;")
@@ -4616,6 +5022,8 @@ class PlayerPage(QWidget):
         bar.addWidget(self.btn_panel_channels)
         bar.addStretch()
         self.btn_panel_quick = QPushButton("⚙ " + t('settings'))
+        self.btn_panel_quick.setProperty('_t_key', 'settings')
+        self.btn_panel_quick.setProperty('_t_prefix', '⚙ ')
         self.btn_panel_quick.setStyleSheet(
             "background-color: rgba(15, 15, 26, 200); color: white;"
             " padding: 8px 14px; border-radius: 6px; border: 1px solid #7C6CF7;")
@@ -5229,29 +5637,24 @@ class PlayerPage(QWidget):
         QMessageBox.information(self, ch.name, "\n".join(lines))
 
     def retranslate_ui(self):
-        """Round 233: переводит все доступные подписи на лету."""
+        """Round 233/350: переводит все доступные подписи на лету
+        через generic helper (виджеты тагированы '_t_key' в init_ui /
+        _build_*_overlay)."""
         try:
-            if hasattr(self, 'btn_back'):
-                self.btn_back.setText(t('back'))
-            if hasattr(self, 'btn_prev'):
-                self.btn_prev.setText(t('prev'))
-            if hasattr(self, 'btn_next'):
-                self.btn_next.setText(t('next'))
-            if hasattr(self, 'btn_audio'):
-                self.btn_audio.setText(t('audio_track'))
-            if hasattr(self, 'btn_sleep'):
-                self.btn_sleep.setText(t('sleep_timer'))
-            if hasattr(self, 'btn_pip'):
-                self.btn_pip.setText(t('pip'))
-            if hasattr(self, 'btn_play'):
-                # play/pause label зависит от состояния — оставляем как есть.
-                pass
+            # Generic sweep — обходит сам PlayerPage и все overlay-окна.
+            _retranslate_widgets(self)
+            # overlay_host — top-level окно (родитель None), не дочернее
+            # PlayerPage, findChildren его не находит. Обрабатываем отдельно.
+            host = getattr(self, 'overlay_host', None)
+            if host is not None:
+                _retranslate_widgets(host)
             if hasattr(self, 'btn_panel_channels'):
                 self.btn_panel_channels.setText("☰ " + t('channels'))
             if hasattr(self, 'btn_panel_quick'):
                 self.btn_panel_quick.setText("⚙ " + t('settings'))
-        except Exception:
-            pass
+            # play/pause label зависит от состояния — оставляем как есть.
+        except Exception as e:
+            log_error('PlayerPage.retranslate_ui', e)
 
     def _show_channel_banner(self):
         if not self.channels or self.current_index >= len(self.channels):
@@ -6482,6 +6885,7 @@ class RecentPage(QWidget):
                 self._title.setText(t('recent'))
             if hasattr(self, '_btn_clear'):
                 self._btn_clear.setText(t('clear'))
+            _retranslate_widgets(self)
         except Exception as e:
             log_error('RecentPage.retranslate_ui', e)
 
@@ -6692,6 +7096,7 @@ class TvGuidePage(QWidget):
                 self.btn_refresh.setText("↻ " + t('updates'))
             if hasattr(self, 'search_edit'):
                 self.search_edit.setPlaceholderText(t('search_channels'))
+            _retranslate_widgets(self)
         except Exception as e:
             log_error('TvGuidePage.retranslate_ui', e)
 
@@ -6734,24 +7139,32 @@ class SettingsPage(QWidget):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(10)
 
-        title = QLabel(t('settings'))
-        title.setFont(QFont('Segoe UI', 22, QFont.Bold))
-        layout.addWidget(title)
+        # Round 350: каждый user-visible виджет тагается '_t_key'
+        # (или _t_suffix_key / _t_placeholder_key / _t_item_keys) чтобы
+        # retranslate_ui мог пройти findChildren и применить t(key).
+        self._title = QLabel(t('settings'))
+        self._title.setProperty('_t_key', 'settings')
+        self._title.setFont(QFont('Segoe UI', 22, QFont.Bold))
+        layout.addWidget(self._title)
         layout.addSpacing(8)
 
         # VLC status
-        vlc_status = "VLC: Installed" if HAS_VLC else "VLC: Not found - install VLC and python-vlc"
-        vlc_label = QLabel(vlc_status)
-        vlc_label.setStyleSheet(
+        self._vlc_label = QLabel(t('vlc_installed') if HAS_VLC else t('vlc_not_found'))
+        self._vlc_label.setProperty(
+            '_t_key', 'vlc_installed' if HAS_VLC else 'vlc_not_found')
+        self._vlc_label.setStyleSheet(
             f"color: {'#4ECDC4' if HAS_VLC else COLORS['error']}; font-size: 14px;")
-        layout.addWidget(vlc_label)
+        layout.addWidget(self._vlc_label)
         layout.addSpacing(12)
 
         # Round 232 (Windows): language selector — самое заметное чего
         # не было в Windows-версии раньше.
-        layout.addWidget(self._section(t('language')))
+        layout.addWidget(self._section('section_language'))
         lang_row = QHBoxLayout()
-        lang_row.addWidget(QLabel(t('language') + ":"))
+        self._lang_lbl = QLabel(t('language') + ":")
+        self._lang_lbl.setProperty('_t_key', 'language')
+        self._lang_lbl.setProperty('_t_suffix', ':')
+        lang_row.addWidget(self._lang_lbl)
         self.lang_combo = QComboBox()
         # Round 242: расширенный список языков как Android LocaleHelper.
         # 'system' = автодетект из локали ОС. Реально перевод есть для
@@ -6769,16 +7182,18 @@ class SettingsPage(QWidget):
         layout.addSpacing(12)
 
         # --- Playback section ---
-        layout.addWidget(self._section("Playback"))
+        layout.addWidget(self._section('section_playback'))
 
         # Buffer / network caching
         buf_row = QHBoxLayout()
-        buf_row.addWidget(QLabel("Buffer (network cache):"))
+        self._buf_lbl = QLabel(t('buffer_label'))
+        self._buf_lbl.setProperty('_t_key', 'buffer_label')
+        buf_row.addWidget(self._buf_lbl)
         self.buf_combo = QComboBox()
-        self.buf_combo.addItem("Low (1500 ms)", 1500)
-        self.buf_combo.addItem("Normal (3000 ms)", 3000)
-        self.buf_combo.addItem("High (6000 ms)", 6000)
-        self.buf_combo.addItem("Very high (10000 ms)", 10000)
+        _buf_keys = ['buffer_low', 'buffer_normal', 'buffer_high', 'buffer_very_high']
+        for k, v in zip(_buf_keys, (1500, 3000, 6000, 10000)):
+            self.buf_combo.addItem(t(k), v)
+        self.buf_combo.setProperty('_t_item_keys', _buf_keys)
         self._set_combo_by_value(self.buf_combo, self.config.network_caching_ms, default_idx=1)
         self.buf_combo.currentIndexChanged.connect(self._save_buffer)
         buf_row.addWidget(self.buf_combo, 1)
@@ -6786,7 +7201,9 @@ class SettingsPage(QWidget):
 
         # Default volume
         vol_row = QHBoxLayout()
-        vol_row.addWidget(QLabel("Default volume:"))
+        self._vol_lbl = QLabel(t('default_volume'))
+        self._vol_lbl.setProperty('_t_key', 'default_volume')
+        vol_row.addWidget(self._vol_lbl)
         self.vol_spin = QSpinBox()
         # Round 314: до 200% — усиление громкости (см. PlayerPage).
         self.vol_spin.setRange(0, 200)
@@ -6799,16 +7216,15 @@ class SettingsPage(QWidget):
 
         # Round 247: цветовая тема — как Android (5 вариантов).
         theme_row = QHBoxLayout()
-        theme_row.addWidget(QLabel("Цветовая тема:"))
+        self._theme_lbl = QLabel(t('color_theme'))
+        self._theme_lbl.setProperty('_t_key', 'color_theme')
+        theme_row.addWidget(self._theme_lbl)
         self.theme_combo = QComboBox()
-        for code, label in (
-            ('default', '🟣 Фиолетовый (по умолчанию)'),
-            ('blue',    '🔵 Синий'),
-            ('green',   '🟢 Зелёный'),
-            ('orange',  '🟠 Оранжевый'),
-            ('red',     '🔴 Красный'),
-        ):
-            self.theme_combo.addItem(label, code)
+        _theme_keys = ['theme_default', 'theme_blue', 'theme_green', 'theme_orange', 'theme_red']
+        _theme_codes = ['default', 'blue', 'green', 'orange', 'red']
+        for k, code in zip(_theme_keys, _theme_codes):
+            self.theme_combo.addItem(t(k), code)
+        self.theme_combo.setProperty('_t_item_keys', _theme_keys)
         cur_theme = getattr(self.config, 'theme_color', 'default')
         for i in range(self.theme_combo.count()):
             if self.theme_combo.itemData(i) == cur_theme:
@@ -6820,16 +7236,16 @@ class SettingsPage(QWidget):
 
         # Round 246: позиция персистентных часов в плеере.
         clock_row = QHBoxLayout()
-        clock_row.addWidget(QLabel("Часы в плеере:"))
+        self._clock_lbl = QLabel(t('clock_in_player_label'))
+        self._clock_lbl.setProperty('_t_key', 'clock_in_player_label')
+        clock_row.addWidget(self._clock_lbl)
         self.clock_combo = QComboBox()
-        for code, label in (
-            ('top_right',    'Верх-право'),
-            ('top_left',     'Верх-лево'),
-            ('bottom_right', 'Низ-право'),
-            ('bottom_left',  'Низ-лево'),
-            ('off',          'Скрыть'),
-        ):
-            self.clock_combo.addItem(label, code)
+        _clock_keys = ['clock_top_right', 'clock_top_left', 'clock_bottom_right',
+                       'clock_bottom_left', 'clock_off']
+        _clock_codes = ['top_right', 'top_left', 'bottom_right', 'bottom_left', 'off']
+        for k, code in zip(_clock_keys, _clock_codes):
+            self.clock_combo.addItem(t(k), code)
+        self.clock_combo.setProperty('_t_item_keys', _clock_keys)
         cur_pos = getattr(self.config, 'clock_position', 'top_right')
         for i in range(self.clock_combo.count()):
             if self.clock_combo.itemData(i) == cur_pos:
@@ -6841,10 +7257,13 @@ class SettingsPage(QWidget):
 
         # Sleep timer default
         sleep_row = QHBoxLayout()
-        sleep_row.addWidget(QLabel("Sleep timer (default):"))
+        self._sleep_lbl = QLabel(t('sleep_timer_default'))
+        self._sleep_lbl.setProperty('_t_key', 'sleep_timer_default')
+        sleep_row.addWidget(self._sleep_lbl)
         self.sleep_spin = QSpinBox()
         self.sleep_spin.setRange(0, 240)
-        self.sleep_spin.setSuffix(" min (0 = off)")
+        self.sleep_spin.setSuffix(t('sleep_minutes_off'))
+        self.sleep_spin.setProperty('_t_suffix_key', 'sleep_minutes_off')
         self.sleep_spin.setValue(self.config.sleep_timer_minutes)
         self.sleep_spin.valueChanged.connect(self._save_sleep)
         sleep_row.addWidget(self.sleep_spin)
@@ -6853,57 +7272,68 @@ class SettingsPage(QWidget):
 
         # --- Behaviour section ---
         layout.addSpacing(8)
-        layout.addWidget(self._section("Behaviour"))
+        layout.addWidget(self._section('section_behaviour'))
 
-        self.cb_autoplay = QCheckBox("Autoplay last channel on startup")
+        self.cb_autoplay = QCheckBox(t('autoplay_last_help'))
+        self.cb_autoplay.setProperty('_t_key', 'autoplay_last_help')
         self.cb_autoplay.setChecked(self.config.autoplay_last)
         self.cb_autoplay.toggled.connect(self._save_autoplay)
         layout.addWidget(self.cb_autoplay)
 
-        self.cb_fullscreen = QCheckBox("Open player in fullscreen")
+        self.cb_fullscreen = QCheckBox(t('open_player_fullscreen'))
+        self.cb_fullscreen.setProperty('_t_key', 'open_player_fullscreen')
         self.cb_fullscreen.setChecked(self.config.remember_fullscreen)
         self.cb_fullscreen.toggled.connect(self._save_fullscreen)
         layout.addWidget(self.cb_fullscreen)
 
-        self.cb_top = QCheckBox("Always on top (mini-player mode)")
+        self.cb_top = QCheckBox(t('always_on_top_mini'))
+        self.cb_top.setProperty('_t_key', 'always_on_top_mini')
         self.cb_top.setChecked(self.config.always_on_top)
         self.cb_top.toggled.connect(self._save_always_on_top)
         layout.addWidget(self.cb_top)
 
         # --- Advanced playback section ---
         layout.addSpacing(8)
-        layout.addWidget(self._section("Advanced (VLC)"))
+        layout.addWidget(self._section('section_advanced'))
 
-        self.cb_hwdec = QCheckBox("Hardware decoding (recommended)")
+        self.cb_hwdec = QCheckBox(t('hardware_decode_recommended'))
+        self.cb_hwdec.setProperty('_t_key', 'hardware_decode_recommended')
         self.cb_hwdec.setChecked(self.config.hardware_decode)
         self.cb_hwdec.toggled.connect(self._save_hwdec)
         layout.addWidget(self.cb_hwdec)
 
         ao_row = QHBoxLayout()
-        ao_row.addWidget(QLabel("Audio output:"))
+        self._ao_lbl = QLabel(t('audio_output'))
+        self._ao_lbl.setProperty('_t_key', 'audio_output')
+        ao_row.addWidget(self._ao_lbl)
         self.aout_combo = QComboBox()
-        self.aout_combo.addItem("Auto", "")
-        self.aout_combo.addItem("DirectSound", "directsound")
-        self.aout_combo.addItem("MMDevice (WASAPI)", "mmdevice")
-        self.aout_combo.addItem("WaveOut", "waveout")
+        _ao_keys = ['audio_output_auto', 'audio_output_directsound',
+                    'audio_output_mmdevice', 'audio_output_waveout']
+        _ao_codes = ['', 'directsound', 'mmdevice', 'waveout']
+        for k, code in zip(_ao_keys, _ao_codes):
+            self.aout_combo.addItem(t(k), code)
+        self.aout_combo.setProperty('_t_item_keys', _ao_keys)
         self._set_combo_by_value(self.aout_combo, self.config.audio_output, 0)
         self.aout_combo.currentIndexChanged.connect(self._save_aout)
         ao_row.addWidget(self.aout_combo, 1)
         layout.addLayout(ao_row)
 
         ua_row = QHBoxLayout()
-        ua_row.addWidget(QLabel("HTTP User-Agent:"))
+        self._ua_lbl = QLabel(t('user_agent'))
+        self._ua_lbl.setProperty('_t_key', 'user_agent')
+        ua_row.addWidget(self._ua_lbl)
         self.ua_edit = QLineEdit(self.config.user_agent)
         self.ua_edit.editingFinished.connect(self._save_ua)
         ua_row.addWidget(self.ua_edit, 1)
         layout.addLayout(ua_row)
-        ua_hint = QLabel("Note: changes take effect after restart.")
-        ua_hint.setStyleSheet(f"color: {COLORS['text_hint']}; font-size: 11px;")
-        layout.addWidget(ua_hint)
+        self._ua_hint = QLabel(t('ua_note_restart'))
+        self._ua_hint.setProperty('_t_key', 'ua_note_restart')
+        self._ua_hint.setStyleSheet(f"color: {COLORS['text_hint']}; font-size: 11px;")
+        layout.addWidget(self._ua_hint)
 
         # --- EPG sources ---
         layout.addSpacing(8)
-        layout.addWidget(self._section("EPG sources (multi-EPG)"))
+        layout.addWidget(self._section('section_epg_sources'))
 
         self.epg_list = QListWidget()
         self.epg_list.setMaximumHeight(120)
@@ -6912,59 +7342,75 @@ class SettingsPage(QWidget):
 
         epg_row = QHBoxLayout()
         self.epg_input = QLineEdit()
-        self.epg_input.setPlaceholderText("https://example.com/epg.xml.gz")
+        self.epg_input.setPlaceholderText(t('epg_url_placeholder'))
+        self.epg_input.setProperty('_t_placeholder_key', 'epg_url_placeholder')
         epg_row.addWidget(self.epg_input, 1)
-        btn_epg_add = QPushButton("Add")
-        btn_epg_add.clicked.connect(self._add_epg_url)
-        epg_row.addWidget(btn_epg_add)
-        btn_epg_del = QPushButton("Remove")
-        btn_epg_del.clicked.connect(self._remove_epg_url)
-        epg_row.addWidget(btn_epg_del)
+        self._btn_epg_add = QPushButton(t('add'))
+        self._btn_epg_add.setProperty('_t_key', 'add')
+        self._btn_epg_add.clicked.connect(self._add_epg_url)
+        epg_row.addWidget(self._btn_epg_add)
+        self._btn_epg_del = QPushButton(t('remove'))
+        self._btn_epg_del.setProperty('_t_key', 'remove')
+        self._btn_epg_del.clicked.connect(self._remove_epg_url)
+        epg_row.addWidget(self._btn_epg_del)
         layout.addLayout(epg_row)
-        epg_hint = QLabel("Programmes from all sources are merged. The playlist's url-tvg is always used.")
-        epg_hint.setStyleSheet(f"color: {COLORS['text_hint']}; font-size: 11px;")
-        layout.addWidget(epg_hint)
+        self._epg_hint = QLabel(t('epg_merged_note'))
+        self._epg_hint.setProperty('_t_key', 'epg_merged_note')
+        self._epg_hint.setStyleSheet(f"color: {COLORS['text_hint']}; font-size: 11px;")
+        layout.addWidget(self._epg_hint)
 
         # --- Data section ---
         layout.addSpacing(8)
-        layout.addWidget(self._section("Data"))
+        layout.addWidget(self._section('section_data'))
 
         data_row = QHBoxLayout()
-        btn_clear_fav = QPushButton("Clear favorites")
-        btn_clear_fav.clicked.connect(self._clear_favorites)
-        data_row.addWidget(btn_clear_fav)
-        btn_clear_recent = QPushButton("Clear recent")
-        btn_clear_recent.clicked.connect(self._clear_recent)
-        data_row.addWidget(btn_clear_recent)
-        btn_clear_pcs = QPushButton("Clear per-channel state")
-        btn_clear_pcs.clicked.connect(self._clear_per_channel_state)
-        data_row.addWidget(btn_clear_pcs)
-        btn_reset = QPushButton("Reset settings")
-        btn_reset.clicked.connect(self._reset_settings)
-        data_row.addWidget(btn_reset)
+        self._btn_clear_fav = QPushButton(t('clear_favorites'))
+        self._btn_clear_fav.setProperty('_t_key', 'clear_favorites')
+        self._btn_clear_fav.clicked.connect(self._clear_favorites)
+        data_row.addWidget(self._btn_clear_fav)
+        self._btn_clear_recent = QPushButton(t('clear_recent'))
+        self._btn_clear_recent.setProperty('_t_key', 'clear_recent')
+        self._btn_clear_recent.clicked.connect(self._clear_recent)
+        data_row.addWidget(self._btn_clear_recent)
+        self._btn_clear_pcs = QPushButton(t('clear_per_channel_state'))
+        self._btn_clear_pcs.setProperty('_t_key', 'clear_per_channel_state')
+        self._btn_clear_pcs.clicked.connect(self._clear_per_channel_state)
+        data_row.addWidget(self._btn_clear_pcs)
+        self._btn_reset = QPushButton(t('reset_settings_button'))
+        self._btn_reset.setProperty('_t_key', 'reset_settings_button')
+        self._btn_reset.clicked.connect(self._reset_settings)
+        data_row.addWidget(self._btn_reset)
         data_row.addStretch()
         layout.addLayout(data_row)
 
         # --- Updates ---
         layout.addSpacing(8)
-        layout.addWidget(self._section("Updates"))
+        layout.addWidget(self._section('section_updates'))
         # Round 263: показываем текущую версию ПРЯМО в Updates-секции
         # (юзер: «сам тоже не пишет какая у него сейчас версия»). До этого
         # версия была только в маленькой подписи внизу страницы.
-        cur_ver_label = QLabel(
-            f"Установлено: TVViewer v{WIN_VERSION_NAME} build {WIN_VERSION_CODE}")
-        cur_ver_label.setStyleSheet(
+        self._cur_ver_label = QLabel(
+            t('installed_template',
+              name=f"TVViewer v{WIN_VERSION_NAME}", build=WIN_VERSION_CODE))
+        self._cur_ver_label.setProperty('_t_key', 'installed_template')
+        self._cur_ver_label.setProperty(
+            '_t_kwargs', {'name': f"TVViewer v{WIN_VERSION_NAME}",
+                          'build': WIN_VERSION_CODE})
+        self._cur_ver_label.setStyleSheet(
             "color: white; font-size: 13px; font-weight: bold;"
             " padding: 4px 0;")
-        layout.addWidget(cur_ver_label)
+        layout.addWidget(self._cur_ver_label)
         upd_row = QHBoxLayout()
-        self.btn_check_updates = QPushButton("Check for updates")
+        self.btn_check_updates = QPushButton(t('check_for_updates'))
+        self.btn_check_updates.setProperty('_t_key', 'check_for_updates')
         self.btn_check_updates.clicked.connect(self._check_updates)
         upd_row.addWidget(self.btn_check_updates)
         # Round 263: дефолтный статус — показываем что мы знаем версию
         # ДО клика на «Check». Иначе юзер думает «ничего не пишет».
         self.update_status = QLabel(
-            f"Текущий build {WIN_VERSION_CODE}. Нажмите «Check for updates».")
+            t('current_build_status_template', build=WIN_VERSION_CODE))
+        self.update_status.setProperty('_t_key', 'current_build_status_template')
+        self.update_status.setProperty('_t_kwargs', {'build': WIN_VERSION_CODE})
         self.update_status.setStyleSheet(
             f"color: {COLORS['text_secondary']}; font-size: 12px;")
         self.update_status.setWordWrap(True)
@@ -6973,20 +7419,23 @@ class SettingsPage(QWidget):
         # Round 263: ручной fallback — открыть страницу релизов в
         # браузере. Если auto-check молчит / network падает / SSL —
         # юзер всегда может зайти руками и скачать TVViewer-update.exe.
-        btn_releases = QPushButton("Открыть страницу релизов")
-        btn_releases.clicked.connect(self._open_releases_page)
-        layout.addWidget(btn_releases)
+        self._btn_releases = QPushButton(t('open_releases'))
+        self._btn_releases.setProperty('_t_key', 'open_releases')
+        self._btn_releases.clicked.connect(self._open_releases_page)
+        layout.addWidget(self._btn_releases)
 
         # --- Help / report issue ---
         layout.addSpacing(8)
-        layout.addWidget(self._section("Help"))
+        layout.addWidget(self._section('section_help'))
         help_row = QHBoxLayout()
-        btn_report = QPushButton("Report a problem")
-        btn_report.clicked.connect(self._report_issue)
-        help_row.addWidget(btn_report)
-        btn_log = QPushButton("Open log folder")
-        btn_log.clicked.connect(self._open_log_dir)
-        help_row.addWidget(btn_log)
+        self._btn_report = QPushButton(t('report_issue'))
+        self._btn_report.setProperty('_t_key', 'report_issue')
+        self._btn_report.clicked.connect(self._report_issue)
+        help_row.addWidget(self._btn_report)
+        self._btn_log = QPushButton(t('open_log_folder'))
+        self._btn_log.setProperty('_t_key', 'open_log_folder')
+        self._btn_log.clicked.connect(self._open_log_dir)
+        help_row.addWidget(self._btn_log)
         help_row.addStretch()
         layout.addLayout(help_row)
 
@@ -7015,8 +7464,13 @@ class SettingsPage(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(scroll)
 
-    def _section(self, text: str) -> QLabel:
+    def _section(self, key_or_text: str) -> QLabel:
+        # Round 350: принимает translation KEY; запоминает его в
+        # property '_t_key' для retranslate_ui. Если передан raw-текст
+        # (без зарегистрированного перевода) — отображаем как есть.
+        text = t(key_or_text) if key_or_text in (TRANSLATIONS.get('en') or {}) else key_or_text
         lbl = QLabel(text)
+        lbl.setProperty('_t_key', key_or_text)
         lbl.setStyleSheet(
             f"color: {COLORS['secondary']}; font-size: 13px; font-weight: bold;"
             f" padding: 4px 0;")
@@ -7049,16 +7503,14 @@ class SettingsPage(QWidget):
         self.settings_changed.emit()  # MainWindow дёрнет _retranslate_all
 
     def retranslate_ui(self):
-        # SettingsPage.title и section-метки фиксируются в сборке.
-        # При смене языка достаточно обновить главный заголовок и
-        # известные QLabel'ы.
+        # Round 350: live-retranslate всех виджетов с '_t_key' свойством.
+        # Покрывает QLabel / QPushButton / QCheckBox / QSpinBox /
+        # QLineEdit / QComboBox.
+        from PyQt5.QtWidgets import QCheckBox, QSpinBox
         try:
-            for child in self.findChildren(QLabel):
-                # Заголовок «Settings»
-                if child.text() in ("Settings", "Настройки", "Налаштування", "Tənzimləmələr"):
-                    child.setText(t('settings'))
-        except Exception:
-            pass
+            _retranslate_widgets(self)
+        except Exception as e:
+            log_error('SettingsPage.retranslate_ui', e)
 
     def _save_theme(self, _idx):
         """Round 247: меняем цветовую тему — apply_theme +
