@@ -8715,39 +8715,54 @@ class MainWindow(QMainWindow):
         #   1) tvg-logo из плейлиста (уже разобран parse_m3u)
         #   2) learned_logos — что копили из ПРЕДЫДУЩИХ плейлистов
         #   3) iptv-org channels.json — синхронно, если БД уже в памяти
-        try:
-            if hasattr(self, 'learned_logos'):
-                self.learned_logos.fill_missing(self.channels)
-        except Exception as e:
-            log_error('learned_logos.fill', e)
-        try:
-            channel_meta_lookup.fill_missing_logos(self.channels)
-        except Exception:
-            pass
-        # Round 288: harvest — учим logo'и из ЭТОГО плейлиста для
-        # будущих. Делается ПОСЛЕ fill чтобы тоже подобрать iptv-org.
-        try:
-            if hasattr(self, 'learned_logos'):
-                self.learned_logos.harvest(self.channels)
-        except Exception as e:
-            log_error('learned_logos.harvest', e)
-        # Round 293: PRE-QUEUE логотипы в LogoCache СРАЗУ. Раньше URL'ы
-        # ставились в очередь только когда какая-то страница их
-        # рендерила. Если юзер сразу шёл на PlayerPage и оставался там,
-        # никто никогда не вызывал get() — папка оставалась пустой
-        # хотя URL'ы у нас были. Юзер: «и опять нет лого каналов».
-        try:
-            if self.logo_cache is not None:
-                queued = 0
-                for ch in self.channels:
-                    if ch.logo_url:
-                        self.logo_cache.get(ch.logo_url)
-                        queued += 1
-                log_info('logo', f"pre-queued {queued} logo URLs")
-        except Exception as e:
-            log_error('logo.prequeue', e)
-        self.channels_page.set_channels(self.channels, name, self.epg_data)
-        self.channels_page.status_label.setText(f"{len(self.channels)} channels loaded")
+        # Round 332: ВСЯ цепочка enrichment'а уходит в bg-нитку. Юзер:
+        # «опять есть зависания. сделай так чтобы ни одного зависания
+        # не было». Раньше fill_missing + harvest + json.dump (5-50мс на
+        # 3639 каналов) шли синхронно на main. Теперь bg-нитка делает
+        # всю обработку и возвращает в main только UI-кусок через
+        # _invoke_on_main (pre-queue в QObject LogoCache + set_channels).
+        import threading as _th
+
+        def _enrich_bg():
+            try:
+                if hasattr(self, 'learned_logos'):
+                    self.learned_logos.fill_missing(self.channels)
+            except Exception as e:
+                log_error('learned_logos.fill.bg', e)
+            try:
+                channel_meta_lookup.fill_missing_logos(self.channels)
+            except Exception:
+                pass
+            try:
+                if hasattr(self, 'learned_logos'):
+                    self.learned_logos.harvest(self.channels)
+            except Exception as e:
+                log_error('learned_logos.harvest.bg', e)
+            # UI часть в main.
+            def _ui_after_enrich():
+                try:
+                    if self.logo_cache is not None:
+                        queued = 0
+                        for ch in self.channels:
+                            if ch.logo_url:
+                                self.logo_cache.get(ch.logo_url)
+                                queued += 1
+                        log_info('logo', f"pre-queued {queued} logo URLs")
+                except Exception as e:
+                    log_error('logo.prequeue', e)
+                self.channels_page.set_channels(
+                    self.channels, name, self.epg_data)
+                self.channels_page.status_label.setText(
+                    f"{len(self.channels)} channels loaded")
+            self._invoke_on_main.emit(_ui_after_enrich)
+
+        _th.Thread(target=_enrich_bg, daemon=True,
+                   name='playlist-enrich').start()
+        # Round 332: пре-queue + set_channels теперь живут внутри
+        # _ui_after_enrich (см. _enrich_bg выше) — выполняются в main
+        # ТОЛЬКО после того как bg-нитка отработала enrichment, причём
+        # _invoke_on_main гарантирует доставку без QObject::startTimer
+        # варнинга.
         # Кикаем загрузку iptv-org БД (no-op если уже загружена), и
         # после готовности заново применяем fill_missing_logos +
         # обновляем UI + ставим в очередь LogoCache.
