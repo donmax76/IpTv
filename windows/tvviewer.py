@@ -6267,6 +6267,34 @@ class PlayerPage(QWidget):
 
             def _swap():
                 try:
+                    # Round 334: ПЕРЕД set_media явно прибиваем текущий
+                    # поток через stop(). Юзер: «когда подвис показ
+                    # канала пытаюсь открыть другой он не закрывая
+                    # основной открывает новое окно с другим каналом».
+                    # При подвисшем decode-thread'е set_media ждёт его
+                    # натурально (может 5-15 сек), а пока ждёт — VLC
+                    # на нашу set_hwnd-команду не реагирует и
+                    # «новый» декодер ренедерит в собственное окно.
+                    # player.stop() гарантирует что предыдущий поток
+                    # снят и HWND освобождён, set_media отрабатывает
+                    # на чистом плеере, set_hwnd попадает в нужное
+                    # место. Stop() уже в bg-нитке, UI не блокирует.
+                    try:
+                        player.stop()
+                    except Exception as _e_stop:
+                        log_warn('play_url',
+                                 f"pre-swap stop failed: {_e_stop}")
+                    # Round 334: HWND проставляем СНАЧАЛА — VLC
+                    # запоминает целевое окно до того как новая media
+                    # инициализирует декодер. Без этого иногда видео
+                    # уходит в дочернее VLC-окно если set_hwnd придёт
+                    # позже play().
+                    if hwnd is not None:
+                        player.set_hwnd(hwnd)
+                    elif xwin is not None:
+                        player.set_xwindow(xwin)
+                    elif nsobj is not None:
+                        player.set_nsobject(nsobj)
                     media = vlc_inst.media_new(url)
                     media.add_option(f':network-caching={net_cache}')
                     # Round 328: явно проставляем live-caching из конфига,
@@ -6279,7 +6307,8 @@ class PlayerPage(QWidget):
                     if referer_cfg:
                         media.add_option(f':http-referrer={referer_cfg}')
                     # set_media внутри STOP'ает текущий поток — это и
-                    # есть тот самый 16 сек блок.
+                    # есть тот самый 16 сек блок (теперь Round 334
+                    # снимает его явно выше).
                     player.set_media(media)
                     self.current_media = media
                     # Round 291: НЕ вызываем prev_media.release() —
@@ -6289,6 +6318,8 @@ class PlayerPage(QWidget):
                     #   OSError: access violation writing 0x...24
                     # Python-обёртка vlc.Media отпустит свою ссылку
                     # через GC когда prev_media выйдет из scope.
+                    # Round 334: повторный set_hwnd — на случай если
+                    # set_media сбросил привязку.
                     if hwnd is not None:
                         player.set_hwnd(hwnd)
                     elif xwin is not None:
