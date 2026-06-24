@@ -538,9 +538,9 @@ TRANSLATIONS = {
         'clear_recent': "Очистить недавние",
         'clear_per_channel_state': "Очистить состояние каналов",
         'check_for_updates': "Проверить обновления",
-        'open_releases': "Открыть страницу релизов на GitHub",
+        'open_releases': "Открыть страницу релизов",
         'open_log_folder': "Открыть папку логов",
-        'report_issue': "Сообщить о проблеме на GitHub",
+        'report_issue': "Сообщить о проблеме",
         'updates': "Обновления",
         'data': "Данные",
         'help': "Помощь",
@@ -580,8 +580,9 @@ TRANSLATIONS = {
         'on_latest_version': "У вас последняя версия",
         'new_build_available': "Доступен новый build {build}",
         'download_install': "Скачать и установить?",
-        'update_no_internet': "Не удалось связаться с GitHub (нет интернета?)",
+        'update_no_internet': "Не удалось связаться с сервером (нет интернета?)",
         'restart_required': "Требуется перезапуск приложения",
+        'no_playlist_yet': "Сначала добавьте плейлист на вкладке «Плейлисты».",
     },
     'en': {
         'app_name': "M3U IPTV",
@@ -636,9 +637,9 @@ TRANSLATIONS = {
         'clear_recent': "Clear recent",
         'clear_per_channel_state': "Clear per-channel state",
         'check_for_updates': "Check for updates",
-        'open_releases': "Open GitHub releases page",
+        'open_releases': "Open releases page",
         'open_log_folder': "Open log folder",
-        'report_issue': "Report a problem on GitHub",
+        'report_issue': "Report a problem",
         'updates': "Updates",
         'data': "Data",
         'help': "Help",
@@ -678,8 +679,9 @@ TRANSLATIONS = {
         'on_latest_version': "You're on the latest version",
         'new_build_available': "Build {build} available",
         'download_install': "Download and install?",
-        'update_no_internet': "Could not reach GitHub (no internet?)",
+        'update_no_internet': "Could not reach the server (no internet?)",
         'restart_required': "Application restart required",
+        'no_playlist_yet': "Add a playlist first on the Playlists tab.",
     },
     'uk': {
         'app_name': "M3U IPTV",
@@ -719,6 +721,68 @@ TRANSLATIONS = {
         'panel_channels': "Канали",
         'panel_quick': "Швидкі налаштування",
         'press_l_for_channels': "L — список каналів, R — налаштування",
+        # Round 328: бекфіл усіх ключів, які раніше були тільки в ru/en/az.
+        # Юзер: «перепроверь весь перевод».
+        'live': "Прямий ефір",
+        'add_url': "+ Додати URL",
+        'open_file': "+ Відкрити файл",
+        'xtream': "Xtream Codes",
+        'from_clipboard': "Вставити з буфера",
+        'xtream_codes': "Xtream Codes",
+        'add_playlist_title': "Додати плейлист",
+        'name_optional': "Назва (необов'язково)",
+        'mini_player': "Міні-плеєр (поверх інших вікон)",
+        'remember_fullscreen': "Запам'ятати повноекранний режим",
+        'always_on_top': "Поверх усіх вікон",
+        'mute': "Без звуку",
+        'channels_in_list': "{n} каналів",
+        'paste_url': "Вставте URL плейлиста",
+        'channel_sort': "Сортування каналів:",
+        'default_volume': "Гучність за замовчуванням:",
+        'autoplay_last': "Авто-відтворення останнього каналу",
+        'check_for_updates': "Перевірити оновлення",
+        'open_releases': "Відкрити сторінку релізів",
+        'open_log_folder': "Відкрити теку логів",
+        'report_issue': "Повідомити про проблему",
+        'updates': "Оновлення",
+        'data': "Дані",
+        'help': "Довідка",
+        'about': "Про програму",
+        'updates_check_in_progress': "Перевіряю…",
+        'on_latest_version': "У вас остання версія",
+        'new_build_available': "Доступний новий build {build}",
+        'download_install': "Завантажити та встановити?",
+        'update_no_internet': "Не вдалося зв'язатися з сервером (немає інтернету?)",
+        'restart_required': "Потрібен перезапуск програми",
+        'installed': "Встановлено",
+        'reset_settings': "Скинути налаштування",
+        'clear_favorites': "Очистити обране",
+        'clear_recent': "Очистити нещодавні",
+        'clear_per_channel_state': "Очистити стан каналів",
+        'now': "Зараз",
+        'next_program': "Далі",
+        'no_program': "Немає програми",
+        'channel': "Канал",
+        'select_playlist': "Виберіть плейлист",
+        'epg_sources': "Джерела EPG:",
+        'user_agent': "HTTP User-Agent:",
+        'audio_output': "Аудіо вихід:",
+        'color_theme': "Колірна тема:",
+        'hardware_decode': "Апаратне декодування",
+        'buffer_label': "Буфер (мережевий кеш):",
+        'add': "Додати",
+        'clear': "Очистити",
+        'ok': "OK",
+        'cancel': "Скасувати",
+        'save': "Зберегти",
+        'channels_count_short': "{n} каналів",
+        'channels_label': "Канали",
+        'playlists_label': "Плейлисти",
+        'favorites_label': "Обране",
+        'recent_label': "Нещодавні",
+        'tv_guide_label': "Телепрограма",
+        'search_channels': "Пошук каналів...",
+        'no_playlist_yet': "Спочатку додайте плейлист на вкладці «Плейлисти».",
     },
     'az': {
         'app_name': "M3U IPTV",
@@ -773,9 +837,9 @@ TRANSLATIONS = {
         'clear_recent': "Son baxılanları sil",
         'clear_per_channel_state': "Kanal vəziyyətlərini sil",
         'check_for_updates': "Yeniləmələri yoxla",
-        'open_releases': "GitHub releases səhifəsini aç",
+        'open_releases': "Buraxılışlar səhifəsini aç",
         'open_log_folder': "Loq qovluğunu aç",
-        'report_issue': "GitHub-da problem bildir",
+        'report_issue': "Problem bildir",
         'updates': "Yeniləmələr",
         'data': "Məlumatlar",
         'help': "Kömək",
@@ -815,8 +879,9 @@ TRANSLATIONS = {
         'on_latest_version': "Sizdə ən son versiyadır",
         'new_build_available': "Build {build} mövcuddur",
         'download_install': "Yükləyib quraşdırmaq?",
-        'update_no_internet': "GitHub-a çatmaq mümkün olmadı",
+        'update_no_internet': "Serverə bağlanmaq mümkün olmadı",
         'restart_required': "Tətbiqi yenidən başlatmaq lazımdır",
+        'no_playlist_yet': "Əvvəlcə «Pleylistlər» bölməsində pleylist əlavə edin.",
     },
 }
 
@@ -1092,7 +1157,11 @@ class Config:
         self.volume = 80
         # Round 292: 9000мс — выше Android normal (6000), ближе к high.
         # Юзер жалуется на запинку видео — больший буфер устойчивее.
-        self.network_caching_ms = 9000
+        # Round 328: 9000 → 5000. Юзер: «при автооткрытии последнего
+        # канала появляется звук а еще через несколько сек уже и само
+        # изображение». 5 сек хватает для стабильности и в 2 раза
+        # быстрее старт. Юзер может вернуть 9000 в Настройках.
+        self.network_caching_ms = 5000
         self.autoplay_last = False         # open last channel on startup
         self.remember_fullscreen = False   # restore fullscreen on player open
         self.sleep_timer_minutes = 0       # 0 = off
@@ -1119,9 +1188,11 @@ class Config:
             sys_lang = (_locale.getdefaultlocale()[0] or "")[:2].lower()
         except Exception:
             pass
-        # Round 278: дефолт — English (юзер: «язык сделай по умолчанию
-        # английский»). Если системная локаль = ru/uk/az — берём её.
-        self.ui_language = sys_lang if sys_lang in ("ru", "en", "uk", "az") else "en"
+        # Round 278/328: дефолт ЖЁСТКО English (юзер повторил: «язык по
+        # умолчанию английский должен быть»). Системная локаль больше
+        # не подсасывается на первом запуске — пользователь может
+        # сменить язык вручную в Settings.
+        self.ui_language = "en"
         self.load()
 
     RECENT_LIMIT = 30
@@ -1226,7 +1297,7 @@ class Config:
             'clock_position': self.clock_position,
             'theme_color': self.theme_color,
             'per_channel_state': self.per_channel_state,
-            'ui_language': getattr(self, 'ui_language', 'ru'),
+            'ui_language': getattr(self, 'ui_language', 'en'),
         }
         try:
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
@@ -5318,9 +5389,17 @@ class PlayerPage(QWidget):
                 # Round 292: буфер 9 сек — Android «high» mode
                 # (DefaultLoadControl 20000/40000) использует ещё больше,
                 # но 9 сек на live достаточно чтобы не запинаться.
-                '--live-caching=9000',
-                '--network-caching=9000',
-                '--file-caching=9000',
+                # Round 328: 9000 → 5000. Юзер: «при автооткрытии
+                # последнего канала появляется звук а еще через
+                # несколько сек уже и само изображение». VLC ждёт
+                # пока буфер наполнится до live-caching МС — 5 сек
+                # достаточно для стабильной картинки и в 2 раза
+                # быстрее старт. На каждое медиа также добавляется
+                # `:live-caching` из config (см. _swap), так что
+                # юзер может вернуть 9000 в Настройках если запинки.
+                '--live-caching=5000',
+                '--network-caching=5000',
+                '--file-caching=5000',
                 '--audio-resampler=soxr',
                 '--audio-time-stretch',
                 # Round 292: явно отключаем deinterlace — на multistream
@@ -5690,6 +5769,10 @@ class PlayerPage(QWidget):
                 try:
                     media = vlc_inst.media_new(url)
                     media.add_option(f':network-caching={net_cache}')
+                    # Round 328: явно проставляем live-caching из конфига,
+                    # чтобы не зависеть от глобального --live-caching из
+                    # init_vlc. Меньше буфер = быстрее старт канала.
+                    media.add_option(f':live-caching={net_cache}')
                     # Round 288: HTTP headers — UA + Referer на media.
                     if ua_cfg:
                         media.add_option(f':http-user-agent={ua_cfg}')
@@ -6675,7 +6758,7 @@ class SettingsPage(QWidget):
         # ru/en/uk/az; остальные показываются по дефолту (ru).
         for code, label in SUPPORTED_LANGUAGES:
             self.lang_combo.addItem(label, code)
-        cur_lang = getattr(self.config, 'ui_language', 'ru')
+        cur_lang = getattr(self.config, 'ui_language', 'en')
         for i in range(self.lang_combo.count()):
             if self.lang_combo.itemData(i) == cur_lang:
                 self.lang_combo.setCurrentIndex(i)
@@ -6890,7 +6973,7 @@ class SettingsPage(QWidget):
         # Round 263: ручной fallback — открыть страницу релизов в
         # браузере. Если auto-check молчит / network падает / SSL —
         # юзер всегда может зайти руками и скачать TVViewer-update.exe.
-        btn_releases = QPushButton("Открыть страницу релизов на GitHub")
+        btn_releases = QPushButton("Открыть страницу релизов")
         btn_releases.clicked.connect(self._open_releases_page)
         layout.addWidget(btn_releases)
 
@@ -6898,7 +6981,7 @@ class SettingsPage(QWidget):
         layout.addSpacing(8)
         layout.addWidget(self._section("Help"))
         help_row = QHBoxLayout()
-        btn_report = QPushButton("Report a problem on GitHub")
+        btn_report = QPushButton("Report a problem")
         btn_report.clicked.connect(self._report_issue)
         help_row.addWidget(btn_report)
         btn_log = QPushButton("Open log folder")
@@ -6958,7 +7041,7 @@ class SettingsPage(QWidget):
         # retranslate_ui всё ещё застряют со старыми подписями до
         # перезапуска, но navigation + ключевые экраны обновляются.
         code = self.lang_combo.currentData()
-        if not code or code == getattr(self.config, 'ui_language', 'ru'):
+        if not code or code == getattr(self.config, 'ui_language', 'en'):
             return
         self.config.ui_language = code
         self.config.save_async()
@@ -7097,9 +7180,9 @@ class SettingsPage(QWidget):
             import webbrowser
             webbrowser.open(url)
             QMessageBox.information(self, "Report sent",
-                "Лог отправлен на ntfy и URL для GitHub Issue скопирован в буфер обмена.")
+                "Лог отправлен и URL для отчёта скопирован в буфер обмена.")
         except Exception as e:
-            QMessageBox.warning(self, "Report issue", f"Could not open GitHub: {e}")
+            QMessageBox.warning(self, "Report issue", f"Could not open the page: {e}")
 
     def _open_log_dir(self):
         try:
@@ -7137,7 +7220,7 @@ class SettingsPage(QWidget):
         cur = WIN_VERSION_CODE
         if not isinstance(info, dict):
             self.update_status.setText(
-                f"Текущий build {cur}. GitHub недоступен. См. tvviewer.log.")
+                f"Текущий build {cur}. Сервер недоступен. См. tvviewer.log.")
             log_warn('update', "manual check: info is None (network or parse error)")
             # Round 263: даже когда сеть не отдала — показываем юзеру
             # его текущую версию и подсказываем как смотреть лог.
@@ -7145,7 +7228,7 @@ class SettingsPage(QWidget):
                 self, "Updates",
                 f"Текущая установленная версия:\n"
                 f"TVViewer v{WIN_VERSION_NAME} build {cur}\n\n"
-                "Не удалось связаться с GitHub (нет сети / firewall /\n"
+                "Не удалось связаться с сервером (нет сети / firewall /\n"
                 "блокировка SSL в этой сборке PyInstaller).\n\n"
                 "Подробности — в файле tvviewer.log (нажмите\n"
                 "«Open log folder» в этой же вкладке Настроек).")
@@ -7154,12 +7237,12 @@ class SettingsPage(QWidget):
         log_info('update', f"check result: latest={latest} current={cur} url={info.get('url','')}")
         if latest <= cur:
             self.update_status.setText(
-                f"У вас последняя версия — build {cur}. На GitHub: {latest}.")
+                f"У вас последняя версия — build {cur}. На сервере: {latest}.")
             QMessageBox.information(
                 self, "Updates",
                 f"You're on the latest version.\n\n"
                 f"Installed: TVViewer v{WIN_VERSION_NAME} build {cur}\n"
-                f"GitHub:    build {latest}")
+                f"Server:    build {latest}")
             return
         # Newer build available — offer to download & install
         msg = (f"New build {latest} available (you have {cur}).\n\n"
@@ -7663,6 +7746,16 @@ class MainWindow(QMainWindow):
         nav_layout.setContentsMargins(0, 0, 0, 0)
         nav_layout.setSpacing(0)
 
+        # Round 328: «← Назад» кнопка слева для возврата в предыдущую
+        # вкладку. Юзер: «Добавь возможность возврата из других окон
+        # в основную там откуда оно было открыто».
+        self._btn_back = QPushButton("← Назад")
+        self._btn_back.setObjectName("navBtn")
+        self._btn_back.setFixedWidth(110)
+        self._btn_back.clicked.connect(self.go_back)
+        self._btn_back.setEnabled(False)
+        nav_layout.addWidget(self._btn_back)
+
         # Round 233/235/241: nav-кнопки с translation-ключом + Material
         # Unicode-иконкой. Home (index 7) добавлен первым.
         self.nav_buttons = []
@@ -7720,6 +7813,23 @@ class MainWindow(QMainWindow):
         # режима»). И наоборот: на плеере прячем chrome всегда —
         # всегда «фул-скрин-выгляд» без F11.
         try:
+            # Round 328: трекаем историю навигации для «Назад» (Backspace
+            # на не-плеере). Юзер: «Добавь возможность возврата из
+            # других окон в основную там откуда оно было открыто».
+            # Игнорируем дубли подряд и переходы внутри одной вкладки.
+            # _suppress_nav_history выставляется в go_back чтобы возврат
+            # не добавлял запись обратно в стек.
+            if not hasattr(self, '_nav_history'):
+                self._nav_history = []
+            cur_idx = self.stack.currentIndex()
+            if (not getattr(self, '_suppress_nav_history', False)
+                    and cur_idx != idx
+                    and (not self._nav_history
+                         or self._nav_history[-1] != cur_idx)):
+                self._nav_history.append(cur_idx)
+                # Cap чтобы не разрастался — 20 шагов хватит.
+                if len(self._nav_history) > 20:
+                    self._nav_history = self._nav_history[-20:]
             log_info('nav', f"switch_page → {idx}")
             going_to_player = (idx == 3)
             # Round 257/326: раньше при переходе на ЛЮБУЮ страницу
@@ -7749,6 +7859,12 @@ class MainWindow(QMainWindow):
         self.player_page.stop()
         self.stack.setCurrentIndex(idx)
         self.update_nav_highlight(idx)
+        # Round 328: «← Назад» enabled только когда есть куда возвращаться.
+        try:
+            if hasattr(self, '_btn_back'):
+                self._btn_back.setEnabled(bool(self._nav_history))
+        except Exception:
+            pass
         focus_target = None
         if idx == 1 and self.channels_page.channel_list.count():
             focus_target = self.channels_page.channel_list
@@ -7768,6 +7884,26 @@ class MainWindow(QMainWindow):
             return
         super().keyPressEvent(event)
 
+    def go_back(self):
+        """Round 328: возврат на предыдущую страницу из истории.
+        Юзер: «Добавь возможность возврата из других окон в основную
+        там откуда оно было открыто». Если истории нет — на Home."""
+        try:
+            history = getattr(self, '_nav_history', None) or []
+            if history:
+                prev = history.pop()
+                self._nav_history = history
+                log_info('nav', f"go_back → {prev}")
+                self._suppress_nav_history = True
+                try:
+                    self.switch_page(prev)
+                finally:
+                    self._suppress_nav_history = False
+            elif hasattr(self, '_home_index'):
+                self.switch_page(self._home_index)
+        except Exception as e:
+            log_error('go_back', e)
+
     def _handle_key(self, key):
         """Round 248: единый обработчик хоткеев. Вызывается и из
         keyPressEvent, и из application-level event filter (чтобы
@@ -7785,6 +7921,16 @@ class MainWindow(QMainWindow):
                     self.toggle_pip_mode()
                     return True
             current = self.stack.currentWidget()
+            # Round 328: Backspace на не-плеере = «Назад» (история).
+            # На плеере у Backspace своё значение (закрыть overlay /
+            # выйти из fullscreen — см. ниже).
+            if (key in (Qt.Key_Backspace, Qt.Key_Escape)
+                    and not isinstance(current, PlayerPage)):
+                # Не мешаем редактированию в QLineEdit.
+                fw = QApplication.focusWidget()
+                if not isinstance(fw, QLineEdit):
+                    self.go_back()
+                    return True
             if isinstance(current, PlayerPage):
                 # Esc / Backspace — закрыть оверлей или вернуться назад.
                 if key in (Qt.Key_Escape, Qt.Key_Backspace):
@@ -8394,11 +8540,7 @@ class MainWindow(QMainWindow):
             self.load_playlist(self.config.last_playlist_name or "Playlist", last_pl)
             return
         # Иначе подсказка: открыть плейлисты.
-        QMessageBox.information(
-            self, t('app_name'),
-            "Сначала добавьте плейлист на вкладке «Плейлисты»."
-            if _CURRENT_LANG == 'ru'
-            else "Add a playlist first on the Playlists tab.")
+        QMessageBox.information(self, t('app_name'), t('no_playlist_yet'))
         self.switch_page(0)
 
     def toggle_pip_mode(self):
@@ -8587,7 +8729,7 @@ def _install_crash_handler(app):
                 msg.setText("An unexpected error occurred.")
                 msg.setInformativeText(str(exc_value)[:300])
                 msg.setDetailedText(tb_text[-3000:])
-                btn_report = msg.addButton("Report on GitHub", QMessageBox.AcceptRole)
+                btn_report = msg.addButton("Сообщить о проблеме", QMessageBox.AcceptRole)
                 btn_copy = msg.addButton("Copy stacktrace", QMessageBox.ActionRole)
                 msg.addButton(QMessageBox.Close)
                 msg.exec_()
@@ -8832,7 +8974,7 @@ def main():
     # тоже инициализирует Config, но мы это делаем СНАЧАЛА чтобы при
     # рендере виджетов уже была правильная локаль.
     _bootstrap_cfg = Config()
-    set_ui_language(getattr(_bootstrap_cfg, 'ui_language', 'ru'))
+    set_ui_language(getattr(_bootstrap_cfg, 'ui_language', 'en'))
     # Round 247: применяем выбранную цветовую тему ДО setStyleSheet.
     apply_theme(getattr(_bootstrap_cfg, 'theme_color', 'default'))
     app.setStyleSheet(STYLESHEET)
