@@ -4183,6 +4183,16 @@ class PlayerPage(QWidget):
         self.resolution_label.setFont(QFont('Segoe UI', 12, QFont.Bold))
         self.resolution_label.setStyleSheet("background: transparent;")
         self.resolution_label.hide()
+        # Round 331: большой OSD цифр ввода номера канала. Юзер: «при
+        # вводе от руки номер канала пускай пишет вводимый номер 165 с
+        # начало 1 потом 6 потом 5 и если нет 1-2 сек то переходит на
+        # этот канал». ClockLabel рендерит белый текст с чёрной обводкой
+        # без layered-window — идеально поверх-видео. Прозрачный фон,
+        # центр-верх. _number_timer (1500мс) уже коммитит выбор.
+        self.number_input_osd = ClockLabel(self.overlay_host)
+        self.number_input_osd.setFont(QFont('Segoe UI', 96, QFont.Bold))
+        self.number_input_osd.setStyleSheet("background: transparent;")
+        self.number_input_osd.hide()
         self._resolution_poll_timer = QTimer(self)
         self._resolution_poll_timer.setInterval(1000)
         self._resolution_poll_timer.timeout.connect(self._poll_resolution)
@@ -5132,6 +5142,20 @@ class PlayerPage(QWidget):
             # Round 299: лейбл разрешения тоже фиксим — иначе при
             # переходе в fullscreen старая позиция оказывалась в центре.
             self._position_resolution_label()
+            # Round 331: large number-input OSD тоже пере-центрируем
+            # при ресайзе / fullscreen.
+            try:
+                if hasattr(self, 'number_input_osd') and self.number_input_osd.isVisible():
+                    self.number_input_osd.adjustSize()
+                    nw = self.number_input_osd.width()
+                    nh = self.number_input_osd.height()
+                    pw2 = self.overlay_host.width()
+                    ph2 = self.overlay_host.height()
+                    self.number_input_osd.move(
+                        max(0, (pw2 - nw) // 2), max(0, int(ph2 * 0.15)))
+                    self.number_input_osd.raise_()
+            except Exception:
+                pass
             # Round 330: переезд _mini_osd (канальная карточка с именем).
             # Юзер: «при открытии он запускает последний канал и на
             # полный экран когда делает он информационную панель с
@@ -6687,14 +6711,43 @@ class PlayerPage(QWidget):
     # --- Number input (digit keys select channel number) ---
 
     def _handle_digit(self, digit: int):
-        self._number_input += str(digit)
+        # Round 331: ограничиваем 4 цифрами (никто не нумерует > 9999).
+        self._number_input = (self._number_input + str(digit))[-4:]
         self.number_label.setText(self._number_input)
+        self._show_number_input_osd(self._number_input)
         self._number_timer.start()
+
+    def _show_number_input_osd(self, text: str):
+        """Round 331: рисуем большие белые цифры по центру-верху видео
+        пока юзер вводит номер канала. Через 1500мс _number_timer
+        дёрнет _apply_number_input → канал переключится, OSD спрячется."""
+        try:
+            if not hasattr(self, 'number_input_osd'):
+                return
+            self.number_input_osd.setText(text)
+            self.number_input_osd.adjustSize()
+            pw = self.overlay_host.width()
+            ph = self.overlay_host.height()
+            w = self.number_input_osd.width()
+            h = self.number_input_osd.height()
+            if pw > 0 and ph > 0:
+                self.number_input_osd.move(
+                    max(0, (pw - w) // 2), max(0, int(ph * 0.15)))
+            self.number_input_osd.show()
+            self.number_input_osd.raise_()
+        except Exception as e:
+            log_error('_show_number_input_osd', e)
 
     def _apply_number_input(self):
         txt = self._number_input
         self._number_input = ""
         self.number_label.setText("")
+        # Round 331: прячем большой OSD цифр после применения.
+        try:
+            if hasattr(self, 'number_input_osd'):
+                self.number_input_osd.hide()
+        except Exception:
+            pass
         if not txt or not self.channels:
             return
         try:
@@ -8574,13 +8627,11 @@ class MainWindow(QMainWindow):
                         current.vol_slider.setValue(max(0, current.vol_slider.value() - 5))
                         return True
                 # Цифровые клавиши 0-9 — ввод номера канала.
+                # Round 331: единая точка через _handle_digit — она
+                # показывает большой OSD-цифр поверх видео.
                 if Qt.Key_0 <= key <= Qt.Key_9:
                     try:
-                        digit = key - Qt.Key_0
-                        cur = getattr(current, '_number_input', '')
-                        current._number_input = (cur + str(digit))[-4:]
-                        current.number_label.setText(current._number_input)
-                        current._number_timer.start()
+                        current._handle_digit(key - Qt.Key_0)
                     except Exception:
                         pass
                     return True
