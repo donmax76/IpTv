@@ -6118,10 +6118,25 @@ class PlayerPage(QWidget):
 
     def configure_sleep_timer(self):
         from PyQt5.QtWidgets import QInputDialog
+        # Round 327: запоминаем состояние fullscreen ДО открытия диалога.
+        # Юзер: «не только при нажатии на настройки а на все кнопки в
+        # появившемся меню». Windows иногда демотит fullscreen-окно
+        # когда от него уходит фокус на модальный диалог. Сами диалоги
+        # мы не убираем (они нужны), но восстанавливаем fullscreen
+        # после закрытия.
+        w = self.window()
+        was_fs = w is not None and w.isFullScreen()
         mins, ok = QInputDialog.getInt(
             self, "Sleep timer",
             "Minutes until pause (0 = off):",
             max(0, self.config.sleep_timer_minutes), 0, 240, 5)
+        if was_fs and w is not None and not w.isFullScreen():
+            try:
+                w.showFullScreen()
+                if hasattr(w, '_apply_fullscreen_chrome'):
+                    w._apply_fullscreen_chrome(True)
+            except Exception:
+                pass
         if not ok:
             return
         self._start_sleep_timer(mins)
