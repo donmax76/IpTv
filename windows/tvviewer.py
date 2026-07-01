@@ -9465,6 +9465,38 @@ class MainWindow(QMainWindow):
         self.loader_thread.error.connect(self.on_playlist_error)
         self.loader_thread.start()
 
+    def _prequeue_logos_chunked(self, channels, tag=''):
+        """Round 347: раньше pre-queue логотипов шёл ОДНИМ синхронным
+        циклом по self.channels на main thread — logo_cache.get()
+        внутри дёргает os.path.exists() на диск на КАЖДЫЙ канал. Юзер
+        поймал watchdog-стек 15.6с: _run_on_main → _ui_after_enrich →
+        get → os.path.exists. На плейлисте в тысячи каналов это тысячи
+        синхронных стат-вызовов подряд (особенно медленно под
+        антивирусом). Дробим на чанки через QTimer — тот же паттерн,
+        что и везде в проекте (Round 305/319/345)."""
+        if self.logo_cache is None:
+            return
+        chs = list(channels)
+        state = {'i': 0, 'queued': 0}
+        CHUNK = 200
+
+        def _step():
+            cache = self.logo_cache
+            i = state['i']
+            end = min(i + CHUNK, len(chs))
+            for j in range(i, end):
+                ch = chs[j]
+                if ch.logo_url:
+                    cache.get(ch.logo_url)
+                    state['queued'] += 1
+            state['i'] = end
+            if end < len(chs):
+                QTimer.singleShot(0, _step)
+            else:
+                log_info('logo', f"{tag}pre-queued {state['queued']} logo URLs")
+
+        _step()
+
     def on_playlist_loaded(self, result: PlaylistResult, name: str):
         self.channels = result.channels
         # Round 288: тройная стратегия логотипов — порт Android.
@@ -9497,13 +9529,7 @@ class MainWindow(QMainWindow):
             # UI часть в main.
             def _ui_after_enrich():
                 try:
-                    if self.logo_cache is not None:
-                        queued = 0
-                        for ch in self.channels:
-                            if ch.logo_url:
-                                self.logo_cache.get(ch.logo_url)
-                                queued += 1
-                        log_info('logo', f"pre-queued {queued} logo URLs")
+                    self._prequeue_logos_chunked(self.channels)
                 except Exception as e:
                     log_error('logo.prequeue', e)
                 self.channels_page.set_channels(
@@ -9588,17 +9614,11 @@ class MainWindow(QMainWindow):
                         pass
                 # Возвращаемся в main thread для UI.
                 def _ui():
-                    queued = 0
                     try:
-                        if self.logo_cache is not None:
-                            for ch in self.channels:
-                                if ch.logo_url:
-                                    self.logo_cache.get(ch.logo_url)
-                                    queued += 1
+                        self._prequeue_logos_chunked(
+                            self.channels, tag='post-meta ')
                     except Exception:
                         pass
-                    log_info('logo',
-                             f"post-meta pre-queued {queued} logo URLs")
                     if enriched and hasattr(self, 'channels_page'):
                         self.channels_page.set_channels(
                             self.channels, name, self.epg_data)
