@@ -7684,45 +7684,92 @@ class TvGuidePage(QWidget):
         # _tick'ом каждые 60 сек ДАЖЕ когда юзер на PlayerPage и смотрит
         # FullHD. Это и было основной причиной зависаний. Теперь — только
         # когда страница видна.
+        # Round 345: чанкуем как ChannelsPage.filter_channels (Round 305)
+        # — юзер: «она опять зависает при переходе на другую вкладку».
+        # Этот метод целиком синхронно перебирал ВСЕ каналы на главном
+        # потоке при каждом открытии вкладки «ТВ-гид» — единственное
+        # место в проекте, которое так и не получило чанкинг. Первые 50
+        # строим сразу (юзер видит верх списка мгновенно), остальное —
+        # через QTimer 30мс, как везде.
         if not self.isVisible():
             return
         query = self.search_edit.text().strip().lower()
+        filtered = [(idx, ch) for idx, ch in enumerate(self.channels)
+                   if not query or query in ch.name.lower()]
+        self._guide_filter_state = {'items': filtered, 'next_idx': 0}
         lst = self.guide_list
         lst.setUpdatesEnabled(False)
         try:
             lst.clear()
-            count = 0
-            for idx, ch in enumerate(self.channels):
-                if query and query not in ch.name.lower():
-                    continue
-                now_prog, next_prog = get_now_next(self.epg_data, ch.tvg_id, ch.name)
-                if now_prog:
-                    try:
-                        t1 = datetime.fromtimestamp(now_prog.start).strftime('%H:%M')
-                        t2 = datetime.fromtimestamp(now_prog.end).strftime('%H:%M')
-                        now_text = f"  ▶ {t1}–{t2}  {now_prog.title}"
-                    except (OSError, ValueError):
-                        now_text = f"  ▶ {now_prog.title}"
-                else:
-                    now_text = "  ▶ —"
-                next_text = ""
-                if next_prog:
-                    try:
-                        nt = datetime.fromtimestamp(next_prog.start).strftime('%H:%M')
-                        next_text = f"\n  ⏭ {nt}  {next_prog.title}"
-                    except (OSError, ValueError):
-                        next_text = f"\n  ⏭ {next_prog.title}"
-                item = QListWidgetItem(f"{ch.name}{now_text}{next_text}")
-                item.setData(Qt.UserRole, idx)
-                icon = None
-                if self.logo_cache is not None and ch.logo_url:
-                    icon = self.logo_cache.get(ch.logo_url)
-                item.setIcon(icon if icon is not None else make_letter_tile_icon(ch.name))
-                lst.addItem(item)
-                count += 1
+            first = min(50, len(filtered))
+            for k in range(first):
+                self._append_guide_item(*filtered[k])
+            self._guide_filter_state['next_idx'] = first
         finally:
             lst.setUpdatesEnabled(True)
-        self.status.setText(f"{count} channels · updated {datetime.now().strftime('%H:%M')}")
+        self.status.setText(
+            f"{len(filtered)} channels · updated {datetime.now().strftime('%H:%M')}")
+        if len(filtered) > 50:
+            if not hasattr(self, '_guide_chunk_timer'):
+                self._guide_chunk_timer = QTimer(self)
+                self._guide_chunk_timer.setInterval(30)
+                self._guide_chunk_timer.timeout.connect(self._fill_guide_chunk)
+            self._guide_chunk_timer.start()
+        elif hasattr(self, '_guide_chunk_timer'):
+            self._guide_chunk_timer.stop()
+
+    def _append_guide_item(self, idx, ch):
+        """Round 345: добавляет ОДНУ строку в guide_list. Выделено из
+        refresh_list для переиспользования в чанках."""
+        lst = self.guide_list
+        now_prog, next_prog = get_now_next(self.epg_data, ch.tvg_id, ch.name)
+        if now_prog:
+            try:
+                t1 = datetime.fromtimestamp(now_prog.start).strftime('%H:%M')
+                t2 = datetime.fromtimestamp(now_prog.end).strftime('%H:%M')
+                now_text = f"  ▶ {t1}–{t2}  {now_prog.title}"
+            except (OSError, ValueError):
+                now_text = f"  ▶ {now_prog.title}"
+        else:
+            now_text = "  ▶ —"
+        next_text = ""
+        if next_prog:
+            try:
+                nt = datetime.fromtimestamp(next_prog.start).strftime('%H:%M')
+                next_text = f"\n  ⏭ {nt}  {next_prog.title}"
+            except (OSError, ValueError):
+                next_text = f"\n  ⏭ {next_prog.title}"
+        item = QListWidgetItem(f"{ch.name}{now_text}{next_text}")
+        item.setData(Qt.UserRole, idx)
+        icon = None
+        if self.logo_cache is not None and ch.logo_url:
+            icon = self.logo_cache.get(ch.logo_url)
+        item.setIcon(icon if icon is not None else make_letter_tile_icon(ch.name))
+        lst.addItem(item)
+
+    def _fill_guide_chunk(self):
+        """Round 345: подсыпаем 50 строк за тик — тот же паттерн что
+        ChannelsPage._fill_next_chunk / PlayerPage._fill_overlay_chunk."""
+        if not self.isVisible():
+            self._guide_chunk_timer.stop()
+            return
+        st = getattr(self, '_guide_filter_state', None)
+        if not st:
+            self._guide_chunk_timer.stop()
+            return
+        items = st['items']
+        start = st['next_idx']
+        end = min(start + 50, len(items))
+        lst = self.guide_list
+        lst.setUpdatesEnabled(False)
+        try:
+            for k in range(start, end):
+                self._append_guide_item(*items[k])
+        finally:
+            lst.setUpdatesEnabled(True)
+        st['next_idx'] = end
+        if end >= len(items):
+            self._guide_chunk_timer.stop()
 
     def _on_click(self, item):
         idx = item.data(Qt.UserRole)
