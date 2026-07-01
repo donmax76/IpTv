@@ -14,6 +14,7 @@ import android.os.IBinder
 import android.view.View
 import android.view.WindowManager
 import android.widget.*
+import com.fmradio.BuildConfig
 import com.fmradio.R
 import com.fmradio.data.PresetItem
 import com.fmradio.data.RadioStation
@@ -172,6 +173,48 @@ class MainActivity : Activity() {
 
         // Auto-connect: always try to find and open RTL-SDR on startup
         connectDevice()
+
+        // Long-press the device info line to manually check for updates
+        tvDeviceInfo.setOnLongClickListener { checkForUpdates(showUpToDateMessage = true); true }
+
+        // Silent background update check
+        checkForUpdates(showUpToDateMessage = false)
+    }
+
+    private fun checkForUpdates(showUpToDateMessage: Boolean) {
+        activityScope.launch {
+            val result = UpdateChecker.check()
+            result.fold(
+                onSuccess = { info ->
+                    if (info != null && info.versionCode > BuildConfig.VERSION_CODE) {
+                        AlertDialog.Builder(this@MainActivity)
+                            .setTitle("FM Radio — обновление доступно")
+                            .setMessage(
+                                "Доступна новая версия ${info.versionName}\n" +
+                                    "(у вас ${BuildConfig.VERSION_NAME})\n\n" +
+                                    (if (info.releaseNotes.isNotBlank()) "${info.releaseNotes}\n\n" else "") +
+                                    "Открыть страницу загрузки?"
+                            )
+                            .setPositiveButton("Скачать") { _, _ ->
+                                try {
+                                    startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(info.downloadUrl)))
+                                } catch (e: Exception) {
+                                    showToast("Не удалось открыть ссылку: ${e.message}")
+                                }
+                            }
+                            .setNegativeButton("Позже", null)
+                            .show()
+                    } else if (showUpToDateMessage) {
+                        showToast("У вас установлена последняя версия (${BuildConfig.VERSION_NAME}).")
+                    }
+                },
+                onFailure = { e ->
+                    if (showUpToDateMessage) {
+                        showToast("Не удалось проверить обновления: ${e.message}")
+                    }
+                }
+            )
+        }
     }
 
     private fun initViews() {

@@ -28,6 +28,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     companion object {
         const val VERSION = "1.6"
         const val BUILD = "20260318-6"
+        const val VERSION_CODE = 7
 
         // FM band range (extended: OIRT 65.8-74 + CCIR 87.5-108)
         const val FM_MIN_HZ = 76_000_000L
@@ -170,6 +171,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         preferredSize = Dimension(1100, 600)
         minimumSize = Dimension(900, 520)
         buildUI()
+        jMenuBar = createMenuBar()
         pack()
         setLocationRelativeTo(null)
 
@@ -189,6 +191,67 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
         // Auto-connect on startup
         SwingUtilities.invokeLater { autoConnect() }
+
+        // Silent background update check
+        checkForUpdates(showUpToDateMessage = false)
+    }
+
+    private fun createMenuBar(): JMenuBar {
+        val menuBar = JMenuBar()
+        val helpMenu = JMenu("Help")
+        val checkUpdatesItem = JMenuItem("Check for Updates...")
+        checkUpdatesItem.addActionListener { checkForUpdates(showUpToDateMessage = true) }
+        helpMenu.add(checkUpdatesItem)
+        menuBar.add(helpMenu)
+        return menuBar
+    }
+
+    private fun checkForUpdates(showUpToDateMessage: Boolean) {
+        Thread({
+            val result = UpdateChecker.check()
+            SwingUtilities.invokeLater {
+                result.fold(
+                    onSuccess = { info ->
+                        if (info != null && info.versionCode > VERSION_CODE) {
+                            val choice = JOptionPane.showConfirmDialog(
+                                this,
+                                "Доступна новая версия ${info.versionName}\n" +
+                                    "(у вас build $BUILD)\n\n" +
+                                    (if (info.releaseNotes.isNotBlank()) "${info.releaseNotes}\n\n" else "") +
+                                    "Открыть страницу загрузки?",
+                                "FM Radio — обновление доступно",
+                                JOptionPane.YES_NO_OPTION,
+                                JOptionPane.INFORMATION_MESSAGE
+                            )
+                            if (choice == JOptionPane.YES_OPTION) {
+                                try {
+                                    Desktop.getDesktop().browse(java.net.URI(info.downloadUrl))
+                                } catch (e: Exception) {
+                                    JOptionPane.showMessageDialog(this, "Не удалось открыть ссылку: ${e.message}")
+                                }
+                            }
+                        } else if (showUpToDateMessage) {
+                            JOptionPane.showMessageDialog(
+                                this,
+                                "У вас установлена последняя версия (build $BUILD).",
+                                "FM Radio — обновления",
+                                JOptionPane.INFORMATION_MESSAGE
+                            )
+                        }
+                    },
+                    onFailure = { e ->
+                        if (showUpToDateMessage) {
+                            JOptionPane.showMessageDialog(
+                                this,
+                                "Не удалось проверить обновления: ${e.message}",
+                                "FM Radio — обновления",
+                                JOptionPane.WARNING_MESSAGE
+                            )
+                        }
+                    }
+                )
+            }
+        }, "UpdateCheckThread").start()
     }
 
     // =========================================================================
