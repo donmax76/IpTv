@@ -9585,6 +9585,19 @@ class MainWindow(QMainWindow):
                                 if hasattr(self, 'tv_guide_page'):
                                     self.tv_guide_page.set_data(
                                         self.channels, cached)
+                                # Round 341: та же синхронизация с
+                                # PlayerPage.epg_data что и в
+                                # on_epg_loaded — см. комментарий там.
+                                try:
+                                    self.player_page.epg_data = cached
+                                    if (hasattr(self.player_page, 'channels_overlay')
+                                            and self.player_page.channels_overlay.isVisible()):
+                                        self.player_page._refresh_channels_overlay()
+                                    if (hasattr(self.player_page, 'center_menu_overlay')
+                                            and self.player_page.center_menu_overlay.isVisible()):
+                                        self.player_page._update_center_menu_epg()
+                                except Exception as e:
+                                    log_error('epg.cache_load.player_page', e)
                             self._invoke_on_main.emit(_ui)
                     except Exception as e:
                         log_error('epg.load_from_cache.bg', e)
@@ -9643,6 +9656,26 @@ class MainWindow(QMainWindow):
                 self.tv_guide_page.set_data(self.channels, self.epg_data)
             except Exception as e:
                 log_error('on_epg_loaded.tvguide', e)
+            # Round 341: PlayerPage.epg_data — ОТДЕЛЬНАЯ копия, которую
+            # play_channel() снимает ОДНОКРАТНО в момент запуска канала
+            # и больше никогда не трогает. Юзер: «появилась программа
+            # во вкладке тв гид но в списке нет» — EPG грузится через
+            # 60с ПОСЛЕ старта первого канала (Round 311, специально
+            # чтобы не тормозить старт), так что оверлей списка каналов
+            # (LEFT-стрелка) весь сеанс смотрел на epg_data={} с
+            # момента play_channel(), пока юзер сам не переключит
+            # канал. Синхронизируем и, если оверлей сейчас открыт,
+            # перерисовываем его немедленно.
+            try:
+                self.player_page.epg_data = self.epg_data
+                if (hasattr(self.player_page, 'channels_overlay')
+                        and self.player_page.channels_overlay.isVisible()):
+                    self.player_page._refresh_channels_overlay()
+                if (hasattr(self.player_page, 'center_menu_overlay')
+                        and self.player_page.center_menu_overlay.isVisible()):
+                    self.player_page._update_center_menu_epg()
+            except Exception as e:
+                log_error('on_epg_loaded.player_page', e)
             # Round 317: сохраняем в кэш в bg-нитке. json.dump на 5942
             # каналов с программами — это 5-50 МБ JSON, может занять
             # секунду на медленном диске. Не хотим вешать main.
