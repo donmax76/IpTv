@@ -204,6 +204,17 @@ def fetch_epg(epg_url: str, cache_dir: str = ".",
     # запроса.
     src_cache_path = _source_cache_path(cache_dir, epg_url)
     cached = load_from_cache(cache_dir, cache_path=src_cache_path)
+    # Round 341: игнорируем подозрительно маленький кэш (< 5 каналов).
+    # Защита от УЖЕ записанного до этого фикса испорченного кэша —
+    # обрыв сети раньше давал truncated-парс из 1-2 каналов, который
+    # молча сохранялся на 24 часа. Новые записи такого больше не
+    # создадут (см. ниже), но существующий файл на диске юзера мог
+    # остаться от старой сборки — не доверяем ему и перезапрашиваем.
+    if cached and len(cached) < 5:
+        trace("EPG",
+              f"cached EPG suspiciously small ({len(cached)} channels) — "
+              f"treating as stale, re-fetching", cache_dir)
+        cached = None
     if cached:
         trace("EPG", f"using cached EPG ({len(cached)} channels)", cache_dir)
         return cached
@@ -257,14 +268,18 @@ def fetch_epg(epg_url: str, cache_dir: str = ".",
             # промежуточного огромного буфера, поэлементно через
             # parse_xmltv_streaming. Buffer 4 МБ для GzipFile = быстрый
             # IO без давления на heap.
+            # Round 341: out_meta ловит truncated=True если скачивание
+            # оборвалось/XML неполный — см. комментарий в
+            # _parse_xmltv_from.
+            parse_meta = {}
             if is_gzip:
                 with gzip.open(tmp_path, 'rb') as gz:
                     epg_data = parse_xmltv_streaming_fileobj(
-                        gz, channel_filter)
+                        gz, channel_filter, out_meta=parse_meta)
             else:
                 with open(tmp_path, 'rb') as plain:
                     epg_data = parse_xmltv_streaming_fileobj(
-                        plain, channel_filter)
+                        plain, channel_filter, out_meta=parse_meta)
         finally:
             try: os.remove(tmp_path)
             except Exception: pass
@@ -281,17 +296,28 @@ def fetch_epg(epg_url: str, cache_dir: str = ".",
     if progress:
         progress(f"{host}: {len(epg_data)} каналов, {progs_total} передач")
 
-    save_to_cache(epg_data, cache_dir, cache_path=src_cache_path)
+    # Round 341: НЕ кэшируем усечённый результат — обрыв сети/неполная
+    # докачка давали XML что парсился в 1-2 канала, и это молча
+    # сохранялось на 24 часа (CACHE_LIFETIME), делая EPG «пустой»
+    # для юзера весь день. Юзер: «программа передач не показывается» +
+    # лог показал «merged channels=2 from 3 sources» вместо тысяч.
+    if parse_meta.get('truncated'):
+        trace("EPG",
+              f"fetchSingle({host}) TRUNCATED parse ({len(epg_data)} "
+              f"channels) — NOT caching, will retry next time", cache_dir)
+    else:
+        save_to_cache(epg_data, cache_dir, cache_path=src_cache_path)
     return epg_data
 
 
 def parse_xmltv_streaming_fileobj(
         fileobj,
-        channel_filter: Optional[Set[str]] = None) -> EpgData:
+        channel_filter: Optional[Set[str]] = None,
+        out_meta: Optional[dict] = None) -> EpgData:
     """Round 298: парсит XMLTV прямо из file-like (можно из gzip.GzipFile
     или открытого XML-файла). Никаких RAM-аллокаций на полный XML —
     ET.iterparse читает поток chunk-by-chunk сам."""
-    return _parse_xmltv_from(fileobj, channel_filter)
+    return _parse_xmltv_from(fileobj, channel_filter, out_meta=out_meta)
 
 
 def parse_xmltv_streaming(content: bytes,
@@ -301,10 +327,21 @@ def parse_xmltv_streaming(content: bytes,
 
 
 def _parse_xmltv_from(fileobj,
-                      channel_filter: Optional[Set[str]] = None) -> EpgData:
+                      channel_filter: Optional[Set[str]] = None,
+                      out_meta: Optional[dict] = None) -> EpgData:
     """Round 298: общий поточный парсер. Принимает любой file-like
     (BytesIO для backward-compat, gzip.GzipFile или открытый файл для
-    fetch_epg). ET.iterparse читает поток сам — без RAM-аллокаций."""
+    fetch_epg). ET.iterparse читает поток сам — без RAM-аллокаций.
+
+    Round 341: out_meta — опциональный мутируемый dict, в который
+    пишем out_meta['truncated']=True если парсинг оборвался на
+    ET.ParseError (обрыв соединения/неполная докачка). Раньше это
+    молча проглатывалось и функция возвращала ЧТО УСПЕЛА распарсить
+    как будто это полный, надёжный результат — а fetch_epg() кэшировал
+    этот огрызок на 24 часа (CACHE_LIFETIME). Юзер видел в логе
+    «merged channels=2 from 3 sources» — а должно быть тысячи; после
+    единственного оборванного скачивания EPG выглядела «сломанной»
+    сутки, пока кэш не истекал сам."""
     epg: EpgData = {}
     display_names_by_id: Dict[str, List[str]] = {}
 
@@ -391,7 +428,12 @@ def _parse_xmltv_from(fileobj,
                     if root_elem is not None:
                         root_elem.clear()
     except ET.ParseError:
-        pass
+        # Round 341: сохраняем то, что успели распарсить (лучше
+        # частичный результат чем ничего для ЭТОГО показа), но
+        # сигналим наружу через out_meta — вызывающий код должен
+        # решить не кэшировать заведомо неполный результат.
+        if out_meta is not None:
+            out_meta['truncated'] = True
 
     # Apply channel filter (matches by id OR by any display-name)
     if channel_filter:
