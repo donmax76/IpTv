@@ -313,6 +313,22 @@ def _parse_xmltv_from(fileobj,
 
     try:
         ctx = ET.iterparse(fileobj, events=('start', 'end'))
+        ctx_iter = iter(ctx)
+        # Round 341: классический ET.iterparse memory-leak gotcha —
+        # elem.clear() очищает ТОЛЬКО текст/атрибуты/детей САМОГО
+        # elem'а, но пустой (уже .clear()-нутый) elem всё равно
+        # ОСТАЁТСЯ ребёнком root-элемента <tv> до конца парсинга. На
+        # XMLTV с десятками тысяч <programme> (типично для 7+ дней ×
+        # тысячи каналов, а тут ещё 2 EPG-источника мёржатся) это
+        # накапливает МИЛЛИОНЫ пустых Element-объектов, висящих в
+        # дереве root'а, пока вся функция не вернётся. Юзер: «жрёт
+        # память компьютера, 34% от 64гб». Захватываем root на первом
+        # событии и периодически root.clear() — так уже обработанные
+        # (пустые) дети реально освобождаются, а не просто пустеют.
+        try:
+            _, root_elem = next(ctx_iter)
+        except StopIteration:
+            root_elem = None
         # Round 290: каждые 100 элементов отпускаем GIL (раньше 500
         # было недостаточно — watchdog ловил 11+ сек блокировки во
         # время EPG-парсинга на старте). 100 даёт 30+ yield'ов в
@@ -331,7 +347,7 @@ def _parse_xmltv_from(fileobj,
         # ~30% времени Qt event loop получает CPU гарантированно.
         # Парсер замедляется на ~10%, но UI остаётся отзывчивым.
         _iter_n = 0
-        for event, elem in ctx:
+        for event, elem in ctx_iter:
             _iter_n += 1
             if _iter_n % 25 == 0:
                 time.sleep(0.001)  # реально освобождает GIL на Windows
@@ -352,6 +368,11 @@ def _parse_xmltv_from(fileobj,
                     cur_channel_id = None
                     cur_display_names = []
                     elem.clear()
+                    # Round 341: см. комментарий выше про root_elem —
+                    # реально освобождает уже обработанные <channel>/
+                    # <programme> из дерева, а не просто опустошает их.
+                    if root_elem is not None:
+                        root_elem.clear()
                 elif tag == 'programme':
                     channel_id = normalize_id(elem.get('channel', ''))
                     if channel_id:
@@ -367,6 +388,8 @@ def _parse_xmltv_from(fileobj,
                                     Programme(start=start, end=end, title=title, description=desc)
                                 )
                     elem.clear()
+                    if root_elem is not None:
+                        root_elem.clear()
     except ET.ParseError:
         pass
 
