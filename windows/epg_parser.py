@@ -568,84 +568,113 @@ def get_current_progress(programme: Optional[Programme]) -> float:
 
 
 def save_to_cache(epg: EpgData, cache_dir: str = ".", cache_path: str = None):
-    """Save EPG data to JSON cache.
+    """Save EPG data to a line-delimited JSON cache.
 
     Round 337: добавлен опциональный cache_path — если задан, пишем
     туда напрямую вместо os.path.join(cache_dir, CACHE_FILE). Позволяет
     fetch_epg() использовать отдельный файл на источник (см.
     _source_cache_path) не трогая сигнатуру для существующих вызовов
     (tvviewer.py Round 317 использует эту же функцию для ОБЩЕГО
-    объединённого кэша без cache_path — поведение не меняется)."""
+    объединённого кэша без cache_path — поведение не меняется).
+
+    Round 348: юзер поймал watchdog-блоки 14.2с/10.5с ровно во время
+    работы с этим кэшем ДАЖЕ ПОСЛЕ Round 344 (periodic yield в цикле
+    построения). Причина — сам json.dump(data, f) для ВСЕГО словаря
+    (7000+ каналов) это ОДИН C-вызов, который CPython не прерывает
+    ради других ниток: yield'ы в python-цикле построения dict'а не
+    помогают, если финальная сериализация всё равно идёт одним куском.
+    Формат сменён на JSON Lines — одна строка = один канал. Каждый
+    json.dumps() маленький и быстрый, между строками остаётся точка
+    возврата в GIL-scheduler, плюс сохранён явный time.sleep()."""
     if cache_path is None:
         cache_path = os.path.join(cache_dir, CACHE_FILE)
-    data = {
-        "timestamp": time.time(),
-        "channels": {}
-    }
-    # Round 344: периодически уступаем GIL во время построения dict'а —
-    # эта функция вызывается в bg-нитке (Round 317: epg-cache-save), но
-    # background-нитка ≠ автоматическое освобождение GIL. Чистый Python
-    # цикл по 7000+ каналам × сотни Programme на каждый (сотни тысяч
-    # итераций) удерживает GIL достаточно долго чтобы main thread
-    # застрял в ожидании — юзер видел «Windows: Не отвечает» именно
-    # в эти моменты (watchdog поймал 10.5с блок сразу после
-    # «merged channels=7219»).
-    _n = 0
-    for channel_id, programmes in epg.items():
-        row = []
-        for p in programmes:
-            row.append({"start": p.start, "end": p.end, "title": p.title,
-                       "description": p.description})
-            _n += 1
-            if _n % 500 == 0:
-                time.sleep(0.001)
-        data["channels"][channel_id] = row
+    tmp_path = cache_path + '.tmp'
     try:
-        with open(cache_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f)
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            f.write(json.dumps({"timestamp": time.time()}) + "\n")
+            _n = 0
+            for channel_id, programmes in epg.items():
+                row = [{"start": p.start, "end": p.end, "title": p.title,
+                        "description": p.description}
+                       for p in programmes]
+                f.write(json.dumps({"id": channel_id, "p": row}) + "\n")
+                _n += 1
+                if _n % 200 == 0:
+                    time.sleep(0.001)
+        os.replace(tmp_path, cache_path)
     except Exception:
-        pass
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
 
 
 def load_from_cache(cache_dir: str = ".", cache_path: str = None) -> Optional[EpgData]:
-    """Load EPG data from JSON cache if fresh enough.
+    """Load EPG data from the line-delimited JSON cache if fresh enough.
 
     Round 337: тот же опциональный cache_path что и в save_to_cache.
-    Round 344: юзер поймал «Windows: Не отвечает» — watchdog зафиксировал
-    14.6с блок main thread ровно во время загрузки этого кэша (7220
-    каналов). Это вызывается из bg-нитки (Round 317), но bg-нитка НЕ
-    означает автоматическое освобождение GIL — сотни тысяч Programme(...)
-    конструкторов в чистом Python цикле держат GIL достаточно долго,
-    чтобы Qt event loop в main thread не успевал отвечать на события
-    системы. json.load() сам по себе (C-уровень) чанковать нельзя без
-    кастомного стримингового парсера, но цикл ПОСТРОЕНИЯ Programme-
-    объектов — чистый Python, и туда добавлен periodic yield как и в
-    XML-парсере (Round 290/307/319) и в save_to_cache (см. выше)."""
+    Round 344: добавлен periodic yield в цикл построения Programme(...).
+    Round 348: юзер поймал watchdog-блоки 14.2с/10.5с ровно во время
+    работы с этим кэшем ДАЖЕ ПОСЛЕ Round 344 — потому что Round 344
+    добавил yield только в python-цикл ПОСЛЕ парсинга, а сам
+    json.load(f) для ВСЕГО файла (7000+ каналов, десятки МБ) — это
+    ОДИН неразрывный C-вызов, который держит GIL от начала до конца
+    без единой точки, где main thread мог бы вклиниться. Формат
+    сменён на JSON Lines (см. save_to_cache) — читаем и json.loads()
+    каждую строку/канал ОТДЕЛЬНО, что даёт естественные точки
+    переключения GIL между строками плюс сохранён явный sleep.
+
+    Старый формат кэша (один json.dump на весь словарь, без переносов
+    строк) просто не матчится под этот парсер — вместо повторения
+    того самого дорогого monolithic-парсинга ради миграции, файл
+    молча игнорируется и кэш перестраивается заново с нуля."""
     if cache_path is None:
         cache_path = os.path.join(cache_dir, CACHE_FILE)
     try:
         if not os.path.exists(cache_path):
             return None
         with open(cache_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        ts = data.get("timestamp", 0)
-        if time.time() - ts > CACHE_LIFETIME:
-            return None
-        epg: EpgData = {}
-        _n = 0
-        for channel_id, programmes in data.get("channels", {}).items():
-            row = []
-            for p in programmes:
-                row.append(Programme(
-                    start=p["start"],
-                    end=p["end"],
-                    title=p["title"],
-                    description=p.get("description", "")
-                ))
+            head = f.read(4096)
+            if '\n' not in head:
+                # Старый (или битый) формат — не парсим целиком, просто
+                # считаем кэш отсутствующим.
+                return None
+            f.seek(0)
+            first_line = f.readline()
+            try:
+                meta = json.loads(first_line)
+            except Exception:
+                return None
+            if not isinstance(meta, dict):
+                return None
+            ts = meta.get("timestamp", 0)
+            if time.time() - ts > CACHE_LIFETIME:
+                return None
+            epg: EpgData = {}
+            _n = 0
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except Exception:
+                    continue
+                channel_id = obj.get("id")
+                if channel_id is None:
+                    continue
+                row = []
+                for p in obj.get("p", []):
+                    row.append(Programme(
+                        start=p["start"],
+                        end=p["end"],
+                        title=p["title"],
+                        description=p.get("description", "")
+                    ))
+                epg[channel_id] = row
                 _n += 1
-                if _n % 500 == 0:
+                if _n % 200 == 0:
                     time.sleep(0.001)
-            epg[channel_id] = row
         return epg
     except Exception:
         return None
