@@ -15,6 +15,18 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
         private const val PREFILL_SAMPLES = 19200        // 200ms stereo — enough to absorb USB jitter
         private const val FADE_IN_SAMPLES = 4800         // 50ms stereo
         private const val CROSSFADE_SAMPLES = 2048       // crossfade on buffer overflow
+
+        // Drift compensation: the RTL-SDR's crystal runs at a slightly different
+        // rate than its nominal 28.8 MHz (typically tens of ppm), so the actual
+        // IQ sample rate never matches 1152000 Hz exactly. Over a long session
+        // this makes the ring buffer slowly fill up or drain relative to the
+        // audio hardware's fixed 48 kHz clock — perceived as audio gradually
+        // "speeding up" or "slowing down" as periodic correction glitches kick
+        // in. We counter this continuously by silently dropping or duplicating
+        // a single stereo frame every so often, nudging the buffer back toward
+        // a steady target level — far too sparse to be audible.
+        private const val DRIFT_TARGET_SAMPLES = RING_BUFFER_SAMPLES / 4
+        private const val DRIFT_GAIN = 0.00002
     }
 
     private var sourceDataLine: SourceDataLine? = null
@@ -33,6 +45,10 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
     private var samplesPlayed = 0L
 
     private var lastOutputSample = 0
+
+    // Drift correction state (see DRIFT_TARGET_SAMPLES/DRIFT_GAIN above)
+    private var fillEma = PREFILL_SAMPLES.toDouble()
+    private var driftCredit = 0.0
 
     fun start() {
         if (isPlaying) return
@@ -56,6 +72,8 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
         prefillDone = false
         samplesPlayed = 0L
         lastOutputSample = 0
+        fillEma = PREFILL_SAMPLES.toDouble()
+        driftCredit = 0.0
         isPlaying = true
 
         drainThread = Thread({
@@ -78,6 +96,17 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
                 val available: Int
                 lock.lock()
                 try { available = bufferedSamples } finally { lock.unlock() }
+
+                // Slowly track the buffer fill level and decide whether a single-frame
+                // drift correction is due (see DRIFT_TARGET_SAMPLES/DRIFT_GAIN above).
+                // driftAdjust is the extra amount (beyond toDrain) to *consume* from
+                // the ring buffer: positive when the buffer is trending too full
+                // (drain faster), negative when trending too empty (drain slower).
+                fillEma = fillEma * 0.999 + available * 0.001
+                driftCredit += (fillEma - DRIFT_TARGET_SAMPLES) * DRIFT_GAIN
+                var driftAdjust = 0
+                if (driftCredit >= 2.0) { driftAdjust = 2; driftCredit -= 2.0 }
+                else if (driftCredit <= -2.0) { driftAdjust = -2; driftCredit += 2.0 }
 
                 // Ensure even number of samples for stereo
                 val toDrain = if (available >= chunkSamples) chunkSamples
@@ -102,13 +131,28 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
                     continue
                 }
 
+                // Guard against under/over-consuming past what's actually buffered.
+                if (driftAdjust < 0 && toDrain < 4) driftAdjust = 0
+                if (driftAdjust > 0 && available < toDrain + driftAdjust) driftAdjust = 0
+                val toConsume = toDrain + driftAdjust
+
                 lock.lock()
                 try {
-                    for (i in 0 until toDrain) {
+                    // Too empty (driftAdjust<0): read fewer real samples, duplicate the
+                    // last frame to still fill toDrain output slots (stretches playback).
+                    // Too full (driftAdjust>0): read toDrain normally, then silently
+                    // discard the extra frame from the ring buffer (shrinks backlog).
+                    val readIntoChunk = if (driftAdjust < 0) toDrain + driftAdjust else toDrain
+                    for (i in 0 until readIntoChunk) {
                         chunk[i] = ringBuffer[readPos]
                         readPos = (readPos + 1) % RING_BUFFER_SAMPLES
                     }
-                    bufferedSamples -= toDrain
+                    if (driftAdjust < 0) {
+                        for (i in readIntoChunk until toDrain) chunk[i] = chunk[readIntoChunk - 2 + (i - readIntoChunk)]
+                    } else if (driftAdjust > 0) {
+                        readPos = (readPos + driftAdjust) % RING_BUFFER_SAMPLES
+                    }
+                    bufferedSamples -= toConsume
                 } finally { lock.unlock() }
 
                 // Apply volume, fade-in, convert to bytes

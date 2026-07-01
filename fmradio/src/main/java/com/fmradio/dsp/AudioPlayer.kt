@@ -26,6 +26,16 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         private const val HIGH_WATERMARK = 172800 // 90% full — trigger overflow drop
         // Pre-buffer: accumulate this much before starting AudioTrack drain
         private const val PRE_BUFFER_SAMPLES = 7680  // ~80ms stereo (48000*2*0.08)
+
+        // Drift compensation: the RTL-SDR's crystal runs at a slightly different
+        // rate than its nominal 28.8 MHz, so the true IQ sample rate never matches
+        // 1152000 Hz exactly. Over a long session this makes the ring buffer slowly
+        // fill up or drain relative to AudioTrack's fixed 48 kHz clock — heard as
+        // audio gradually "speeding up"/"slowing down" as periodic correction
+        // glitches kick in. Countered by silently dropping/duplicating a single
+        // stereo frame every so often to nudge the buffer back to a steady level.
+        private const val DRIFT_TARGET_SAMPLES = RING_BUFFER_SAMPLES / 4
+        private const val DRIFT_GAIN = 0.00002
     }
 
     private var audioTrack: AudioTrack? = null
@@ -42,6 +52,10 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
     private var playbackThread: Thread? = null
     @Volatile
     private var preBufferFilled = false
+
+    // Drift correction state (see DRIFT_TARGET_SAMPLES/DRIFT_GAIN above)
+    private var fillEma = PRE_BUFFER_SAMPLES.toDouble()
+    private var driftCredit = 0.0
 
     fun start() {
         if (isPlaying) return
@@ -76,6 +90,8 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         readPos = 0
         bufferedSamples = 0
         preBufferFilled = false
+        fillEma = PRE_BUFFER_SAMPLES.toDouble()
+        driftCredit = 0.0
 
         audioTrack?.play()
         isPlaying = true
@@ -104,15 +120,36 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
                 lock.lock()
                 try { available = bufferedSamples } finally { lock.unlock() }
 
+                // Slowly track buffer fill level and decide whether a single-frame
+                // drift correction is due. Positive driftAdjust = buffer trending
+                // too full (consume more/drain faster); negative = trending too
+                // empty (consume less/drain slower).
+                fillEma = fillEma * 0.999 + available * 0.001
+                driftCredit += (fillEma - DRIFT_TARGET_SAMPLES) * DRIFT_GAIN
+                var driftAdjust = 0
+                if (driftCredit >= 2.0) { driftAdjust = 2; driftCredit -= 2.0 }
+                else if (driftCredit <= -2.0) { driftAdjust = -2; driftCredit += 2.0 }
+
                 if (available >= chunkSize) {
                     consecutiveUnderruns = 0
+                    if (driftAdjust > 0 && available < chunkSize + driftAdjust) driftAdjust = 0
                     lock.lock()
                     try {
-                        for (i in 0 until chunkSize) {
+                        // Too empty (driftAdjust<0): read fewer real samples, duplicate
+                        // the last frame to still fill chunkSize output slots (stretch).
+                        // Too full (driftAdjust>0): read chunkSize normally, then
+                        // silently discard the extra frame (shrinks the backlog).
+                        val readIntoChunk = if (driftAdjust < 0) chunkSize + driftAdjust else chunkSize
+                        for (i in 0 until readIntoChunk) {
                             chunk[i] = ringBuffer[readPos]
                             readPos = (readPos + 1) % RING_BUFFER_SAMPLES
                         }
-                        bufferedSamples -= chunkSize
+                        if (driftAdjust < 0) {
+                            for (i in readIntoChunk until chunkSize) chunk[i] = chunk[readIntoChunk - 2 + (i - readIntoChunk)]
+                        } else if (driftAdjust > 0) {
+                            readPos = (readPos + driftAdjust) % RING_BUFFER_SAMPLES
+                        }
+                        bufferedSamples -= (chunkSize + driftAdjust)
                     } finally { lock.unlock() }
                     try {
                         audioTrack?.write(chunk, 0, chunkSize)
