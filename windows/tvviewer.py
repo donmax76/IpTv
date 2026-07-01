@@ -2545,6 +2545,44 @@ class LogoCache(QObject):
             self._pump()
         return None
 
+    def _prescan_missing_bg(self, urls):
+        """Round 349: юзер поймал watchdog-стек 14.3с ПРЯМО в чанкованном
+        pre-queue (Round 347): _step → get → os.path.exists. Чанки по 200
+        не спасли, потому что под нагруженным антивирусом ОДИН
+        os.path.exists() может стоить десятки миллисекунд — 200 таких
+        вызовов подряд всё равно давали многосекундный блок ДО того как
+        QTimer успевал отдать управление обратно в event loop.
+
+        Эта функция делает САМУ дисковую часть (os.path.exists) —
+        единственную медленную часть — вызываемую из ЛЮБОЙ (фоновой)
+        нитки: только читает self.icons/self.missing и стучится в
+        файловую систему, ничего не мутирует и не трогает Qt/QThread,
+        так что потокобезопасна для параллельного чтения с main thread.
+        Возвращает список URL, которым реально нужна закачка — дальше
+        их можно поставить в очередь на main thread БЕЗ единого
+        обращения к диску (см. enqueue/_queue_logo_urls_chunked)."""
+        result = []
+        for url in urls:
+            if not url or url in self.missing or url in self.icons:
+                continue
+            u = url.strip()
+            if not (u.startswith('http://') or u.startswith('https://')):
+                continue
+            if os.path.exists(self._path(url)):
+                continue
+            result.append(url)
+        return result
+
+    def enqueue(self, url: str):
+        """Round 349: лёгкая версия get() для уже прескан(ен)ных URL —
+        никакого os.path.exists()/QPixmap, только in-memory проверки и
+        добавление в очередь. Безопасно звать пачками на main thread."""
+        if not url or url in self.missing or url in self.icons:
+            return
+        if url not in self._inflight and url not in self._queue:
+            self._queue.append(url)
+            self._pump()
+
     def set_paused(self, paused: bool):
         """Round 285: глобальная пауза кэша. PlayerPage ставит paused=True
         пока юзер смотрит видео — кэш не запускает новые лого-фетчи и
@@ -9465,35 +9503,43 @@ class MainWindow(QMainWindow):
         self.loader_thread.error.connect(self.on_playlist_error)
         self.loader_thread.start()
 
-    def _prequeue_logos_chunked(self, channels, tag=''):
+    def _queue_logo_urls_chunked(self, urls, tag=''):
         """Round 347: раньше pre-queue логотипов шёл ОДНИМ синхронным
         циклом по self.channels на main thread — logo_cache.get()
         внутри дёргает os.path.exists() на диск на КАЖДЫЙ канал. Юзер
         поймал watchdog-стек 15.6с: _run_on_main → _ui_after_enrich →
-        get → os.path.exists. На плейлисте в тысячи каналов это тысячи
-        синхронных стат-вызовов подряд (особенно медленно под
-        антивирусом). Дробим на чанки через QTimer — тот же паттерн,
-        что и везде в проекте (Round 305/319/345)."""
+        get → os.path.exists. Чанки через QTimer (эта функция) сами по
+        себе не спасли — Round 349: юзер поймал НОВЫЙ стек 14.3с прямо
+        внутри чанка (_step → get → os.path.exists), потому что под
+        нагруженным антивирусом 200 стат-вызовов подряд всё равно
+        стоят секунды ДО того как QTimer успевает вернуть управление в
+        event loop.
+
+        Round 349: единственная медленная часть (os.path.exists) теперь
+        выполняется ЗАРАНЕЕ в фоновой нитке через
+        LogoCache._prescan_missing_bg(); сюда приходит уже
+        ОТФИЛЬТРОВАННЫЙ список urls, которым реально нужна закачка.
+        Этот метод только раскладывает их по очереди (enqueue — без
+        обращения к диску), так что даже без чанкинга был бы быстрым;
+        чанки оставлены на случай очень больших плейлистов, чтобы не
+        держать GIL одним циклом на десятки тысяч элементов."""
         if self.logo_cache is None:
             return
-        chs = list(channels)
-        state = {'i': 0, 'queued': 0}
-        CHUNK = 200
+        urls = list(urls)
+        state = {'i': 0}
+        CHUNK = 500
 
         def _step():
             cache = self.logo_cache
             i = state['i']
-            end = min(i + CHUNK, len(chs))
+            end = min(i + CHUNK, len(urls))
             for j in range(i, end):
-                ch = chs[j]
-                if ch.logo_url:
-                    cache.get(ch.logo_url)
-                    state['queued'] += 1
+                cache.enqueue(urls[j])
             state['i'] = end
-            if end < len(chs):
+            if end < len(urls):
                 QTimer.singleShot(0, _step)
             else:
-                log_info('logo', f"{tag}pre-queued {state['queued']} logo URLs")
+                log_info('logo', f"{tag}pre-queued {len(urls)} logo URLs")
 
         _step()
 
@@ -9526,10 +9572,20 @@ class MainWindow(QMainWindow):
                     self.learned_logos.harvest(self.channels)
             except Exception as e:
                 log_error('learned_logos.harvest.bg', e)
+            # Round 349: os.path.exists() на КАЖДЫЙ URL — единственная
+            # медленная часть pre-queue — считаем ЗДЕСЬ, в bg-нитке, а
+            # не на main. См. LogoCache._prescan_missing_bg.
+            to_queue = []
+            try:
+                if self.logo_cache is not None:
+                    urls = [ch.logo_url for ch in self.channels if ch.logo_url]
+                    to_queue = self.logo_cache._prescan_missing_bg(urls)
+            except Exception as e:
+                log_error('logo.prescan.bg', e)
             # UI часть в main.
             def _ui_after_enrich():
                 try:
-                    self._prequeue_logos_chunked(self.channels)
+                    self._queue_logo_urls_chunked(to_queue)
                 except Exception as e:
                     log_error('logo.prequeue', e)
                 self.channels_page.set_channels(
@@ -9612,11 +9668,21 @@ class MainWindow(QMainWindow):
                                      + " | ".join(match_no_logo))
                     except Exception:
                         pass
+                # Round 349: считаем медленный os.path.exists() здесь,
+                # в bg-нитке — см. комментарий в _enrich_bg выше.
+                to_queue = []
+                try:
+                    if self.logo_cache is not None:
+                        urls = [ch.logo_url for ch in self.channels
+                                if ch.logo_url]
+                        to_queue = self.logo_cache._prescan_missing_bg(urls)
+                except Exception:
+                    pass
                 # Возвращаемся в main thread для UI.
                 def _ui():
                     try:
-                        self._prequeue_logos_chunked(
-                            self.channels, tag='post-meta ')
+                        self._queue_logo_urls_chunked(
+                            to_queue, tag='post-meta ')
                     except Exception:
                         pass
                     if enriched and hasattr(self, 'channels_page'):
