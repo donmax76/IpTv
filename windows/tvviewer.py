@@ -1714,14 +1714,50 @@ class Config:
         ДВАЖДЫ синхронно (в _save_current_channel_state и в play_url),
         каждый раз — полный JSON dump 50+ KB на диск. На HDD/медленном
         SSD это давало ощутимый микро-фриз. Дамп идёт в daemon-нитке,
-        UI не ждёт."""
+        UI не ждёт.
+
+        Round 346: раньше каждый вызов спавнил НОВУЮ OS-нитку через
+        threading.Thread(...).start(). Юзер поймал watchdog-стек:
+          play_url → save_async → threading.py:start → wait → wait
+        11.2с main thread стоял внутри Thread.start()'а — ЭТО САМО
+        СОЗДАНИЕ нитки зависло, потому что к моменту клика на канал
+        уже крутилось много других фоновых ниток (VLC warm-up, EPG-
+        парсинг, logo-fetch, enrichment) и ОС не могла сразу
+        распланировать ещё одну (start() ждёт когда новая нитка
+        реально начнёт исполняться и выставит внутренний Event).
+        play_url и _save_current_channel_state вызывают save_async()
+        на КАЖДОЕ переключение канала — при быстром зэппинге это
+        плодило нитки одну за одной поверх уже перегруженной системы.
+        Теперь один ДОЛГОЖИВУЩИЙ воркер стартует один раз за всю
+        сессию; повторные save_async() просто будят его через Event —
+        никаких новых OS-ниток на каждый клик."""
         try:
             import threading as _th
-            _th.Thread(target=self.save, daemon=True).start()
+            self._save_pending = True
+            if not hasattr(self, '_save_event'):
+                self._save_event = _th.Event()
+            self._save_event.set()
+            if not getattr(self, '_save_worker_started', False):
+                self._save_worker_started = True
+                _th.Thread(target=self._save_worker, daemon=True,
+                          name='cfg-save').start()
         except Exception as e:
             log_error('Config.save_async', e)
             try: self.save()
             except Exception: pass
+
+    def _save_worker(self):
+        """Round 346: единственная долгоживущая нитка, обслуживающая
+        ВСЕ вызовы save_async() за сессию — см. комментарий там."""
+        while True:
+            self._save_event.wait()
+            self._save_event.clear()
+            if getattr(self, '_save_pending', False):
+                self._save_pending = False
+                try:
+                    self.save()
+                except Exception as e:
+                    log_error('Config._save_worker', e)
 
 
 class LoadPlaylistThread(QThread):
