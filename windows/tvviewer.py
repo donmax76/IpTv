@@ -3961,6 +3961,14 @@ class PlayerPage(QWidget):
         self._speed_idx = 2  # 1.0x
         self._number_input = ""
         self._sleep_deadline = 0  # monotonic ms; 0 = off
+        # Round 337: generation-токен. Каждый play_url() бампает его;
+        # bg-нитки (_swap, reconnect-таймер, _maybe_seek/_maybe_set_audio_track)
+        # сверяют захваченное значение перед тем как трогать player/
+        # current_media — устаревший вызов (юзер уже переключил канал,
+        # пока в фоне ждал реконнект/set_media) тихо бросает работу
+        # вместо гонки за общим VLC-плеером.
+        self._play_generation = 0
+        self._reconnect_scheduled_gen = -1
         # Round 313: подключаем диспатчер ДО любого QTimer-кода.
         self._invoke_on_main.connect(self._run_on_main)
         self.init_ui()
@@ -5856,6 +5864,19 @@ class PlayerPage(QWidget):
         if hasattr(mw, 'toggle_pip_mode'):
             mw.toggle_pip_mode()
 
+    def _install_stall_watch_timer(self):
+        """Round 337: вынесено из init_vlc — QTimer(self) обязан
+        создаваться в main thread. Вызывается через _invoke_on_main."""
+        try:
+            if hasattr(self, '_stall_watch_timer'):
+                return
+            self._stall_watch_timer = QTimer(self)
+            self._stall_watch_timer.setInterval(5000)
+            self._stall_watch_timer.timeout.connect(self._check_stall)
+            self._stall_watch_timer.start()
+        except Exception as e:
+            log_error('stall_watch.install', e)
+
     def init_vlc(self):
         if not HAS_VLC:
             return
@@ -5949,17 +5970,16 @@ class PlayerPage(QWidget):
             # (15 сек) при is_playing()==True, считаем что стрим
             # подвис и дёргаем reconnect. Юзер: «при длительном
             # просмотре канал зависает и поле не востанавливается».
-            try:
-                if not hasattr(self, '_stall_watch_timer'):
-                    self._stall_last_time = -1
-                    self._stall_strikes = 0
-                    self._stall_watch_timer = QTimer(self)
-                    self._stall_watch_timer.setInterval(5000)
-                    self._stall_watch_timer.timeout.connect(
-                        self._check_stall)
-                    self._stall_watch_timer.start()
-            except Exception as e:
-                log_error('stall_watch.install', e)
+            # Round 337: init_vlc() выполняется в daemon-нитках
+            # (vlc-ensure/vlc-warm) — конструирование и .start() QTimer
+            # прямо здесь незаконно для Qt (QObject должен создаваться
+            # в нитке-владельце). Заворачиваем установку таймера в
+            # _invoke_on_main — тот же диспетчер, что уже используется
+            # для возврата UI-колбэков в main (Round 313).
+            if not hasattr(self, '_stall_watch_timer'):
+                self._stall_last_time = -1
+                self._stall_strikes = 0
+                self._invoke_on_main.emit(self._install_stall_watch_timer)
         except Exception as e:
             log_error('init_vlc', e, extra=f"args={args}")
             self.vlc_instance = None
@@ -6036,8 +6056,13 @@ class PlayerPage(QWidget):
             pass
 
     def _on_vlc_error(self, _event):
+        # Round 337: libvlc event-колбэки прилетают на СОБСТВЕННОЙ
+        # C-нитке libvlc, не на Qt-нитке. _schedule_reconnect читает
+        # self.channels/self.current_index и создаёт QTimer —
+        # оба небезопасны вне main thread. Заворачиваем через тот же
+        # _invoke_on_main диспетчер что и остальной bg→GUI код.
         try:
-            self._schedule_reconnect("error")
+            self._invoke_on_main.emit(lambda: self._schedule_reconnect("error"))
         except Exception as e:
             log_error('_on_vlc_error', e)
 
@@ -6073,18 +6098,35 @@ class PlayerPage(QWidget):
             log_error('_check_stall', e)
 
     def _on_vlc_end(self, _event):
+        # Round 337: тот же межпоточный риск что в _on_vlc_error — см.
+        # комментарий там.
         try:
             # EndReached на live-стриме = разрыв сети, не нормальный
             # конец файла. Реконнектимся.
-            self._schedule_reconnect("end-reached")
+            self._invoke_on_main.emit(
+                lambda: self._schedule_reconnect("end-reached"))
         except Exception as e:
             log_error('_on_vlc_end', e)
 
     def _schedule_reconnect(self, reason: str):
         """Round 288: до 8 попыток с экспонентой 1/2/4/8/15с (capped).
         Юзер: «канал замораживается» — это часто разрыв TCP, без
-        реконнекта VLC сам не оживает."""
+        реконнекта VLC сам не оживает.
+        Round 337: всегда вызывается уже в main thread (через
+        _invoke_on_main из libvlc-callback'ов, либо напрямую из
+        _check_stall который сам main-thread QTimer). Захватываем
+        _play_generation — если к моменту срабатывания таймера юзер
+        уже переключил канал (generation изменился), реконнект
+        тихо отменяется вместо того чтобы силой вернуть старый URL."""
         if not self.channels or self.current_index >= len(self.channels):
+            return
+        # Round 337: не плодим второй реконнект поверх уже
+        # запланированного для той же generation (stall + error могут
+        # сработать почти одновременно на одном и том же зависании).
+        gen = self._play_generation
+        if self._reconnect_scheduled_gen == gen:
+            log_info('vlc.reconnect',
+                     f"skip: reconnect already scheduled for gen={gen}")
             return
         attempts = getattr(self, '_reconnect_attempts', 0)
         if attempts >= 8:
@@ -6092,10 +6134,27 @@ class PlayerPage(QWidget):
             return
         delay = min(15000, 1000 * (2 ** attempts))
         self._reconnect_attempts = attempts + 1
-        url = self.channels[self.current_index].url
+        self._reconnect_scheduled_gen = gen
         log_info('vlc.reconnect',
-                 f"#{attempts+1}/8 reason={reason} delay={delay}ms url={url[:60]}")
-        QTimer.singleShot(delay, lambda u=url: self.play_url(u))
+                 f"#{attempts+1}/8 reason={reason} delay={delay}ms gen={gen}")
+
+        def _fire():
+            self._reconnect_scheduled_gen = -1
+            # Generation изменился — юзер уже переключил канал вручную,
+            # реконнект на старый URL больше не актуален.
+            if self._play_generation != gen:
+                log_info('vlc.reconnect',
+                         f"abandoned: gen changed {gen} → "
+                         f"{self._play_generation}")
+                return
+            if not self.channels or self.current_index >= len(self.channels):
+                return
+            # Перечитываем URL СЕЙЧАС, а не на момент schedule — на
+            # случай если что-то в списке каналов успело поменяться.
+            url = self.channels[self.current_index].url
+            self.play_url(url)
+
+        QTimer.singleShot(delay, _fire)
 
     def play_channel(self, index, channels, epg_data):
         # Save state for previously-playing channel before switching
@@ -6134,6 +6193,11 @@ class PlayerPage(QWidget):
                 log_error('restore_channel_state', e, extra=f"url={ch.url[:80]}")
 
         self.play_url(ch.url)
+        # Round 337: захватываем generation ПОСЛЕ play_url() (он его
+        # бампает) — отложенные _maybe_seek/_maybe_set_audio_track
+        # сверяют его перед применением, чтобы не наложить состояние
+        # старого канала если юзер успел зазапить дальше в течение 1.5с.
+        my_gen = self._play_generation
 
         # If we have a saved position (VOD only — live streams report -1 duration),
         # try to seek there once VLC reports a positive length.
@@ -6141,14 +6205,16 @@ class PlayerPage(QWidget):
             try:
                 pos = int(st['position_ms'])
                 if pos > 0:
-                    QTimer.singleShot(1500, lambda p=pos: self._maybe_seek(p))
+                    QTimer.singleShot(1500, lambda p=pos, g=my_gen:
+                                      self._maybe_seek(p, g))
             except Exception:
                 pass
 
         if st and 'audio_track' in st:
             try:
                 trk = int(st['audio_track'])
-                QTimer.singleShot(1500, lambda t=trk: self._maybe_set_audio_track(t))
+                QTimer.singleShot(1500, lambda t=trk, g=my_gen:
+                                  self._maybe_set_audio_track(t, g))
             except Exception:
                 pass
 
@@ -6156,7 +6222,12 @@ class PlayerPage(QWidget):
         self.config.save_async()
         self._show_channel_banner()
 
-    def _maybe_seek(self, pos_ms: int):
+    def _maybe_seek(self, pos_ms: int, gen: int = None):
+        # Round 337: gen — generation захваченная в момент постановки
+        # таймера. Если юзер уже сменил канал, не применяем позицию
+        # старого канала к новому.
+        if gen is not None and gen != self._play_generation:
+            return
         if not self.player:
             return
         try:
@@ -6167,10 +6238,13 @@ class PlayerPage(QWidget):
             try: self.player.set_time(pos_ms)
             except Exception: pass
 
-    def _maybe_set_audio_track(self, track_id: int):
+    def _maybe_set_audio_track(self, track_id: int, gen: int = None):
         # Round 281: VLC audio_set_track блокирует 21+ сек на сложных
         # стримах — watchdog поймал. Перенос в фон, как play_url и
         # cycle_audio_track в Round 279.
+        # Round 337: gen-проверка — та же логика что в _maybe_seek.
+        if gen is not None and gen != self._play_generation:
+            return
         if not self.player:
             return
         try:
@@ -6255,6 +6329,13 @@ class PlayerPage(QWidget):
             self.epg_bar.setText("VLC not installed.")
             return
         self._pending_play_url = url
+        # Round 337: бампаем generation ПЕРЕД любой работой — захватывается
+        # ниже в my_gen и передаётся в _swap-замыкание. Устаревшие
+        # bg-нитки (отложенный reconnect, обгоняющий предыдущий _swap)
+        # сверяют это значение перед тем как реально применить
+        # set_media/play() к общему self.player.
+        self._play_generation += 1
+        my_gen = self._play_generation
         try:
             self.show_mini_osd("⏳  Подключаю канал…")
         except Exception:
@@ -6313,6 +6394,16 @@ class PlayerPage(QWidget):
 
             def _swap():
                 try:
+                    # Round 337: если пока эта нитка ждала в очереди
+                    # шедулера, юзер успел кликнуть другой канал
+                    # (my_gen устарел) — бросаем работу, не трогая
+                    # общий self.player. Закрывает гонку конкурентных
+                    # _swap-вызовов (отложенный reconnect vs ручной зап).
+                    if self._play_generation != my_gen:
+                        log_info('play_url.bg',
+                                 f"stale swap gen={my_gen} "
+                                 f"(current={self._play_generation}), skip")
+                        return
                     # Round 334: ПЕРЕД set_media явно прибиваем текущий
                     # поток через stop(). Юзер: «когда подвис показ
                     # канала пытаюсь открыть другой он не закрывая
@@ -6352,6 +6443,16 @@ class PlayerPage(QWidget):
                         media.add_option(f':http-user-agent={ua_cfg}')
                     if referer_cfg:
                         media.add_option(f':http-referrer={referer_cfg}')
+                    # Round 337: вторая проверка generation ПОСЛЕ
+                    # медленных синхронных вызовов (stop() может ждать
+                    # 5-15 сек) — если за это время подоспел более
+                    # новый play_url, не коммитим current_media/play()
+                    # поверх того что уже выставила свежая нитка.
+                    if self._play_generation != my_gen:
+                        log_info('play_url.bg',
+                                 f"stale swap gen={my_gen} went stale "
+                                 f"mid-flight, abandoning before commit")
+                        return
                     # set_media внутри STOP'ает текущий поток — это и
                     # есть тот самый 16 сек блок (теперь Round 334
                     # снимает его явно выше).
@@ -6403,14 +6504,55 @@ class PlayerPage(QWidget):
             log_error('play_url', e, extra=f"url={url[:80]}")
 
     def toggle_play(self):
+        # Round 337: is_playing()/pause()/play() могут блокировать на
+        # подвисшем/умирающем стриме — та же причина по которой
+        # play_url/stop/cycle_audio_track уже давно ушли в фон.
+        # UI-метка меняется оптимистично сразу, реальный VLC-вызов —
+        # в daemon-нитке.
         if not self.player:
             return
-        if self.player.is_playing():
-            self.player.pause()
-            self.btn_play.setText("Play")
-        else:
-            self.player.play()
-            self.btn_play.setText("Pause")
+        player = self.player
+        try:
+            playing = player.is_playing()
+        except Exception:
+            playing = False
+        self.btn_play.setText("Play" if playing else "Pause")
+        try:
+            import threading as _th
+            _th.Thread(
+                target=lambda: (player.pause() if playing else player.play()),
+                daemon=True, name='vlc-toggle-play').start()
+        except Exception as e:
+            log_error('toggle_play', e)
+
+    def _seek_or_switch(self, direction):
+        """Round 337: Left/Right — на VOD перемотка ±10с, на live-канале
+        (get_time не растёт, pos<=0) переключение канала. get_time()/
+        set_time() уходят в фон — на подвисшем стриме они блокируют
+        так же как stop()/set_media() (см. комментарии в play_url)."""
+        player = self.player
+        if not player:
+            self.switch_channel(direction)
+            return
+        def _bg():
+            try:
+                pos = player.get_time()
+            except Exception:
+                pos = -1
+            if pos and pos > 0:
+                try:
+                    new_pos = max(0, pos - 10000) if direction < 0 else pos + 10000
+                    player.set_time(new_pos)
+                except Exception as e:
+                    log_error('_seek_or_switch.set_time', e)
+            else:
+                self._invoke_on_main.emit(
+                    lambda d=direction: self.switch_channel(d))
+        try:
+            import threading as _th
+            _th.Thread(target=_bg, daemon=True, name='vlc-seek').start()
+        except Exception as e:
+            log_error('_seek_or_switch', e)
 
     def switch_channel(self, direction):
         if not self.channels:
@@ -6667,13 +6809,21 @@ class PlayerPage(QWidget):
                 act.setEnabled(False)
             else:
                 import threading as _th
-                player = self.player
                 for tid, name in items:
                     label = ("✓ " if tid == cur else "    ") + (
                         name or f"Track {tid}")
                     act = menu.addAction(label)
                     def _make_handler(track_id=tid, track_name=name):
                         def _h():
+                            # Round 337: menu.exec_() ниже блокирует
+                            # (модальный цикл) пока юзер решает — за это
+                            # время self.player может быть заменён
+                            # (channel switch/release). Берём АКТУАЛЬНЫЙ
+                            # self.player в момент клика, а не тот что
+                            # был захвачен до открытия меню.
+                            player = self.player
+                            if not player:
+                                return
                             def _bg():
                                 try:
                                     player.audio_set_track(track_id)
@@ -6896,22 +7046,44 @@ class PlayerPage(QWidget):
         p = self.player
         if not p:
             return
+        # Round 337: re-check `self.player is p` inside the bg thread
+        # before calling stop() — if release_vlc()/a fresh init_vlc()
+        # already swapped self.player out from under us (e.g. app is
+        # closing concurrently), this becomes a no-op instead of
+        # calling .stop() on an orphaned/possibly-released object.
+        def _bg():
+            if self.player is p:
+                try:
+                    p.stop()
+                except Exception:
+                    pass
         try:
-            threading.Thread(
-                target=lambda: (
-                    p.stop() if p else None
-                ),
-                daemon=True,
-            ).start()
+            threading.Thread(target=_bg, daemon=True, name='vlc-stop').start()
         except Exception:
-            try: p.stop()
-            except Exception: pass
+            try:
+                if self.player is p:
+                    p.stop()
+            except Exception:
+                pass
 
     def release_vlc(self):
         # Round 291: НЕ вызываем self.current_media.release() — Python
         # обёртка vlc.Media сама делает libvlc_media_release в __del__
         # когда ссылка обнуляется. Ручной release + последующее None
         # давало double-free на части систем.
+        # Round 337: stop() ПЕРЕД release() внутри ЭТОЙ ЖЕ нитки —
+        # раньше MainWindow.closeEvent спавнил release_vlc() и
+        # player_page.stop() как ДВЕ отдельные конкурентные нитки,
+        # обе трогающие один и тот же self.player без всякой
+        # синхронизации (stop() из одной, release() из другой — race
+        # на живом libvlc-объекте при закрытии). Теперь closeEvent
+        # зовёт только release_vlc() в одной нитке, и стоп + освобождение
+        # гарантированно идут строго последовательно.
+        if self.player is not None:
+            try:
+                self.player.stop()
+            except Exception:
+                pass
         self.current_media = None
         if self.player is not None:
             try: self.player.release()
@@ -6935,26 +7107,12 @@ class PlayerPage(QWidget):
         elif key in (Qt.Key_Down, Qt.Key_PageDown, Qt.Key_MediaNext):
             self.switch_channel(1)
         elif key == Qt.Key_Left:
-            # Step back 10s for VOD; on live, treated as prev channel
-            if self.player:
-                try:
-                    pos = self.player.get_time()
-                    if pos > 0:
-                        self.player.set_time(max(0, pos - 10000))
-                        return
-                except Exception:
-                    pass
-            self.switch_channel(-1)
+            # Step back 10s for VOD; on live, treated as prev channel.
+            # Round 337: get_time/set_time уходят в фон — на подвисшем
+            # стриме они могут блокировать так же как stop/set_media.
+            self._seek_or_switch(-1)
         elif key == Qt.Key_Right:
-            if self.player:
-                try:
-                    pos = self.player.get_time()
-                    if pos > 0:
-                        self.player.set_time(pos + 10000)
-                        return
-                except Exception:
-                    pass
-            self.switch_channel(1)
+            self._seek_or_switch(1)
         elif key == Qt.Key_Return or key == Qt.Key_Enter:
             # OK/Enter on remote: show channel banner
             self._show_channel_banner()
@@ -9442,13 +9600,25 @@ class MainWindow(QMainWindow):
         # Round 279: synchronous save at close — нужно гарантированно
         # дописать config до выхода. release_vlc() уходит в фон чтобы
         # не подвешивать выход.
+        # Round 337: раньше здесь спавнилась bg-нитка release_vlc() И
+        # ОТДЕЛЬНО, синхронно, звался player_page.stop() (который сам
+        # тоже спавнил свою bg-нитку на p.stop()) — то есть ДВЕ
+        # независимые нитки трогали один и тот же self.player без
+        # координации между собой, и .stop()/.release() могли
+        # выполниться конкурентно на закрываемом libvlc-объекте.
+        # release_vlc() теперь сам вызывает stop() ПЕРЕД release()
+        # внутри своей же нитки — здесь зовём только его. Per-channel
+        # состояние (позиция/громкость) всё ещё сохраняется —
+        # _save_current_channel_state() читает VLC синхронно быстро
+        # (get_time/get_length/audio_get_track — не блокирующие вызовы)
+        # и сама уходит в свою daemon-нитку для записи на диск.
+        self.player_page._save_current_channel_state()
         try:
             import threading as _th
             _th.Thread(target=self.player_page.release_vlc,
                        daemon=True, name='vlc-release').start()
         except Exception as e:
             log_error('closeEvent.release', e)
-        self.player_page.stop()
         self.config.save()
         event.accept()
 
