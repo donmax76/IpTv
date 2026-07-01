@@ -179,11 +179,17 @@ class RtlSdrNative {
     }
 
     /**
-     * Enable offset tuning (IF mode) to eliminate DC spike at center frequency.
-     * Reduces noise and improves reception quality — like SDR# "Offset Tuning" checkbox.
-     * Works best with E4000 tuner but also helps R820T.
+     * Enable offset tuning (zero-IF DC spike avoidance).
+     * IMPORTANT: librtlsdr repurposes this call as a bias-tee (antenna phantom
+     * power) toggle on R820T/R828D tuners — it does NOT reduce noise on them.
+     * Only call this when the connected tuner is actually E4000; otherwise it
+     * will silently turn on 4.5V bias-tee power on the SMA port.
      */
     fun setOffsetTuning(enabled: Boolean) {
+        if (tunerName != "E4000") {
+            println("Offset tuning skipped: not supported on $tunerName (would toggle bias-tee instead)")
+            return
+        }
         val dev = devPtr ?: return
         val l = lib ?: return
         try {

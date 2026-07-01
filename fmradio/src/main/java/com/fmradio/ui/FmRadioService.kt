@@ -244,8 +244,8 @@ class FmRadioService : Service() {
             }
         }
 
-        demodulator?.widebandListener = { widebandSamples ->
-            rdsDecoder?.process(widebandSamples)
+        demodulator?.widebandListener = { widebandSamples, pilotPhase ->
+            rdsDecoder?.process(widebandSamples, pilotPhase)
         }
 
         equalizer = AudioEqualizer(48000)
@@ -334,11 +334,17 @@ class FmRadioService : Service() {
                     dev.setFrequency(freq)
                     delay(60)
                     dev.resetBuffer()
+                    delay(60)
 
-                    val samples = dev.readSamples(65536)
-                    if (samples != null) {
-                        val power = tempDemod.measureSignalStrength(samples)
-                        if (power > SEEK_THRESHOLD) {
+                    val samples1 = dev.readSamples(65536)
+                    val samples2 = dev.readSamples(65536)
+                    if (samples1 != null && samples2 != null) {
+                        val power = (tempDemod.measureSignalStrength(samples1) +
+                            tempDemod.measureSignalStrength(samples2)) / 2f
+                        val quality = tempDemod.measureSignalQuality(samples2)
+                        // Require both signal strength AND FM modulation quality to
+                        // avoid locking onto noise bursts or non-FM carriers
+                        if (power > SEEK_THRESHOLD && quality > 0.003f) {
                             found = freq
                             break
                         }

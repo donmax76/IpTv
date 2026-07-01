@@ -106,12 +106,6 @@ class FmDemodulator(
     // Crossfade for seamless muting during frequency change
     private var muteRamp = 0f  // 0 = muted, 1 = full volume
     private val muteRampUp = 0.005f   // ~200 audio samples to reach full volume
-    private val muteRampDown = 0.05f  // ~20 audio samples to mute
-
-    // ========== rtl_fm LUT atan2 (for maximum performance) ==========
-    private val atanLutSize = 131072
-    private val atanLutCoef = 8
-    private val atanLut: IntArray
 
     init {
         // De-emphasis: 50µs time constant (Europe/Russia standard)
@@ -139,12 +133,6 @@ class FmDemodulator(
         val bw = pilotLoopBw
         pilotAlpha = 2.0 * damp * bw
         pilotBeta = bw * bw
-
-        // Build rtl_fm-style atan2 lookup table for fast integer FM demod
-        atanLut = IntArray(atanLutSize + 1)
-        for (i in 0..atanLutSize) {
-            atanLut[i] = (atan(i.toDouble() / (1 shl atanLutCoef)) / PI * (1 shl 14)).toInt()
-        }
     }
 
     private fun designLowPassFilter(order: Int, normalizedCutoff: Float): FloatArray {

@@ -127,7 +127,7 @@ class RtlSdrDevice(private val context: Context) {
     }
 
     private fun initializeDevice() {
-        val conn = usbConnection ?: return
+        if (usbConnection == null) return
 
         // Reset demod (write 1 to reg 0x01, then 0)
         writeReg(BLOCK_SYS, 0x3000 + 1, 0x04, 1)
@@ -316,10 +316,6 @@ class RtlSdrDevice(private val context: Context) {
         if (!isOpen) return false
         return try {
             enableI2CRepeater(true)
-
-            // R820T gain table (in 0.1 dB steps)
-            val lnaGains = intArrayOf(0, 9, 13, 40, 38, 13, 31, 26, 31, 26, 14, 19, 5, 35, 13, 0)
-            val mixerGains = intArrayOf(0, 5, 10, 10, 19, 9, 10, 25, 17, 10, 8, 16, 13, 6, 3, 0)
 
             val idx = gainIndex.coerceIn(0, 15)
 

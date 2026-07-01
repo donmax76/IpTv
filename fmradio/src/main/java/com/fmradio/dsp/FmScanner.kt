@@ -38,17 +38,21 @@ class FmScanner(private val device: RtlSdrDevice) {
         val startHz: Long,
         val endHz: Long,
         val stepHz: Long,
-        val description: String
+        val description: String,
+        // True for wideband FM broadcast bands, where the FM modulation-quality
+        // heuristic (measureSignalQuality) is valid for filtering out noise.
+        // Other bands (AM, narrowband FM, digital) don't match that heuristic.
+        val isWbfm: Boolean = false
     ) {
         FM_BROADCAST(
             "FM Radio", "FM",
             87500000L, 108000000L, 100000L,
-            "FM Broadcast 87.5-108.0 MHz"
+            "FM Broadcast 87.5-108.0 MHz", isWbfm = true
         ),
         FM_JAPAN(
             "FM Japan", "FM-J",
             76000000L, 95000000L, 100000L,
-            "Japanese FM 76.0-95.0 MHz"
+            "Japanese FM 76.0-95.0 MHz", isWbfm = true
         ),
         AM_SHORTWAVE(
             "Shortwave", "SW",
@@ -166,7 +170,8 @@ class FmScanner(private val device: RtlSdrDevice) {
         startFreq: Long = FM_BAND_START,
         endFreq: Long = FM_BAND_END,
         step: Long = FM_STEP,
-        threshold: Float = SIGNAL_THRESHOLD
+        threshold: Float = SIGNAL_THRESHOLD,
+        isWbfmBand: Boolean = true
     ): List<ScanResult> = withContext(Dispatchers.IO) {
         scanning = true
         isBusy = true
@@ -208,18 +213,22 @@ class FmScanner(private val device: RtlSdrDevice) {
 
                 var signalSum = 0f
                 var validMeasurements = 0
+                var lastSamples: ByteArray? = null
 
                 for (m in 0 until MEASUREMENTS_PER_FREQ) {
                     val samples = device.readSamples(MEASUREMENT_SAMPLES)
                     if (samples != null && samples.isNotEmpty()) {
                         signalSum += demodulator.measureSignalStrength(samples)
                         validMeasurements++
+                        lastSamples = samples
                     }
                 }
 
                 if (validMeasurements > 0) {
                     val avgSignal = signalSum / validMeasurements
-                    if (avgSignal > adaptiveThreshold) {
+                    val qualityOk = !isWbfmBand || lastSamples == null ||
+                        demodulator.measureSignalQuality(lastSamples) > 0.003f
+                    if (avgSignal > adaptiveThreshold && qualityOk) {
                         val result = ScanResult(freq, avgSignal)
                         stations.add(result)
                         Log.i(TAG, "Signal found: ${result.displayFrequency} MHz ($avgSignal dB)")
@@ -257,7 +266,7 @@ class FmScanner(private val device: RtlSdrDevice) {
 
     /** Scan a specific Band enum */
     suspend fun scanBand(band: Band, listener: ScanListener): List<ScanResult> {
-        return scan(listener, band.startHz, band.endHz, band.stepHz)
+        return scan(listener, band.startHz, band.endHz, band.stepHz, isWbfmBand = band.isWbfm)
     }
 
     fun stopScan() {
