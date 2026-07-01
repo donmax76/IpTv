@@ -159,23 +159,48 @@ def _best_decode(raw: bytes) -> str:
     return best_text or raw.decode('utf-8', errors='ignore')
 
 
+def _fetch_playlist_bytes(url: str, timeout: int) -> bytes:
+    """Round 337: тройной транспорт как у epg_parser.py/
+    channel_meta_lookup.py — requests → urllib (системный SSL) →
+    urllib без проверки SSL. Раньше fetch_playlist полагался ТОЛЬКО
+    на requests(verify=False), но verify=False снимает только
+    проверку сертификата, а не отключает SSL целиком — если сам
+    модуль `ssl`/сборка certifi в PyInstaller-бандле повреждена,
+    requests может упасть на уровне установления соединения ДО того
+    как verify=False вообще применится. У остальных HTTP-фетчей в
+    проекте (EPG, iptv-org) уже есть этот же fallback; playlist был
+    единственным местом без него."""
+    headers = {
+        'User-Agent': 'TVViewer/5.4 (Windows Desktop)',
+        'Accept': '*/*',
+    }
+    try:
+        with requests.get(url, headers=headers, timeout=timeout,
+                          allow_redirects=True, verify=False) as response:
+            response.raise_for_status()
+            return response.content
+    except Exception as e1:
+        import urllib.request as _urlr
+        try:
+            req = _urlr.Request(url, headers=headers)
+            with _urlr.urlopen(req, timeout=timeout) as r:
+                return r.read()
+        except Exception as e2:
+            import ssl as _ssl
+            ctx = _ssl._create_unverified_context()
+            req = _urlr.Request(url, headers=headers)
+            with _urlr.urlopen(req, timeout=timeout, context=ctx) as r:
+                return r.read()
+
+
 def fetch_playlist(url: str, timeout: int = 30) -> PlaylistResult:
     """Fetch and parse an M3U playlist from a URL.
 
     Round 287: позаимствовали у Android — SSL отключён для IPTV-CDN'ов
     с самоподписанными сертификатами (streamlock.net и пр.), декодинг
     выбирает кодировку с наименьшим числом replacement-символов."""
-    headers = {
-        'User-Agent': 'TVViewer/5.4 (Windows Desktop)',
-        'Accept': '*/*',
-    }
-    # SSL verify False — много IPTV-CDN'ов используют просроченные /
-    # самоподписанные сертификаты. Android PlaylistRepository делает
-    # ровно то же — без этого половина плейлистов не открывается.
-    with requests.get(url, headers=headers, timeout=timeout,
-                      allow_redirects=True, verify=False) as response:
-        response.raise_for_status()
-        content = _best_decode(response.content)
+    raw = _fetch_playlist_bytes(url, timeout)
+    content = _best_decode(raw)
     return parse_m3u(content)
 
 

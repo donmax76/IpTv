@@ -18,6 +18,7 @@ import json
 import os
 import time
 import io
+import hashlib
 
 
 @dataclass
@@ -52,15 +53,30 @@ def normalize_id(tvg_id: str) -> str:
 
 
 _FUZZY_TRAIL_DIGITS = re.compile(r'\d+$')
+# Round 337: отсортировано по УБЫВАНИЮ длины. normalize_id() к этому
+# моменту уже стёр все пробелы, так что суффиксы matching идёт по
+# голой конкатенации букв без границ слов. Со старым порядком (короткие
+# 2-буквенные коды раньше длинных) "Kino Plus" → "kinoplus" сначала
+# терял «us» (кусок «Plus»!) → "kinopl", и только потом цикл
+# останавливался — «plus» как отдельный суффикс так и не сработал.
+# Длинные-первыми чинит это: "kinoplus".endswith('plus') матчится
+# раньше чем endswith('us'), даёт корректное "kino".
 _FUZZY_SUFFIXES = (
-    'uhd', 'fhd', 'qhd', 'hd', 'sd', '4k', '8k',
+    'channel', 'канал',
+    'plus', 'orig', 'uhd', 'fhd', 'qhd',
+    'тв',
+    'hd', 'sd', '4k', '8k', 'tv',
     'uk', 'ru', 'us', 'az', 'ua', 'by', 'kz', 'tr', 'ge', 'am', 'uz', 'tj', 'kg',
-    # Round 291: «ТВ» / «TV» / «канал» / «channel» — общие постфиксы
-    # в названиях каналов на обеих сторонах матча (наш «Боевик» vs
-    # iptv-org «Боевик ТВ»). Плюс «plus», «orig» — варианты,
-    # отличающиеся от базы.
-    'tv', 'тв', 'channel', 'канал', 'plus', 'orig',
 )
+# Round 337: 2-буквенные «региональные» коды имеют ВЫСОКИЙ риск
+# коллизии — они не редакция границ слов, поэтому запросто совпадают
+# с концом обычного слова («Rugby»→…by, «Belarus»→…us, «Bonus»→…us,
+# «Campus»→…us). Для них поднят минимальный остаток базы с 3 до 5
+# символов — режем только когда после удаления кода остаётся
+# достаточно длинная база, чтобы не превращать «Rugby TV» в «rug».
+_FUZZY_SHORT_CODE_SUFFIXES = frozenset((
+    'uk', 'ru', 'us', 'az', 'ua', 'by', 'kz', 'tr', 'ge', 'am', 'uz', 'tj', 'kg',
+))
 
 
 def fuzzy_key(s: str) -> str:
@@ -100,7 +116,12 @@ def fuzzy_key(s: str) -> str:
             continue
         stripped = False
         for suf in _FUZZY_SUFFIXES:
-            if t.endswith(suf) and len(t) - len(suf) >= 3:
+            # Round 337: 2-буквенные коды требуют остаток >=5 символов
+            # (не 3) — иначе «Rugby»/«Belarus»/«Bonus»/«Campus» режутся
+            # до бессмысленных 3-буквенных огрызков, которые потом
+            # сталкиваются с другими такими же огрызками.
+            min_remainder = 5 if suf in _FUZZY_SHORT_CODE_SUFFIXES else 3
+            if t.endswith(suf) and len(t) - len(suf) >= min_remainder:
                 t = t[:-len(suf)]
                 stripped = True
                 break
@@ -152,6 +173,22 @@ def parse_xmltv_time(time_str: str) -> float:
     return 0.0
 
 
+def _source_cache_path(cache_dir: str, epg_url: str) -> str:
+    """Round 337: отдельный кэш-файл НА КАЖДЫЙ EPG-источник, ключ —
+    хэш URL. Раньше fetch_epg() читал/писал в общий CACHE_FILE
+    (epg_cache.json) независимо от того, какой именно epg_url
+    запрашивается. При 2+ источниках (config.epg_urls) это давало
+    молчаливую потерю данных: fetch источника #1 писал свежий
+    epg_cache.json, fetch источника #2 тут же читал ЕГО же кэш и
+    возвращал данные источника #1 без единого сетевого запроса —
+    источник #2 не подгружался вообще, пока не истечёт CACHE_LIFETIME.
+    save_to_cache/load_from_cache (без url) остаются как были — их
+    отдельно использует tvviewer.py для ОБЩЕГО объединённого кэша
+    (Round 317), это не тот же кейс."""
+    h = hashlib.sha1(epg_url.encode('utf-8', 'ignore')).hexdigest()[:16]
+    return os.path.join(cache_dir, f"epg_src_cache_{h}.json")
+
+
 def fetch_epg(epg_url: str, cache_dir: str = ".",
               progress: Optional[Callable[[str], None]] = None,
               channel_filter: Optional[Set[str]] = None) -> EpgData:
@@ -161,7 +198,12 @@ def fetch_epg(epg_url: str, cache_dir: str = ".",
     channel_filter: if provided, only programmes for these normalized
                     ids/names are kept. Drastically reduces memory.
     """
-    cached = load_from_cache(cache_dir)
+    # Round 337: кэш ПЕР-ИСТОЧНИК (см. _source_cache_path) — раньше
+    # это был load_from_cache(cache_dir) без привязки к epg_url, и с
+    # 2+ источниками второй тихо получал данные первого без сетевого
+    # запроса.
+    src_cache_path = _source_cache_path(cache_dir, epg_url)
+    cached = load_from_cache(cache_dir, cache_path=src_cache_path)
     if cached:
         trace("EPG", f"using cached EPG ({len(cached)} channels)", cache_dir)
         return cached
@@ -239,7 +281,7 @@ def fetch_epg(epg_url: str, cache_dir: str = ".",
     if progress:
         progress(f"{host}: {len(epg_data)} каналов, {progs_total} передач")
 
-    save_to_cache(epg_data, cache_dir)
+    save_to_cache(epg_data, cache_dir, cache_path=src_cache_path)
     return epg_data
 
 
@@ -451,9 +493,17 @@ def get_current_progress(programme: Optional[Programme]) -> float:
     return max(0.0, min(1.0, elapsed / total))
 
 
-def save_to_cache(epg: EpgData, cache_dir: str = "."):
-    """Save EPG data to JSON cache."""
-    cache_path = os.path.join(cache_dir, CACHE_FILE)
+def save_to_cache(epg: EpgData, cache_dir: str = ".", cache_path: str = None):
+    """Save EPG data to JSON cache.
+
+    Round 337: добавлен опциональный cache_path — если задан, пишем
+    туда напрямую вместо os.path.join(cache_dir, CACHE_FILE). Позволяет
+    fetch_epg() использовать отдельный файл на источник (см.
+    _source_cache_path) не трогая сигнатуру для существующих вызовов
+    (tvviewer.py Round 317 использует эту же функцию для ОБЩЕГО
+    объединённого кэша без cache_path — поведение не меняется)."""
+    if cache_path is None:
+        cache_path = os.path.join(cache_dir, CACHE_FILE)
     data = {
         "timestamp": time.time(),
         "channels": {}
@@ -470,9 +520,12 @@ def save_to_cache(epg: EpgData, cache_dir: str = "."):
         pass
 
 
-def load_from_cache(cache_dir: str = ".") -> Optional[EpgData]:
-    """Load EPG data from JSON cache if fresh enough."""
-    cache_path = os.path.join(cache_dir, CACHE_FILE)
+def load_from_cache(cache_dir: str = ".", cache_path: str = None) -> Optional[EpgData]:
+    """Load EPG data from JSON cache if fresh enough.
+
+    Round 337: тот же опциональный cache_path что и в save_to_cache."""
+    if cache_path is None:
+        cache_path = os.path.join(cache_dir, CACHE_FILE)
     try:
         if not os.path.exists(cache_path):
             return None
