@@ -602,7 +602,8 @@ TRANSLATIONS = {
         'vlc_not_found': 'VLC: Не найден — установите VLC и python-vlc',
         'buffer_low': 'Низкий (1500 мс)',
         'buffer_normal': 'Нормальный (3000 мс)',
-        'buffer_high': 'Высокий (6000 мс)',
+        'buffer_default': 'По умолчанию (5000 мс)',
+        'buffer_high': 'Высокий (9000 мс)',
         'buffer_very_high': 'Очень высокий (10000 мс)',
         'clock_top_right': 'Верх-право',
         'clock_top_left': 'Верх-лево',
@@ -771,7 +772,8 @@ TRANSLATIONS = {
         'vlc_not_found': 'VLC: Not found - install VLC and python-vlc',
         'buffer_low': 'Low (1500 ms)',
         'buffer_normal': 'Normal (3000 ms)',
-        'buffer_high': 'High (6000 ms)',
+        'buffer_default': 'Default (5000 ms)',
+        'buffer_high': 'High (9000 ms)',
         'buffer_very_high': 'Very high (10000 ms)',
         'clock_top_right': 'Top-right',
         'clock_top_left': 'Top-left',
@@ -942,7 +944,8 @@ TRANSLATIONS = {
         'vlc_not_found': 'VLC: Не знайдено — встановіть VLC і python-vlc',
         'buffer_low': 'Низький (1500 мс)',
         'buffer_normal': 'Нормальний (3000 мс)',
-        'buffer_high': 'Високий (6000 мс)',
+        'buffer_default': 'За замовчуванням (5000 мс)',
+        'buffer_high': 'Високий (9000 мс)',
         'buffer_very_high': 'Дуже високий (10000 мс)',
         'clock_top_right': 'Верх-право',
         'clock_top_left': 'Верх-ліво',
@@ -1111,7 +1114,8 @@ TRANSLATIONS = {
         'vlc_not_found': 'VLC: Tapılmadı - VLC və python-vlc quraşdırın',
         'buffer_low': 'Aşağı (1500 ms)',
         'buffer_normal': 'Normal (3000 ms)',
-        'buffer_high': 'Yüksək (6000 ms)',
+        'buffer_default': 'Defolt (5000 ms)',
+        'buffer_high': 'Yüksək (9000 ms)',
         'buffer_very_high': 'Çox yüksək (10000 ms)',
         'clock_top_right': 'Yuxarı-sağ',
         'clock_top_left': 'Yuxarı-sol',
@@ -1298,6 +1302,26 @@ def _retranslate_widgets(root):
         if key:
             try:
                 a.setText(t(key))
+            except Exception:
+                pass
+
+
+def _reapply_theme_roles(root):
+    """Round 337: перегенерирует inline-стиль виджетов, помеченных
+    свойством '_theme_role', из ТЕКУЩЕГО (после apply_theme()) словаря
+    COLORS. Round 335's unpolish/polish sweep обновляет только QSS-
+    каскад (QApplication.setStyleSheet) — виджеты со своим собственным
+    setStyleSheet(f"...{COLORS[...]}...") держат значение, вычисленное
+    в момент СОЗДАНИЯ, потому что это обычный Python f-string, а не
+    Qt QSS-правило, которое Qt мог бы пересчитать заново."""
+    from PyQt5.QtWidgets import QLabel
+    for w in root.findChildren(QLabel):
+        role = w.property('_theme_role')
+        if role == 'section_header':
+            try:
+                w.setStyleSheet(
+                    f"color: {COLORS['secondary']}; font-size: 13px;"
+                    f" font-weight: bold; padding: 4px 0;")
             except Exception:
                 pass
 
@@ -2005,6 +2029,22 @@ class DownloadUpdateThread(QThread):
             except Exception: pass
 
 
+def _ps_squote(s: str) -> str:
+    """Round 337: экранирование для PowerShell single-quoted строк —
+    внутри `'...'` апостроф удваивается (`''`). Юзер с путём вроде
+    `C:\\Users\\D'Angelo\\...` (кастомная install-папка с апострофом
+    в имени) иначе ломал сгенерированный PS-скрипт синтаксической
+    ошибкой — обновление тихо падало, приложение выходило и не
+    перезапускалось (видно только в tvviewer_update.log)."""
+    return (s or '').replace("'", "''")
+
+
+def _vbs_dquote(s: str) -> str:
+    """Round 337: экранирование для VBScript double-quoted строк —
+    внутри `"..."` кавычка удваивается (`""`)."""
+    return (s or '').replace('"', '""')
+
+
 def _extract_zip_and_restart(zip_path: str):
     """Round 269/272: распаковать ZIP поверх install-папки и
     перезапуститься. Юзер: «идёт обновление оно после закрывается и
@@ -2036,9 +2076,9 @@ def _extract_zip_and_restart(zip_path: str):
             f"$pid_parent = {own_pid}; "
             "try { Wait-Process -Id $pid_parent -Timeout 30 } catch {}; "
             "Start-Sleep -Milliseconds 500; "
-            f"$zip = '{zip_path}'; "
-            f"$dst = '{install_dir}'; "
-            f"$log = '{log_path}'; "
+            f"$zip = '{_ps_squote(zip_path)}'; "
+            f"$dst = '{_ps_squote(install_dir)}'; "
+            f"$log = '{_ps_squote(log_path)}'; "
             "Add-Content $log \"[ps] starting extract zip=$zip dst=$dst\"; "
             "$ok = $false; "
             "try { "
@@ -2079,12 +2119,12 @@ def _extract_zip_and_restart(zip_path: str):
         # из %TEMP% и относительные пути в коде ломались бы).
         vbs = (
             'Set sh = CreateObject("WScript.Shell")\r\n'
-            f'sh.CurrentDirectory = "{install_dir}"\r\n'
-            f'sh.Run "cmd /c ""{bat_path}""", 0, True\r\n'
-            f'sh.Run """{current_exe}""", 1, False\r\n'
+            f'sh.CurrentDirectory = "{_vbs_dquote(install_dir)}"\r\n'
+            f'sh.Run "cmd /c ""{_vbs_dquote(bat_path)}""", 0, True\r\n'
+            f'sh.Run """{_vbs_dquote(current_exe)}""", 1, False\r\n'
             'Set fso = CreateObject("Scripting.FileSystemObject")\r\n'
             'On Error Resume Next\r\n'
-            f'fso.DeleteFile "{bat_path}"\r\n'
+            f'fso.DeleteFile "{_vbs_dquote(bat_path)}"\r\n'
             'fso.DeleteFile WScript.ScriptFullName\r\n'
         )
         vbs_path = os.path.join(tmp, 'tvviewer_update.vbs')
@@ -2153,12 +2193,12 @@ def _swap_self_and_restart(new_exe_path: str):
         # это был бы system32 (нет прав) → «Failed to load Python DLL».
         vbs = (
             'Set sh = CreateObject("WScript.Shell")\r\n'
-            f'sh.CurrentDirectory = "{install_dir}"\r\n'
-            f'sh.Run "cmd /c ""{bat_path}""", 0, True\r\n'
-            f'sh.Run """{current}""", 1, False\r\n'
+            f'sh.CurrentDirectory = "{_vbs_dquote(install_dir)}"\r\n'
+            f'sh.Run "cmd /c ""{_vbs_dquote(bat_path)}""", 0, True\r\n'
+            f'sh.Run """{_vbs_dquote(current)}""", 1, False\r\n'
             'Set fso = CreateObject("Scripting.FileSystemObject")\r\n'
             'On Error Resume Next\r\n'
-            f'fso.DeleteFile "{bat_path}"\r\n'
+            f'fso.DeleteFile "{_vbs_dquote(bat_path)}"\r\n'
             'fso.DeleteFile WScript.ScriptFullName\r\n'
         )
         vbs_path = os.path.join(tmp, 'tvviewer_update.vbs')
@@ -7551,11 +7591,20 @@ class SettingsPage(QWidget):
         self._buf_lbl.setProperty('_t_key', 'buffer_label')
         buf_row.addWidget(self._buf_lbl)
         self.buf_combo = NoWheelComboBox()
-        _buf_keys = ['buffer_low', 'buffer_normal', 'buffer_high', 'buffer_very_high']
-        for k, v in zip(_buf_keys, (1500, 3000, 6000, 10000)):
+        # Round 337: добавлен 'buffer_default' (5000мс) — реальный
+        # Config-дефолт (Round 328) не входил ни в одну из старых 4
+        # опций (1500/3000/6000/10000), из-за чего _set_combo_by_value
+        # молча падал на default_idx=1 («Normal 3000мс») и юзер видел
+        # НЕВЕРНОЕ значение буфера в UI, хотя VLC реально играл на 5000.
+        # 'buffer_high' заодно поднят с 6000 на 9000 — это то значение,
+        # которое комментарии Round 328 обещают юзеру («можно вернуть
+        # 9000 если запинки»), а не молчаливо-другое число.
+        _buf_keys = ['buffer_low', 'buffer_normal', 'buffer_default',
+                     'buffer_high', 'buffer_very_high']
+        for k, v in zip(_buf_keys, (1500, 3000, 5000, 9000, 10000)):
             self.buf_combo.addItem(t(k), v)
         self.buf_combo.setProperty('_t_item_keys', _buf_keys)
-        self._set_combo_by_value(self.buf_combo, self.config.network_caching_ms, default_idx=1)
+        self._set_combo_by_value(self.buf_combo, self.config.network_caching_ms, default_idx=2)
         self.buf_combo.currentIndexChanged.connect(self._save_buffer)
         buf_row.addWidget(self.buf_combo, 1)
         layout.addLayout(buf_row)
@@ -7866,6 +7915,13 @@ class SettingsPage(QWidget):
         text = t(key_or_text) if key_or_text in (TRANSLATIONS.get('en') or {}) else key_or_text
         lbl = QLabel(text)
         lbl.setProperty('_t_key', key_or_text)
+        # Round 337: тег '_theme_role' — _reapply_theme_roles() находит
+        # такие лейблы и перегенерирует их inline-стиль из АКТУАЛЬНЫХ
+        # COLORS при смене темы. Просто unpolish/polish (Round 335) тут
+        # не помогает: это Python f-string, зафиксированный на момент
+        # создания виджета, а не Qt QSS-каскад — apply_theme() меняет
+        # только словарь COLORS, а не уже вычисленную строку.
+        lbl.setProperty('_theme_role', 'section_header')
         lbl.setStyleSheet(
             f"color: {COLORS['secondary']}; font-size: 13px; font-weight: bold;"
             f" padding: 4px 0;")
@@ -7937,6 +7993,13 @@ class SettingsPage(QWidget):
                 mw = self.window()
                 if hasattr(mw, '_refresh_themed_widgets'):
                     mw._refresh_themed_widgets()
+            except Exception:
+                pass
+            # Round 337: section-заголовки самой SettingsPage (тут же,
+            # прямо над/под combo темы который юзер только что трогал —
+            # самый заметный из «не перекрасившихся» элементов).
+            try:
+                _reapply_theme_roles(self)
             except Exception:
                 pass
         except Exception as e:
@@ -8239,7 +8302,11 @@ class SettingsPage(QWidget):
         if reply != QMessageBox.Yes:
             return
         self.config.volume = 80
-        self.config.network_caching_ms = 9000  # Round 292
+        # Round 337: было hardcoded 9000 (Round 292), но Config.__init__
+        # (Round 328) уже понизила дефолт до 5000 — Reset Settings
+        # расходился с «чистой установкой» и удваивал буфер по
+        # сравнению с новым default'ом. Выровнено.
+        self.config.network_caching_ms = 5000
         self.config.autoplay_last = False
         self.config.remember_fullscreen = False
         self.config.sleep_timer_minutes = 0
@@ -8645,7 +8712,14 @@ class MainWindow(QMainWindow):
         # Round 328: «← Назад» кнопка слева для возврата в предыдущую
         # вкладку. Юзер: «Добавь возможность возврата из других окон
         # в основную там откуда оно было открыто».
-        self._btn_back = QPushButton("← Назад")
+        # Round 337: было hardcoded "← Назад" — никогда не переводилось
+        # при смене языка (Round 329's live-retranslate machinery
+        # никогда до него не доходила). Используем существующий ключ
+        # 'back' + '_t_key'/'_t_prefix' тег как у остальных nav-кнопок,
+        # чтобы _update_nav_labels/общий retranslate sweep его нашёл.
+        self._btn_back = QPushButton(f"←  {t('back')}")
+        self._btn_back.setProperty('_t_key', 'back')
+        self._btn_back.setProperty('_t_prefix', "←  ")
         self._btn_back.setObjectName("navBtn")
         self._btn_back.setFixedWidth(110)
         self._btn_back.clicked.connect(self.go_back)
@@ -8689,10 +8763,20 @@ class MainWindow(QMainWindow):
         self.shortcut_bar.setFixedHeight(24)
         main_layout.addWidget(self.shortcut_bar)
         # Round 241: стартуем на HomePage (как Android nav_home).
+        # Round 337: юзер никогда не «был» на странице 0 (дефолт
+        # QStackedWidget) до этого момента — это bootstrap, а не
+        # реальная навигация. Без _suppress_nav_history switch_page
+        # спуривало пушил индекс 0 в ещё-пустую _nav_history (которую
+        # оно же и создаёт первым делом), и «← Назад»/Backspace на
+        # свежем запуске улетали на вкладку Плейлисты вместо no-op.
         try:
+            self._nav_history = []
+            self._suppress_nav_history = True
             self.switch_page(self._home_index)
         except Exception:
             self.update_nav_highlight(0)
+        finally:
+            self._suppress_nav_history = False
 
     def _update_nav_labels(self):
         for btn, _idx in getattr(self, 'nav_buttons', []):
@@ -8744,6 +8828,18 @@ class MainWindow(QMainWindow):
             log_error('switch_page', e, extra=f"idx={idx}")
         if idx == 2:
             self.favorites_page.refresh(self.channels, self.epg_data)
+        elif idx == 4:
+            # Round 337: сводка плейлистов в Settings строилась ОДИН РАЗ
+            # в SettingsPage.__init__ и больше никогда не обновлялась —
+            # добавление/удаление плейлиста или переключение активного
+            # оставляло список и «✓»-метку устаревшими до перезапуска
+            # приложения (SettingsPage создаётся один раз и живёт в
+            # QStackedWidget всю сессию). Перестраиваем при каждом
+            # реальном заходе на вкладку — дёшево (max 6 строк).
+            try:
+                self.settings_page._refresh_playlists_summary()
+            except Exception:
+                pass
         elif idx == 5:
             # Round 308/311: ленивый старт EPG раньше срабатывания
             # 60-секундного автотаймера. Если юзер открыл TV-гид
@@ -9445,17 +9541,21 @@ class MainWindow(QMainWindow):
     def play_channel(self, index):
         if index < 0 or index >= len(self.channels):
             return
-        self.stack.setCurrentIndex(3)
-        self.update_nav_highlight(-1)
-        # Round 257: на плеере всегда прячем MainWindow chrome — юзер
-        # хочет «фул-скрин по умолчанию» без необходимости F11.
-        try:
-            if hasattr(self, 'nav_bar'):
-                self.nav_bar.setVisible(False)
-            if hasattr(self, 'shortcut_bar'):
-                self.shortcut_bar.setVisible(False)
-        except Exception:
-            pass
+        # Round 337: раньше вход в плеер шёл в обход switch_page
+        # (прямой setCurrentIndex(3)), а выход (show_channels →
+        # switch_page(1)) — ЧЕРЕЗ switch_page, которая пушит текущую
+        # страницу (в тот момент это как раз плеер, idx=3) в
+        # _nav_history. Получалась асимметрия: вход не трекался, а
+        # выход трекался — «висящая» запись 3 в истории потом
+        # неожиданно перебрасывала юзера обратно в плеер по
+        # Backspace с совершенно другой вкладки. switch_page(3)
+        # делает и то и другое симметрично: push при входе, и
+        # nav_bar/shortcut_bar/update_nav_highlight внутри неё уже
+        # корректно обрабатывают idx==3 (никакая nav-кнопка не
+        # маппится на страницу 3, так что update_nav_highlight(3)
+        # эквивалентно прежнему update_nav_highlight(-1) — ни одна
+        # кнопка не подсвечивается).
+        self.switch_page(3)
         self.player_page.play_channel(index, self.channels, self.epg_data)
         # Apply remembered fullscreen preference
         if self.config.remember_fullscreen and not self.isFullScreen():
@@ -9576,6 +9676,16 @@ class MainWindow(QMainWindow):
         # Nav buttons (label store keys → t())
         try:
             self._update_nav_labels()
+        except Exception:
+            pass
+        # Round 337: generic sweep for MainWindow-level tagged widgets
+        # that live directly on the window (not inside any sub-page) —
+        # e.g. `_btn_back`, which was hardcoded "← Назад" and never
+        # updated by language changes because _update_nav_labels only
+        # walks self.nav_buttons and no page-level retranslate_ui() has
+        # access to it.
+        try:
+            _retranslate_widgets(self)
         except Exception:
             pass
         # Every page that has retranslate_ui() gets a call.
