@@ -6099,6 +6099,39 @@ class PlayerPage(QWidget):
         except Exception as e:
             log_error('stall_watch.install', e)
 
+    def _vlc_lock_or_recover(self, timeout=8):
+        """Round 350: юзер — «если один канал завис не показал то
+        остальные уже тоже не показывают». Причина: player.stop() /
+        set_media() / audio_set_track() и т.п. и так уже задокументированы
+        в этом файле как способные блокировать 5-20+ сек на дохлых
+        стримах (Round 279/281/334) — но ВСЕ они сериализуются через
+        ОДИН self._vlc_op_lock (Round 341) БЕЗ таймаута. Если конкретный
+        стрим настолько плох что нативный вызов виснет не 20 сек, а
+        насмерть (зависший TCP-поток, недоступный сервер), lock
+        никогда не освобождается — и КАЖДАЯ последующая попытка
+        переключить канал (новый _swap) стоит в очереди на этот же
+        lock вечно. Юзер видит: один канал завис → все остальные
+        каналы тоже перестают открываться.
+
+        Вместо бесконечного ожидания: пробуем взять lock с таймаутом.
+        Если не вышло — считаем VLC-подсистему безнадёжно подвисшей,
+        заводим НОВЫЙ lock (старая подвисшая нитка однажды доделает
+        свой вызов и освободит СТАРЫЙ lock сама по себе, никому уже не
+        мешая) и сиротим self.player/self.vlc_instance — следующий
+        play_url() пойдёт по обычному пути «player is None» и создаст
+        свежий vlc.Instance() с нуля, как при обычном первом запуске.
+        Возвращает (lock, recovered) — lock уже захвачен в обоих
+        случаях, вызывающий обязан его release()."""
+        if self._vlc_op_lock.acquire(timeout=timeout):
+            return self._vlc_op_lock, False
+        log_warn('vlc', f"op lock stuck >{timeout}s (wedged native call) — "
+                 "resetting VLC subsystem so channel switching keeps working")
+        self._vlc_op_lock = threading.Lock()
+        self.player = None
+        self.vlc_instance = None
+        self._vlc_op_lock.acquire()
+        return self._vlc_op_lock, True
+
     def init_vlc(self):
         if not HAS_VLC:
             return
@@ -6695,7 +6728,26 @@ class PlayerPage(QWidget):
                     # портит состояние плеера непредсказуемо). Lock
                     # сериализует все такие операции; блокировка
                     # безопасна — мы уже в bg-нитке, не в main.
-                    with self._vlc_op_lock:
+                    # Round 350: с таймаутом + авто-восстановлением — см.
+                    # _vlc_lock_or_recover. Юзер: «если один канал завис
+                    # не показал то остальные уже тоже не показывают» —
+                    # раньше .stop()/.set_media() на действительно мёртвом
+                    # стриме могли не вернуться НИКОГДА, и lock оставался
+                    # захвачен навсегда, блокируя ЛЮБОЕ следующее
+                    # переключение канала.
+                    lock, recovered = self._vlc_lock_or_recover()
+                    try:
+                        if recovered:
+                            # Старый player подвис насмерть — подсистема
+                            # уже сброшена (self.player is None), просто
+                            # повторяем play_url через обычный «холодный»
+                            # путь, который создаст свежий vlc.Instance().
+                            log_info('play_url.bg',
+                                     "vlc subsystem was reset (stuck lock), "
+                                     "retrying via fresh init")
+                            self._invoke_on_main.emit(
+                                lambda u=url: self.play_url(u))
+                            return
                         # Повторная проверка — генерация могла устареть
                         # пока ждали lock (другой _swap был активен).
                         if self._play_generation != my_gen:
@@ -6784,6 +6836,8 @@ class PlayerPage(QWidget):
                         player.play()
                         log_info('play', f"set_media done for {url[:80]} "
                                          f"ua={ua_cfg[:40]} ref={referer_cfg}")
+                    finally:
+                        lock.release()
                     # Round 292: запускаем опрос разрешения в GUI-нитке.
                     # Round 313: через сигнал — _swap бежит в plain
                     # threading.Thread, QTimer оттуда ругается.
@@ -9942,6 +9996,21 @@ class MainWindow(QMainWindow):
         # эквивалентно прежнему update_nav_highlight(-1) — ни одна
         # кнопка не подсвечивается).
         self.switch_page(3)
+        # Round 350: юзер — «канал запускается но не показывает а звук
+        # идет» (чаще всего на самом первом воспроизведении за сессию,
+        # например автозапуск последнего канала при старте). switch_page(3)
+        # только ПЛАНИРУЕТ показ player_page у QStackedWidget — реальный
+        # map/paint видео-окна происходит когда Qt обработает event loop.
+        # play_channel ниже почти сразу стартует VLC-рендер в HWND
+        # video_frame (в bg-нитке _swap) — если событие показа ещё не
+        # успело домаппить окно на экран, VLC начинает рендерить «в
+        # пустоту»: звук слышен (декодирование не зависит от видимости
+        # окна), а картинки нет, пока не прилетит следующий repaint.
+        # Прокачиваем event loop несколько раз ДО старта плеера, чтобы
+        # video_frame гарантированно был на экране когда VLC привяжется
+        # к его HWND.
+        for _ in range(3):
+            QApplication.processEvents()
         self.player_page.play_channel(index, self.channels, self.epg_data)
         # Apply remembered fullscreen preference
         if self.config.remember_fullscreen and not self.isFullScreen():
