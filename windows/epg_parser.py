@@ -383,10 +383,19 @@ def _parse_xmltv_from(fileobj,
         # yield'ов — 25 элементов это ~0.3 мс работы, плюс 1 мс sleep =
         # ~30% времени Qt event loop получает CPU гарантированно.
         # Парсер замедляется на ~10%, но UI остаётся отзывчивым.
+        # Round 344: 25 → 10. Юзер поймал «Windows: Не отвечает» —
+        # watchdog зафиксировал 10.5с блок ИМЕННО во время парсинга
+        # (до строки «merged channels», не после). Round 319-тюнинг
+        # (25 элементов) оказался недостаточен для мержа 2 источников
+        # подряд на этой машине — GIL-fairness Windows-планировщика
+        # даёт main thread'у слишком узкое окно между yield'ами чтобы
+        # разгрести накопившуюся очередь Qt-событий. Дальше ужимать
+        # интервал уже не даёт эффекта (см. Round 307 — sleep(0) вообще
+        # не освобождает GIL), поэтому чаще шлём именно ненулевой sleep.
         _iter_n = 0
         for event, elem in ctx_iter:
             _iter_n += 1
-            if _iter_n % 25 == 0:
+            if _iter_n % 10 == 0:
                 time.sleep(0.001)  # реально освобождает GIL на Windows
             tag = elem.tag
             if event == 'start':
@@ -573,11 +582,24 @@ def save_to_cache(epg: EpgData, cache_dir: str = ".", cache_path: str = None):
         "timestamp": time.time(),
         "channels": {}
     }
+    # Round 344: периодически уступаем GIL во время построения dict'а —
+    # эта функция вызывается в bg-нитке (Round 317: epg-cache-save), но
+    # background-нитка ≠ автоматическое освобождение GIL. Чистый Python
+    # цикл по 7000+ каналам × сотни Programme на каждый (сотни тысяч
+    # итераций) удерживает GIL достаточно долго чтобы main thread
+    # застрял в ожидании — юзер видел «Windows: Не отвечает» именно
+    # в эти моменты (watchdog поймал 10.5с блок сразу после
+    # «merged channels=7219»).
+    _n = 0
     for channel_id, programmes in epg.items():
-        data["channels"][channel_id] = [
-            {"start": p.start, "end": p.end, "title": p.title, "description": p.description}
-            for p in programmes
-        ]
+        row = []
+        for p in programmes:
+            row.append({"start": p.start, "end": p.end, "title": p.title,
+                       "description": p.description})
+            _n += 1
+            if _n % 500 == 0:
+                time.sleep(0.001)
+        data["channels"][channel_id] = row
     try:
         with open(cache_path, 'w', encoding='utf-8') as f:
             json.dump(data, f)
@@ -588,7 +610,17 @@ def save_to_cache(epg: EpgData, cache_dir: str = ".", cache_path: str = None):
 def load_from_cache(cache_dir: str = ".", cache_path: str = None) -> Optional[EpgData]:
     """Load EPG data from JSON cache if fresh enough.
 
-    Round 337: тот же опциональный cache_path что и в save_to_cache."""
+    Round 337: тот же опциональный cache_path что и в save_to_cache.
+    Round 344: юзер поймал «Windows: Не отвечает» — watchdog зафиксировал
+    14.6с блок main thread ровно во время загрузки этого кэша (7220
+    каналов). Это вызывается из bg-нитки (Round 317), но bg-нитка НЕ
+    означает автоматическое освобождение GIL — сотни тысяч Programme(...)
+    конструкторов в чистом Python цикле держат GIL достаточно долго,
+    чтобы Qt event loop в main thread не успевал отвечать на события
+    системы. json.load() сам по себе (C-уровень) чанковать нельзя без
+    кастомного стримингового парсера, но цикл ПОСТРОЕНИЯ Programme-
+    объектов — чистый Python, и туда добавлен periodic yield как и в
+    XML-парсере (Round 290/307/319) и в save_to_cache (см. выше)."""
     if cache_path is None:
         cache_path = os.path.join(cache_dir, CACHE_FILE)
     try:
@@ -600,16 +632,20 @@ def load_from_cache(cache_dir: str = ".", cache_path: str = None) -> Optional[Ep
         if time.time() - ts > CACHE_LIFETIME:
             return None
         epg: EpgData = {}
+        _n = 0
         for channel_id, programmes in data.get("channels", {}).items():
-            epg[channel_id] = [
-                Programme(
+            row = []
+            for p in programmes:
+                row.append(Programme(
                     start=p["start"],
                     end=p["end"],
                     title=p["title"],
                     description=p.get("description", "")
-                )
-                for p in programmes
-            ]
+                ))
+                _n += 1
+                if _n % 500 == 0:
+                    time.sleep(0.001)
+            epg[channel_id] = row
         return epg
     except Exception:
         return None
