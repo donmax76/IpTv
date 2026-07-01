@@ -2045,6 +2045,60 @@ def _vbs_dquote(s: str) -> str:
     return (s or '').replace('"', '""')
 
 
+_user32_argtypes_ready = False
+
+
+def _setup_user32_argtypes():
+    """Round 337: явные argtypes/restype для user32-вызовов, которые
+    _FocusForcingLineEdit дёргает через ctypes.windll.user32.<fn>(...)
+    с ДЕФОЛТНЫМИ c_int сигнатурами. HWND — указательного размера
+    (8 байт на 64-bit Windows); без явного wintypes.HWND ctypes может
+    молча усечь/неверно замаршалить большие значения хендлов, из-за
+    чего SetForegroundWindow/AttachThreadInput/SetFocus тихо
+    промахиваются мимо нужного окна вместо ошибки — воспроизводится
+    как «на этой машине курсор/фокус просто не работает» без единой
+    строки в логе. Настраивается один раз (idempotent через module-
+    level флаг)."""
+    global _user32_argtypes_ready
+    if _user32_argtypes_ready or sys.platform != 'win32':
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+        user32.SetForegroundWindow.restype = wintypes.BOOL
+        user32.BringWindowToTop.argtypes = [wintypes.HWND]
+        user32.BringWindowToTop.restype = wintypes.BOOL
+        user32.GetForegroundWindow.argtypes = []
+        user32.GetForegroundWindow.restype = wintypes.HWND
+        user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, wintypes.LPDWORD]
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
+        user32.AttachThreadInput.restype = wintypes.BOOL
+        user32.SetFocus.argtypes = [wintypes.HWND]
+        user32.SetFocus.restype = wintypes.HWND
+        # keybd_event(BYTE bVk, BYTE bScan, DWORD dwFlags, ULONG_PTR
+        # dwExtraInfo) — ULONG_PTR указательного размера, не указатель.
+        user32.keybd_event.argtypes = [wintypes.BYTE, wintypes.BYTE,
+                                        wintypes.DWORD, ctypes.c_size_t]
+        user32.keybd_event.restype = None
+        kernel32.GetCurrentThreadId.argtypes = []
+        kernel32.GetCurrentThreadId.restype = wintypes.DWORD
+        # SetWindowPos(HWND hWnd, HWND hWndInsertAfter, int X, int Y,
+        # int cx, int cy, UINT uFlags) — используется в
+        # MainWindow._fast_overlay_track для мгновенного трекинга
+        # оверлея во время drag'а окна.
+        user32.SetWindowPos.argtypes = [
+            wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
+            ctypes.c_int, ctypes.c_int, wintypes.UINT]
+        user32.SetWindowPos.restype = wintypes.BOOL
+        _user32_argtypes_ready = True
+    except Exception as e:
+        log_error('_setup_user32_argtypes', e)
+
+
 def _extract_zip_and_restart(zip_path: str):
     """Round 269/272: распаковать ZIP поверх install-папки и
     перезапуститься. Юзер: «идёт обновление оно после закрывается и
@@ -4682,11 +4736,21 @@ class PlayerPage(QWidget):
                     if sys.platform == 'win32':
                         try:
                             import ctypes
+                            _setup_user32_argtypes()
                             hwnd = int(w.winId())
                             user32 = ctypes.windll.user32
+                            # Round 337: ALT press/release раньше не были
+                            # в try/finally — если SetForegroundWindow (или
+                            # что-то между press/release) бросало
+                            # исключение, ALT оставался «зажатым» на
+                            # уровне ОС (не было парного key-up),
+                            # провоцируя системный menu-activation-mode
+                            # пока юзер физически не нажмёт Alt сам.
                             user32.keybd_event(0x12, 0, 0, 0)
-                            user32.SetForegroundWindow(hwnd)
-                            user32.keybd_event(0x12, 0, 0x02, 0)
+                            try:
+                                user32.SetForegroundWindow(hwnd)
+                            finally:
+                                user32.keybd_event(0x12, 0, 0x02, 0)
                             user32.BringWindowToTop(hwnd)
                             # Round 324: AttachThreadInput сцепляет нашу
                             # GUI-нитку с потоком foreground-окна — это
@@ -4698,8 +4762,10 @@ class PlayerPage(QWidget):
                                     cur_tid = ctypes.windll.kernel32.GetCurrentThreadId()
                                     if fg_tid and cur_tid and fg_tid != cur_tid:
                                         user32.AttachThreadInput(fg_tid, cur_tid, True)
-                                        user32.SetFocus(hwnd)
-                                        user32.AttachThreadInput(fg_tid, cur_tid, False)
+                                        try:
+                                            user32.SetFocus(hwnd)
+                                        finally:
+                                            user32.AttachThreadInput(fg_tid, cur_tid, False)
                             except Exception:
                                 pass
                         except Exception:
@@ -6748,9 +6814,21 @@ class PlayerPage(QWidget):
             if pos == 'off':
                 self.persistent_clock.hide()
                 return
-            self.persistent_clock.show()
             pw = self.overlay_host.width()
             ph = self.overlay_host.height()
+            # Round 337: overlay_host строится скрытым с нулевой
+            # геометрией (см. init_ui), и update_clock() дёргает эту
+            # функцию из PlayerPage.__init__ ДО первого реального
+            # _sync_overlay_host(). Без guard'а top_right/bottom_right
+            # считали x = 0 - cw - pad (отрицательный) и часы рисовались
+            # частично за левым краем до следующего ресайза. Остальные
+            # position_* методы (resolution_label, osd) уже имеют
+            # такую защиту — этому не хватало. Просто не показываем
+            # пока нет валидной геометрии; следующий _sync_overlay_host
+            # вызовет этот метод повторно с реальными размерами.
+            if pw <= 0 or ph <= 0:
+                return
+            self.persistent_clock.show()
             cw = self.persistent_clock.width()
             ch = self.persistent_clock.height()
             pad = 14
@@ -7051,11 +7129,18 @@ class PlayerPage(QWidget):
             ph = self.overlay_host.height()
             w = self.number_input_osd.width()
             h = self.number_input_osd.height()
+            # Round 337: раньше show()/raise_() выполнялись БЕЗУСЛОВНО
+            # даже когда overlay_host ещё не получил валидную геометрию
+            # (move() пропускался, но виджет всё равно показывался в
+            # последней/дефолтной позиции) — юзер мог увидеть большую
+            # OSD-цифру мелькнувшей в неверном углу сразу после старта
+            # или перехода в fullscreen до первого _sync_overlay_host.
+            # Теперь show целиком под тем же guard'ом что и move.
             if pw > 0 and ph > 0:
                 self.number_input_osd.move(
                     max(0, (pw - w) // 2), max(0, int(ph * 0.15)))
-            self.number_input_osd.show()
-            self.number_input_osd.raise_()
+                self.number_input_osd.show()
+                self.number_input_osd.raise_()
         except Exception as e:
             log_error('_show_number_input_osd', e)
 
@@ -8484,6 +8569,16 @@ class MainWindow(QMainWindow):
                 return
             tl = vf.mapToGlobal(vf.rect().topLeft())
             w, h = vf.width(), vf.height()
+            # Round 337: тот же guard что в PlayerPage._sync_overlay_host
+            # (которая уже проверяет w<=0/h<=0). При сворачивании окна
+            # на Windows moveEvent/resizeEvent иногда стреляют с
+            # transient нулевым размером — без guard'а SetWindowPos тут
+            # коллапсировал бы overlay_host в 0×0, а поскольку эта
+            # функция не трогает page._last_overlay_geom (кэш
+            # _sync_overlay_host), последующий _sync_overlay_host мог
+            # решить что геометрия «не изменилась» и не восстановить её.
+            if w <= 0 or h <= 0:
+                return
             # Round 322: setGeometry на Qt.Tool top-level окне с
             # WA_TranslucentBackground идёт через event queue и
             # обновляется с лагом — во время drag юзер видит как
@@ -8493,6 +8588,7 @@ class MainWindow(QMainWindow):
             if sys.platform == 'win32':
                 try:
                     import ctypes
+                    _setup_user32_argtypes()
                     hwnd = int(host.winId())
                     # HWND_TOPMOST=-1, SWP_NOACTIVATE=0x10, SWP_NOZORDER=0x4
                     ctypes.windll.user32.SetWindowPos(
