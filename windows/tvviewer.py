@@ -1550,6 +1550,10 @@ CONFIG_FILE = "tvviewer_config.json"
 class Config:
     """Settings persistence - mirrors Android AppPreferences."""
     def __init__(self):
+        # Round 351: сериализует конкурентные save() — фоновый воркер
+        # (_save_worker, Round 346) и синхронный save() из closeEvent
+        # могли писать CONFIG_FILE одновременно, переплетая записи.
+        self._save_io_lock = threading.Lock()
         self.playlists = []  # [{name, url}]
         self.favorites = set()
         self.last_playlist_url = ""
@@ -1702,9 +1706,18 @@ class Config:
             'per_channel_state': self.per_channel_state,
             'ui_language': getattr(self, 'ui_language', 'en'),
         }
+        # Round 351: атомарная запись (tmp + os.replace) под lock'ом.
+        # Раньше писали прямо в CONFIG_FILE: конкурентный save() из
+        # двух ниток (фоновый _save_worker + синхронный closeEvent)
+        # мог переплести записи, а крэш посреди записи оставлял
+        # обрезанный/битый JSON — при следующем запуске конфиг
+        # (плейлисты, избранное, настройки) молча терялся целиком.
         try:
-            with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            with self._save_io_lock:
+                tmp = CONFIG_FILE + '.tmp'
+                with open(tmp, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                os.replace(tmp, CONFIG_FILE)
         except Exception as e:
             log_error('Config.save', e)
 
@@ -2424,7 +2437,14 @@ class LearnedLogos:
         Google-favicon URL'ы блокируем — они помечены как мусор Android
         Round 100."""
         added = 0
+        # Round 351: 4000 каналов × regex _norm без yield'а — бежит в
+        # _enrich_bg на каждую загрузку плейлиста; периодически уступаем
+        # GIL (та же причина что во всех парсерах).
+        _n = 0
         for ch in channels or []:
+            _n += 1
+            if _n % 200 == 0:
+                time.sleep(0.001)
             url = (ch.logo_url or '').strip()
             if not url or any(url.startswith(p) for p in self.BAD_PREFIXES):
                 continue
@@ -2437,9 +2457,15 @@ class LearnedLogos:
                 break
         if added:
             log_info('logo', f"learned +{added} (total {len(self.map)})")
+            # Round 351: атомарная запись tmp+replace — раньше прямой
+            # json.dump в self.path; крэш/выключение посреди записи
+            # оставляли битый learned_logos.json, и вся выученная
+            # таблица молча терялась при следующем старте.
             try:
-                with open(self.path, 'w', encoding='utf-8') as f:
+                tmp = self.path + '.tmp'
+                with open(tmp, 'w', encoding='utf-8') as f:
                     json.dump(self.map, f, ensure_ascii=False, indent=0)
+                os.replace(tmp, self.path)
             except Exception as e:
                 log_error('LearnedLogos.save', e)
         return added
@@ -2478,6 +2504,10 @@ class LogoCache(QObject):
     QThread — точно так же как _PhotoFetcher в Round 253.
     """
     logo_ready = pyqtSignal()
+    # Round 351: результат фоновой дисковой проверки → main thread.
+    # data = bytes файла с диска, либо None если файла нет (тогда идём
+    # в сеть). Queued connection — слот исполнится на main.
+    _disk_result = pyqtSignal(str, object)
 
     # Round 269: 6 → 2. Юзер видит фризы везде. На плейлисте 3639
     # каналов 6 одновременных HTTP-потоков + GIL = постоянная фоновая
@@ -2502,6 +2532,12 @@ class LogoCache(QObject):
         self._inflight: set = set()
         self._queue: list = []
         self._workers: list = []  # QThread refs чтобы GC не убил
+        # Round 351: очередь фоновых дисковых проверок (см. get()).
+        self._disk_pending: set = set()
+        self._disk_queue: list = []
+        self._disk_event = threading.Event()
+        self._disk_worker_started = False
+        self._disk_result.connect(self._on_disk_loaded)
         # Round 269: circuit breaker. Юзер: «зависании происходят во
         # всех окнах везде». На плейлисте с битыми лого 6 воркеров
         # молотили без остановки. После 50 подряд неудач — пауза 60с.
@@ -2519,12 +2555,29 @@ class LogoCache(QObject):
             hashlib.sha1(url.encode('utf-8', 'ignore')).hexdigest()[:16] + '.png')
 
     def get(self, url: str):
+        """Round 351: get() больше НЕ трогает диск. Раньше каждый вызов
+        делал os.path.exists() + QPixmap(файл) синхронно — а get()
+        зовут ВСЕ построчные заполнители списков на main thread
+        (каналы, TV-гид, избранное, недавние, оверлей плеера) плюс
+        их _refresh_logos-колбэки каждые 400мс, пока качаются лого.
+        Под антивирусом один stat стоит десятки мс — сотни строк ×
+        десятки мс = многосекундные фризы (юзер ловил 14-15с стеки
+        именно через get → os.path.exists).
+
+        Теперь: mem-hit отдаём сразу; иначе URL уходит в очередь
+        одной долгоживущей дисковой bg-нитки (_disk_worker): она
+        читает БАЙТЫ файла с диска (или убеждается что файла нет) и
+        шлёт результат сигналом обратно на main, где происходит только
+        in-memory декодирование (QPixmap.loadFromData) — Qt требует
+        создавать QPixmap на GUI-нитке, но декодирование из памяти
+        стоит микросекунды, антивирус его не трогает. Списки при этом
+        получают иконку через тот же logo_ready, что и при сетевой
+        закачке — им ничего менять не нужно."""
         if not url or url in self.missing:
             return None
         # Round 268: ранний отсев невалидных URL — иначе фетчер делает
         # 3 транспортных попытки × 4 сек = 12 сек впустую на каждой
-        # битой ссылке, и 6 воркеров постоянно сидят на дохлых URL,
-        # съедая CPU/диск-IO.
+        # битой ссылке.
         u = url.strip()
         if not (u.startswith('http://') or u.startswith('https://')):
             self.missing.add(url)
@@ -2532,18 +2585,95 @@ class LogoCache(QObject):
         cached = self.icons.get(url)
         if cached is not None:
             return cached
-        disk = self._path(url)
-        if os.path.exists(disk):
-            pm = QPixmap(disk)
-            if not pm.isNull():
-                icon = QIcon(pm)
-                if len(self.icons) < self.MAX_ICONS_IN_MEM:
-                    self.icons[url] = icon
-                return icon
-        if url not in self._inflight and url not in self._queue:
-            self._queue.append(url)
-            self._pump()
+        if (url not in self._disk_pending and url not in self._inflight
+                and url not in self._queue):
+            self._disk_pending.add(url)
+            self._disk_queue.append(url)
+            self._disk_event.set()
+            if not self._disk_worker_started:
+                self._disk_worker_started = True
+                try:
+                    threading.Thread(target=self._disk_worker, daemon=True,
+                                     name='logo-disk').start()
+                except Exception as e:
+                    self._disk_worker_started = False
+                    log_error('LogoCache.disk_worker.spawn', e)
         return None
+
+    def _disk_worker(self):
+        """Round 351: единственная долгоживущая нитка для ВСЕХ дисковых
+        операций LogoCache — чтение кэшированных PNG и запись новых
+        (см. _on_done). Main thread диск не трогает вообще."""
+        while True:
+            self._disk_event.wait()
+            self._disk_event.clear()
+            while self._disk_queue:
+                try:
+                    job = self._disk_queue.pop(0)
+                except IndexError:
+                    break
+                if isinstance(job, tuple) and job[0] == 'write':
+                    # Запись скачанного лого (см. _on_done) — раньше
+                    # шла синхронно на main thread по одному AV-
+                    # сканируемому файлу на каждое скачанное лого.
+                    _, url, data = job
+                    try:
+                        with open(self._path(url), 'wb') as f:
+                            f.write(data)
+                    except Exception as e:
+                        log_error('logo.write_disk', e, extra=url)
+                    time.sleep(0.001)
+                    continue
+                url = job
+                data = None
+                try:
+                    p = self._path(url)
+                    if os.path.exists(p):
+                        with open(p, 'rb') as f:
+                            data = f.read()
+                except Exception:
+                    data = None
+                try:
+                    self._disk_result.emit(url, data)
+                except Exception as e:
+                    log_error('LogoCache._disk_worker.emit', e)
+                # Уступаем GIL между файлами — I/O и так отпускает его,
+                # но при прогретом OS-кэше чтение может быть чисто
+                # CPU-bound.
+                time.sleep(0.001)
+
+    def _submit_disk_write(self, url, data):
+        """Round 351: асинхронная запись файла через дисковую нитку."""
+        self._disk_queue.append(('write', url, data))
+        self._disk_event.set()
+        if not self._disk_worker_started:
+            self._disk_worker_started = True
+            try:
+                threading.Thread(target=self._disk_worker, daemon=True,
+                                 name='logo-disk').start()
+            except Exception as e:
+                self._disk_worker_started = False
+                log_error('LogoCache.disk_worker.spawn', e)
+
+    def _on_disk_loaded(self, url, data):
+        """Round 351: main-thread слот — только in-memory декодирование."""
+        self._disk_pending.discard(url)
+        try:
+            if data:
+                pm = QPixmap()
+                if pm.loadFromData(data) and not pm.isNull():
+                    icon = QIcon(pm)
+                    if len(self.icons) < self.MAX_ICONS_IN_MEM:
+                        self.icons[url] = icon
+                    if not self._emit_timer.isActive():
+                        self._emit_timer.start()
+                    return
+            # Файла на диске нет (или битый) — обычная сетевая закачка.
+            if url not in self._inflight and url not in self._queue:
+                self._queue.append(url)
+                self._pump()
+        except Exception as e:
+            log_error('LogoCache._on_disk_loaded', e, extra=url)
 
     def _prescan_missing_bg(self, urls):
         """Round 349: юзер поймал watchdog-стек 14.3с ПРЯМО в чанкованном
@@ -2562,7 +2692,14 @@ class LogoCache(QObject):
         их можно поставить в очередь на main thread БЕЗ единого
         обращения к диску (см. enqueue/_queue_logo_urls_chunked)."""
         result = []
+        _n = 0
         for url in urls:
+            # Round 351: страховочный yield — os.path.exists отпускает
+            # GIL на syscall'е, но при прогретом OS-кэше цикл почти
+            # чисто CPU-bound на тысячах URL.
+            _n += 1
+            if _n % 500 == 0:
+                time.sleep(0.001)
             if not url or url in self.missing or url in self.icons:
                 continue
             u = url.strip()
@@ -2652,11 +2789,12 @@ class LogoCache(QObject):
             self._paused_until = 0.0
             if pm.width() > 128 or pm.height() > 128:
                 pm = pm.scaled(128, 128, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            try:
-                with open(self._path(url), 'wb') as f:
-                    f.write(data)
-            except Exception as e:
-                log_error('logo.write_disk', e, extra=url)
+            # Round 351: запись на диск — через дисковую bg-нитку.
+            # Раньше open/write шли прямо здесь (main-thread слот),
+            # по одному AV-сканируемому файлу на КАЖДОЕ скачанное
+            # лого — во время массовой закачки это давало постоянные
+            # подёргивания, в том числе поверх играющего видео.
+            self._submit_disk_write(url, data)
             if len(self.icons) < self.MAX_ICONS_IN_MEM:
                 self.icons[url] = QIcon(pm)
             if not self._emit_timer.isActive():
@@ -3251,7 +3389,17 @@ class PlaylistsPage(QWidget):
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         form.addRow(btns)
 
+        # Round 351: XtreamApi.authenticate — сетевой urlopen с
+        # timeout=15 — выполнялся СИНХРОННО на main thread (processEvents
+        # перед ним — костыль, не спасающий от 15с фриза на недоступном
+        # сервере). Сетевую часть уносим в bg-нитку, результат
+        # возвращаем на main через MainWindow._invoke_on_main (модальный
+        # exec_-цикл диалога прокачивает те же события).
+        login_state = {'busy': False}
+
         def _try_login():
+            if login_state['busy']:
+                return
             srv = server_edit.text().strip()
             usr = user_edit.text().strip()
             pwd = pass_edit.text()
@@ -3259,17 +3407,36 @@ class PlaylistsPage(QWidget):
             if not (srv and usr and pwd):
                 status.setText("Заполните сервер, логин и пароль.")
                 return
+            login_state['busy'] = True
             status.setText("Проверяю…")
-            QApplication.processEvents()
-            info = XtreamApi.authenticate(srv, usr, pwd)
-            if info is None:
-                status.setText("Не удалось войти. Проверьте данные.")
-                return
-            url = XtreamApi.build_m3u_url(srv, usr, pwd)
-            self.config.playlists.append({'name': name, 'url': url})
-            self.config.save_async()
-            self.refresh_list()
-            dlg.accept()
+
+            def _apply(info):
+                login_state['busy'] = False
+                if info is None:
+                    status.setText("Не удалось войти. Проверьте данные.")
+                    return
+                url = XtreamApi.build_m3u_url(srv, usr, pwd)
+                self.config.playlists.append({'name': name, 'url': url})
+                self.config.save_async()
+                self.refresh_list()
+                dlg.accept()
+
+            mw = self.window()
+
+            def _bg():
+                try:
+                    info = XtreamApi.authenticate(srv, usr, pwd)
+                except Exception:
+                    info = None
+                # Round 313-паттерн: сигнал MainWindow вместо QTimer
+                # из чужой нитки.
+                try:
+                    mw._invoke_on_main.emit(lambda i=info: _apply(i))
+                except Exception as e:
+                    log_error('xtream_auth.dispatch', e)
+
+            import threading as _th
+            _th.Thread(target=_bg, daemon=True, name='xtream-auth').start()
 
         btns.accepted.connect(_try_login)
         btns.rejected.connect(dlg.reject)
@@ -3494,13 +3661,19 @@ class ChannelsPage(QWidget):
             w = self.cat_layout.takeAt(0).widget()
             if w:
                 w.deleteLater()
+        # Round 351: убран btn.setStyleSheet(STYLESHEET) на каждую
+        # кнопку — это re-parse ПОЛНОГО глобального QSS (сотни строк)
+        # на каждую из 100-300 категорий, на КАЖДЫЙ клик по категории
+        # (select_category зовёт rebuild_categories). Глобальный
+        # стиль уже применён через app.setStyleSheet — свежесозданной
+        # кнопке с уже выставленным objectName он применится сам при
+        # первом polish.
         for cat in self.categories:
             btn = QPushButton(cat)
             if cat == self.selected_category:
                 btn.setObjectName("categoryBtnActive")
             else:
                 btn.setObjectName("categoryBtn")
-            btn.setStyleSheet(STYLESHEET)
             btn.clicked.connect(lambda checked, c=cat: self.select_category(c))
             self.cat_layout.addWidget(btn)
         self.cat_layout.addStretch()
@@ -3800,29 +3973,65 @@ class FavoritesPage(QWidget):
         layout.addWidget(self.fav_list)
 
     def refresh(self, channels, epg_data):
+        """Round 351: чанкование — последний полностью синхронный
+        list-rebuild в проекте (тот же класс проблемы, что TvGuide до
+        Round 345). При сотнях избранных: get_now_next + letter-tile
+        рендер на каждый item держали main thread при каждом заходе
+        на вкладку. Первые 50 — сразу, остальное чанками по таймеру."""
         self.channels = channels
         self.epg_data = epg_data
         favs = self.config.favorites
+        # Дешёвый полный скан (set-membership) — собираем список.
+        pairs = [(idx, ch) for idx, ch in enumerate(channels)
+                 if ch.url in favs]
+        self.fav_channels = [ch for _i, ch in pairs]
         self.fav_list.setUpdatesEnabled(False)
         try:
             self.fav_list.clear()
-            self.fav_channels = []
-            for idx, ch in enumerate(channels):
-                if ch.url not in favs:
-                    continue
-                self.fav_channels.append(ch)
-                now_prog, _ = get_now_next(epg_data, ch.tvg_id, ch.name)
-                epg = f"  {now_prog.title}" if now_prog else ""
-                item = QListWidgetItem(f"♥ {ch.name}{epg}")
-                item.setData(Qt.UserRole, idx)
-                icon = None
-                if self.logo_cache is not None and ch.logo_url:
-                    icon = self.logo_cache.get(ch.logo_url)
-                item.setIcon(icon if icon is not None else make_letter_tile_icon(ch.name))
-                self.fav_list.addItem(item)
+            first = pairs[:50]
+            for idx, ch in first:
+                self._append_fav_item(idx, ch)
         finally:
             self.fav_list.setUpdatesEnabled(True)
+        self._fav_pending = pairs[50:]
+        if self._fav_pending:
+            if not hasattr(self, '_fav_chunk_timer'):
+                self._fav_chunk_timer = QTimer(self)
+                self._fav_chunk_timer.setInterval(30)
+                self._fav_chunk_timer.timeout.connect(self._fill_fav_chunk)
+            self._fav_chunk_timer.start()
         self.count_label.setText(f"{len(self.fav_channels)} · {t('favorites')}")
+
+    def _append_fav_item(self, idx, ch):
+        now_prog, _ = get_now_next(self.epg_data, ch.tvg_id, ch.name)
+        epg = f"  {now_prog.title}" if now_prog else ""
+        item = QListWidgetItem(f"♥ {ch.name}{epg}")
+        item.setData(Qt.UserRole, idx)
+        icon = None
+        if self.logo_cache is not None and ch.logo_url:
+            icon = self.logo_cache.get(ch.logo_url)
+        item.setIcon(icon if icon is not None else make_letter_tile_icon(ch.name))
+        self.fav_list.addItem(item)
+
+    def _fill_fav_chunk(self):
+        """Round 351: досыпаем избранное по 50 за тик."""
+        try:
+            pending = getattr(self, '_fav_pending', None)
+            if not pending:
+                self._fav_chunk_timer.stop()
+                return
+            batch, self._fav_pending = pending[:50], pending[50:]
+            self.fav_list.setUpdatesEnabled(False)
+            try:
+                for idx, ch in batch:
+                    self._append_fav_item(idx, ch)
+            finally:
+                self.fav_list.setUpdatesEnabled(True)
+            if not self._fav_pending:
+                self._fav_chunk_timer.stop()
+        except Exception as e:
+            log_error('_fill_fav_chunk', e)
+            self._fav_chunk_timer.stop()
 
     def _refresh_logos(self):
         if self.logo_cache is None:
@@ -4919,11 +5128,26 @@ class PlayerPage(QWidget):
             " selection-background-color: #00C8E6; selection-color: white; }"
             "QLineEdit:focus { border: 3px solid #26D4F5;"
             " background-color: #050510; }")
-        self._overlay_search.textChanged.connect(self._refresh_channels_overlay)
-        # Round 278: при изменении ЗЕРКАЛИМ в ChannelsPage.search_edit —
-        # иначе унаследованный фильтр оставался на вкладке Каналы и
-        # юзер мог думать, что overlay-стирание не работает.
-        self._overlay_search.textChanged.connect(self._mirror_search_to_channels_page)
+        # Round 351: дебаунс 200мс (как у ChannelsPage._search_timer).
+        # Раньше КАЖДАЯ буква запускала СРАЗУ ДВА полных прохода по
+        # всем каналам (4000+): _refresh_channels_overlay (фильтр +
+        # сортировка + item-билды с EPG-lookup'ами) и
+        # _mirror_search_to_channels_page → cp.filter_channels()
+        # (минуя её собственный дебаунс). Набор 10-буквенного запроса =
+        # 20 полных сканов списка на main thread — видимый лаг ввода.
+        self._overlay_search_timer = QTimer(self)
+        self._overlay_search_timer.setSingleShot(True)
+        self._overlay_search_timer.setInterval(200)
+
+        def _overlay_search_fire():
+            self._refresh_channels_overlay()
+            # Round 278: зеркалим в ChannelsPage.search_edit — иначе
+            # унаследованный фильтр оставался на вкладке Каналы.
+            self._mirror_search_to_channels_page(
+                self._overlay_search.text())
+        self._overlay_search_timer.timeout.connect(_overlay_search_fire)
+        self._overlay_search.textChanged.connect(
+            lambda _t: self._overlay_search_timer.start())
         col.addWidget(self._overlay_search)
         self._overlay_list = QListWidget()
         self._overlay_list.setIconSize(QSize(28, 28))
@@ -6150,7 +6374,12 @@ class PlayerPage(QWidget):
         # на построение args и не блокируя lock понапрасну.
         if self.player is not None:
             return
-        self._vlc_op_lock.acquire()
+        # Round 351: lock в локальную переменную — _vlc_lock_or_recover
+        # (Round 350) может подменить self._vlc_op_lock новым объектом,
+        # и release() в finally через повторное чтение атрибута отпустил
+        # бы уже ЧУЖОЙ lock (RuntimeError / сломанная сериализация).
+        _lock = self._vlc_op_lock
+        _lock.acquire()
         try:
             if self.player is not None:
                 return
@@ -6258,7 +6487,7 @@ class PlayerPage(QWidget):
             self.vlc_instance = None
             self.player = None
         finally:
-            self._vlc_op_lock.release()
+            _lock.release()
 
     def _position_resolution_label(self):
         """Round 299: вынесено отдельно — `_sync_overlay_host` дёргает
@@ -6284,15 +6513,47 @@ class PlayerPage(QWidget):
     def _poll_resolution(self):
         """Round 292: каждую секунду спрашиваем VLC размер видео. Как
         только не (0,0) — показываем в углу. После 15 секунд без
-        ответа сдаёмся."""
+        ответа сдаёмся.
+
+        Round 351: video_get_size() — нативный libvlc-вызов, и этот
+        таймер тикает ИМЕННО в окно старта стрима, когда мёртвый/
+        медленный канал вероятнее всего подвесит нативный вызов.
+        Раньше вызов шёл синхронно на main thread без lock'а — сам
+        запрос уходит в bg-нитку (дедуп-флаг чтобы тики не
+        наслаивались), UI-часть возвращается через _invoke_on_main."""
         try:
             if not self.player:
                 return
-            w, h = 0, 0
-            try:
-                w, h = self.player.video_get_size(0)
-            except Exception:
-                pass
+            if getattr(self, '_res_poll_running', False):
+                return
+            self._res_poll_running = True
+            player = self.player
+
+            def _bg():
+                w, h = 0, 0
+                try:
+                    lock = self._vlc_op_lock
+                    if lock.acquire(blocking=False):
+                        try:
+                            w, h = player.video_get_size(0)
+                        except Exception:
+                            pass
+                        finally:
+                            lock.release()
+                finally:
+                    self._res_poll_running = False
+                self._invoke_on_main.emit(
+                    lambda w=w, h=h: self._apply_polled_resolution(w, h))
+
+            threading.Thread(target=_bg, daemon=True,
+                             name='vlc-res-poll').start()
+        except Exception as e:
+            self._res_poll_running = False
+            log_error('_poll_resolution', e)
+
+    def _apply_polled_resolution(self, w, h):
+        """Round 351: UI-часть _poll_resolution — на main thread."""
+        try:
             self._resolution_poll_count += 1
             if w > 0 and h > 0:
                 self.resolution_label.setText(f"{int(w)} × {int(h)}")
@@ -6311,7 +6572,7 @@ class PlayerPage(QWidget):
             elif self._resolution_poll_count >= 15:
                 self._resolution_poll_timer.stop()
         except Exception as e:
-            log_error('_poll_resolution', e)
+            log_error('_apply_polled_resolution', e)
 
     def _run_on_main(self, fn):
         """Round 313: слот для _invoke_on_main. Запускается в нитке-владельце
@@ -6348,11 +6609,40 @@ class PlayerPage(QWidget):
         Round 341: это main-thread QTimer.timeout слот. Если сейчас
         активен _swap/toggle_play/seek (держит self._vlc_op_lock,
         возможно секунды на stop()), БЛОКИРУЮЩИЙ acquire тут заморозил
-        бы UI — ровно та категория фризов, которую весь этот файл
-        годами чинит. Non-blocking acquire: если lock занят — просто
-        пропускаем этот тик (легитимная операция уже идёт, ничего
-        подозрительного), не трогая счётчики strikes/last_time."""
-        if not self._vlc_op_lock.acquire(blocking=False):
+        бы UI. Non-blocking acquire: если lock занят — пропускаем тик.
+
+        Round 351: тело целиком уходит в bg-нитку. Non-blocking acquire
+        (Round 341) защищал только от ожидания НАШЕГО lock'а, но сами
+        is_playing()/get_time() — нативные libvlc-вызовы, и на
+        клинически подвисшем стриме даже эти «геттеры» могут
+        блокировать (внутри libvlc берут state-lock, который держит
+        зависший input-thread). Юзер: «сделай так чтобы нигде не было
+        зависаний при любой манипуляции». Дедуп-флаг гарантирует что
+        тики не наслаиваются, если проверка сама застряла."""
+        if getattr(self, '_stall_check_running', False):
+            return
+        self._stall_check_running = True
+
+        def _bg():
+            try:
+                self._check_stall_bg()
+            finally:
+                self._stall_check_running = False
+        try:
+            threading.Thread(target=_bg, daemon=True,
+                             name='vlc-stall-chk').start()
+        except Exception as e:
+            self._stall_check_running = False
+            log_error('_check_stall.spawn', e)
+
+    def _check_stall_bg(self):
+        """Round 351: bg-часть _check_stall — см. комментарий там.
+        Лок берём в ЛОКАЛЬНУЮ переменную: _vlc_lock_or_recover
+        (Round 350) может подменить self._vlc_op_lock новым объектом,
+        и release() через повторное чтение атрибута отпустил бы уже
+        ЧУЖОЙ (новый, не взятый нами) lock."""
+        lock = self._vlc_op_lock
+        if not lock.acquire(blocking=False):
             return
         try:
             p = self.player
@@ -6375,10 +6665,9 @@ class PlayerPage(QWidget):
                              f"reconnecting")
                     self._stall_strikes = 0
                     self._stall_last_time = -1
-                    # Round 341: _schedule_reconnect акквайрит тот же
-                    # lock не напрямую (только через play_url→_swap),
-                    # но зовём его ПОСЛЕ release() ниже (finally) —
-                    # избегаем удержания lock'а дольше нужного.
+                    # Зовём _schedule_reconnect ПОСЛЕ release() ниже —
+                    # и через _invoke_on_main: он создаёт QTimer, это
+                    # законно только на main thread.
                     self._pending_stall_reconnect = True
                     return
             else:
@@ -6387,10 +6676,11 @@ class PlayerPage(QWidget):
         except Exception as e:
             log_error('_check_stall', e)
         finally:
-            self._vlc_op_lock.release()
+            lock.release()
         if getattr(self, '_pending_stall_reconnect', False):
             self._pending_stall_reconnect = False
-            self._schedule_reconnect("stalled")
+            self._invoke_on_main.emit(
+                lambda: self._schedule_reconnect("stalled"))
 
     def _on_vlc_end(self, _event):
         # Round 337: тот же межпоточный риск что в _on_vlc_error — см.
@@ -6872,6 +7162,14 @@ class PlayerPage(QWidget):
         # ПОСЛЕ реального вызова, через _invoke_on_main.
         if not self.player:
             return
+        # Round 351: дедуп. Space с клавиатурным автоповтором спавнил
+        # НОВУЮ нитку на каждый repeat (~30/с); на подвисшем стриме все
+        # они вечно вставали в очередь на _vlc_op_lock (утечка ниток +
+        # отложенный «replay» пачки pause/play когда lock освободится).
+        # Пока одна операция в полёте — повторные нажатия игнорируем.
+        if getattr(self, '_toggle_play_running', False):
+            return
+        self._toggle_play_running = True
         player = self.player
         def _bg():
             try:
@@ -6889,11 +7187,14 @@ class PlayerPage(QWidget):
                         "Play" if p else "Pause"))
             except Exception as e:
                 log_error('toggle_play.bg', e)
+            finally:
+                self._toggle_play_running = False
         try:
             import threading as _th
             _th.Thread(target=_bg, daemon=True,
                        name='vlc-toggle-play').start()
         except Exception as e:
+            self._toggle_play_running = False
             log_error('toggle_play', e)
 
     def _seek_or_switch(self, direction):
@@ -6905,29 +7206,39 @@ class PlayerPage(QWidget):
         if not player:
             self.switch_channel(direction)
             return
+        # Round 351: дедуп, как в toggle_play — стрелки с автоповтором
+        # спавнили нитку на каждый repeat, все вставали в очередь на
+        # lock. Пока перемотка в полёте — повторы игнорируем.
+        if getattr(self, '_seek_running', False):
+            return
+        self._seek_running = True
         def _bg():
             # Round 341: под общим lock'ом — иначе get_time()/set_time()
             # отсюда могли выполниться поверх активного _swap'а
             # (stop()/set_media() на другом канале) и вернуть/применить
             # мусорное значение позиции.
-            with self._vlc_op_lock:
-                try:
-                    pos = player.get_time()
-                except Exception:
-                    pos = -1
-                if pos and pos > 0:
+            try:
+                with self._vlc_op_lock:
                     try:
-                        new_pos = max(0, pos - 10000) if direction < 0 else pos + 10000
-                        player.set_time(new_pos)
-                    except Exception as e:
-                        log_error('_seek_or_switch.set_time', e)
-                    return
-            self._invoke_on_main.emit(
-                lambda d=direction: self.switch_channel(d))
+                        pos = player.get_time()
+                    except Exception:
+                        pos = -1
+                    if pos and pos > 0:
+                        try:
+                            new_pos = max(0, pos - 10000) if direction < 0 else pos + 10000
+                            player.set_time(new_pos)
+                        except Exception as e:
+                            log_error('_seek_or_switch.set_time', e)
+                        return
+                self._invoke_on_main.emit(
+                    lambda d=direction: self.switch_channel(d))
+            finally:
+                self._seek_running = False
         try:
             import threading as _th
             _th.Thread(target=_bg, daemon=True, name='vlc-seek').start()
         except Exception as e:
+            self._seek_running = False
             log_error('_seek_or_switch', e)
 
     def switch_channel(self, direction):
@@ -7013,8 +7324,41 @@ class PlayerPage(QWidget):
 
     def set_volume(self, val):
         self.config.volume = val
-        if self.player:
-            self.player.audio_set_volume(val)
+        # Round 351: audio_set_volume — нативный libvlc-вызов, а слайдер
+        # громкости дёргает этот слот на КАЖДЫЙ пиксель перетаскивания —
+        # это был самый часто вызываемый незащищённый нативный вызов на
+        # main thread во всём файле. На подвисшем стриме одно движение
+        # слайдера = фриз UI. Паттерн «последний выигрывает»: пишем
+        # желаемое значение в _pending_volume; одна bg-нитка-applier
+        # применяет значения циклом, пока они меняются, и умирает.
+        # Никакого шторма ниток на каждый пиксель.
+        self._pending_volume = int(val)
+        if self.player and not getattr(self, '_vol_applier_running', False):
+            self._vol_applier_running = True
+
+            def _bg():
+                try:
+                    while True:
+                        v = self._pending_volume
+                        p = self.player
+                        if p is None:
+                            return
+                        lock = self._vlc_op_lock
+                        with lock:
+                            try:
+                                p.audio_set_volume(v)
+                            except Exception:
+                                pass
+                        if self._pending_volume == v:
+                            return
+                finally:
+                    self._vol_applier_running = False
+            try:
+                threading.Thread(target=_bg, daemon=True,
+                                 name='vlc-volume').start()
+            except Exception as e:
+                self._vol_applier_running = False
+                log_error('set_volume.spawn', e)
         # Round 279/314: мини-OSD с уровнем громкости. Диапазон 0..200,
         # бар на 20 ячеек (по 10% каждая). При значениях > 100 значок
         # 🔊 меняется на ⚡ — визуальный сигнал «бустим, возможен клиппинг».
@@ -7121,15 +7465,52 @@ class PlayerPage(QWidget):
         self._aspect_idx = (self._aspect_idx + 1) % len(self.ASPECT_RATIOS)
         self._apply_aspect_ratio()
 
+    def _vlc_bg_call(self, desc, fn):
+        """Round 351: одноразовый нативный VLC-вызов в bg-нитке под
+        общим lock'ом. Любой вызов libvlc может блокировать секунды на
+        подвисшем стриме — main thread их звать не должен вообще.
+        Identity-проверка self.player is player внутри lock'а — чтобы
+        не дёргать плеер, который уже release'нут/пересоздан.
+        Дедуп по desc: пока вызов этого типа в полёте, повторные
+        нажатия (кнопка/клавиша с автоповтором) игнорируются — иначе
+        на подвисшем стриме нитки копились бы в очереди на lock."""
+        player = self.player
+        if not player:
+            return
+        if not hasattr(self, '_vlc_bg_running'):
+            self._vlc_bg_running = set()
+        if desc in self._vlc_bg_running:
+            return
+        self._vlc_bg_running.add(desc)
+
+        def _bg():
+            try:
+                with self._vlc_op_lock:
+                    if self.player is not player:
+                        return
+                    fn(player)
+            except Exception as e:
+                log_error(desc, e)
+            finally:
+                self._vlc_bg_running.discard(desc)
+        try:
+            threading.Thread(target=_bg, daemon=True,
+                             name='vlc-' + desc[:12]).start()
+        except Exception as e:
+            self._vlc_bg_running.discard(desc)
+            log_error(desc + '.spawn', e)
+
     def _apply_aspect_ratio(self):
         if not self.player:
             return
         ratio = self.ASPECT_RATIOS[self._aspect_idx]
         label = ratio if ratio else "auto"
-        try:
-            self.player.video_set_aspect_ratio(ratio.encode() if ratio else None)
-        except Exception:
-            pass
+        # Round 351: video_set_aspect_ratio — нативный вызов; кнопка/
+        # клавиша A дёргали его синхронно на main thread без lock'а.
+        self._vlc_bg_call(
+            'aspect',
+            lambda p, r=ratio: p.video_set_aspect_ratio(
+                r.encode() if r else None))
         self.btn_aspect.setText(f"Aspect: {label}")
 
     # --- Playback speed ---
@@ -7137,11 +7518,10 @@ class PlayerPage(QWidget):
     def cycle_speed(self):
         self._speed_idx = (self._speed_idx + 1) % len(self.SPEED_VALUES)
         speed = self.SPEED_VALUES[self._speed_idx]
+        # Round 351: set_rate — нативный вызов, ушёл в bg (см.
+        # _vlc_bg_call). Раньше — синхронно на main thread.
         if self.player:
-            try:
-                self.player.set_rate(speed)
-            except Exception:
-                pass
+            self._vlc_bg_call('rate', lambda p, s=speed: p.set_rate(s))
         self.btn_speed.setText(f"{speed:g}x")
 
     # --- Audio track ---
@@ -7376,9 +7756,12 @@ class PlayerPage(QWidget):
             self._sleep_deadline = 0
             self._sleep_timer.stop()
             self.sleep_label.setText("")
+            # Round 351: pause() — нативный вызов; срабатывание
+            # sleep-таймера шло синхронно на main thread, причём в
+            # непредсказуемый момент (стрим к этому времени мог давно
+            # умереть). В bg под lock'ом через _vlc_bg_call.
             if self.player:
-                try: self.player.pause()
-                except Exception: pass
+                self._vlc_bg_call('sleep-pause', lambda p: p.pause())
             self.btn_play.setText("Play")
             return
         self._update_sleep_label()
@@ -7463,13 +7846,17 @@ class PlayerPage(QWidget):
                         pass
         try:
             threading.Thread(target=_bg, daemon=True, name='vlc-stop').start()
-        except Exception:
-            try:
-                with self._vlc_op_lock:
-                    if self.player is p:
-                        p.stop()
-            except Exception:
-                pass
+        except Exception as e:
+            # Round 351: раньше фолбэк выполнял stop() СИНХРОННО на
+            # вызывающей (main) нитке — с no-timeout lock'ом и нативным
+            # вызовом, который сам же файл документирует как «блокирует
+            # 5-20с на дохлых стримах». Причём Thread.start() падает
+            # именно при перегрузке нитками (Round 346 поймал 11.2с
+            # внутри start()) — то есть фолбэк срабатывал ровно тогда,
+            # когда синхронный stop() опаснее всего. Теперь просто
+            # логируем и пропускаем: следующий _swap/release_vlc всё
+            # равно сделает stop() перед своей работой.
+            log_error('stop.spawn', e)
 
     def release_vlc(self):
         # Round 291: НЕ вызываем self.current_media.release() — Python
@@ -7554,11 +7941,12 @@ class PlayerPage(QWidget):
             self.cycle_speed()
         elif key == Qt.Key_BracketLeft:
             # Cycle backward
+            # Round 351: set_rate в bg — этот инлайн-дубль cycle_speed
+            # остался с прямым нативным вызовом на main thread.
             self._speed_idx = (self._speed_idx - 1) % len(self.SPEED_VALUES)
             speed = self.SPEED_VALUES[self._speed_idx]
             if self.player:
-                try: self.player.set_rate(speed)
-                except Exception: pass
+                self._vlc_bg_call('rate', lambda p, s=speed: p.set_rate(s))
             self.btn_speed.setText(f"{speed:g}x")
         else:
             super().keyPressEvent(event)
@@ -8697,14 +9085,17 @@ class MainWindow(QMainWindow):
     # main-нитке без QTimer-warning'а.
     _invoke_on_main = pyqtSignal(object)
 
-    def __init__(self, progress_cb=None):
+    def __init__(self, progress_cb=None, config=None):
         super().__init__()
         self._invoke_on_main.connect(self._run_on_main)
         # Round 255: progress_cb(percent, text) — колбек для splash.
         # Вызывается между шагами init_ui чтобы юзер видел движение
         # и анимацию прогресс-бара пока строятся страницы.
         self._progress_cb = progress_cb or (lambda *a, **kw: None)
-        self.config = Config()
+        # Round 351: переиспользуем bootstrap-Config из main() вместо
+        # повторного чтения config.json с диска (двойной AV-сканируемый
+        # read на старте, на ровном месте).
+        self.config = config if config is not None else Config()
         self.channels = []
         self.epg_data = {}
         self.loader_thread = None
@@ -8982,11 +9373,13 @@ class MainWindow(QMainWindow):
             url = info.get('url') or ''
             if not url:
                 return
-            # Переключаемся в Settings и стартуем download.
-            try:
-                self.switch_page(4)  # settings page
-            except Exception:
-                pass
+            # Round 351: НЕ переключаемся в Settings. Юзер: «после того
+            # как вышло окно обновления и я нажал обновить почему то
+            # открывается окно настройки». switch_page(4) был здесь
+            # только ради видимости update_status-лейбла, но прогресс
+            # скачивания и так показывается модальным QDialog'ом
+            # (_do_download._dl_dialog) — это top-level окно, оно видно
+            # с любой вкладки. Остаёмся там, где юзер был.
             latest = int(info.get('code', 0))
             try:
                 self.settings_page._do_download(url, latest)
@@ -9535,12 +9928,18 @@ class MainWindow(QMainWindow):
             log_error('_apply_fullscreen_chrome', e, extra=f"fs={fullscreen}")
 
     def update_nav_highlight(self, active_idx):
+        # Round 351: вместо btn.setStyleSheet(STYLESHEET) — re-parse
+        # полного глобального QSS на каждую кнопку при каждом
+        # переключении вкладки — просто unpolish/polish: смена
+        # objectName переприменяет селекторы уже применённого
+        # app-стиля, парсить заново нечего.
         for btn, idx in self.nav_buttons:
-            if idx == active_idx:
-                btn.setObjectName("navBtnActive")
-            else:
-                btn.setObjectName("navBtn")
-            btn.setStyleSheet(STYLESHEET)
+            new_name = "navBtnActive" if idx == active_idx else "navBtn"
+            if btn.objectName() != new_name:
+                btn.setObjectName(new_name)
+                st = btn.style()
+                st.unpolish(btn)
+                st.polish(btn)
 
     def load_playlist(self, name, url, switch_to_channels=True):
         self.channels_page.status_label.setText("Loading...")
@@ -9698,7 +10097,15 @@ class MainWindow(QMainWindow):
                         from epg_parser import normalize_id, fuzzy_key
                         no_match = []
                         match_no_logo = []
+                        # Round 351: worst case (все каналы matched-
+                        # without-logo) этот диагностический цикл шёл
+                        # по ВСЕМ 4000 каналам × multi-regex lookup
+                        # без yield'а — периодически уступаем GIL.
+                        _dn = 0
                         for ch in self.channels:
+                            _dn += 1
+                            if _dn % 200 == 0:
+                                time.sleep(0.001)
                             if ch.logo_url:
                                 continue
                             m = channel_meta_lookup.lookup(ch.name)
@@ -9947,13 +10354,20 @@ class MainWindow(QMainWindow):
         last = getattr(self, '_last_epg_load_ts', 0)
         auto = self.sender() is not getattr(self.tv_guide_page, 'btn_refresh', None)
         if auto:
-            # авто-триггер: пропускаем если плеер активно проигрывает
+            # авто-триггер: пропускаем если юзер сейчас в плеере.
+            # Round 351: раньше тут был cur.player.is_playing() —
+            # нативный libvlc-вызов синхронно на main thread, без
+            # lock'а. Ирония: проверка, существующая чтобы НЕ мешать
+            # просмотру, сама могла заморозить UI на мёртвом стриме.
+            # «Открыт плеер + player инициализирован» — достаточная
+            # эвристика без единого нативного вызова; авто-триггер
+            # всё равно повторится следующим тиком, а ручная кнопка ↻
+            # работает всегда.
             try:
                 cur = self.stack.currentWidget()
-                if isinstance(cur, PlayerPage) and getattr(cur, 'player', None) \
-                        and cur.player.is_playing():
+                if isinstance(cur, PlayerPage) and getattr(cur, 'player', None):
                     log_info('epg-refresh',
-                             'skipped: player is playing, will retry next tick')
+                             'skipped: player page active, will retry next tick')
                     return
             except Exception as e:
                 log_error('epg-refresh.check_player', e)
@@ -10091,6 +10505,21 @@ class MainWindow(QMainWindow):
                                switch_to_channels=False)
 
     def _on_settings_changed(self):
+        # Round 351: дебаунс 300мс. settings_changed эмитится на КАЖДЫЙ
+        # шаг спинбокса громкости / смену комбо — а этот слот делает
+        # полный filter_channels (проход по 4000 каналов) + retranslate-
+        # свип по всем виджетам приложения. Зажатая стрелка спинбокса =
+        # серия 100мс+ столлов. Коалесцируем: применяем один раз после
+        # 300мс тишины.
+        if not hasattr(self, '_settings_changed_timer'):
+            self._settings_changed_timer = QTimer(self)
+            self._settings_changed_timer.setSingleShot(True)
+            self._settings_changed_timer.setInterval(300)
+            self._settings_changed_timer.timeout.connect(
+                self._apply_settings_changed)
+        self._settings_changed_timer.start()
+
+    def _apply_settings_changed(self):
         # Push new default volume to the running player
         self.player_page.vol_slider.setValue(self.config.volume)
         # Round 246: применяем смену позиции часов сразу.
@@ -10533,7 +10962,7 @@ def main():
         except Exception:
             pass
 
-    window = MainWindow(progress_cb=_progress)
+    window = MainWindow(progress_cb=_progress, config=_bootstrap_cfg)
     splash.set_progress(95, "Почти готово…")
     for _ in range(4):
         app.processEvents()

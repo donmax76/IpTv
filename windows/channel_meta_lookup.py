@@ -145,20 +145,13 @@ def ensure_loaded(cache_dir: str = ".", on_loaded=None):
             if text is None:
                 text = _fetch_and_cache(cache_path)
             if text:
-                # Round 298/299: подавляем watchdog на время iptv-org
-                # парсинга 50k+ каналов через ИНЪЕКТИРОВАННЫЙ
-                # callback (вместо `import tvviewer` — он вызывал
-                # повторный module-init и дубль watchdog'а).
-                cb = globals().get('_WATCHDOG_SUPPRESS_CB')
-                if callable(cb):
-                    try: cb(True)
-                    except Exception: pass
-                try:
-                    _parse_and_index(text)
-                finally:
-                    if callable(cb):
-                        try: cb(False)
-                        except Exception: pass
+                # Round 298/299: watchdog подавлялся на время парсинга
+                # (50k+ каналов держали GIL и морозили main thread).
+                # Round 351: подавление СНЯТО — _parse_and_index теперь
+                # периодически уступает GIL (см. комментарий там), фриза
+                # быть не должно, а если он всё же случится — watchdog
+                # обязан его показать, а не прятать.
+                _parse_and_index(text)
             if not fresh:
                 # Even if we used a stale cache, re-fetch in background
                 # so the next session has new data.
@@ -255,7 +248,13 @@ def _parse_and_index_logos(text: str):
         arr = json.loads(text)
     except Exception:
         return
+    # Round 351: ~38k итераций — периодический yield GIL, как в
+    # _parse_and_index (см. комментарий там).
+    _n = 0
     for o in arr:
+        _n += 1
+        if _n % 500 == 0:
+            time.sleep(0.001)
         if not isinstance(o, dict):
             continue
         ch_id = o.get("channel") or ""
@@ -319,11 +318,24 @@ def _fetch_and_cache(cache_path: str) -> Optional[str]:
 
 
 def _parse_and_index(text: str):
+    """Round 351: этот цикл — 64k+ записей × до 6 regex-вызовов на
+    запись (normalize_id + fuzzy_key на имя и каждый alt_name) — был
+    крупнейшим не-yield'ящим GIL-хогом в проекте: фоновая нитка
+    держала GIL сотни тысяч итераций подряд, main thread вставал
+    колом. Хуже того — на время парсинга watchdog ПОДАВЛЯЛСЯ
+    (_WATCHDOG_SUPPRESS_CB), т.е. фриз был, но в лог не попадал.
+    Теперь: периодический time.sleep(0.001) как в остальных
+    парсерах (Round 344/348) — и подавление снято, чтобы реальные
+    блокировки снова были видны в логе."""
     try:
         arr = json.loads(text)
     except Exception:
         return
+    _n = 0
     for o in arr:
+        _n += 1
+        if _n % 200 == 0:
+            time.sleep(0.001)
         if not isinstance(o, dict):
             continue
         name = o.get("name") or ""
@@ -377,7 +389,15 @@ def fill_missing_logos(channels) -> int:
     # расходятся, либо iptv-org держит у нужных каналов logo=null.
     no_match_sample = []
     match_no_logo_sample = []
+    # Round 351: 4000 каналов × до 8-10 regex-вызовов на промах
+    # (lookup → normalize_id + _clean + fuzzy_key×2) без единого
+    # yield'а; вызывается дважды на каждую загрузку плейлиста из
+    # bg-ниток — периодически уступаем GIL.
+    _n = 0
     for ch in channels:
+        _n += 1
+        if _n % 200 == 0:
+            time.sleep(0.001)
         if ch.logo_url:
             had_logo += 1
             continue

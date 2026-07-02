@@ -444,10 +444,25 @@ def _parse_xmltv_from(fileobj,
         if out_meta is not None:
             out_meta['truncated'] = True
 
+    # Round 351: четыре пост-парсинговых цикла ниже (filter / sort /
+    # display-name mirror / fuzzy mirror) шли на тысячах каналов БЕЗ
+    # yield'ов — yield'ы iterparse-цикла (Round 344) заканчивались
+    # ровно на последнем XML-элементе, а дальше GIL снова держался
+    # непрерывно. Fuzzy mirror — самый горячий (fuzzy_key = 4 re.sub
+    # на каждый ключ). Добавлен периодический sleep, как везде.
+    _yield_n = 0
+
+    def _maybe_yield():
+        nonlocal _yield_n
+        _yield_n += 1
+        if _yield_n % 200 == 0:
+            time.sleep(0.001)
+
     # Apply channel filter (matches by id OR by any display-name)
     if channel_filter:
         keep: EpgData = {}
         for cid, progs in epg.items():
+            _maybe_yield()
             if cid in channel_filter:
                 keep[cid] = progs
                 continue
@@ -458,10 +473,12 @@ def _parse_xmltv_from(fileobj,
 
     # Sort by start
     for cid in epg:
+        _maybe_yield()
         epg[cid].sort(key=lambda p: p.start)
 
     # Mirror under display-names so name-based lookups work
     for cid, names in display_names_by_id.items():
+        _maybe_yield()
         progs = epg.get(cid)
         if not progs:
             continue
@@ -474,6 +491,7 @@ def _parse_xmltv_from(fileobj,
     # fuzzy key already belongs to another channel.
     snapshot = list(epg.items())
     for cid, progs in snapshot:
+        _maybe_yield()
         fk = fuzzy_key(cid)
         if fk and fk != cid and fk not in epg:
             epg[fk] = progs

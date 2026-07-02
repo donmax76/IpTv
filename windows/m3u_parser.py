@@ -1,6 +1,7 @@
 """M3U playlist parser - matches Android PlaylistRepository logic."""
 
 import re
+import time
 import requests
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -73,7 +74,17 @@ def parse_m3u(content: str) -> PlaylistResult:
         if m: return m.group(1)
         return ""
 
+    # Round 351: на плейлисте 4000+ каналов (~9000 строк) каждый
+    # #EXTINF даёт до ~24 re.search-вызовов (_attr × 8 атрибутов × 3
+    # паттерна) — ~100k regex подряд без единого yield'а. Парсер бежит
+    # в QThread (LoadPlaylistThread), но фоновая нитка ≠ освобождение
+    # GIL: main thread вставал. Периодически уступаем GIL, как в
+    # остальных парсерах (epg_parser Round 344, meta Round 351).
+    _n = 0
     for line in lines:
+        _n += 1
+        if _n % 200 == 0:
+            time.sleep(0.001)
         if line.startswith('#EXTINF:'):
             # Parse EXTINF line
             # Format: #EXTINF:-1 tvg-id="..." tvg-name="..." tvg-logo="..." group-title="...",Channel Name
