@@ -42,6 +42,7 @@ class FmRadioService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private var mediaSession: MediaSession? = null
+    private var agcJob: Job? = null
 
     private lateinit var stationStorage: StationStorage
 
@@ -275,6 +276,16 @@ class FmRadioService : Service() {
             }
         }
 
+        // FC0013 hardware AGC: periodically adjust the LNA gain from live
+        // RSSI (no-op for other tuners). Prevents front-end overload
+        // distortion on strong stations and raises gain on weak ones.
+        agcJob = serviceScope.launch {
+            while (isPlaying && isActive) {
+                delay(1500)
+                device?.fc0013AgcTick()
+            }
+        }
+
         updateMediaSessionState()
         updateNotification()
         Log.i(TAG, "Playback started at ${currentFrequency / 1e6} MHz")
@@ -282,6 +293,8 @@ class FmRadioService : Service() {
 
     fun stopPlayback() {
         isPlaying = false
+        agcJob?.cancel()
+        agcJob = null
         device?.stopStreaming()
         streamingJob?.cancel()
         streamingJob = null

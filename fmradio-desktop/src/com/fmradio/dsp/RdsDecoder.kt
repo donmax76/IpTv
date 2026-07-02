@@ -101,9 +101,18 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private val afFrequencies = mutableSetOf<Float>()
     @Volatile private var dataChanged = false
 
-    // Fallback 57 kHz NCO (used when no pilot phase is available)
-    private var fallbackCarrierPhase = 0.0
-    private val fallbackCarrierInc = 2.0 * PI * 57000.0 / sampleRate
+    // BPSK constellation angle estimator. Per EN 50067 the 57 kHz RDS
+    // carrier may be locked either in phase or in quadrature with the 3rd
+    // harmonic of the pilot — its angle relative to our 3×pilot reference is
+    // arbitrary and station-dependent. Averaging z² (squaring strips the ±1
+    // BPSK modulation: E[z²] = A²·e^{2iψ}) recovers that angle, letting us
+    // project the complex symbol onto the real constellation axis instead of
+    // blindly trusting the I branch (which is zero for quadrature stations).
+    private var psi = 0.0
+    private var z2Re = 0f
+    private var z2Im = 0f
+    private var z2Count = 0
+    private val z2Window = 2400  // ~100 ms at 24 kHz symbol-domain rate
 
     init {
         // RDS LPF: 2.5 kHz cutoff with Blackman-Harris window
@@ -180,15 +189,40 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             if (rdsDecimCounter < rdsDecimation) continue
             rdsDecimCounter = 0
 
-            // Apply RDS lowpass filter
+            // Apply RDS lowpass filter to both I and Q branches
             var filtI = 0f
+            var filtQ = 0f
             for (j in 0 until rdsLpfOrder) {
                 val jIdx = (rdsLpfIdx - 1 - j + rdsLpfOrder) % rdsLpfOrder
                 filtI += rdsLpfBufI[jIdx] * rdsLpfCoeffs[j]
+                filtQ += rdsLpfBufQ[jIdx] * rdsLpfCoeffs[j]
             }
 
+            // Update the constellation-angle estimate from z = I + jQ
+            z2Re += filtI * filtI - filtQ * filtQ
+            z2Im += 2f * filtI * filtQ
+            z2Count++
+            if (z2Count >= z2Window) {
+                if (z2Re != 0f || z2Im != 0f) {
+                    var newPsi = 0.5 * atan2(z2Im.toDouble(), z2Re.toDouble())
+                    // ψ is only defined modulo π; pick the candidate closest to
+                    // the previous estimate so the constellation polarity doesn't
+                    // flip between windows (a flip corrupts the differential
+                    // decoder for one bit and breaks block sync).
+                    while (newPsi - psi > PI / 2) newPsi -= PI
+                    while (newPsi - psi < -PI / 2) newPsi += PI
+                    psi = newPsi
+                    if (psi > 2 * PI) psi -= 2 * PI
+                    if (psi < -2 * PI) psi += 2 * PI
+                }
+                z2Re = 0f; z2Im = 0f; z2Count = 0
+            }
+
+            // Project onto the estimated constellation axis
+            val projected = (filtI * cos(psi) + filtQ * sin(psi)).toFloat()
+
             // Apply matched filter for better symbol detection
-            matchedBuf[matchedBufIdx] = filtI
+            matchedBuf[matchedBufIdx] = projected
             matchedBufIdx = (matchedBufIdx + 1) % matchedFilterOrder
             var matched = 0f
             for (j in 0 until matchedFilterOrder) {
@@ -388,6 +422,6 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         rtLength = 0; rtConfirmedLength = 0
         piCode = 0; ptyCode = 0; tpFlag = false; taFlag = false; msFlag = false
         afFrequencies.clear(); dataChanged = false
-        fallbackCarrierPhase = 0.0
+        psi = 0.0; z2Re = 0f; z2Im = 0f; z2Count = 0
     }
 }

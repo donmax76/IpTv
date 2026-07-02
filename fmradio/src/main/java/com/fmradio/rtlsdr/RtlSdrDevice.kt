@@ -311,6 +311,8 @@ class RtlSdrDevice(private val context: Context) {
     //  FC0013 tuner — ported from librtlsdr's tuner_fc001x.c (Fitipower FC0013)
     // =========================================================================
 
+    private var rssiCalibrationValue = 0
+
     private fun fc0013Init() {
         // reg 0x01..0x15 initial values
         val initRegs = byteArrayOf(
@@ -321,12 +323,54 @@ class RtlSdrDevice(private val context: Context) {
         for (i in initRegs.indices) {
             i2cWrite(FC0013_I2C_ADDR, 0x01 + i, byteArrayOf(initRegs[i]))
         }
-        // RSSI calibration: toggle LNA power-down briefly while EN_CAL_RSSI is set
+        // RSSI calibration: with EN_CAL_RSSI set and the LNA powered down,
+        // the RSSI pin reads the no-signal DC baseline — captured here as the
+        // reference the AGC loop later compares live readings against.
         fc0013WriteMask(0x09, 0x10, 0x10)
         fc0013WriteMask(0x06, 0x01, 0x01)
         try { Thread.sleep(100) } catch (_: InterruptedException) {}
+        rssiCalibrationValue = demodReadReg(3, 0x01)
         fc0013WriteMask(0x09, 0x00, 0x10)
         fc0013WriteMask(0x06, 0x00, 0x01)
+        Log.i(TAG, "FC0013 RSSI calibration baseline: $rssiCalibrationValue")
+    }
+
+    /**
+     * Host-driven FC0013 LNA gain adjustment based on live RSSI, ported from
+     * librtlsdr's fc001x_get_i2c_register(). librtlsdr runs this whenever an
+     * application polls tuner gain (SDR#, rtl_tcp do it continuously); we
+     * call it periodically during playback. Steps the LNA down when a strong
+     * signal overloads the front end (distortion/noise) and back up when the
+     * signal is weak. Only active in AGC gain mode; a no-op for other tuners.
+     */
+    fun fc0013AgcTick() {
+        if (!isOpen || tunerType != TunerType.FC0013) return
+        try {
+            enableI2CRepeater(true)
+            val gainMode = i2cReadReg(FC0013_I2C_ADDR, 0x0d)
+            if (gainMode and 8 == 0) {
+                // AGC mode: zero mixer + IF gain registers, judge input level
+                // purely from RSSI relative to the calibration baseline
+                i2cWrite(FC0013_I2C_ADDR, 0x12, byteArrayOf(0x00))
+                i2cWrite(FC0013_I2C_ADDR, 0x13, byteArrayOf(0x00))
+                val lna = i2cReadReg(FC0013_I2C_ADDR, 0x14) and 0x1f
+                val rssi = demodReadReg(3, 0x01)
+                val diff = rssi - rssiCalibrationValue
+                // Gain ladder (descending): 0x10 → 0x17 → 0x08 → 0x1e → 0x02
+                val newLna = when (lna) {
+                    0x10 -> if (diff > 6) 0x17 else -1
+                    0x17 -> if (diff > 15) 0x08 else if (diff < 3) 0x10 else -1
+                    0x08 -> if (diff > 14) 0x1e else if (diff < 3) 0x17 else -1
+                    0x1e -> if (diff > 13) 0x02 else if (diff < 3) 0x08 else -1
+                    0x02 -> if (diff < 3) 0x1e else -1
+                    else -> 0x10 // unknown state — reset to max gain
+                }
+                if (newLna >= 0) fc0013WriteMask(0x14, newLna, 0x1f)
+            }
+            enableI2CRepeater(false)
+        } catch (e: Exception) {
+            Log.w(TAG, "FC0013 AGC tick failed", e)
+        }
     }
 
     private fun fc0013WriteMask(reg: Int, data: Int, bitMask: Int) {
@@ -746,6 +790,15 @@ class RtlSdrDevice(private val context: Context) {
         val index = 0x10 or page
         val wValue = (addr shl 8) or 0x20
         conn.controlTransfer(CTRL_OUT, 0, wValue, index, data, data.size, CTRL_TIMEOUT)
+    }
+
+    /** Demod-internal single-byte register read (reads use index=page, no 0x10 flag). */
+    private fun demodReadReg(page: Int, addr: Int): Int {
+        val conn = usbConnection ?: return 0
+        val data = ByteArray(1)
+        val wValue = (addr shl 8) or 0x20
+        val r = conn.controlTransfer(CTRL_IN, 0, wValue, page, data, 1, CTRL_TIMEOUT)
+        return if (r >= 0) data[0].toInt() and 0xFF else 0
     }
 
     private fun enableI2CRepeater(enable: Boolean) {
