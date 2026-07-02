@@ -84,6 +84,16 @@ class AppPreferences(context: Context) {
     var favoriteChannels: List<Channel>
         get() {
             return try {
+                // Кэш распарсенного списка (companion — см. per_channel_
+                // state выше). Раньше геттер парсил весь favorite-JSON
+                // на КАЖДЫЙ вызов, а его зовут: isFavorite на каждый
+                // bind строки, каждый keystroke поиска в оверлее
+                // (updateFavorites), каждый toggle (по 3-4 вызова).
+                prefs.getString(KEY_FAVORITE_CHANNELS, null)?.let { json ->
+                    synchronized(favCacheLock) {
+                        if (json == cachedFavRaw) cachedFavList?.let { return it }
+                    }
+                }
                 val json = prefs.getString(KEY_FAVORITE_CHANNELS, null) ?: run {
                     // Миграция со старого формата (Set<String> URLs):
                     // создаём Channel с минимальными данными чтобы хоть
@@ -103,7 +113,7 @@ class AppPreferences(context: Context) {
                     text
                 }
                 val arr = JSONArray(json)
-                (0 until arr.length()).map {
+                val parsed = (0 until arr.length()).map {
                     val obj = arr.getJSONObject(it)
                     Channel(
                         name = obj.optString("name"),
@@ -114,6 +124,11 @@ class AppPreferences(context: Context) {
                         sourcePlaylist = obj.optString("src").ifBlank { null }
                     )
                 }
+                synchronized(favCacheLock) {
+                    cachedFavRaw = json
+                    cachedFavList = parsed
+                }
+                parsed
             } catch (_: Exception) { emptyList() }
         }
         set(value) {
@@ -128,7 +143,12 @@ class AppPreferences(context: Context) {
                     if (!ch.sourcePlaylist.isNullOrBlank()) put("src", ch.sourcePlaylist)
                 })
             }
-            prefs.edit().putString(KEY_FAVORITE_CHANNELS, arr.toString()).apply()
+            val serialized = arr.toString()
+            synchronized(favCacheLock) {
+                cachedFavRaw = serialized
+                cachedFavList = value.toList()
+            }
+            prefs.edit().putString(KEY_FAVORITE_CHANNELS, serialized).apply()
         }
 
     fun addFavorite(channel: Channel) {
@@ -532,33 +552,63 @@ class AppPreferences(context: Context) {
     }
 
     // Per-channel state: url -> JSONObject {speed, aspect, audio, pos, volume, ua}
+    //
+    // Кэшируем распарсенный блоб в companion (static): раньше КАЖДЫЙ
+    // вызов getChannelState парсил ВЕСЬ per_channel_state JSON (до 200
+    // записей, десятки КБ) заново — а его зовут onBindViewHolder ОБОИХ
+    // адаптеров каналов (getChannelHeight на каждую строку при
+    // скролле 4000-канального списка), ChannelSorter в режиме
+    // "quality" (полный парс × КАЖДЫЙ канал = 4000 парсов на main
+    // thread при нажатии «Эфир»), onVideoSizeChanged, каждое
+    // переключение канала. Кэш сверяется по raw-строке — SharedPrefs
+    // держит её в памяти, сравнение по identity почти бесплатное.
+    private fun allChannelStates(): JSONObject {
+        val raw = prefs.getString(KEY_PER_CHANNEL_STATE, "{}") ?: "{}"
+        synchronized(stateCacheLock) {
+            if (raw === cachedStateRaw || raw == cachedStateRaw) {
+                cachedStateAll?.let { return it }
+            }
+            val all = try { JSONObject(raw) } catch (_: Exception) { JSONObject() }
+            cachedStateRaw = raw
+            cachedStateAll = all
+            return all
+        }
+    }
+
     fun getChannelState(url: String): JSONObject {
         if (url.isBlank()) return JSONObject()
-        val raw = prefs.getString(KEY_PER_CHANNEL_STATE, "{}") ?: "{}"
         return try {
-            val all = JSONObject(raw)
-            all.optJSONObject(url) ?: JSONObject()
+            val state = synchronized(stateCacheLock) {
+                allChannelStates().optJSONObject(url)
+            } ?: return JSONObject()
+            // Копия: кэшированный объект общий, а вызывающие мутируют
+            // возвращённый state (setChannelUserAgent и т.п.).
+            JSONObject(state.toString())
         } catch (_: Exception) { JSONObject() }
     }
 
     fun saveChannelState(url: String, state: JSONObject) {
         if (url.isBlank()) return
         try {
-            val raw = prefs.getString(KEY_PER_CHANNEL_STATE, "{}") ?: "{}"
-            val all = try { JSONObject(raw) } catch (_: Exception) { JSONObject() }
-            all.put(url, state)
-            // Keep map size bounded - drop oldest if over 200 entries.
-            if (all.length() > 200) {
-                val keys = all.keys()
-                val toDelete = mutableListOf<String>()
-                var i = 0
-                while (keys.hasNext() && i < all.length() - 200) {
-                    toDelete.add(keys.next())
-                    i++
+            synchronized(stateCacheLock) {
+                val all = allChannelStates()
+                all.put(url, state)
+                // Keep map size bounded - drop oldest if over 200 entries.
+                if (all.length() > 200) {
+                    val keys = all.keys()
+                    val toDelete = mutableListOf<String>()
+                    var i = 0
+                    while (keys.hasNext() && i < all.length() - 200) {
+                        toDelete.add(keys.next())
+                        i++
+                    }
+                    toDelete.forEach { all.remove(it) }
                 }
-                toDelete.forEach { all.remove(it) }
+                val serialized = all.toString()
+                cachedStateRaw = serialized
+                cachedStateAll = all
+                prefs.edit().putString(KEY_PER_CHANNEL_STATE, serialized).apply()
             }
-            prefs.edit().putString(KEY_PER_CHANNEL_STATE, all.toString()).apply()
         } catch (_: Exception) {}
     }
 
@@ -611,6 +661,19 @@ class AppPreferences(context: Context) {
         }
 
     companion object {
+        // Кэш распарсенного per_channel_state — см. allChannelStates().
+        // Static (companion), потому что AppPreferences создаётся
+        // заново в каждом месте вызова, а SharedPreferences под ним —
+        // один и тот же файл.
+        private val stateCacheLock = Any()
+        @Volatile private var cachedStateRaw: String? = null
+        @Volatile private var cachedStateAll: JSONObject? = null
+
+        // Кэш распарсенного favoriteChannels — см. геттер.
+        private val favCacheLock = Any()
+        @Volatile private var cachedFavRaw: String? = null
+        @Volatile private var cachedFavList: List<Channel>? = null
+
         /** Built-in EPG sources used as a fallback when the user has none configured.
          *  Эти источники работают в OTT Navigator — значит сами по
          *  себе валидны. Round 59-62 настроили pipeline (download

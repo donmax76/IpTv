@@ -102,14 +102,23 @@ object UpdateInstaller {
                 Log.e(TAG, "Download failed", e)
                 false
             }
-            withContext(Dispatchers.Main) {
-                if (ok && outFile.exists() && outFile.length() > 0) {
-                    toast(appCtx, "Загружено, открываю установку")
-                    triggerInstall(appCtx, outFile)
-                    // Install dialog взял управление. notifyFinished
-                    // придёт из InstallStatusReceiver на success /
-                    // failure / aborted.
-                } else {
+            if (ok && outFile.exists() && outFile.length() > 0) {
+                toast(appCtx, "Загружено, открываю установку")
+                // triggerInstall остаётся ЗДЕСЬ, на Dispatchers.IO:
+                // tryPackageInstaller копирует ВЕСЬ APK (10-30МБ) в
+                // сессию PackageInstaller + fsync — раньше это
+                // выполнялось внутри withContext(Dispatchers.Main),
+                // т.е. многосекундный дисковый I/O на main thread
+                // ровно в момент, когда юзер нажал «Обновить» —
+                // гарантированный ANR на медленных TV-боксах.
+                // PackageInstaller API безопасен вне main thread;
+                // toast() внутри сам постит на mainHandler.
+                triggerInstall(appCtx, outFile)
+                // Install dialog взял управление. notifyFinished
+                // придёт из InstallStatusReceiver на success /
+                // failure / aborted.
+            } else {
+                withContext(Dispatchers.Main) {
                     Toast.makeText(appCtx,
                         "Не удалось скачать обновление. Откройте страницу релиза.",
                         Toast.LENGTH_LONG).show()
@@ -239,9 +248,14 @@ object UpdateInstaller {
             ctx.startActivity(intent)
         } catch (e: Exception) {
             Log.e(TAG, "Install intent failed", e)
-            Toast.makeText(ctx,
-                "Не удалось запустить установку: ${e.message?.take(80)}",
-                Toast.LENGTH_LONG).show()
+            // Через mainHandler: triggerInstall теперь вызывается с
+            // Dispatchers.IO, а Toast с не-Looper-нитки кидает
+            // RuntimeException.
+            mainHandler.post {
+                Toast.makeText(ctx,
+                    "Не удалось запустить установку: ${e.message?.take(80)}",
+                    Toast.LENGTH_LONG).show()
+            }
         }
     }
 

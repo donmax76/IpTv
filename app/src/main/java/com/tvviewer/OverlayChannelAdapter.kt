@@ -224,8 +224,11 @@ class OverlayChannelAdapter(
     fun updateCurrentIndex(index: Int) {
         val old = currentIndex
         currentIndex = index
-        notifyItemChanged(old)
-        notifyItemChanged(index)
+        // Guard: index может быть -1 (текущий канал не входит в
+        // отфильтрованный список) — notifyItemChanged с отрицательной
+        // позицией бросает исключение.
+        if (old in 0 until channels.size) notifyItemChanged(old)
+        if (index in 0 until channels.size) notifyItemChanged(index)
     }
 
     fun updateFavorites(newFavorites: Set<String>) {

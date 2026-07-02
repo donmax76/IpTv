@@ -23,6 +23,22 @@ class TVViewerApp : Application(), ImageLoaderFactory {
          *  одна ошибка не валила соседние корутины. */
         val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+        /** Счётчик started-активити: >0 — приложение на экране.
+         *  Нужен для кейса «Плеер → Настройки → HOME»: PlayerActivity
+         *  при открытии Настроек ставит keepPlayingInBackground и его
+         *  onStop НЕ глушит поток (это фича — трансляция играет за
+         *  Настройками). Но если юзер уходит HOME из Настроек, никакой
+         *  колбэк плееру больше не приходит — поток продолжал играть
+         *  за лаунчером бесконечно (звук + сеть + батарея). Теперь при
+         *  падении счётчика до нуля дёргаем onAppBackgrounded. */
+        @Volatile var startedActivityCount = 0
+        val isAppVisible: Boolean get() = startedActivityCount > 0
+
+        /** Ставится PlayerActivity в onCreate, снимается в onDestroy.
+         *  Вызывается на main thread когда приложение полностью ушло
+         *  в фон (все активити остановлены). */
+        @Volatile var onAppBackgrounded: (() -> Unit)? = null
+
         /** Триггер EPG auto-refresh из любой Activity. Сама функция
          *  имеет 30-сек delay + 24h gate, так что повторные вызовы
          *  в течение дня — no-op. Используется MainActivity.onResume
@@ -114,32 +130,65 @@ class TVViewerApp : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        // Учёт видимости приложения — см. startedActivityCount.
+        registerActivityLifecycleCallbacks(object :
+                android.app.Application.ActivityLifecycleCallbacks {
+            override fun onActivityStarted(a: android.app.Activity) {
+                startedActivityCount++
+            }
+            override fun onActivityStopped(a: android.app.Activity) {
+                startedActivityCount--
+                if (startedActivityCount <= 0) {
+                    startedActivityCount = 0
+                    try { onAppBackgrounded?.invoke() } catch (_: Throwable) {}
+                }
+            }
+            override fun onActivityCreated(a: android.app.Activity,
+                                           b: android.os.Bundle?) {}
+            override fun onActivityResumed(a: android.app.Activity) {}
+            override fun onActivityPaused(a: android.app.Activity) {}
+            override fun onActivitySaveInstanceState(a: android.app.Activity,
+                                                     b: android.os.Bundle) {}
+            override fun onActivityDestroyed(a: android.app.Activity) {}
+        })
         // Подметаем мусор в cacheDir: epg_dl_*.bin остаются, если
         // приложение упало или килланулось посреди загрузки EPG.
         // Они весят по 50-100 MB каждый, а собирается их за месяц
-        // на гигабайт.
-        try {
-            cacheDir?.listFiles()?.forEach { f ->
-                if (f.name.startsWith("epg_dl_") && f.name.endsWith(".bin")) {
-                    try { f.delete() } catch (_: Exception) {}
-                }
-            }
-            // Чистим устаревшие версии EPG-кэша. v2 был с playlist-
-            // фильтром (Round 101+), v3 без fuzzy-mirror (Round 119+).
-            // Текущая v4 с fuzzy-mirror восстановлен (Round 126).
+        // на гигабайт. В фоне: listFiles + delete — дисковый I/O,
+        // которому нечего делать на main thread в onCreate.
+        applicationScope.launch {
             try {
-                java.io.File(filesDir, "epg_cache_v2.json").delete()
-                java.io.File(filesDir, "epg_cache_v3.json").delete()
-                java.io.File(filesDir, "epg_cache.json").delete()
+                cacheDir?.listFiles()?.forEach { f ->
+                    if (f.name.startsWith("epg_dl_") && f.name.endsWith(".bin")) {
+                        try { f.delete() } catch (_: Exception) {}
+                    }
+                }
+                // Чистим устаревшие версии EPG-кэша. v2 был с playlist-
+                // фильтром (Round 101+), v3 без fuzzy-mirror (Round 119+).
+                // Текущая v4 с fuzzy-mirror восстановлен (Round 126).
+                try {
+                    java.io.File(filesDir, "epg_cache_v2.json").delete()
+                    java.io.File(filesDir, "epg_cache_v3.json").delete()
+                    java.io.File(filesDir, "epg_cache.json").delete()
+                } catch (_: Exception) {}
             } catch (_: Exception) {}
-        } catch (_: Exception) {}
+        }
         // Pre-warm the iptv-org channel database so logos / tvg-ids for
         // user-added channels become available a few seconds after launch.
         try { ChannelMetaLookup.ensureLoaded(applicationContext) } catch (_: Exception) {}
         // Поднимаем обучаемый кэш логотипов (built up across all
         // playlists ever loaded). Даёт лого каналам в плейлистах
         // без tvg-logo если те же каналы встречались раньше с лого.
-        try { LearnedLogos.ensureLoaded(applicationContext) } catch (_: Exception) {}
+        // Загрузка в фоне: раньше ensureLoaded звался СИНХРОННО прямо
+        // здесь, в Application.onCreate на main thread — чтение файла
+        // до 2МБ + JSONObject-парс + цикл с fuzzyKey-regex на каждую
+        // из до 10k записей. На слабом устройстве это сотни мс к
+        // холодному старту (ANR-бюджет). lookup() до загрузки просто
+        // вернёт null — адаптеры и так живут с этим (fallback на
+        // letter-tile), harvest() сам дозагрузит при первом вызове.
+        applicationScope.launch {
+            try { LearnedLogos.ensureLoaded(applicationContext) } catch (_: Exception) {}
+        }
         // Фоновое авто-обновление EPG: раз в 24 часа после последнего
         // успешного обновления. Раньше эта проверка жила в TvGuideFragment
         // (вкладка ТВ Гид) — но мы её убрали. Теперь ставим прямо в
@@ -196,6 +245,24 @@ class TVViewerApp : Application(), ImageLoaderFactory {
                 }
             } catch (e: Exception) {
                 Log.e("TVViewer", "Crash handler failed", e)
+            } finally {
+                // ОБЯЗАТЕЛЬНО убиваем процесс. При краше main thread
+                // Looper.loop() уже вышел: CrashReportActivity в ЭТОМ
+                // процессе никогда не создастся, и без killProcess
+                // приложение просто замирало (юзер видел вечный фриз
+                // вместо краш-экрана, пока система не прибьёт по ANR).
+                // FLAG_ACTIVITY_NEW_TASK + отдельный запуск intent'а
+                // выше позволяют системе поднять активити в новом
+                // процессе после смерти этого.
+                // Перед смертью: дописываем очередь ErrorLogger на диск
+                // и даём фоновым репортерам (ntfy/GitHub, свои нитки)
+                // пару секунд на отправку.
+                try { ErrorLogger.flush(2000) } catch (_: Throwable) {}
+                try { Thread.sleep(2000) } catch (_: Throwable) {}
+                try {
+                    android.os.Process.killProcess(android.os.Process.myPid())
+                } catch (_: Throwable) {}
+                kotlin.system.exitProcess(10)
             }
         }
     }

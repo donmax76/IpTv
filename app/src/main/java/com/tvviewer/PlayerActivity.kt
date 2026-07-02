@@ -227,6 +227,8 @@ class PlayerActivity : BaseActivity() {
     // Используется при открытии Настроек из выдвижного меню плеера: плеер
     // продолжает играть, пока пользователь меняет настройки.
     private var keepPlayingInBackground = false
+    // Хук «приложение полностью в фоне» — см. onCreate/onDestroy.
+    private var appBackgroundHook: (() -> Unit)? = null
 
     private var overlayAdapter: OverlayChannelAdapter? = null
     private var overlaySearchEdit: EditText? = null
@@ -271,6 +273,24 @@ class PlayerActivity : BaseActivity() {
         // и notifyEpgUpdate уже выстрелил до register'а — событие
         // терялось. Теперь listener подписан раньше → ловим всё.
         EpgRepository.addEpgUpdateListener(playerEpgListener)
+
+        // Кейс «Плеер → Настройки → HOME»: keepPlayingInBackground
+        // отключает stop() в нашем onStop (фича: трансляция играет за
+        // Настройками), но при уходе HOME из Настроек плееру больше
+        // никто ничего не сообщает — поток играл за лаунчером
+        // бесконечно (звук + сеть). TVViewerApp зовёт этот хук, когда
+        // ВСЕ активити приложения остановлены. Ссылку держим в поле,
+        // чтобы onDestroy СТАРОГО экземпляра не снял хук НОВОГО
+        // (recreate/повторный запуск плеера).
+        appBackgroundHook = {
+            try {
+                if (!isInPipMode()) {
+                    reconnectHandler.removeCallbacks(reconnectRunnable)
+                    player?.stop()
+                }
+            } catch (_: Throwable) {}
+        }
+        TVViewerApp.onAppBackgrounded = appBackgroundHook
 
         updateEpg()
         initPlayer()
@@ -1534,6 +1554,12 @@ class PlayerActivity : BaseActivity() {
 
     private fun offerExternalPlayer(error: PlaybackException) {
         val url = currentUrl ?: return
+        // Guard как в UpdateCheckerHelper/SplashActivity: onPlayerError
+        // приходит асинхронно и может прилететь ПОСЛЕ finish() (юзер
+        // нажал BACK ровно когда декодер упал) — AlertDialog.show() на
+        // завершающейся Activity кидает WindowManager$BadTokenException
+        // и роняет приложение.
+        if (isFinishing || isDestroyed) return
         errorLayout.visibility = View.VISIBLE
         val codec = (error.cause as? MediaCodecRenderer.DecoderInitializationException)
             ?.mimeType?.substringAfter('/') ?: "?"
@@ -1989,7 +2015,15 @@ class PlayerActivity : BaseActivity() {
         // видел канал даже из другого плейлиста.
         prefs.pushRecentChannel(channel)
 
-        overlayAdapter?.updateCurrentIndex(currentIndex)
+        // Адаптер оверлея держит ОТФИЛЬТРОВАННЫЙ список (категория/
+        // поиск), а currentIndex — индекс в полном allChannels. Раньше
+        // сюда передавался глобальный индекс: при активном фильтре
+        // CH+/CH− подсвечивал не ту строку (или notifyItemChanged
+        // уходил за пределы списка и молча глотался RecyclerView).
+        // Маппим на позицию в отфильтрованном списке по URL.
+        val filteredPos = overlayFilteredChannels.indexOfFirst { it.url == channel.url }
+        overlayAdapter?.updateCurrentIndex(
+            if (filteredPos >= 0) filteredPos else -1)
 
         // Reset speed to 1x by default — playStream will restore saved speed if any.
         currentSpeedIndex = 2
@@ -2998,13 +3032,21 @@ class PlayerActivity : BaseActivity() {
         }
     }
 
+    private fun isInPipMode(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode
+
     override fun onStop() {
         super.onStop()
         // Покинули PiP-окно (свернули в фон, выключили картинку): глушим
         // плеер, чтобы звук не "залипал" в системе.
-        val inPip = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && isInPictureInPictureMode
+        val inPip = isInPipMode()
         if (!inPip && !keepPlayingInBackground) {
             player?.stop()
+            // Отменяем отложенный reconnect: раньше он переживал уход
+            // в фон и через до 30с сам перезапускал поток (prepare +
+            // playWhenReady) — стрим стартовал со звуком за лаунчером
+            // и продолжал 8-попыточный цикл на сети.
+            reconnectHandler.removeCallbacks(reconnectRunnable)
         }
     }
 
@@ -3162,6 +3204,12 @@ class PlayerActivity : BaseActivity() {
 
     override fun onDestroy() {
         saveCurrentChannelState()
+        // Снимаем app-background хук (ставится в onCreate) — только
+        // если он всё ещё наш (см. комментарий в onCreate).
+        if (TVViewerApp.onAppBackgrounded === appBackgroundHook) {
+            TVViewerApp.onAppBackgrounded = null
+        }
+        appBackgroundHook = null
         try {
             mediaSession?.isActive = false
             mediaSession?.release()

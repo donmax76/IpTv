@@ -111,7 +111,16 @@ object LearnedLogos {
             }
             val obj = JSONObject()
             for ((k, v) in map) obj.put(k, v)
-            File(context.filesDir, CACHE_FILE).writeText(obj.toString())
+            // Атомарная запись tmp+rename: смерть процесса посреди
+            // writeText оставляла битый JSON — вся выученная таблица
+            // логотипов молча терялась при следующем старте.
+            val target = File(context.filesDir, CACHE_FILE)
+            val tmp = File(context.filesDir, "$CACHE_FILE.tmp")
+            tmp.writeText(obj.toString())
+            if (!tmp.renameTo(target)) {
+                target.delete()
+                if (!tmp.renameTo(target)) tmp.delete()
+            }
         } catch (e: Throwable) {
             Log.e(TAG, "persist failed", e)
         }

@@ -15,6 +15,7 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.navigation.NavigationView
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : BaseActivity() {
 
@@ -198,22 +199,37 @@ class MainActivity : BaseActivity() {
                 // Если этот плейлист уже загружен — не качаем повторно.
                 val cached = ChannelDataHolder.loadedPlaylistUrl == url &&
                     ChannelDataHolder.allChannels.isNotEmpty()
-                if (cached) prefs.enrichFavorites(ChannelDataHolder.allChannels)
-                val all = if (cached) ChannelDataHolder.allChannels else {
-                    val res = PlaylistRepository.fetchPlaylist(url, ctx)
-                    val custom = prefs.customChannels.map { (n, u) -> Channel(name = n, url = u) }
-                    val merged = res.channels + custom
-                    if (merged.isEmpty()) {
-                        android.widget.Toast.makeText(ctx, R.string.load_failed, android.widget.Toast.LENGTH_SHORT).show()
-                        return@launch
+                // Тяжёлая пост-обработка — на Default-диспетчере.
+                // lifecycleScope.launch{} без аргумента = Main: раньше
+                // сортировка 4000+ каналов (в режиме "quality" — ещё и
+                // full-JSON parse per-канал до кэша), merge с custom,
+                // enrichFavorites (O(favorites × channels) сканы) и
+                // indexOfFirst шли прямо на UI-нитке — секундные фризы
+                // по нажатию на плейлист/«Эфир» (ANR-класс).
+                val all = withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    if (cached) {
+                        prefs.enrichFavorites(ChannelDataHolder.allChannels)
+                        ChannelDataHolder.allChannels
+                    } else {
+                        val res = PlaylistRepository.fetchPlaylist(url, ctx)
+                        val custom = prefs.customChannels.map { (n, u) -> Channel(name = n, url = u) }
+                        val merged = res.channels + custom
+                        if (merged.isEmpty()) {
+                            emptyList()
+                        } else {
+                            // Round 194: применяем настройку Settings →
+                            // "Сортировка каналов".
+                            val sorted = ChannelSorter.apply(prefs, merged)
+                            ChannelDataHolder.allChannels = sorted
+                            ChannelDataHolder.loadedPlaylistUrl = url
+                            prefs.enrichFavorites(sorted)
+                            sorted
+                        }
                     }
-                    // Round 194: применяем настройку Settings → "Сортировка
-                    // каналов". Раньше pref писалась но не читалась.
-                    val sorted = ChannelSorter.apply(prefs, merged)
-                    ChannelDataHolder.allChannels = sorted
-                    ChannelDataHolder.loadedPlaylistUrl = url
-                    prefs.enrichFavorites(sorted)
-                    sorted
+                }
+                if (all.isEmpty()) {
+                    android.widget.Toast.makeText(ctx, R.string.load_failed, android.widget.Toast.LENGTH_SHORT).show()
+                    return@launch
                 }
                 // Контекст — плейлист, не избранное.
                 prefs.lastWasFavorites = false

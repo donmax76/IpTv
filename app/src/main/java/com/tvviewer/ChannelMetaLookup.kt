@@ -133,8 +133,11 @@ object ChannelMetaLookup {
                 val logosCache = File(context.filesDir, LOGOS_CACHE_FILE)
                 val logosFresh = logosCache.exists() &&
                     System.currentTimeMillis() - logosCache.lastModified() < CACHE_LIFETIME_MS
+                // Fallback на протухший кэш если сеть недоступна —
+                // старые лого лучше, чем никаких.
                 val logosText = if (logosFresh) logosCache.readText()
                                 else fetchAndCacheUrl(LOGOS_URL, logosCache)
+                                    ?: (if (logosCache.exists()) try { logosCache.readText() } catch (_: Exception) { null } else null)
                 val logosByChannel = parseLogos(logosText)
 
                 // 2. Затем channels.json — строим byName/byFuzzy,
@@ -142,14 +145,15 @@ object ChannelMetaLookup {
                 val cache = File(context.filesDir, CACHE_FILE)
                 val fresh = cache.exists() &&
                     System.currentTimeMillis() - cache.lastModified() < CACHE_LIFETIME_MS
-                val text = if (fresh) cache.readText() else fetchAndCacheUrl(URL, cache)
+                val text = if (fresh) cache.readText()
+                           else fetchAndCacheUrl(URL, cache)
+                               ?: (if (cache.exists()) try { cache.readText() } catch (_: Exception) { null } else null)
                 if (text != null) parseAndIndex(text, logosByChannel)
-                if (!fresh) {
-                    TVViewerApp.applicationScope.launch { fetchAndCacheUrl(URL, cache) }
-                }
-                if (!logosFresh) {
-                    TVViewerApp.applicationScope.launch { fetchAndCacheUrl(LOGOS_URL, logosCache) }
-                }
+                // Убран повторный fetch при "!fresh": в этой ветке мы
+                // ТОЛЬКО ЧТО скачали и закэшировали те же URL строчками
+                // выше — немедленная повторная закачка ~5МБ×2 была
+                // чистой тратой трафика/батареи на каждый холодный
+                // старт после протухания кэша.
             } catch (e: Exception) {
                 Log.e(TAG, "ensureLoaded failed", e)
             } finally {
@@ -172,7 +176,16 @@ object ChannelMetaLookup {
             client.newCall(req).execute().use { res ->
                 if (!res.isSuccessful) return null
                 val body = res.body?.string() ?: return null
-                cache.writeText(body)
+                // Атомарная запись tmp+rename — обрыв посреди записи
+                // многомегабайтного JSON оставлял обрезанный кэш,
+                // который потом 7 дней (CACHE_LIFETIME) молча кормил
+                // парсер неполными данными.
+                val tmp = File(cache.parentFile, cache.name + ".tmp")
+                tmp.writeText(body)
+                if (!tmp.renameTo(cache)) {
+                    cache.delete()
+                    if (!tmp.renameTo(cache)) tmp.delete()
+                }
                 body
             }
         } catch (e: Exception) {
@@ -288,6 +301,12 @@ object ChannelMetaLookup {
         }
     }
 
+    // Прекомпилированы: normalize зовётся из lookup() на каждый bind
+    // строки адаптеров — Regex(...) на каждый вызов был лишним
+    // CPU-налогом на кадр при скролле.
+    private val diacriticsRe = Regex("\\p{InCombiningDiacriticalMarks}+")
+    private val nonAlnumRe = Regex("[^\\p{L}\\p{N}]")
+
     private fun normalize(s: String): String {
         // Unicode-aware: \p{L} держит буквы любого алфавита (Cyrillic,
         // азербайджанский ə, türk ç, и пр.), \p{N} — цифры. Должно
@@ -295,7 +314,7 @@ object ChannelMetaLookup {
         // Plus diacritics-fold: 'Türkiye' → 'turkiye' для матчинга
         // ASCII-вариантов плейлиста с UTF-8 именами в iptv-org.
         val folded = java.text.Normalizer.normalize(s.lowercase(), java.text.Normalizer.Form.NFD)
-            .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
-        return folded.replace(Regex("[^\\p{L}\\p{N}]"), "")
+            .replace(diacriticsRe, "")
+        return folded.replace(nonAlnumRe, "")
     }
 }

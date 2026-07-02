@@ -14,8 +14,11 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class PlaylistsFragment : Fragment() {
 
@@ -50,23 +53,31 @@ class PlaylistsFragment : Fragment() {
     }
 
     private fun importPlaylistFromUri(uri: android.net.Uri) {
-        try {
-            val ctx = requireContext()
-            val name = queryFileName(uri) ?: "Imported.m3u"
-            val content = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                ?: throw java.io.IOException("empty stream")
-            val safeName = name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(80)
-            val playlistDir = java.io.File(ctx.filesDir, "imported_playlists").apply { mkdirs() }
-            val savedFile = java.io.File(playlistDir, "${System.currentTimeMillis()}_$safeName")
-            savedFile.writeBytes(content)
-            val url = "file://${savedFile.absolutePath}"
-            val displayName = name.removeSuffix(".m3u8").removeSuffix(".m3u")
-            prefs.addCustomPlaylist(displayName, url)
-            Toast.makeText(ctx, R.string.playlist_added, Toast.LENGTH_SHORT).show()
-            refreshPlaylists()
-        } catch (e: Exception) {
-            ErrorLogger.logException(requireContext(), e)
-            Toast.makeText(requireContext(), R.string.load_failed, Toast.LENGTH_SHORT).show()
+        // Чтение+запись файла — на IO: раньше readBytes()+writeBytes()
+        // многомегабайтного .m3u шли прямо в колбэке OpenDocument на
+        // main thread — фриз пропорционально размеру файла, ANR на
+        // больших плейлистах с медленной флешки.
+        val ctx = requireContext().applicationContext
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val name = queryFileName(uri) ?: "Imported.m3u"
+                val url = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val content = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        ?: throw java.io.IOException("empty stream")
+                    val safeName = name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(80)
+                    val playlistDir = java.io.File(ctx.filesDir, "imported_playlists").apply { mkdirs() }
+                    val savedFile = java.io.File(playlistDir, "${System.currentTimeMillis()}_$safeName")
+                    savedFile.writeBytes(content)
+                    "file://${savedFile.absolutePath}"
+                }
+                val displayName = name.removeSuffix(".m3u8").removeSuffix(".m3u")
+                prefs.addCustomPlaylist(displayName, url)
+                Toast.makeText(ctx, R.string.playlist_added, Toast.LENGTH_SHORT).show()
+                refreshPlaylists()
+            } catch (e: Exception) {
+                ErrorLogger.logException(ctx, e)
+                Toast.makeText(ctx, R.string.load_failed, Toast.LENGTH_SHORT).show()
+            }
         }
     }
 

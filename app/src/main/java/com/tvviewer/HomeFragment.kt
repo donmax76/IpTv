@@ -15,6 +15,7 @@ import androidx.lifecycle.lifecycleScope
 import coil.load
 import coil.request.CachePolicy
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Стартовый экран приложения. Две большие кнопки:
  *   - Прямой эфир: запускает плеер с плейлистом по умолчанию
@@ -196,26 +197,38 @@ class HomeFragment : Fragment() {
                 // Wi-Fi / у плохо работающих хостеров.
                 val cached = ChannelDataHolder.loadedPlaylistUrl == url &&
                     ChannelDataHolder.allChannels.isNotEmpty()
-                val all = if (cached) {
-                    // Даже если плейлист уже загружен, прогоняем enrichFavorites
-                    // на случай если у юзера есть избранные без sourcePlaylist
-                    // которые матчатся с этим плейлистом.
-                    prefs.enrichFavorites(ChannelDataHolder.allChannels)
-                    ChannelDataHolder.allChannels
-                } else {
-                    val res = PlaylistRepository.fetchPlaylist(url, ctx)
-                    val custom = prefs.customChannels.map { (n, u) -> Channel(name = n, url = u) }
-                    val merged = res.channels + custom
-                    if (merged.isEmpty()) {
-                        Toast.makeText(ctx, R.string.load_failed, Toast.LENGTH_SHORT).show()
-                        return@launch
+                // Пост-обработка — на Default-диспетчере: сортировка
+                // 4000+ каналов (в режиме "quality" — с JSON-парсами) +
+                // enrichFavorites шли на Main (lifecycleScope без
+                // аргумента = Main) — секундные фризы по нажатию
+                // «Эфир». Тот же фикс в MainActivity.playPlaylist.
+                val all = withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    if (cached) {
+                        // Даже если плейлист уже загружен, прогоняем
+                        // enrichFavorites на случай если у юзера есть
+                        // избранные без sourcePlaylist которые матчатся
+                        // с этим плейлистом.
+                        prefs.enrichFavorites(ChannelDataHolder.allChannels)
+                        ChannelDataHolder.allChannels
+                    } else {
+                        val res = PlaylistRepository.fetchPlaylist(url, ctx)
+                        val custom = prefs.customChannels.map { (n, u) -> Channel(name = n, url = u) }
+                        val merged = res.channels + custom
+                        if (merged.isEmpty()) {
+                            emptyList()
+                        } else {
+                            // Round 194: учитываем Settings → "Сортировка каналов".
+                            val sorted = ChannelSorter.apply(prefs, merged)
+                            ChannelDataHolder.allChannels = sorted
+                            ChannelDataHolder.loadedPlaylistUrl = url
+                            prefs.enrichFavorites(sorted)
+                            sorted
+                        }
                     }
-                    // Round 194: учитываем Settings → "Сортировка каналов".
-                    val sorted = ChannelSorter.apply(prefs, merged)
-                    ChannelDataHolder.allChannels = sorted
-                    ChannelDataHolder.loadedPlaylistUrl = url
-                    prefs.enrichFavorites(sorted)
-                    sorted
+                }
+                if (all.isEmpty()) {
+                    Toast.makeText(ctx, R.string.load_failed, Toast.LENGTH_SHORT).show()
+                    return@launch
                 }
                 // Открываем плейлист → сбрасываем флаг "избранные".
                 prefs.lastWasFavorites = false

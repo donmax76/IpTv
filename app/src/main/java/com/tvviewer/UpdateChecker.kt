@@ -204,27 +204,35 @@ object UpdateChecker {
     }
 
     private fun checkCustomUrl(url: String): Result<UpdateInfo?> {
-        try {
+        return try {
             val request = Request.Builder()
                 .url(url)
                 .header("User-Agent", "TVViewer-App")
                 .build()
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) return Result.failure(Exception("HTTP ${response.code}"))
-            val body = response.body?.string() ?: return Result.failure(Exception("Empty response"))
-            val json = JSONObject(body)
-            val versionCode = json.optInt("versionCode", 0)
-            val versionName = json.optString("versionName", "")
-            val downloadUrl = json.optString("downloadUrl", "")
-            if (versionCode <= 0 || downloadUrl.isBlank()) {
-                return Result.failure(Exception("Invalid version.json"))
+            // .use{}: раньше Response не закрывался (утечка сокета на
+            // каждую проверку обновлений), а результат Result.success
+            // с распарсенным UpdateInfo просто ВЫБРАСЫВАЛСЯ — функция
+            // всегда доходила до недостижимого return Result.success(null)
+            // в конце (мёртвый код после try-выражения без присвоения).
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return Result.failure(Exception("HTTP ${response.code}"))
+                }
+                val body = response.body?.string()
+                    ?: return Result.failure(Exception("Empty response"))
+                val json = JSONObject(body)
+                val versionCode = json.optInt("versionCode", 0)
+                val versionName = json.optString("versionName", "")
+                val downloadUrl = json.optString("downloadUrl", "")
+                if (versionCode <= 0 || downloadUrl.isBlank()) {
+                    return Result.failure(Exception("Invalid version.json"))
+                }
+                Result.success(UpdateInfo(versionCode, versionName, downloadUrl))
             }
-            Result.success(UpdateInfo(versionCode, versionName, downloadUrl))
         } catch (e: Exception) {
             Log.e(TAG, "Custom URL check failed", e)
-            return Result.failure(e)
+            Result.failure(e)
         }
-        return Result.success(null)
     }
 
     /**

@@ -38,6 +38,9 @@ class SplashActivity : AppCompatActivity() {
 
     private var proceedJob: Job? = null
     private var alreadyProceeded = false
+    // 5-минутный fallback скачивания — снимается в onDestroy.
+    private var fallbackRunnable: Runnable? = null
+    private var fallbackView: View? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -113,7 +116,13 @@ class SplashActivity : AppCompatActivity() {
         }
         UpdateInstaller.onFinishedCallback = { proceedToMain() }
         UpdateInstaller.downloadAndInstall(this, url)
-        status.postDelayed({ proceedToMain() }, DOWNLOAD_FALLBACK_MS)
+        // Runnable сохраняем и снимаем в onDestroy: раньше 5-минутный
+        // fallback висел в очереди view и удерживал завершённую
+        // Activity со всем view-tree до 5 минут — заметная утечка на
+        // 256МБ-боксах ровно во время памятеёмкого скачивания APK.
+        fallbackView = status
+        fallbackRunnable = Runnable { proceedToMain() }
+        status.postDelayed(fallbackRunnable, DOWNLOAD_FALLBACK_MS)
     }
 
     private fun proceedToMain() {
@@ -128,6 +137,9 @@ class SplashActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         proceedJob?.cancel()
+        fallbackRunnable?.let { r -> fallbackView?.removeCallbacks(r) }
+        fallbackRunnable = null
+        fallbackView = null
         UpdateInstaller.onFinishedCallback = null
         UpdateInstaller.onProgressCallback = null
         super.onDestroy()

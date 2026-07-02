@@ -15,6 +15,7 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.textfield.TextInputEditText
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class AddPlaylistActivity : BaseActivity() {
 
@@ -28,23 +29,30 @@ class AddPlaylistActivity : BaseActivity() {
     }
 
     private fun importPlaylistFromUri(uri: Uri) {
-        try {
-            val name = queryFileName(uri) ?: "Imported.m3u"
-            val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                ?: throw java.io.IOException("empty stream")
-            val safeName = name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(80)
-            val playlistDir = java.io.File(filesDir, "imported_playlists").apply { mkdirs() }
-            val savedFile = java.io.File(playlistDir, "${System.currentTimeMillis()}_$safeName")
-            savedFile.writeBytes(bytes)
-            val url = "file://${savedFile.absolutePath}"
-            val displayName = name.removeSuffix(".m3u8").removeSuffix(".m3u")
-            prefs.addCustomPlaylist(displayName, url)
-            Toast.makeText(this, R.string.playlist_added, Toast.LENGTH_SHORT).show()
-            setResult(RESULT_OK)
-            finish()
-        } catch (e: Exception) {
-            ErrorLogger.logException(this, e)
-            Toast.makeText(this, R.string.load_failed, Toast.LENGTH_SHORT).show()
+        // IO-часть на Dispatchers.IO — раньше read+write многомегабайтного
+        // .m3u шли в колбэке OpenDocument на main thread (см. такой же
+        // фикс в PlaylistsFragment).
+        lifecycleScope.launch {
+            try {
+                val name = queryFileName(uri) ?: "Imported.m3u"
+                val url = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        ?: throw java.io.IOException("empty stream")
+                    val safeName = name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(80)
+                    val playlistDir = java.io.File(filesDir, "imported_playlists").apply { mkdirs() }
+                    val savedFile = java.io.File(playlistDir, "${System.currentTimeMillis()}_$safeName")
+                    savedFile.writeBytes(bytes)
+                    "file://${savedFile.absolutePath}"
+                }
+                val displayName = name.removeSuffix(".m3u8").removeSuffix(".m3u")
+                prefs.addCustomPlaylist(displayName, url)
+                Toast.makeText(this@AddPlaylistActivity, R.string.playlist_added, Toast.LENGTH_SHORT).show()
+                setResult(RESULT_OK)
+                finish()
+            } catch (e: Exception) {
+                ErrorLogger.logException(this@AddPlaylistActivity, e)
+                Toast.makeText(this@AddPlaylistActivity, R.string.load_failed, Toast.LENGTH_SHORT).show()
+            }
         }
     }
 

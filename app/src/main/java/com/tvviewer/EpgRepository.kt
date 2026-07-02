@@ -506,10 +506,41 @@ object EpgRepository {
             Log.d(TAG, "EPG saveToCache skipped — empty map (preserving existing cache)")
             return
         }
+        // Защита от «обрезанного» результата: если HTTP-поток без
+        // gzip оборвался «чисто» (сервер закрыл соединение раньше
+        // времени, Content-Length отсутствует), regex-парсер спокойно
+        // доходит до конца частичного текста и возвращает 5 каналов
+        // вместо 6000 — и раньше этот огрызок ПЕРЕЗАПИСЫВАЛ хороший
+        // кэш до следующего авто-обновления (48ч). Тот же класс бага
+        // ловили в Windows-порте («merged channels=2 from 3 sources»).
+        if (data.size < 5) {
+            try {
+                val existing = File(context.filesDir, EPG_CACHE_FILE)
+                if (existing.exists() && existing.length() > 10_000) {
+                    Log.w(TAG, "EPG saveToCache skipped — suspiciously small " +
+                        "result (${data.size} ch) would overwrite existing cache")
+                    return
+                }
+            } catch (_: Exception) {}
+        }
         try {
             val json = serializeEpg(data)
             val file = File(context.filesDir, EPG_CACHE_FILE)
-            file.writeText(json)
+            // Атомарная запись: tmp + rename. Раньше writeText писал
+            // прямо в целевой файл — Android агрессивно убивает
+            // процессы, и смерть посреди записи оставляла обрезанный
+            // JSON. При следующем старте deserializeEpg падал, catch
+            // удалял файл — юзер видел пустую программу до ручного
+            // обновления. (Тот же баг был найден и исправлен в
+            // Windows-порте.)
+            val tmp = File(context.filesDir, "$EPG_CACHE_FILE.tmp")
+            tmp.writeText(json)
+            if (!tmp.renameTo(file)) {
+                // rename поверх существующего файла на некоторых FS
+                // требует удаления цели.
+                file.delete()
+                if (!tmp.renameTo(file)) tmp.delete()
+            }
         } catch (e: Exception) {
             Log.e(TAG, "EPG cache save error", e)
         }
@@ -1092,6 +1123,14 @@ object EpgRepository {
         return result
     }
 
+    // Прекомпилированные regex'ы: normalizeId зовётся с onBindViewHolder
+    // (до ~6 раз на строку через getNowNext/lookupProgrammes, в оверлее
+    // плеера — ещё больше) — раньше Regex(...) КОМПИЛИРОВАЛСЯ на каждый
+    // вызов, т.е. десятки компиляций regex на каждую строку при
+    // скролле списка каналов. Заметный CPU-налог на кадр на TV-боксах.
+    private val diacriticsRe = Regex("\\p{InCombiningDiacriticalMarks}+")
+    private val nonAlnumRe = Regex("[^\\p{L}\\p{N}]")
+
     private fun normalizeId(id: String): String {
         // \p{L} — любая буква (Cyrillic, Latin, Greek и т.д.), \p{N} — любая
         // цифра. Без этого "Первый канал" нормализовалось в "" и
@@ -1100,8 +1139,8 @@ object EpgRepository {
         // 'turkiye') чтобы плейлистные ASCII-варианты матчились с
         // iptv-org записями содержащими нац. символы.
         val folded = java.text.Normalizer.normalize(id.lowercase(), java.text.Normalizer.Form.NFD)
-            .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
-        return folded.replace(Regex("[^\\p{L}\\p{N}]"), "")
+            .replace(diacriticsRe, "")
+        return folded.replace(nonAlnumRe, "")
     }
 
     /** Аггрессивная нормализация для fuzzy-матча: normalizeId плюс
