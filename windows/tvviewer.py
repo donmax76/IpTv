@@ -6483,6 +6483,31 @@ class PlayerPage(QWidget):
                 args += [f'--http-user-agent={ua}']
             self.vlc_instance = vlc.Instance(*args)
             self.player = self.vlc_instance.media_player_new()
+            # Round 354: юзер — «не работает управление громкостью
+            # мышью» после Round 353. Причина: overlay_host — layered-
+            # окно с per-pixel alpha, и на Windows его ПОЛНОСТЬЮ
+            # прозрачные пиксели «дырявые» для мыши — события падают
+            # сквозь них прямо в дочерний HWND VLC-видео, где VLC их
+            # съедает сам (поэтому _VideoOverlayHost.wheelEvent просто
+            # никогда не вызывался над видео). Отключаем обработку
+            # мыши внутри VLC: с mouse_input=False win32-vout VLC
+            # прокидывает мышиные сообщения родительскому окну — т.е.
+            # нашему video_frame, откуда они обычным Qt-путём
+            # поднимаются в PlayerPage.wheelEvent/mousePressEvent
+            # (fallback-обработчики из Round 353). Настройка живёт на
+            # media_player — переживает смену каналов.
+            try:
+                self.player.video_set_mouse_input(False)
+                # Колесо внутри VLC обрабатывается как «клавиша»
+                # (KEY_MOUSEWHEELUP/DOWN) — без отключения key input
+                # vout съедал бы WM_MOUSEWHEEL даже при выключенной
+                # мыши. Приложение и так обрабатывает ВСЕ клавиши само
+                # (глобальный eventFilter, Round 248) — хоткеи VLC
+                # не нужны. Стандартная практика встраивания libvlc:
+                # отключать оба input'а.
+                self.player.video_set_key_input(False)
+            except Exception as e:
+                log_error('vlc.set_mouse_input', e)
             log_info('vlc', f"instance ok, args={args}")
             # Round 288: подписываемся на EncounteredError + EndReached
             # для авто-реконнекта (Android делает до 8 попыток с
