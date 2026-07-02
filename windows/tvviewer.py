@@ -4093,6 +4093,38 @@ class NoWheelSpinBox(QSpinBox):
         ev.ignore()
 
 
+class _VideoOverlayHost(QWidget):
+    """Round 353: юзер — «сделай чтобы можно было управлять громкостью
+    мышью колёсиком и нажатием колеса делать мут/анмут». VLC рисует
+    видео в СОБСТВЕННЫЙ дочерний HWND внутри video_frame — Qt мышиных
+    событий над видео не получает вовсе. Единственное место, где мышь
+    над видео видна Qt — это overlay_host: прозрачное top-level окно,
+    висящее ровно поверх видео (там живут часы/OSD/оверлеи). Поэтому
+    колесо и среднюю кнопку ловим здесь. Дочерние виджеты (списки
+    каналов и т.п.) обрабатывают колесо сами — сюда событие доходит
+    только если ребёнок его не принял, т.е. реально «над видео»."""
+    def __init__(self, player_page, *args):
+        super().__init__(*args)
+        self._pp = player_page
+
+    def wheelEvent(self, ev):
+        try:
+            self._pp._wheel_volume(ev.angleDelta().y())
+            ev.accept()
+        except Exception as e:
+            log_error('overlay_host.wheel', e)
+
+    def mousePressEvent(self, ev):
+        try:
+            if ev.button() == Qt.MiddleButton:
+                self._pp.toggle_mute()
+                ev.accept()
+                return
+        except Exception as e:
+            log_error('overlay_host.mid_click', e)
+        super().mousePressEvent(ev)
+
+
 class ClockLabel(QLabel):
     """Round 260: часы поверх видео без QGraphicsDropShadowEffect.
 
@@ -4446,7 +4478,10 @@ class PlayerPage(QWidget):
         # геометрию. Так VLC физически не может их перекрыть.
         # Round 267: убран WindowStaysOnTopHint — был причиной
         # появления overlay над другими приложениями.
-        self.overlay_host = QWidget(
+        # Round 353: _VideoOverlayHost — колесо мыши над видео =
+        # громкость, средняя кнопка = mute (см. класс).
+        self.overlay_host = _VideoOverlayHost(
+            self,
             None,
             Qt.FramelessWindowHint | Qt.Tool
             | Qt.NoDropShadowWindowHint)
@@ -7367,6 +7402,50 @@ class PlayerPage(QWidget):
         icon = "⚡" if val > 100 else "🔊"
         self.show_mini_osd(f"{icon}  {val}%   {bar_str}")
 
+    def toggle_mute(self):
+        """Round 353: мут/анмут. Вынесено из Key_M-ветки
+        MainWindow._handle_key — теперь же вызывается средней кнопкой
+        мыши над видео (см. _VideoOverlayHost). Идём через vol_slider
+        → set_volume: OSD-бар и bg-applier срабатывают сами."""
+        cur_v = self.vol_slider.value()
+        if cur_v > 0:
+            self._saved_volume_before_mute = cur_v
+            self.vol_slider.setValue(0)
+        else:
+            self.vol_slider.setValue(
+                getattr(self, '_saved_volume_before_mute', 50))
+
+    def _wheel_volume(self, delta_y):
+        """Round 353: колесо мыши над видео — громкость ±5 за щелчок
+        (та же ступень, что у клавиш +/-). delta_y кратен 120 на
+        обычной мыши; на тачпадах приходят дробные значения — реагируем
+        на знак."""
+        if not delta_y:
+            return
+        step = 5 if delta_y > 0 else -5
+        self.vol_slider.setValue(
+            max(0, min(200, self.vol_slider.value() + step)))
+
+    def wheelEvent(self, ev):
+        """Round 353: фолбэк — до инициализации VLC над video_frame нет
+        чужого HWND, и колесо доходит сюда обычным Qt-путём."""
+        try:
+            self._wheel_volume(ev.angleDelta().y())
+            ev.accept()
+        except Exception as e:
+            log_error('PlayerPage.wheel', e)
+
+    def mousePressEvent(self, ev):
+        """Round 353: фолбэк для средней кнопки (см. wheelEvent)."""
+        try:
+            if ev.button() == Qt.MiddleButton:
+                self.toggle_mute()
+                ev.accept()
+                return
+        except Exception as e:
+            log_error('PlayerPage.mid_click', e)
+        super().mousePressEvent(ev)
+
     def toggle_favorite(self):
         if not self.channels or self.current_index >= len(self.channels):
             return
@@ -9852,13 +9931,9 @@ class MainWindow(QMainWindow):
                     if key == Qt.Key_F:
                         current.toggle_favorite(); return True
                     if key == Qt.Key_M:
-                        cur_v = current.vol_slider.value()
-                        if cur_v > 0:
-                            current._saved_volume_before_mute = cur_v
-                            current.vol_slider.setValue(0)
-                        else:
-                            current.vol_slider.setValue(
-                                getattr(current, '_saved_volume_before_mute', 50))
+                        # Round 353: логика вынесена в toggle_mute —
+                        # общая с средней кнопкой мыши над видео.
+                        current.toggle_mute()
                         return True
                     if key in (Qt.Key_Plus, Qt.Key_Equal, Qt.Key_VolumeUp):
                         # Round 314: верхняя граница 200 — усиление.
