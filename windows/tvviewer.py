@@ -6616,6 +6616,9 @@ class PlayerPage(QWidget):
         try:
             self._resolution_poll_count += 1
             if w > 0 and h > 0:
+                # Round 355: кадры пошли → vout-окно VLC создано —
+                # чиним его class-cursor (см. _fix_vout_cursor).
+                self._fix_vout_cursor()
                 self.resolution_label.setText(f"{int(w)} × {int(h)}")
                 self.resolution_label.adjustSize()
                 pw = self.overlay_host.width()
@@ -6650,6 +6653,57 @@ class PlayerPage(QWidget):
             self._resolution_poll_timer.start()
         except Exception:
             pass
+
+    def _fix_vout_cursor(self):
+        """Round 355: юзер — «при просмотре ТВ курсор мыши крутится как
+        будто что-то грузится». Побочка Round 354: с
+        video_set_mouse_input(False) VLC больше НЕ управляет курсором
+        над своим видео-окном (раньше его event-нитка сама ставила
+        стрелку/прятала курсор на каждом движении мыши). У класса
+        vout-окна VLC нет hCursor, на WM_SETCURSOR никто не отвечает —
+        и Windows просто оставляет последний системный курсор, которым
+        в момент создания окна был «крутящийся» AppStarting-спиннер.
+
+        Правильный Win32-механизм: прописать классу vout-окна
+        стандартную стрелку через SetClassLongPtr(GCLP_HCURSOR) —
+        дальше DefWindowProc сам показывает её на каждый WM_SETCURSOR,
+        независимо от того, в какой нитке живёт окно. Вызывается из
+        _apply_polled_resolution, когда vout-окно гарантированно
+        создано (пошли кадры); повторные вызовы безвредны."""
+        if sys.platform != 'win32':
+            return
+        try:
+            import ctypes
+            from ctypes import wintypes
+            user32 = ctypes.windll.user32
+            parent = wintypes.HWND(int(self.video_frame.winId()))
+            IDC_ARROW = 32512
+            arrow = user32.LoadCursorW(None, IDC_ARROW)
+            hwnds = []
+
+            @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND,
+                                wintypes.LPARAM)
+            def _enum(hwnd, _lparam):
+                hwnds.append(hwnd)
+                return True
+
+            user32.EnumChildWindows(parent, _enum, 0)
+            GCLP_HCURSOR = -12
+            # 64-битный Python: SetClassLongPtrW; 32-битный фолбэк.
+            set_cl = getattr(user32, 'SetClassLongPtrW', None) \
+                or user32.SetClassLongW
+            fixed = 0
+            for hwnd in hwnds:
+                try:
+                    set_cl(wintypes.HWND(hwnd), GCLP_HCURSOR, arrow)
+                    fixed += 1
+                except Exception:
+                    pass
+            if fixed and not getattr(self, '_vout_cursor_logged', False):
+                self._vout_cursor_logged = True
+                log_info('vlc', f"vout cursor fixed on {fixed} child hwnd(s)")
+        except Exception as e:
+            log_error('_fix_vout_cursor', e)
 
     def _on_vlc_error(self, _event):
         # Round 337: libvlc event-колбэки прилетают на СОБСТВЕННОЙ
