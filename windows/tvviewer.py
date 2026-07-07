@@ -6651,6 +6651,69 @@ class PlayerPage(QWidget):
             self._resolution_poll_count = 0
             self.resolution_label.hide()
             self._resolution_poll_timer.start()
+            # Round 356: set_media отработал — VLC инициализирован,
+            # прячем постоянный статус «Подключаю канал…».
+            self._stop_connecting_status()
+            # Round 356: чиним курсор vout-окна несколько раз со
+            # старта воспроизведения — окно создаётся асинхронно
+            # (после начала декодирования), одиночный вызов мог
+            # промахнуться мимо ещё не созданного окна. Вызовы
+            # идемпотентны и дёшевы.
+            for delay in (300, 1200, 3000):
+                QTimer.singleShot(delay, self._fix_vout_cursor)
+        except Exception:
+            pass
+
+    def _show_connecting_status(self):
+        """Round 356: юзер — «при первом открытии программы канал не
+        сразу открывается очень долго ждать нужно и чёрный экран
+        только». Холодный vlc.Instance() на этой машине занимает
+        десятки секунд (антивирус пересканирует libvlc.dll + ~300
+        плагинов — особенно из папки Downloads), а единственным
+        фидбеком был mini-OSD «Подключаю канал…», который прятался
+        через 1.5с — дальше юзер смотрел в чистый чёрный экран и
+        думал, что программа зависла. Теперь статус живёт до реального
+        старта воспроизведения: тикер каждые 500мс перепоказывает OSD
+        с анимацией точек и глушит его hide-таймер."""
+        try:
+            self._connecting_dots = 0
+            if not hasattr(self, '_connecting_timer'):
+                self._connecting_timer = QTimer(self)
+                self._connecting_timer.setInterval(500)
+                self._connecting_timer.timeout.connect(
+                    self._tick_connecting_status)
+            self._connecting_timer.start()
+            self._tick_connecting_status()
+        except Exception as e:
+            log_error('_show_connecting_status', e)
+
+    def _tick_connecting_status(self):
+        try:
+            self._connecting_dots = (self._connecting_dots + 1) % 4
+            dots = '.' * self._connecting_dots
+            hint = ""
+            # После 8 тиков (4с) добавляем пояснение — юзер понимает,
+            # что долгий первый запуск ожидаем, а не «зависло».
+            self._connecting_ticks = getattr(self, '_connecting_ticks', 0) + 1
+            if self._connecting_ticks > 8:
+                hint = "   (первый запуск может занять до минуты)"
+            self.show_mini_osd(f"⏳  Подключаю канал{dots}{hint}")
+            # Отменяем автоскрытие mini-OSD — статус должен висеть,
+            # пока подключаемся.
+            try:
+                self._mini_osd_vol_timer.stop()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _stop_connecting_status(self):
+        try:
+            if hasattr(self, '_connecting_timer'):
+                self._connecting_timer.stop()
+            self._connecting_ticks = 0
+            if hasattr(self, '_mini_osd_vol'):
+                self._mini_osd_vol.hide()
         except Exception:
             pass
 
@@ -6699,6 +6762,20 @@ class PlayerPage(QWidget):
                     fixed += 1
                 except Exception:
                     pass
+            # Round 356: юзер — «при переключении канала спиннер
+            # появляется, а после клика исчезает». Смена класс-курсора
+            # НЕ обновляет уже показанный курсор: Windows пересчитывает
+            # форму только на WM_SETCURSOR (движение/клик мыши). Пока
+            # vout-нитка занята инициализацией D3D, наведённый курсор
+            # показывает busy — и «залипает» до первого клика.
+            # SetCursorPos в ту же точку синтезирует WM_MOUSEMOVE →
+            # система пересчитывает курсор сама, без участия юзера.
+            try:
+                pt = wintypes.POINT()
+                if user32.GetCursorPos(ctypes.byref(pt)):
+                    user32.SetCursorPos(pt.x, pt.y)
+            except Exception:
+                pass
             if fixed and not getattr(self, '_vout_cursor_logged', False):
                 self._vout_cursor_logged = True
                 log_info('vlc', f"vout cursor fixed on {fixed} child hwnd(s)")
@@ -7032,6 +7109,14 @@ class PlayerPage(QWidget):
                 # Возвращаемся в GUI-нитку для второй фазы (set_media и т.п.).
                 # Round 313: через сигнал, без QTimer-warning из bg-нитки.
                 self._invoke_on_main.emit(lambda u=url: self.play_url(u))
+            elif self.player is None:
+                # Round 356: init_vlc не создал плеер — гасим постоянный
+                # статус «Подключаю канал…» и показываем ошибку, иначе
+                # анимация крутилась бы вечно.
+                def _fail_ui():
+                    self._stop_connecting_status()
+                    self.show_mini_osd("⚠ Не удалось запустить VLC")
+                self._invoke_on_main.emit(_fail_ui)
         except Exception as e:
             log_error('_ensure_vlc_then_play', e)
         finally:
@@ -7064,6 +7149,10 @@ class PlayerPage(QWidget):
             # Защита от двойного init: если ensure-нитка уже бежит,
             # просто обновляем _pending_play_url (последний клик
             # выиграет), новой нитки не плодим.
+            # Round 356: постоянный статус вместо разового OSD — иначе
+            # при холодном старте VLC (десятки секунд под антивирусом)
+            # юзер после 1.5с смотрел в чёрный экран.
+            self._show_connecting_status()
             if getattr(self, '_ensure_running', False):
                 log_info('vlc', "ensure already running, pending updated")
                 return
