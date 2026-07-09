@@ -1,7 +1,7 @@
 {
   "versionCode": 7,
   "versionName": "1.7",
-  "releaseNotes": "Поддержка тюнера FC0013, критические исправления протокола USB/I2C, компенсация дрейфа звука",
-  "androidDownloadUrl": "https://github.com/donmax76/IpTv/raw/main/fmradio-release.apk",
-  "windowsDownloadUrl": "https://github.com/donmax76/IpTv/releases/latest/download/FmRadio-Windows-Portable.zip"
+  "releaseNotes": "Поддержка тюнера FC0013, исправление стерео (каналы были перепутаны), рабочий шумоподавитель, надёжный RDS, компенсация дрейфа звука",
+  "androidDownloadUrl": "https://github.com/donmax76/IpTv/releases/latest/download/FmRadio-Android.apk",
+  "windowsDownloadUrl": "https://github.com/donmax76/IpTv/releases/latest"
 }
