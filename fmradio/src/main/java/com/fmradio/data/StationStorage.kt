@@ -66,7 +66,10 @@ class StationStorage(context: Context) {
 
     fun addStation(station: RadioStation) {
         val stations = loadStations().toMutableList()
-        stations.removeAll { Math.abs(it.frequencyHz - station.frequencyHz) < 50000 }
+        // Dedupe window must stay below the narrowest band step (25 kHz on
+        // the aviation band) — a 50 kHz window made adjacent AIR stations
+        // overwrite each other
+        stations.removeAll { Math.abs(it.frequencyHz - station.frequencyHz) < 10000 }
         stations.add(station)
         stations.sortBy { it.frequencyHz }
         saveStations(stations)

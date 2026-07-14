@@ -42,7 +42,9 @@ class FmScanner(private val device: RtlSdrDevice) {
         // True for wideband FM broadcast bands, where the FM modulation-quality
         // heuristic (measureSignalQuality) is valid for filtering out noise.
         // Other bands (AM, narrowband FM, digital) don't match that heuristic.
-        val isWbfm: Boolean = false
+        val isWbfm: Boolean = false,
+        // "FM" or "AM" — selects the demodulator used during playback
+        val modulation: String = "FM"
     ) {
         FM_BROADCAST(
             "FM Radio", "FM",
@@ -57,7 +59,7 @@ class FmScanner(private val device: RtlSdrDevice) {
         AM_SHORTWAVE(
             "Shortwave", "SW",
             24000000L, 30000000L, 5000L,
-            "HF Shortwave 24-30 MHz (limited)"
+            "HF Shortwave 24-30 MHz (limited)", modulation = "AM"
         ),
         VHF_LOW(
             "VHF Low", "VHF-L",
@@ -77,7 +79,7 @@ class FmScanner(private val device: RtlSdrDevice) {
         AIR_BAND(
             "Aviation", "AIR",
             108000000L, 137000000L, 25000L,
-            "Aircraft AM 108-137 MHz"
+            "Aircraft AM 108-137 MHz", modulation = "AM"
         ),
         VHF_2M(
             "2m Amateur", "2M",

@@ -94,6 +94,10 @@ jobs:
 
       - name: Create Release
         run: |
+          FILES="release/FmRadio-Android.apk release/fmradio-desktop.jar"
+          if [ -f release/FmRadio.exe ]; then
+            FILES="$FILES release/FmRadio.exe"
+          fi
           gh release create latest \
             --title "FM Radio - Latest Build" \
             --notes "Автоматическая сборка FM Radio из актуальных исходников.
@@ -107,6 +111,6 @@ jobs:
 
           Версия и дата сборки видны в заголовке окна приложения." \
             --latest \
-            release/FmRadio-Android.apk release/fmradio-desktop.jar release/FmRadio.exe
+            $FILES
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

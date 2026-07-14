@@ -11,6 +11,7 @@ import android.os.IBinder
 import android.util.Log
 import com.fmradio.R
 import com.fmradio.data.StationStorage
+import com.fmradio.dsp.AmDemodulator
 import com.fmradio.dsp.AudioEqualizer
 import com.fmradio.dsp.AudioPlayer
 import com.fmradio.dsp.FmDemodulator
@@ -35,6 +36,7 @@ class FmRadioService : Service() {
     private val binder = LocalBinder()
     private var device: RtlSdrDevice? = null
     private var demodulator: FmDemodulator? = null
+    private var amDemodulator: AmDemodulator? = null
     private var audioPlayer: AudioPlayer? = null
     private var rdsDecoder: RdsDecoder? = null
     private var equalizer: AudioEqualizer? = null
@@ -210,10 +212,13 @@ class FmRadioService : Service() {
         currentFrequency = frequencyHz
         device?.setFrequency(frequencyHz)
 
-        // Reset DSP state to clear stale filter data from previous frequency
-        demodulator?.reset()
+        // Reset DSP state to clear stale filter data from previous frequency.
+        // requestReset defers the actual reset to the streaming thread —
+        // resetting from here would race the concurrent demodulate() call.
+        demodulator?.requestReset()
+        amDemodulator?.requestReset()
         device?.resetBuffer()
-        rdsDecoder?.reset()
+        rdsDecoder?.requestReset()
         currentRdsData = RdsDecoder.RdsData()
 
         updateMediaSessionState()
@@ -226,27 +231,36 @@ class FmRadioService : Service() {
         val dev = device ?: return
 
         val sampleRate = FmDemodulator.RECOMMENDED_SAMPLE_RATE
+        val isAm = currentBand.modulation == "AM"
 
-        demodulator = FmDemodulator(inputSampleRate = sampleRate, audioSampleRate = 48000)
+        if (isAm) {
+            // AM bands (aviation, shortwave): envelope detector, no RDS/stereo
+            amDemodulator = AmDemodulator(inputSampleRate = sampleRate, audioSampleRate = 48000)
+            demodulator = null
+            rdsDecoder = null
+        } else {
+            demodulator = FmDemodulator(inputSampleRate = sampleRate, audioSampleRate = 48000)
+            amDemodulator = null
 
-        rdsDecoder = RdsDecoder(sampleRate / 6).also { rds ->
-            rds.listener = object : RdsDecoder.RdsListener {
-                override fun onRdsData(data: RdsDecoder.RdsData) {
-                    currentRdsData = data
-                    onRdsDataReceived?.invoke(data)
-                    if (data.ps.isNotBlank()) {
-                        updateMediaSessionState()
-                        updateNotification()
-                    }
-                    if (afEnabled && data.afList.isNotEmpty()) {
-                        checkAfSwitch(data)
+            rdsDecoder = RdsDecoder(sampleRate / 6).also { rds ->
+                rds.listener = object : RdsDecoder.RdsListener {
+                    override fun onRdsData(data: RdsDecoder.RdsData) {
+                        currentRdsData = data
+                        onRdsDataReceived?.invoke(data)
+                        if (data.ps.isNotBlank()) {
+                            updateMediaSessionState()
+                            updateNotification()
+                        }
+                        if (afEnabled && data.afList.isNotEmpty()) {
+                            checkAfSwitch(data)
+                        }
                     }
                 }
             }
-        }
 
-        demodulator?.widebandListener = { widebandSamples, pilotPhase ->
-            rdsDecoder?.process(widebandSamples, pilotPhase)
+            demodulator?.widebandListener = { widebandSamples, pilotPhase ->
+                rdsDecoder?.process(widebandSamples, pilotPhase)
+            }
         }
 
         equalizer = AudioEqualizer(48000)
@@ -263,13 +277,14 @@ class FmRadioService : Service() {
         dev.fullReset()
 
         streamingJob = dev.startStreaming(262144) { iqData ->
-            var audioSamples = demodulator?.demodulate(iqData)
+            var audioSamples = if (isAm) amDemodulator?.demodulate(iqData)
+                               else demodulator?.demodulate(iqData)
             if (audioSamples != null && audioSamples.isNotEmpty()) {
                 val eq = equalizer
                 if (eq != null) audioSamples = eq.process(audioSamples)
                 audioPlayer?.writeSamples(audioSamples)
             }
-            val stereoNow = demodulator?.isStereo == true
+            val stereoNow = !isAm && demodulator?.isStereo == true
             if (stereoNow != lastStereo) {
                 lastStereo = stereoNow
                 onStereoChanged?.invoke(stereoNow)
@@ -301,9 +316,8 @@ class FmRadioService : Service() {
         audioPlayer?.stop()
         audioPlayer = null
         demodulator?.widebandListener = null
-        demodulator?.reset()
         demodulator = null
-        rdsDecoder?.reset()
+        amDemodulator = null
         rdsDecoder = null
         equalizer?.reset()
         equalizer = null
@@ -354,10 +368,12 @@ class FmRadioService : Service() {
                     if (samples1 != null && samples2 != null) {
                         val power = (tempDemod.measureSignalStrength(samples1) +
                             tempDemod.measureSignalStrength(samples2)) / 2f
-                        val quality = tempDemod.measureSignalQuality(samples2)
-                        // Require both signal strength AND FM modulation quality to
-                        // avoid locking onto noise bursts or non-FM carriers
-                        if (power > SEEK_THRESHOLD && quality > 0.003f) {
+                        // FM modulation-quality gate (rejects noise bursts and
+                        // dead carriers) is only valid on WBFM broadcast bands —
+                        // on AM/narrowband bands it would reject real stations
+                        val qualityOk = !currentBand.isWbfm ||
+                            tempDemod.measureSignalQuality(samples2) > 0.003f
+                        if (power > SEEK_THRESHOLD && qualityOk) {
                             found = freq
                             break
                         }

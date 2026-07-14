@@ -169,6 +169,15 @@ class MainActivity : Activity() {
         restoreBand()
         restoreSettings()
 
+        // Android 13+: notification permission is runtime — without it the
+        // playback notification (and its media controls) is silently hidden
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 100)
+        }
+
         startRadioService()
 
         // Auto-connect: always try to find and open RTL-SDR on startup
@@ -184,6 +193,7 @@ class MainActivity : Activity() {
     private fun checkForUpdates(showUpToDateMessage: Boolean) {
         activityScope.launch {
             val result = UpdateChecker.check()
+            if (isFinishing || isDestroyed) return@launch
             result.fold(
                 onSuccess = { info ->
                     if (info != null && info.versionCode > BuildConfig.VERSION_CODE) {
@@ -618,7 +628,7 @@ class MainActivity : Activity() {
 
         if (rdsData.ps.isNotBlank()) {
             val stations = stationStorage.loadStations()
-            val station = stations.find { Math.abs(it.frequencyHz - currentFrequency) < 50000 }
+            val station = stations.find { Math.abs(it.frequencyHz - currentFrequency) < 10000 }
             if (station != null && station.rdsPs != rdsData.ps) {
                 stationStorage.updateStation(station.copy(rdsPs = rdsData.ps, rdsRt = rdsData.rt, rdsPty = rdsData.ptyName))
                 loadSavedStations()

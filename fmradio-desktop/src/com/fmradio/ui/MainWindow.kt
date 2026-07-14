@@ -27,7 +27,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     companion object {
         const val VERSION = "1.7"
-        const val BUILD = "20260701-1"
+        const val BUILD = "20260702-1"
         const val VERSION_CODE = 7
 
         // FM band range (extended: OIRT 65.8-74 + CCIR 87.5-108)
@@ -1106,6 +1106,8 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     // ---- AF: Alternate Frequency ----
     // When enabled, automatically tries alternate frequencies from RDS AF list
     // if signal drops below threshold, switching to a stronger one.
+    private var afTimer: Timer? = null
+
     private fun toggleAf() {
         afEnabled = !afEnabled
         btnAf.foreground = if (afEnabled) FREQ_GREEN else TEXT_LIGHT
@@ -1115,13 +1117,17 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             startAfMonitor()
         } else {
             statusLabel.text = "AF OFF"
+            afTimer?.stop()
+            afTimer = null
         }
     }
 
     private fun startAfMonitor() {
         if (!afEnabled || !isPlaying) return
-        // Check AF list periodically via a timer
-        val afTimer = Timer(5000) {
+        // Each enable used to leak a new repeating Timer that ran forever —
+        // stop any previous one before starting a fresh instance
+        afTimer?.stop()
+        val timer = Timer(5000) {
             if (!afEnabled || !isPlaying) return@Timer
             val rds = lastRdsData ?: return@Timer
             if (rds.afList.isEmpty()) return@Timer
@@ -1163,8 +1169,9 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                 }, "AF-Check").start()
             }
         }
-        afTimer.isRepeats = true
-        afTimer.start()
+        timer.isRepeats = true
+        timer.start()
+        afTimer = timer
     }
 
     // ---- TA: Traffic Announcements ----
@@ -1811,11 +1818,12 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         currentFrequency = clamped
         sdr.setFrequency(clamped)
         sdr.resetBuffer()  // flush stale IQ data from previous frequency
-        // Reset both demodulator and RDS on frequency change
-        // Prevents phase discontinuity artifacts and stale filter state
-        demodulator?.reset()
-        amDemodulator?.reset()
-        rdsDecoder?.reset()
+        // Reset demodulator and RDS on frequency change. requestReset defers
+        // the reset to the streaming thread — resetting from the UI thread
+        // here would race the concurrent demodulate()/process() calls.
+        demodulator?.requestReset()
+        amDemodulator?.requestReset()
+        rdsDecoder?.requestReset()
         rdsLabel.text = "---"
         rtLabel.text = " "
         ptyLabel.text = ""

@@ -91,6 +91,14 @@ class FmDemodulator(
     var isStereo = false
         private set
 
+    @Volatile
+    private var resetRequested = false
+
+    /** Thread-safe reset: performed by the DSP thread at the next demodulate() call. */
+    fun requestReset() {
+        resetRequested = true
+    }
+
     // Squelch based on signal quality — faster response
     private var signalQualityAcc = 0.0
     private var signalQualityCount = 0
@@ -221,6 +229,14 @@ class FmDemodulator(
      * @return ShortArray of interleaved stereo samples (L,R,L,R,...)
      */
     fun demodulate(iqData: ByteArray): ShortArray {
+        // Deferred reset: reset() reallocates filter buffers, so calling it
+        // from the UI thread while this method runs on the streaming thread
+        // is a data race. requestReset() defers the reset to here, where it
+        // runs on the same thread as all other DSP state access.
+        if (resetRequested) {
+            resetRequested = false
+            reset()
+        }
         val numIqSamples = iqData.size / 2
         val maxAudioSamples = numIqSamples / (stage1Decimation * stage2Decimation) + 2
         // Stereo output: 2 samples per audio frame (L, R)

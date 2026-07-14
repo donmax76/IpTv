@@ -45,6 +45,14 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     interface RdsListener { fun onRdsData(data: RdsData) }
     var listener: RdsListener? = null
 
+    @Volatile
+    private var resetRequested = false
+
+    /** Thread-safe reset: performed by the DSP thread at the next process() call. */
+    fun requestReset() {
+        resetRequested = true
+    }
+
     // RDS bandpass filter (after carrier mix-down)
     // Blackman-Harris window for better stopband rejection
     private val rdsLpfOrder = 96
@@ -165,6 +173,10 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
      * @param pilotPhase Current pilot PLL phase from FmDemodulator (19 kHz, radians)
      */
     fun process(baseband: FloatArray, pilotPhase: Double) {
+        if (resetRequested) {
+            resetRequested = false
+            reset()
+        }
         // Calculate carrier phase increment per sample from pilot
         // RDS carrier = 3 × pilot frequency (57 kHz = 3 × 19 kHz)
         val pilotInc = 2.0 * PI * 19000.0 / sampleRate
