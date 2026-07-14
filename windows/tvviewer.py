@@ -1621,12 +1621,30 @@ class Config:
             return {}
         return dict(self.per_channel_state.get(url, {}))
 
+    def update_channel_state(self, url: str, **kv):
+        """Round 360: точечное СЛИЯНИЕ ключей в per-channel state.
+        save_channel_state ЗАМЕНЯЕТ весь dict целиком — из-за этого
+        выбор аудиодорожки терялся: фоновое сохранение при уходе с
+        канала не смогло прочитать текущую дорожку из VLC (стрим уже
+        останавливался) → построило state БЕЗ ключа audio_track →
+        замена стёрла ранее сохранённое значение. Здесь же обновляются
+        только переданные ключи, остальное сохраняется."""
+        if not url:
+            return
+        st = self.get_channel_state(url)
+        st.update(kv)
+        self.save_channel_state(url, st)
+        self.save_async()
+
     def save_channel_state(self, url: str, state: dict):
         if not url or not isinstance(state, dict):
             return
         # Filter to known keys to keep storage tight
+        # Round 360: + audio_track_name — ID дорожки у HLS-потоков может
+        # меняться между сессиями, восстановление умеет fallback по имени.
         cleaned = {k: state[k] for k in
-                   ('volume', 'aspect_idx', 'speed_idx', 'position_ms', 'audio_track')
+                   ('volume', 'aspect_idx', 'speed_idx', 'position_ms',
+                    'audio_track', 'audio_track_name')
                    if k in state}
         if not cleaned:
             return
@@ -7036,8 +7054,12 @@ class PlayerPage(QWidget):
         if st and 'audio_track' in st:
             try:
                 trk = int(st['audio_track'])
-                QTimer.singleShot(1500, lambda t=trk, g=my_gen:
-                                  self._maybe_set_audio_track(t, g))
+                # Round 360: имя дорожки — для fallback-матча, если ID
+                # сменился между сессиями (HLS-потоки).
+                tname = str(st.get('audio_track_name', '') or '')
+                QTimer.singleShot(1500, lambda t=trk, g=my_gen, n=tname:
+                                  self._maybe_set_audio_track(
+                                      t, g, track_name=n))
             except Exception:
                 pass
 
@@ -7078,7 +7100,7 @@ class PlayerPage(QWidget):
             log_error('_maybe_seek', e)
 
     def _maybe_set_audio_track(self, track_id: int, gen: int = None,
-                               attempts: int = 12):
+                               attempts: int = 12, track_name: str = ''):
         # Round 281: VLC audio_set_track блокирует 21+ сек на сложных
         # стримах — watchdog поймал. Перенос в фон, как play_url и
         # cycle_audio_track в Round 279.
@@ -7111,11 +7133,27 @@ class PlayerPage(QWidget):
                             try:
                                 descs = (player.audio_get_track_description()
                                          or [])
-                                ids = [t[0] for t in descs if t]
                             except Exception:
-                                ids = []
+                                descs = []
+                            ids = [t[0] for t in descs if t]
+                            target = None
                             if track_id in ids:
-                                _safe_call(player.audio_set_track, track_id)
+                                target = track_id
+                            elif track_name and len(descs) > 1:
+                                # Round 360: fallback по ИМЕНИ — у HLS
+                                # ID дорожек могут меняться между
+                                # сессиями, а имена стабильны.
+                                for t in descs:
+                                    if not t or t[0] < 0:
+                                        continue
+                                    nm = t[1]
+                                    if isinstance(nm, (bytes, bytearray)):
+                                        nm = nm.decode('utf-8', 'replace')
+                                    if str(nm) == track_name:
+                                        target = t[0]
+                                        break
+                            if target is not None:
+                                _safe_call(player.audio_set_track, target)
                                 applied = True
                 except Exception as e:
                     log_error('_maybe_set_audio_track.bg', e)
@@ -7126,9 +7164,12 @@ class PlayerPage(QWidget):
                         lambda: QTimer.singleShot(
                             1000,
                             lambda: self._maybe_set_audio_track(
-                                track_id, gen, attempts - 1)))
+                                track_id, gen, attempts - 1,
+                                track_name=track_name)))
                 elif applied:
-                    log_info('vlc', f"restored audio track {track_id}")
+                    log_info('vlc',
+                             f"restored audio track {track_id}"
+                             f" name='{track_name}'")
             _th.Thread(target=_bg, daemon=True, name='vlc-set-aud').start()
         except Exception as e:
             log_error('_maybe_set_audio_track', e)
@@ -7154,7 +7195,15 @@ class PlayerPage(QWidget):
         player = self.player
 
         def _bg():
-            state = dict(base_state)
+            # Round 360: НАЧИНАЕМ с уже сохранённого состояния (merge),
+            # а не с пустого dict'а. Раньше state строился с нуля: если
+            # чтение audio_track из VLC ниже не удавалось (стрим уже
+            # останавливается конкурентным _swap нового канала — частый
+            # случай при зэппинге), ключ просто выпадал, и
+            # save_channel_state ЗАМЕНОЙ затирал ранее сохранённую
+            # дорожку. Юзер: «не сохраняется аудио дорожка».
+            state = self.config.get_channel_state(url)
+            state.update(base_state)
             if player:
                 try:
                     t = player.get_time()
@@ -7165,7 +7214,11 @@ class PlayerPage(QWidget):
                     pass
                 try:
                     track = player.audio_get_track()
-                    if track is not None and track >= 0:
+                    # Перезаписываем ТОЛЬКО при валидном чтении (>0;
+                    # -1 = disabled, 0 у большинства контейнеров —
+                    # спец-ES). Невалидное чтение сохраняет прежнее
+                    # значение благодаря merge выше.
+                    if track is not None and track > 0:
                         state['audio_track'] = int(track)
                 except Exception:
                     pass
@@ -7924,6 +7977,27 @@ class PlayerPage(QWidget):
                             player = self.player
                             if not player:
                                 return
+                            # Round 360: сохраняем выбор НАПРЯМУЮ (id +
+                            # имя) в момент клика — мы ТОЧНО знаем, что
+                            # выбрал юзер. Round 359 читал дорожку
+                            # обратно из VLC через
+                            # _save_current_channel_state — но VLC
+                            # применяет смену ES асинхронно, и чтение
+                            # сразу после set возвращало СТАРУЮ дорожку
+                            # (или -1), затирая выбор. Имя нужно для
+                            # fallback-восстановления: у HLS-потоков ID
+                            # дорожек могут меняться между сессиями.
+                            try:
+                                if (self.channels and 0 <= self.current_index
+                                        < len(self.channels)):
+                                    _ch_url = self.channels[self.current_index].url
+                                    self.config.update_channel_state(
+                                        _ch_url,
+                                        audio_track=int(track_id),
+                                        audio_track_name=str(track_name or ''))
+                            except Exception as e:
+                                log_error('audio_track.save_choice', e)
+
                             def _bg():
                                 try:
                                     # Round 341: под общим lock'ом.
@@ -7932,12 +8006,6 @@ class PlayerPage(QWidget):
                                     log_info('vlc',
                                              f"audio track → {track_id} "
                                              f"'{track_name}'")
-                                    # Round 359: сохраняем выбор СРАЗУ
-                                    # (per-channel state), а не только
-                                    # при уходе с канала — иначе kill
-                                    # приложения терял выбор дорожки.
-                                    self._invoke_on_main.emit(
-                                        self._save_current_channel_state)
                                 except Exception as e:
                                     log_error('audio_set_track.bg', e)
                             _th.Thread(target=_bg, daemon=True,
@@ -8019,6 +8087,20 @@ class PlayerPage(QWidget):
                                  f"audio track → {nxt[0]} '{name}' "
                                  f"({len(usable)} total)")
                         msg = f"🔊 {name}  ({pos + 2 if pos + 2 <= len(usable) else 1}/{len(usable)})"
+                        # Round 360: сохраняем выбор напрямую — как в
+                        # меню дорожек (см. _present_audio_menu).
+                        try:
+                            if (self.channels and 0 <= self.current_index
+                                    < len(self.channels)):
+                                _u = self.channels[self.current_index].url
+                                _tid, _tname = int(nxt[0]), str(name or '')
+                                self._invoke_on_main.emit(
+                                    lambda u=_u, t=_tid, n=_tname:
+                                    self.config.update_channel_state(
+                                        u, audio_track=t,
+                                        audio_track_name=n))
+                        except Exception as e:
+                            log_error('cycle_audio.save_choice', e)
                     # Round 313: сигнал вместо QTimer. Вне lock'а —
                     # просто dispatch OSD-текста.
                     self._invoke_on_main.emit(
