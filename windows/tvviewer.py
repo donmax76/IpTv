@@ -6726,8 +6726,33 @@ class PlayerPage(QWidget):
             # идемпотентны и дёшевы.
             for delay in (300, 1200, 3000):
                 QTimer.singleShot(delay, self._fix_vout_cursor)
+            # Round 361: юзер — «при громкости 150 после перезапуска
+            # громкость вроде бы 150, а звук маленький; после ±5 звук
+            # восстанавливается». audio_set_volume, вызванный в _swap
+            # ДО того как VLC создал аудиовыход (aout строится только
+            # когда пошли данные), не «прилипает» для значений > 100:
+            # aout инициализируется с усилением 100%. Слайдер при этом
+            # показывает 150 (Qt-состояние восстановлено), а реальная
+            # громкость 100 — ручное ±5 «чинит», потому что это просто
+            # повторный set_volume по ЖИВОМУ aout. Переприменяем
+            # громкость слайдера через пару секунд после старта потока
+            # — aout уже существует.
+            for delay in (2000, 5000):
+                QTimer.singleShot(delay, self._reapply_volume)
         except Exception:
             pass
+
+    def _reapply_volume(self):
+        """Round 361: повторное применение громкости слайдера к
+        живому aout — см. комментарий в _start_resolution_polling."""
+        try:
+            if not self.player:
+                return
+            v = int(self.vol_slider.value())
+            self._vlc_bg_call('vol-reapply',
+                              lambda p, vol=v: p.audio_set_volume(vol))
+        except Exception as e:
+            log_error('_reapply_volume', e)
 
     def _show_connecting_status(self):
         """Round 356: юзер — «при первом открытии программы канал не
