@@ -7124,6 +7124,60 @@ class PlayerPage(QWidget):
         except Exception as e:
             log_error('_maybe_seek', e)
 
+    def _watch_audio_switch(self, player, t0):
+        """Round 362: юзер — «при смене аудио дорожки он зависает видео
+        в паузу а потом без звука несколько секунд». In-place
+        audio_set_track на TS-потоках мгновенный, но на HLS с
+        alternate audio VLC пересобирает буфер (стоп-кадр + тишина на
+        network-caching), а иногда поток не оживает вовсе. Раньше мы
+        разводили руками «поведение VLC». Теперь: через 4с после смены
+        дорожки проверяем, пошло ли время потока; если НЕ пошло —
+        быстрый перезапуск канала. Выбранная дорожка восстановится из
+        per-channel state (сохранена в момент клика, Round 360) ещё на
+        этапе начальной буферизации — итог: предсказуемый рестарт
+        вместо неопределённо долгого зависшего кадра."""
+        gen = self._play_generation
+        url = None
+        try:
+            if self.channels and 0 <= self.current_index < len(self.channels):
+                url = self.channels[self.current_index].url
+        except Exception:
+            pass
+        if not url:
+            return
+
+        def _bg():
+            try:
+                time.sleep(4.0)
+                if gen != self._play_generation or self.player is not player:
+                    return  # юзер уже переключил канал — не вмешиваемся
+                t1 = None
+                lock = self._vlc_op_lock
+                if lock.acquire(blocking=False):
+                    try:
+                        try:
+                            t1 = player.get_time()
+                        except Exception:
+                            t1 = None
+                    finally:
+                        lock.release()
+                else:
+                    # lock занят — идёт другая операция, не мешаем.
+                    return
+                if t0 is not None and t1 is not None and t1 <= t0:
+                    log_warn('vlc',
+                             f"stream stalled after audio switch "
+                             f"(t {t0}→{t1}) — quick restart")
+                    self._invoke_on_main.emit(
+                        lambda u=url: self.play_url(u))
+            except Exception as e:
+                log_error('_watch_audio_switch', e)
+        try:
+            threading.Thread(target=_bg, daemon=True,
+                             name='vlc-aud-watch').start()
+        except Exception as e:
+            log_error('_watch_audio_switch.spawn', e)
+
     def _maybe_set_audio_track(self, track_id: int, gen: int = None,
                                attempts: int = 12, track_name: str = ''):
         # Round 281: VLC audio_set_track блокирует 21+ сек на сложных
@@ -8028,9 +8082,17 @@ class PlayerPage(QWidget):
                                     # Round 341: под общим lock'ом.
                                     with self._vlc_op_lock:
                                         player.audio_set_track(track_id)
+                                        try:
+                                            _t0 = player.get_time()
+                                        except Exception:
+                                            _t0 = None
                                     log_info('vlc',
                                              f"audio track → {track_id} "
                                              f"'{track_name}'")
+                                    # Round 362: если поток не оживёт
+                                    # за 4с — быстрый перезапуск канала
+                                    # (см. _watch_audio_switch).
+                                    self._watch_audio_switch(player, _t0)
                                 except Exception as e:
                                     log_error('audio_set_track.bg', e)
                             _th.Thread(target=_bg, daemon=True,
@@ -8105,6 +8167,10 @@ class PlayerPage(QWidget):
                             pos = -1
                         nxt = usable[(pos + 1) % len(usable)]
                         player.audio_set_track(nxt[0])
+                        try:
+                            _t0_switch = player.get_time()
+                        except Exception:
+                            _t0_switch = None
                         name = nxt[1]
                         if isinstance(name, (bytes, bytearray)):
                             name = name.decode('utf-8', 'replace')
@@ -8130,6 +8196,9 @@ class PlayerPage(QWidget):
                     # просто dispatch OSD-текста.
                     self._invoke_on_main.emit(
                         lambda m=msg: self.show_mini_osd(m))
+                    # Round 362: страховка от зависшего после смены
+                    # дорожки потока — см. _watch_audio_switch.
+                    self._watch_audio_switch(player, _t0_switch)
                 except Exception as e:
                     log_error('cycle_audio_track.bg', e)
             _th.Thread(target=_bg, daemon=True, name='vlc-audio').start()
