@@ -24,14 +24,56 @@ class RtlSdrDevice(private val context: Context) {
     companion object {
         private const val TAG = "RtlSdrDevice"
 
-        // RTL2832U vendor/product IDs
+        // RTL2832U vendor/product IDs — full known_devices list from librtlsdr.
+        // FC0013-based sticks in particular ship under many brands (Terratec,
+        // Dexatek, MSI, SVEON, ...), so the short list used previously missed
+        // most of them.
         private val SUPPORTED_DEVICES = listOf(
-            Pair(0x0BDA, 0x2838), // RTL-SDR Blog V2
             Pair(0x0BDA, 0x2832), // Generic RTL2832U
+            Pair(0x0BDA, 0x2838), // Generic RTL2832U OEM (RTL-SDR v1/v2/v3)
+            Pair(0x0413, 0x6680), // DigitalNow Quad DVB-T PCI-E card
+            Pair(0x0413, 0x6F0F), // Leadtek WinFast DTV Dongle mini D
+            Pair(0x0458, 0x707F), // Genius TVGo DVB-T03 (Ver. B)
+            Pair(0x0CCD, 0x00A9), // Terratec Cinergy T Stick Black (rev 1)
+            Pair(0x0CCD, 0x00B3), // Terratec NOXON DAB/DAB+ (rev 1)
+            Pair(0x0CCD, 0x00B4), // Terratec Deutschlandradio DAB Stick
+            Pair(0x0CCD, 0x00B5), // Terratec NOXON DAB - Radio Energy
+            Pair(0x0CCD, 0x00B7), // Terratec Media Broadcast DAB Stick
+            Pair(0x0CCD, 0x00B8), // Terratec BR DAB Stick
+            Pair(0x0CCD, 0x00B9), // Terratec WDR DAB Stick
+            Pair(0x0CCD, 0x00C0), // Terratec MuellerVerlag DAB Stick
+            Pair(0x0CCD, 0x00C6), // Terratec Fraunhofer DAB Stick
+            Pair(0x0CCD, 0x00D3), // Terratec Cinergy T Stick RC (Rev.3)
+            Pair(0x0CCD, 0x00D7), // Terratec T Stick PLUS
+            Pair(0x0CCD, 0x00E0), // Terratec NOXON DAB/DAB+ (rev 2)
+            Pair(0x1554, 0x5020), // PixelView PV-DT235U(RN)
+            Pair(0x15F4, 0x0131), // Astrometa DVB-T/DVB-T2
+            Pair(0x15F4, 0x0133), // HanfTek DAB+FM+DVB-T
+            Pair(0x185B, 0x0620), // Compro Videomate U620F
+            Pair(0x185B, 0x0650), // Compro Videomate U650F
+            Pair(0x185B, 0x0680), // Compro Videomate U680F
+            Pair(0x1B80, 0xD393), // GIGABYTE GT-U7300
+            Pair(0x1B80, 0xD394), // DIKOM USB-DVBT HD
+            Pair(0x1B80, 0xD395), // Peak 102569AGPK
+            Pair(0x1B80, 0xD397), // KWorld KW-UB450-T
+            Pair(0x1B80, 0xD398), // Zaapa ZT-MINDVBZP
+            Pair(0x1B80, 0xD39D), // SVEON STV20 DVB-T USB & FM
+            Pair(0x1B80, 0xD3A4), // Twintech UT-40
+            Pair(0x1B80, 0xD3A8), // ASUS U3100MINI_PLUS_V2 / Nooelec
+            Pair(0x1B80, 0xD3AF), // SVEON STV27 DVB-T USB & FM
+            Pair(0x1B80, 0xD3B0), // SVEON STV21 DVB-T USB & FM
+            Pair(0x1D19, 0x1101), // Dexatek DK DVB-T (Logilink VG0002A)
+            Pair(0x1D19, 0x1102), // Dexatek DK (MSI DigiVox mini II V3.0)
+            Pair(0x1D19, 0x1103), // Dexatek DK 5217 DVB-T
+            Pair(0x1D19, 0x1104), // MSI DigiVox Micro HD
+            Pair(0x1F4D, 0xA803), // Sweex DVB-T USB
+            Pair(0x1F4D, 0xB803), // GTek T803
+            Pair(0x1F4D, 0xC803), // Lifeview LV5TDeluxe
+            Pair(0x1F4D, 0xD286), // MyGica TD312
+            Pair(0x1F4D, 0xD803), // PROlectrix DV107669
+            // Legacy entries kept from the previous list (not in librtlsdr)
             Pair(0x0BDA, 0x2831), // RTL2831U
-            Pair(0x0BDA, 0x283A), // RTL-SDR V3
-            Pair(0x1B80, 0xD3A8), // R820T tuner
-            Pair(0x1B80, 0xD3A9), // Nooelec
+            Pair(0x0BDA, 0x283A), // RTL-SDR V3 (alt PID)
         )
 
         private const val CTRL_TIMEOUT = 300
@@ -178,6 +220,12 @@ class RtlSdrDevice(private val context: Context) {
         // Clear both DDC shift and IF frequency registers
         for (i in 0 until 6) demodWriteReg(1, 0x16 + i, 0x00, 1)
 
+        // Program the demod FIR (DAB/FM coefficient set, same as the Windows
+        // driver / librtlsdr's fir_default). Power-on FIR contents are
+        // undocumented, and on a warm re-open the registers may hold whatever
+        // a previous driver left there — never rely on defaults.
+        setFir()
+
         // Enable SDR mode, disable DAGC (bit 5)
         demodWriteReg(0, 0x19, 0x05, 1)
 
@@ -246,6 +294,31 @@ class RtlSdrDevice(private val context: Context) {
         }
 
         setSampleRate(sampleRate)
+    }
+
+    /**
+     * Program the RTL2832U FIR filter (librtlsdr rtlsdr_set_fir): 16 signed
+     * coefficients — first 8 as int8, last 8 as packed 12-bit — written to
+     * demod page 1, regs 0x1c..0x2f.
+     */
+    private fun setFir() {
+        // librtlsdr fir_default: DAB/FM coefficient set
+        val coeffs = intArrayOf(
+            -54, -36, -41, -40, -32, -14, 14, 53,
+            101, 156, 215, 273, 327, 372, 404, 421
+        )
+        val fir = IntArray(20)
+        for (i in 0 until 8) fir[i] = coeffs[i] and 0xFF
+        var i = 0
+        while (i < 8) {
+            val val0 = coeffs[8 + i]
+            val val1 = coeffs[8 + i + 1]
+            fir[8 + i * 3 / 2] = (val0 shr 4) and 0xFF
+            fir[8 + i * 3 / 2 + 1] = ((val0 shl 4) or ((val1 shr 8) and 0x0F)) and 0xFF
+            fir[8 + i * 3 / 2 + 2] = val1 and 0xFF
+            i += 2
+        }
+        for (j in 0 until 20) demodWriteReg(1, 0x1c + j, fir[j], 1)
     }
 
     private fun detectTuner(): TunerType {
@@ -518,12 +591,13 @@ class RtlSdrDevice(private val context: Context) {
 
     /** Write the RTL2832U digital down-converter's IF-frequency compensation registers. */
     private fun setIfFrequency(ifFreqHz: Int) {
-        // Matches librtlsdr's rtlsdr_set_if_freq(): freq is a uint32_t in the C API,
-        // so a negative Kotlin Int (FC0013's signed tuning-error correction) must be
-        // bit-reinterpreted as unsigned *before* the double multiply — sign-extending
-        // it first would give a completely different (wrong) result.
-        val freqU = ifFreqHz.toUInt()
-        val ifFreqScaled = ((freqU.toDouble() * (1L shl 22).toDouble()) / RTL_XTAL_HZ.toDouble() * -1.0).toInt()
+        // Signed math, matching the FC0013 reference driver's int32_t
+        // rtlsdr_set_if_freq signature. For the positive IFs the R82xx path
+        // uses (1.7/3.57 MHz) this is identical to osmocom's uint32_t variant;
+        // for FC0013's tuning-error compensation (small, provably non-negative
+        // with round-to-nearest xdiv, but signed by contract) this is the
+        // faithful behavior.
+        val ifFreqScaled = ((ifFreqHz.toLong() * (1L shl 22)).toDouble() / RTL_XTAL_HZ.toDouble() * -1.0).toInt()
         demodWriteReg(1, 0x19, (ifFreqScaled shr 16) and 0x3F, 1)
         demodWriteReg(1, 0x1a, (ifFreqScaled shr 8) and 0xFF, 1)
         demodWriteReg(1, 0x1b, ifFreqScaled and 0xFF, 1)
@@ -547,9 +621,12 @@ class RtlSdrDevice(private val context: Context) {
                 TunerType.R820T, TunerType.R828D -> {
                     // Narrow the tuner IF filter to the sample rate and move
                     // the demod DDC to the (changed) IF — matches librtlsdr's
-                    // set_bw path (1.152 MHz rate → 1.2 MHz filter, IF 1.7 MHz)
+                    // set_bw path (1.152 MHz rate → 1.2 MHz filter, IF 1.7 MHz).
+                    // The LO offset also depends on intFreq, so re-tune,
+                    // matching librtlsdr's set_center_freq call in that path.
                     val newIf = r82xx?.setBandwidth(rate)
                     if (newIf != null) setIfFrequency(newIf)
+                    r82xx?.setFreq(centerFrequency)
                 }
                 TunerType.FC0013 -> { /* FC0013 filter bandwidth is fixed at 5 MHz in hardware */ }
                 else -> {}
@@ -598,14 +675,18 @@ class RtlSdrDevice(private val context: Context) {
             enableI2CRepeater(true)
             when (tunerType) {
                 TunerType.R820T, TunerType.R828D ->
-                    r82xx?.setGain(manual = !enabled, gainTenthDb = 300)
+                    // gain=0 in manual mode matches librtlsdr's set_gain_mode;
+                    // callers then pick the actual gain via setGain()
+                    r82xx?.setGain(manual = !enabled, gainTenthDb = 0)
                 TunerType.FC0013 -> setFc0013GainMode(!enabled)
                 else -> {}
             }
             enableI2CRepeater(false)
 
-            // RTL2832U-side AGC (independent of the tuner's own AGC)
-            demodWriteReg(0, 0x19 + 8, if (enabled) 0x25 else 0x05, 1)
+            // RTL2832U-side digital AGC (independent of the tuner's own AGC).
+            // Register is page 0, addr 0x19 — an earlier "0x19 + 8" here wrote
+            // to 0x21 instead, so the demod DAGC was never actually enabled.
+            demodWriteReg(0, 0x19, if (enabled) 0x25 else 0x05, 1)
             true
         } catch (e: Exception) {
             Log.e(TAG, "Error setting auto gain", e)
@@ -761,6 +842,9 @@ class RtlSdrDevice(private val context: Context) {
         val index = 0x10 or page
         val wValue = (addr shl 8) or 0x20
         conn.controlTransfer(CTRL_OUT, 0, wValue, index, data, data.size, CTRL_TIMEOUT)
+        // librtlsdr issues a dummy read of page 0x0a reg 0x01 after every demod
+        // write (write-latch/settling; undocumented but present in all forks)
+        demodReadReg(0x0a, 0x01)
     }
 
     /** Demod-internal single-byte register read (reads use index=page, no 0x10 flag). */

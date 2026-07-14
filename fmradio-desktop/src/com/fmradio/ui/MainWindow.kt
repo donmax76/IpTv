@@ -1310,7 +1310,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             val tempFmDemod = if (band.modulation == "FM") FmDemodulator() else null
             val tempAmDemod = if (band.modulation == "AM") AmDemodulator() else null
             sdr.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
-            sdr.setMaxGain()  // query tuner for max supported gain
+            applyOptimalGain()
             sdr.setDirectSampling(band.directSampling)
             sdr.resetBuffer()
 
@@ -1668,7 +1668,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             if (ok) {
                 sdr.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
                 sdr.setOffsetTuning(true)  // Eliminate DC spike noise (like SDR# Offset Tuning)
-                sdr.setMaxGain()  // query tuner for max supported gain
+                applyOptimalGain()
                 sdr.setFrequency(currentFrequency)
 
                 SwingUtilities.invokeLater {
@@ -1704,6 +1704,20 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         if (isPlaying) stopPlayback() else startPlayback()
     }
 
+    /**
+     * Tuner-appropriate gain policy. R820T/R828D lack a usable hardware AGC
+     * loop through librtlsdr, so manual maximum gain works best for them.
+     * The zero-IF tuners (FC0013/FC0012/E4000/FC2580) have effective AGC —
+     * forcing them to max (70.3 dB on FC0013!) overloads the front end on
+     * strong stations, heard as distortion/noise.
+     */
+    private fun applyOptimalGain() {
+        when (sdr.tunerName) {
+            "R820T", "R828D" -> sdr.setMaxGain()
+            else -> sdr.setAutoGain(true)
+        }
+    }
+
     private fun startPlayback() {
         if (!sdr.isOpen) {
             statusLabel.text = "RTL-SDR not connected!"
@@ -1719,7 +1733,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         sdr.setSampleRate(sampleRate)
         sdr.setOffsetTuning(true)  // DC spike elimination
         sdr.setDirectSampling(band.directSampling)
-        sdr.setMaxGain()
+        applyOptimalGain()
 
         if (isAm) {
             amDemodulator = AmDemodulator(inputSampleRate = sampleRate, audioSampleRate = 48000)
@@ -1860,7 +1874,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             val tempFmDemod = if (!isAm) FmDemodulator() else null
             val tempAmDemod = if (isAm) AmDemodulator() else null
             sdr.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
-            sdr.setMaxGain()
+            applyOptimalGain()
             sdr.setDirectSampling(band.directSampling)
             sdr.resetBuffer()
             val step = if (isAm) band.stepHz else 100_000L

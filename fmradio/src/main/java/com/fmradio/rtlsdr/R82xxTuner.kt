@@ -318,13 +318,20 @@ class R82xxTuner(
         if (!writeRegMask(0x1d, 0x00, 0x38)) return false
         intFreq = 3_570_000
 
-        // Filter calibration (forced, as librtlsdr does on its single init)
+        // Filter calibration (forced, as librtlsdr does on its single init).
+        // A PLL lock failure at the 56 MHz calibration frequency falls back to
+        // filCalCode=0 rather than failing the whole init — mirrors the C
+        // code's behavior of proceeding to sysfreq_sel regardless.
         for (i in 0 until 2) {
             if (!writeRegMask(0x0b, hpCor, 0x60)) return false
             if (!writeRegMask(0x0f, 0x04, 0x04)) return false     // cali clk on
             if (!writeRegMask(0x10, 0x00, 0x03)) return false     // xtal cap 0p
             if (!setPll(filtCalLoKhz * 1000)) return false
-            if (!hasLock) return false
+            if (!hasLock) {
+                Log.w(TAG, "PLL no lock at filter calibration; using filCalCode=0")
+                filCalCode = 0
+                break
+            }
             if (!writeRegMask(0x0b, 0x10, 0x10)) return false     // start trigger
             try { Thread.sleep(2) } catch (_: InterruptedException) {}
             if (!writeRegMask(0x0b, 0x00, 0x10)) return false     // stop trigger
