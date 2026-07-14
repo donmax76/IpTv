@@ -1,9 +1,14 @@
 package com.fmradio.data
 
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
+import android.os.Environment
+import android.util.Log
+import androidx.core.content.FileProvider
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
 class StationStorage(context: Context) {
 
@@ -66,19 +71,18 @@ class StationStorage(context: Context) {
 
     fun addStation(station: RadioStation) {
         val stations = loadStations().toMutableList()
-        // Dedupe window must stay below the narrowest band step (25 kHz on
-        // the aviation band) — a 50 kHz window made adjacent AIR stations
-        // overwrite each other
-        stations.removeAll { Math.abs(it.frequencyHz - station.frequencyHz) < 10000 }
+        stations.removeAll { Math.abs(it.frequencyHz - station.frequencyHz) < 50000 }
         stations.add(station)
         stations.sortBy { it.frequencyHz }
         saveStations(stations)
+        autoBackup()
     }
 
     fun removeStation(frequencyHz: Long) {
         val stations = loadStations().toMutableList()
         stations.removeAll { it.frequencyHz == frequencyHz }
         saveStations(stations)
+        autoBackup()
     }
 
     fun updateStation(station: RadioStation) {
@@ -201,6 +205,181 @@ class StationStorage(context: Context) {
             presets[idx] = presets[idx].copy(name = newName)
             savePresets(presets)
         }
+    }
+
+    // ========== Export / Import station list ==========
+
+    private val ctx = context.applicationContext
+
+    /**
+     * Export stations to a JSON file in the app's external files directory.
+     * Returns the file, or null on failure.
+     */
+    fun exportToFile(): File? {
+        return try {
+            val stations = loadStations()
+            val presets = loadPresets()
+            val root = JSONObject()
+            val stArr = JSONArray()
+            for (s in stations) {
+                stArr.put(JSONObject().apply {
+                    put("frequencyHz", s.frequencyHz)
+                    put("name", s.name)
+                    put("isFavorite", s.isFavorite)
+                    put("rdsPs", s.rdsPs)
+                    put("rdsRt", s.rdsRt)
+                    put("rdsPty", s.rdsPty)
+                })
+            }
+            root.put("stations", stArr)
+
+            val prArr = JSONArray()
+            for (p in presets) {
+                prArr.put(JSONObject().apply {
+                    put("frequencyHz", p.frequencyHz)
+                    put("name", p.name)
+                })
+            }
+            root.put("presets", prArr)
+            root.put("lastFrequency", lastFrequency)
+            root.put("band", currentBandName)
+            root.put("bass", bassLevel)
+            root.put("treble", trebleLevel)
+
+            val dir = File(ctx.getExternalFilesDir(null), "backup")
+            dir.mkdirs()
+            val file = File(dir, "fm_stations.json")
+            file.writeText(root.toString(2))
+            Log.i("StationStorage", "Exported ${stations.size} stations to ${file.absolutePath}")
+            file
+        } catch (e: Exception) {
+            Log.e("StationStorage", "Export failed", e)
+            null
+        }
+    }
+
+    /**
+     * Import stations from a JSON file. Merges with existing stations
+     * (duplicates within 50 kHz are replaced by imported version).
+     * Returns number of stations imported, or -1 on failure.
+     */
+    fun importFromFile(file: File): Int {
+        return try {
+            val json = file.readText()
+            val root = JSONObject(json)
+
+            val stArr = root.optJSONArray("stations")
+            if (stArr != null) {
+                val imported = (0 until stArr.length()).map { i ->
+                    val obj = stArr.getJSONObject(i)
+                    RadioStation(
+                        frequencyHz = obj.getLong("frequencyHz"),
+                        name = obj.optString("name", ""),
+                        isFavorite = obj.optBoolean("isFavorite", false),
+                        rdsPs = obj.optString("rdsPs", ""),
+                        rdsRt = obj.optString("rdsRt", ""),
+                        rdsPty = obj.optString("rdsPty", "")
+                    )
+                }
+                // Merge: imported stations override existing at same frequency
+                val existing = loadStations().toMutableList()
+                for (s in imported) {
+                    existing.removeAll { Math.abs(it.frequencyHz - s.frequencyHz) < 50000 }
+                    existing.add(s)
+                }
+                existing.sortBy { it.frequencyHz }
+                saveStations(existing)
+            }
+
+            val prArr = root.optJSONArray("presets")
+            if (prArr != null) {
+                val imported = (0 until prArr.length()).map { i ->
+                    val obj = prArr.getJSONObject(i)
+                    PresetItem(
+                        frequencyHz = obj.getLong("frequencyHz"),
+                        name = obj.optString("name", "")
+                    )
+                }
+                savePresets(imported.toMutableList())
+            }
+
+            if (root.has("lastFrequency")) lastFrequency = root.getLong("lastFrequency")
+            if (root.has("band")) currentBandName = root.getString("band")
+            if (root.has("bass")) bassLevel = root.getInt("bass")
+            if (root.has("treble")) trebleLevel = root.getInt("treble")
+
+            val count = stArr?.length() ?: 0
+            Log.i("StationStorage", "Imported $count stations from ${file.absolutePath}")
+            count
+        } catch (e: Exception) {
+            Log.e("StationStorage", "Import failed", e)
+            -1
+        }
+    }
+
+    /**
+     * Import from default backup location (app external files dir).
+     */
+    fun importFromBackup(): Int {
+        val file = File(ctx.getExternalFilesDir(null), "backup/fm_stations.json")
+        if (!file.exists()) return 0
+        return importFromFile(file)
+    }
+
+    /**
+     * Export stations to Downloads folder (user-accessible).
+     * Returns the saved file path, or null on failure.
+     */
+    fun exportToDownloads(): File? {
+        val src = exportToFile() ?: return null
+        return try {
+            val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            downloads.mkdirs()
+            val dst = File(downloads, "fm_stations.json")
+            src.copyTo(dst, overwrite = true)
+            Log.i("StationStorage", "Exported to ${dst.absolutePath}")
+            dst
+        } catch (e: Exception) {
+            Log.e("StationStorage", "Export to Downloads failed", e)
+            null
+        }
+    }
+
+    /**
+     * Import stations from Downloads folder.
+     * Returns number of stations imported, or -1 on failure.
+     */
+    fun importFromDownloads(): Int {
+        val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val file = File(downloads, "fm_stations.json")
+        if (!file.exists()) return 0
+        return importFromFile(file)
+    }
+
+    /**
+     * Create a share Intent for the exported station file.
+     */
+    fun getExportShareIntent(): Intent? {
+        val file = exportToFile() ?: return null
+        val uri = try {
+            FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
+        } catch (_: Exception) {
+            android.net.Uri.fromFile(file)
+        }
+        return Intent(Intent.ACTION_SEND).apply {
+            type = "application/json"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, "FM Radio Stations")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+
+    /**
+     * Auto-backup: save to external file after each station change.
+     * Call this from addStation/removeStation/updateStation.
+     */
+    fun autoBackup() {
+        try { exportToFile() } catch (_: Exception) {}
     }
 
     private fun migrateOldPresets(): MutableList<PresetItem> {

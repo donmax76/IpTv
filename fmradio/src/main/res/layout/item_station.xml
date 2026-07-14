@@ -42,17 +42,6 @@
         android:layout_height="wrap_content"
         android:textColor="@color/lcd_green"
         android:textSize="12sp"
-        android:fontFamily="monospace"
-        android:layout_marginEnd="8dp" />
-
-    <ImageButton
-        android:id="@+id/btnFavorite"
-        android:layout_width="40dp"
-        android:layout_height="40dp"
-        android:src="@drawable/ic_star_outline"
-        android:background="?android:attr/selectableItemBackgroundBorderless"
-        android:contentDescription="@string/cd_favorite"
-        android:scaleType="centerInside"
-        android:padding="6dp" />
+        android:fontFamily="monospace" />
 
 </LinearLayout>

@@ -38,28 +38,22 @@ class FmScanner(private val device: RtlSdrDevice) {
         val startHz: Long,
         val endHz: Long,
         val stepHz: Long,
-        val description: String,
-        // True for wideband FM broadcast bands, where the FM modulation-quality
-        // heuristic (measureSignalQuality) is valid for filtering out noise.
-        // Other bands (AM, narrowband FM, digital) don't match that heuristic.
-        val isWbfm: Boolean = false,
-        // "FM" or "AM" — selects the demodulator used during playback
-        val modulation: String = "FM"
+        val description: String
     ) {
         FM_BROADCAST(
             "FM Radio", "FM",
             87500000L, 108000000L, 100000L,
-            "FM Broadcast 87.5-108.0 MHz", isWbfm = true
+            "FM Broadcast 87.5-108.0 MHz"
         ),
         FM_JAPAN(
             "FM Japan", "FM-J",
             76000000L, 95000000L, 100000L,
-            "Japanese FM 76.0-95.0 MHz", isWbfm = true
+            "Japanese FM 76.0-95.0 MHz"
         ),
         AM_SHORTWAVE(
             "Shortwave", "SW",
             24000000L, 30000000L, 5000L,
-            "HF Shortwave 24-30 MHz (limited)", modulation = "AM"
+            "HF Shortwave 24-30 MHz (limited)"
         ),
         VHF_LOW(
             "VHF Low", "VHF-L",
@@ -79,7 +73,7 @@ class FmScanner(private val device: RtlSdrDevice) {
         AIR_BAND(
             "Aviation", "AIR",
             108000000L, 137000000L, 25000L,
-            "Aircraft AM 108-137 MHz", modulation = "AM"
+            "Aircraft AM 108-137 MHz"
         ),
         VHF_2M(
             "2m Amateur", "2M",
@@ -162,6 +156,12 @@ class FmScanner(private val device: RtlSdrDevice) {
     @Volatile
     private var scanning = false
 
+    @Volatile
+    var isBusy = false
+        private set
+
+    fun isScanning(): Boolean = scanning
+
     private val demodulator = FmDemodulator()
 
     /**
@@ -172,8 +172,7 @@ class FmScanner(private val device: RtlSdrDevice) {
         startFreq: Long = FM_BAND_START,
         endFreq: Long = FM_BAND_END,
         step: Long = FM_STEP,
-        threshold: Float = SIGNAL_THRESHOLD,
-        isWbfmBand: Boolean = true
+        threshold: Float = SIGNAL_THRESHOLD
     ): List<ScanResult> = withContext(Dispatchers.IO) {
         scanning = true
         isBusy = true
@@ -184,14 +183,41 @@ class FmScanner(private val device: RtlSdrDevice) {
         Log.i(TAG, "Starting scan: ${startFreq/1e6} - ${endFreq/1e6} MHz, step=${step/1e3} kHz")
 
         try {
-            if (device.isStreaming) {
-                device.stopStreaming()
-                delay(100)
-            }
+            // Stop any in-flight streaming UNCONDITIONALLY. The isStreaming flag may
+            // already be false (cleared by stopPlayback) while the streaming coroutine
+            // is still mid-read inside readSamples(). Both share asyncReadBuffer, so
+            // racing two readers gives null/garbage and the scanner sees no signal.
+            // The fullReset() below cancels in-flight URBs, drains stale data, and
+            // clears endpoint stalls so the scanner has the bus to itself.
+            device.stopStreaming()
+            delay(150)  // let any inflight USB read time out before we touch the bus
+            try { device.fullReset() } catch (e: Exception) { Log.w(TAG, "pre-scan fullReset failed", e) }
 
             device.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
-            device.setAutoGain(true)
-            delay(50)
+            // Use FIXED manual gain for scanning — auto AGC doesn't converge
+            // within the 80 ms settle window per frequency.
+            //
+            // FC0013/FC0012 have INVERTED auto/manual logic in our setAutoGain():
+            //   setAutoGain(true)  = manual mode (moderate gain, instant)  ← GOOD for scan
+            //   setAutoGain(false) = auto AGC (~17 s convergence)          ← BAD for scan
+            // R820T/R828D have the standard mapping:
+            //   setAutoGain(false) = manual mode + setGain(14) works       ← GOOD for scan
+            //   setAutoGain(true)  = hardware AGC (equalises everything)   ← BAD for scan
+            when (device.getTunerType()) {
+                RtlSdrDevice.TunerType.FC0013, RtlSdrDevice.TunerType.FC0012 -> {
+                    // FC0013: manual mode (setAutoGain(true) = manual on FC),
+                    // then reduce LNA to minimum for better scan contrast.
+                    // High IF/mixer gain + low LNA = good SNR difference
+                    // between stations and noise.
+                    device.setAutoGain(true)
+                    device.setGain(0)  // LNA minimum (0x02)
+                }
+                else -> {
+                    device.setAutoGain(false) // R820T: manual mode
+                    device.setGain(14)        // high fixed gain
+                }
+            }
+            delay(80)
 
             // Measure noise floor
             var noiseFloor = -30f
@@ -215,22 +241,18 @@ class FmScanner(private val device: RtlSdrDevice) {
 
                 var signalSum = 0f
                 var validMeasurements = 0
-                var lastSamples: ByteArray? = null
 
                 for (m in 0 until MEASUREMENTS_PER_FREQ) {
                     val samples = device.readSamples(MEASUREMENT_SAMPLES)
                     if (samples != null && samples.isNotEmpty()) {
                         signalSum += demodulator.measureSignalStrength(samples)
                         validMeasurements++
-                        lastSamples = samples
                     }
                 }
 
                 if (validMeasurements > 0) {
                     val avgSignal = signalSum / validMeasurements
-                    val qualityOk = !isWbfmBand || lastSamples == null ||
-                        demodulator.measureSignalQuality(lastSamples) > 0.003f
-                    if (avgSignal > adaptiveThreshold && qualityOk) {
+                    if (avgSignal > adaptiveThreshold) {
                         val result = ScanResult(freq, avgSignal)
                         stations.add(result)
                         Log.i(TAG, "Signal found: ${result.displayFrequency} MHz ($avgSignal dB)")
@@ -268,7 +290,7 @@ class FmScanner(private val device: RtlSdrDevice) {
 
     /** Scan a specific Band enum */
     suspend fun scanBand(band: Band, listener: ScanListener): List<ScanResult> {
-        return scan(listener, band.startHz, band.endHz, band.stepHz, isWbfmBand = band.isWbfm)
+        return scan(listener, band.startHz, band.endHz, band.stepHz)
     }
 
     fun stopScan() {
@@ -287,13 +309,6 @@ class FmScanner(private val device: RtlSdrDevice) {
             }
         }
     }
-
-    fun isScanning(): Boolean = scanning
-
-    /** True while the scan coroutine is actively using the device */
-    @Volatile
-    var isBusy = false
-        private set
 
     private fun mergeCloseStations(stations: List<ScanResult>, minSpacing: Long): List<ScanResult> {
         if (stations.isEmpty()) return emptyList()

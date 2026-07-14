@@ -3,6 +3,20 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Auto-version from git: versionCode = commit count, versionName = "3.0.<commit_count>"
+// Only digits — no hashes or dates in the version string.
+fun gitVersionCode(): Int {
+    return try {
+        val process = ProcessBuilder("git", "rev-list", "--count", "HEAD")
+            .directory(projectDir).redirectErrorStream(true).start()
+        process.inputStream.bufferedReader().readText().trim().toIntOrNull() ?: 8
+    } catch (_: Exception) { 8 }
+}
+
+fun gitVersionName(): String {
+    return "3.0.${gitVersionCode()}"
+}
+
 android {
     namespace = "com.fmradio"
     compileSdk = 34
@@ -11,13 +25,50 @@ android {
         applicationId = "com.fmradio.rtlsdr"
         minSdk = 21
         targetSdk = 34
-        versionCode = 8
-        versionName = "1.8.0"
+        versionCode = gitVersionCode()
+        versionName = gitVersionName()
+
+        // GitHub Issues API — same token as TVViewer (IPTV_ISSUE_TOKEN secret)
+        val issueToken = System.getenv("IPTV_ISSUE_TOKEN") ?: ""
+        buildConfigField("String", "ISSUE_TOKEN", "\"$issueToken\"")
+        buildConfigField("String", "ISSUE_REPO", "\"donmax76/IpTv\"")
+        buildConfigField("String", "NTFY_TOPIC", "\"\"")
+    }
+
+    // Native DSP library for real-time FM demodulation (C++ via JNI)
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
+    ndkVersion = "26.1.10909125"
+
+    signingConfigs {
+        create("release") {
+            val ksFile = rootProject.file("fmradio/keystore/debug.keystore")
+            if (ksFile.exists()) {
+                storeFile = ksFile
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
     }
 
     buildTypes {
+        debug {
+            val ks = signingConfigs.findByName("release")
+            if (ks?.storeFile?.exists() == true) {
+                signingConfig = ks
+            }
+        }
         release {
             isMinifyEnabled = false
+            val ks = signingConfigs.findByName("release")
+            signingConfig = if (ks?.storeFile?.exists() == true) ks
+                else signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

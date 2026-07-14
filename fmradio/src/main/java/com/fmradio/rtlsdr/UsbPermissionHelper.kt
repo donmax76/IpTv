@@ -44,7 +44,8 @@ class UsbPermissionHelper(private val context: Context) {
             addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(usbReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            // Must be EXPORTED — USB permission result comes from the system USB service
+            context.registerReceiver(usbReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
             context.registerReceiver(usbReceiver, filter)
         }
@@ -71,11 +72,9 @@ class UsbPermissionHelper(private val context: Context) {
         } else {
             PendingIntent.FLAG_UPDATE_CURRENT
         }
-        // Android 14 (targetSdk 34) forbids mutable PendingIntents wrapping
-        // implicit intents — without setPackage this throws SecurityException
-        // and the USB permission dialog never appears.
-        val intent = Intent(ACTION_USB_PERMISSION).setPackage(context.packageName)
-        val permissionIntent = PendingIntent.getBroadcast(context, 0, intent, flags)
+        val permissionIntent = PendingIntent.getBroadcast(
+            context, 0, Intent(ACTION_USB_PERMISSION), flags
+        )
         usbManager.requestPermission(device, permissionIntent)
     }
 

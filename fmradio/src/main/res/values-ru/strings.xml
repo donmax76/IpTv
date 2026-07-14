@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Status -->
+    <string name="status_disconnected">RTL-SDR: Отключен</string>
+    <string name="status_connecting">Подключение…</string>
+    <string name="status_connected">RTL-SDR: Подключён</string>
+    <string name="status_no_device">RTL-SDR устройство не найдено</string>
+    <string name="status_permission_denied">Нет разрешения USB</string>
+    <string name="status_connection_failed">Ошибка подключения</string>
+    <string name="status_playing">Воспроизведение</string>
+    <string name="status_stopped">Остановлено</string>
+    <string name="status_seeking">Поиск…</string>
+
+    <!-- Buttons -->
+    <string name="btn_connect">Подключить</string>
+    <string name="btn_disconnect">Отключить</string>
+    <string name="btn_scan">СКАН</string>
+    <string name="btn_stop_scan">СТОП</string>
+    <string name="btn_save">Сохранить</string>
+    <string name="btn_cancel">Отмена</string>
+
+    <!-- Labels -->
+    <string name="label_saved_stations">СТАНЦИИ</string>
+
+    <!-- Messages -->
+    <string name="msg_connect_rtlsdr">Подключите RTL-SDR устройство через USB</string>
+    <string name="msg_usb_permission_needed">Требуется разрешение USB для RTL-SDR</string>
+    <string name="msg_device_connected">RTL-SDR устройство подключено!</string>
+    <string name="msg_connection_failed">Не удалось открыть RTL-SDR</string>
+    <string name="msg_connect_first">Сначала подключите RTL-SDR</string>
+    <string name="msg_scan_complete">Сканирование завершено! Найдено станций: %d</string>
+    <string name="msg_scan_error">Ошибка сканирования: %s</string>
+    <string name="msg_no_station_found">Станция не найдена</string>
+
+    <!-- Options -->
+    <string name="option_rename">Переименовать</string>
+    <string name="option_delete">Удалить</string>
+    <string name="option_toggle_favorite">Избранное</string>
+
+    <!-- Dialogs -->
+    <string name="dialog_rename_title">Переименовать станцию</string>
+    <string name="dialog_add_station_title">Добавить станцию</string>
+    <string name="hint_station_name">Название станции</string>
+    <string name="hint_frequency_mhz">Частота (МГц)</string>
+    <string name="msg_station_added">Станция добавлена: %s</string>
+    <string name="msg_invalid_frequency">Неверная частота</string>
+
+    <!-- Band selector -->
+    <string name="dialog_band_title">Выбор диапазона</string>
+    <string name="msg_band_changed">Диапазон: %s</string>
+
+    <!-- Content descriptions -->
+    <string name="cd_freq_down">Частота вниз</string>
+    <string name="cd_freq_up">Частота вверх</string>
+    <string name="cd_play_stop">Воспроизведение / Стоп</string>
+    <string name="cd_volume">Громкость</string>
+    <string name="cd_seek_back">Поиск назад</string>
+    <string name="cd_seek_forward">Поиск вперёд</string>
+    <string name="cd_prev_station">Предыдущая станция</string>
+    <string name="cd_next_station">Следующая станция</string>
+
+    <!-- Settings -->
+    <string name="settings_title">НАСТРОЙКИ</string>
+    <string name="settings_back">НАЗАД</string>
+    <string name="settings_audio">ЗВУК</string>
+    <string name="settings_language">ЯЗЫК</string>
+    <string name="settings_debug">ОТЛАДКА</string>
+    <string name="settings_updates">ОБНОВЛЕНИЯ</string>
+    <string name="settings_about">О ПРИЛОЖЕНИИ</string>
+    <string name="settings_file_logging">Запись в файл</string>
+    <string name="settings_send_log">ОТПРАВИТЬ ЛОГ</string>
+    <string name="settings_view_errors">ОШИБКИ</string>
+    <string name="settings_clear_errors">ОЧИСТИТЬ ОШИБКИ</string>
+    <string name="settings_open_debug_panel">ПАНЕЛЬ ОТЛАДКИ</string>
+    <string name="settings_auto_update">Авто-проверка обновлений</string>
+    <string name="settings_check_update">ПРОВЕРИТЬ ОБНОВЛЕНИЕ</string>
+    <string name="settings_current_version">Текущая версия</string>
+    <string name="settings_app_language">Язык приложения</string>
+    <string name="settings_select_language">Выберите язык</string>
+
+    <!-- Volume / EQ labels -->
+    <string name="label_volume">ГРОМ</string>
+    <string name="label_bass">БАС</string>
+    <string name="label_treble">ВЧ</string>
+</resources>

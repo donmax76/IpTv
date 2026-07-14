@@ -32,42 +32,52 @@ class FmDemodulator(
     // Use faster alpha for quicker convergence on frequency change
     private var dcI = 0f
     private var dcQ = 0f
-    private val dcAlpha = 0.9995f  // ~50 Hz cutoff at 1.152 MHz — converges in ~2000 samples (~2ms)
+    private val dcAlpha = 0.999995f  // ~0.9 Hz cutoff — matches actual C++ DSP value
 
     // FM discriminator state
     private var prevI = 0f
     private var prevQ = 0f
 
-    // FM deviation gain — converts atan2 output to proper audio level
-    // Max phase change per sample = 2π × 75000/192000 ≈ 2.454 rad
-    // We want 100% modulation to map to ~±0.7 to leave headroom
-    private val fmGain = (intermediateRate.toFloat() / (2f * PI.toFloat() * 75000f)) * 0.7f
+    // FM deviation gain — converts atan2 output to proper audio level.
+    // 100% modulation (±75 kHz) maps to ~±0.82 — close to the soft-clip knee at 0.8.
+    // The soft-clip limiter handles peaks above this safely, so we don't waste 12 dB
+    // Matches C++ DSP value. Below soft-clip knee (0.80) for clean audio.
+    private val fmGain = (intermediateRate.toFloat() / (2f * PI.toFloat() * 75000f)) * 0.75f
 
     // De-emphasis filter (50µs time constant for Europe/Russia)
     private var deEmphasisStateL = 0f
     private var deEmphasisStateR = 0f
     private val deEmphasisAlpha: Float
 
-    // IF low-pass filter (before stage 1 decimation)
-    private val ifLpfOrder = 128
+    // IF low-pass filter (before stage 1 decimation).
+    // 64 taps with Blackman-Harris: ~95 dB stopband, ~45 kHz transition band at
+    // 1.152 MHz fs. Cutoff 120 kHz so the full ±100 kHz FM-broadcast spectrum
+    // (Carson) passes flat — no peak clipping → no demodulation distortion.
+    // Modest CPU bump over the historical 48 taps; safe on mid-range phones.
+    private val ifLpfOrder = 64
     private val ifLpfCoeffs: FloatArray
-    private var ifBufI = FloatArray(ifLpfOrder)
-    private var ifBufQ = FloatArray(ifLpfOrder)
+    // Double-buffer trick: size 2×N, write to both halves, filter without modulo
+    private var ifBufI = FloatArray(ifLpfOrder * 2)
+    private var ifBufQ = FloatArray(ifLpfOrder * 2)
     private var ifBufIdx = 0
 
-    // Audio low-pass filters — separate for L+R (mono) and L-R (stereo difference)
-    private val audioLpfOrder = 96
+    // Audio low-pass filters — separate for L+R (mono) and L-R (stereo difference).
+    // 32 taps: 15 kHz cutoff at 192 kHz with ~90 dB stopband — clean anti-alias
+    // before /4 decimation to 48 kHz. Lower CPU than longer filters; the 19 kHz
+    // pilot residue is well below the noise floor of broadcast FM at this length.
+    private val audioLpfOrder = 32
     private val audioLpfCoeffs: FloatArray
-    private var monoLpfBuf = FloatArray(audioLpfOrder)    // L+R channel
+    // Double-buffer trick: eliminates modulo in filter inner loop
+    private var monoLpfBuf = FloatArray(audioLpfOrder * 2)    // L+R channel
     private var monoLpfIdx = 0
-    private var diffLpfBuf = FloatArray(audioLpfOrder)    // L-R channel
+    private var diffLpfBuf = FloatArray(audioLpfOrder * 2)    // L-R channel
     private var diffLpfIdx = 0
 
     private var stage1Counter = 0
     private var stage2Counter = 0
 
-    // Wideband output for RDS — includes pilot phase
-    var widebandListener: ((FloatArray, Double) -> Unit)? = null
+    // Wideband output for RDS — includes buffer, count, pilot phase (zero-copy)
+    var widebandListener: ((FloatArray, Int, Double) -> Unit)? = null
 
     // ========== Pilot PLL (19 kHz, SDR++/gr-rds approach) ==========
     private val pilotBpfState = DoubleArray(4)
@@ -78,7 +88,7 @@ class FmDemodulator(
 
     private var pilotNcoPhase = 0.0
     private var pilotNcoFreq = 2.0 * PI * 19000.0 / intermediateRate
-    private val pilotLoopBw = 2.0 * PI * 5.0 / intermediateRate
+    private val pilotLoopBw = 2.0 * PI * 1.0 / intermediateRate  // 1 Hz bandwidth — stable PLL tracking
     private val pilotAlpha: Double
     private val pilotBeta: Double
 
@@ -87,44 +97,64 @@ class FmDemodulator(
     private var pilotStrengthCount = 0
     private val pilotDetectWindow = intermediateRate / 4
 
+    // Pilot PLL frequency bounds (prevent runaway on noise)
+    private val pilotFreqMin = 2.0 * PI * 18500.0 / intermediateRate
+    private val pilotFreqMax = 2.0 * PI * 19500.0 / intermediateRate
+
+    // Stereo detection with hysteresis + smooth blend.
+    // Thresholds are tuned for the pilot BPF (Q=80 @ 19 kHz) output on top
+    // of the raw atan2 baseband. Pure noise gives ~0.008-0.010 squared-mean,
+    // a real broadcast pilot (10% AM modulation) gives ~0.025-0.035. Use
+    // 0.020 lock / 0.012 unlock to keep the gap clean and avoid false stereo
+    // on dead frequencies.
+    private val stereoLockThreshold = 0.016f     // match C++ — FC0013 weak pilot
+    private val stereoUnlockThreshold = 0.006f   // match C++ — wide hysteresis
+    private var stereoBlend = 0f                // 0 = mono, 1 = full stereo
+    private val stereoBlendAttack = 0.0003f     // match C++ — 70ms to stereo
+    private val stereoBlendRelease = 0.0001f    // match C++ — 210ms to mono
+
     @Volatile
     var isStereo = false
         private set
 
+    // Real-time signal strength in dB (exposed for UI)
     @Volatile
-    private var resetRequested = false
+    var currentSignalStrengthDb = -100f
+        private set
+    private var signalPowerAcc = 0.0
+    private var signalPowerCount = 0
+    private val signalPowerWindow = intermediateRate / 3  // ~333ms update rate (smooth for driving)
 
-    /** Thread-safe reset: performed by the DSP thread at the next demodulate() call. */
-    fun requestReset() {
-        resetRequested = true
-    }
-
-    // Squelch based on signal quality — faster response
+    // Squelch based on signal quality — tuned for mobile/driving stability
     private var signalQualityAcc = 0.0
     private var signalQualityCount = 0
-    private var squelchOpen = false  // Start closed to avoid initial burst of noise
-    private var squelchLevel = 0f
-    private val squelchAttack = 0.03f   // ~33ms to open (smooth fade-in)
-    private val squelchRelease = 0.02f  // ~50ms to close (fast mute on noise)
+    private var squelchOpen = true  // Start OPEN so user hears audio immediately
+    private var squelchLevel = 1f   // Start at full level — squelch closes if no signal
+    // Squelch ramp rates (per intermediate sample at 192 kHz)
+    private val squelchAttack = 1f / (0.1f * intermediateRate)   // 100ms to open (smooth fade-in)
+    private val squelchRelease = 1f / (0.3f * intermediateRate)  // 300ms to close (gradual for driving)
+    private val squelchOpenThreshold = 0.03f   // Modulation level to OPEN squelch
+    private val squelchCloseThreshold = 0.008f // Modulation level to CLOSE squelch (hysteresis gap)
 
     // Warmup: discard first N intermediate samples to flush stale filter state
     private var warmupSamples = 0
-    private val warmupThreshold = intermediateRate / 2  // 0.5s warmup for filter settling
+    private val warmupThreshold = intermediateRate / 10  // 100ms warmup (was 500ms)
+
+    // Synchronization lock for reset vs demodulate thread safety
+    private val dspLock = java.util.concurrent.locks.ReentrantLock()
 
     // Crossfade for seamless muting during frequency change
-    private var muteRamp = 0f  // 0 = muted, 1 = full volume
-    private val muteRampUp = 0.005f   // ~200 audio samples to reach full volume
+    private var muteRamp = 0f  // Start muted to avoid noise burst on startup
+    private val muteRampUp = 1f / (0.05f * audioSampleRate)    // 50ms fade-in
+    private val muteRampDown = 1f / (0.02f * audioSampleRate)  // 20ms fade-out
 
-    // 19 kHz pilot notch biquad (applied at audio rate, separate L/R state)
-    private val notchB0: Float
-    private val notchB1: Float
-    private val notchB2: Float
-    private val notchA1: Float
-    private val notchA2: Float
-    private var notchLX1 = 0f; private var notchLX2 = 0f
-    private var notchLY1 = 0f; private var notchLY2 = 0f
-    private var notchRX1 = 0f; private var notchRX2 = 0f
-    private var notchRY1 = 0f; private var notchRY2 = 0f
+    // Pre-allocated wideband buffer for RDS (zero-copy to listener)
+    // Max input: 32768 bytes = 16384 IQ → 2730 intermediate samples
+    private val wbBuf = FloatArray(6000)
+    // Pilot NCO phase at wbBuf[0] — captured on the first wideband sample
+    // of each call so the RDS decoder can reconstruct the 57 kHz carrier
+    // starting at the correct phase for that buffer.
+    private var wbStartPilotPhase = 0.0
 
     init {
         // De-emphasis: 50µs time constant (Europe/Russia standard)
@@ -132,17 +162,15 @@ class FmDemodulator(
         val dt = 1f / audioSampleRate
         deEmphasisAlpha = dt / (tau + dt)
 
-        // IF filter: 90 kHz cutoff. Must stay below the post-decimation
-        // Nyquist (192 kHz / 2 = 96 kHz) — the previous 120 kHz cutoff let
-        // noise and adjacent-channel energy from 96-120 kHz alias straight
-        // into the signal band after the /6 decimation.
+        // IF filter: 120 kHz cutoff. Wide enough to pass full FM broadcast spectrum
+        // (Carson ≈ ±90 kHz incl. RDS at ±57 kHz) flat — no edge clipping.
         ifLpfCoeffs = designLowPassFilter(ifLpfOrder, 90000f / inputSampleRate)
         // Audio filter: 15 kHz cutoff — standard FM mono audio
         audioLpfCoeffs = designLowPassFilter(audioLpfOrder, 15000f / intermediateRate)
 
         // Design 19 kHz pilot bandpass biquad (Q=80 for narrow extraction)
         val w0 = 2.0 * PI * 19000.0 / intermediateRate
-        val bpfQ = 80.0
+        val bpfQ = 80.0  // Q=80 — fast pilot lock without ringing, stable on transients
         val bpfAlpha = sin(w0) / (2.0 * bpfQ)
         val a0 = 1.0 + bpfAlpha
         pilotBpfB0 = bpfAlpha / a0
@@ -156,19 +184,6 @@ class FmDemodulator(
         pilotAlpha = 2.0 * damp * bw
         pilotBeta = bw * bw
 
-        // 19 kHz RBJ notch at the audio rate (pass-through if out of range)
-        if (19000.0 < audioSampleRate / 2.0) {
-            val nw0 = 2.0 * PI * 19000.0 / audioSampleRate
-            val nAlpha = sin(nw0) / (2.0 * 8.0)  // Q = 8
-            val nA0 = 1.0 + nAlpha
-            notchB0 = (1.0 / nA0).toFloat()
-            notchB1 = (-2.0 * cos(nw0) / nA0).toFloat()
-            notchB2 = (1.0 / nA0).toFloat()
-            notchA1 = (-2.0 * cos(nw0) / nA0).toFloat()
-            notchA2 = ((1.0 - nAlpha) / nA0).toFloat()
-        } else {
-            notchB0 = 1f; notchB1 = 0f; notchB2 = 0f; notchA1 = 0f; notchA2 = 0f
-        }
     }
 
     private fun designLowPassFilter(order: Int, normalizedCutoff: Float): FloatArray {
@@ -209,6 +224,21 @@ class FmDemodulator(
      * Fast atan2 approximation — polynomial, from rtl_fm.
      * Max error < 0.005 radians. Much faster than Math.atan2.
      */
+    /**
+     * Cubic soft-clip limiter. Linear up to |x|≈0.8, smoothly saturates toward ±1.
+     * Prevents audible hard-clip artifacts on loud modulation peaks while preserving
+     * transient detail within the linear region.
+     */
+    private fun softClip(x: Float): Float {
+        val ax = abs(x)
+        if (ax <= 0.8f) return x                    // transparent linear region
+        val sign = if (x >= 0f) 1f else -1f
+        // Smooth asymptotic knee above 0.8: y = 0.8 + 0.2 * (1 - 1/(1 + 5*(|x|-0.8)))
+        val t = (ax - 0.8f) * 5f                    // 0 at threshold, grows unbounded
+        val compressed = t / (1f + t)               // 0..1 smooth saturation
+        return sign * (0.8f + 0.2f * compressed).coerceAtMost(0.9999695f)
+    }
+
     private fun fastAtan2(y: Float, x: Float): Float {
         val absX = abs(x)
         val absY = abs(y)
@@ -226,32 +256,22 @@ class FmDemodulator(
      * Demodulate raw IQ samples to stereo audio PCM (interleaved L,R,L,R...).
      * Also feeds wideband baseband to RDS decoder if listener is set.
      *
-     * @return ShortArray of interleaved stereo samples (L,R,L,R,...)
+     * @param iqData Raw IQ bytes from USB
+     * @param outBuf Pre-allocated output buffer for stereo PCM samples
+     * @return Number of samples written to outBuf
      */
-    fun demodulate(iqData: ByteArray): ShortArray {
-        // Deferred reset: reset() reallocates filter buffers, so calling it
-        // from the UI thread while this method runs on the streaming thread
-        // is a data race. requestReset() defers the reset to here, where it
-        // runs on the same thread as all other DSP state access.
-        if (resetRequested) {
-            resetRequested = false
-            reset()
-        }
+    fun demodulate(iqData: ByteArray, outBuf: ShortArray): Int {
+        if (!dspLock.tryLock()) return 0
+        try { return demodulateInternal(iqData, outBuf) } finally { dspLock.unlock() }
+    }
+
+    private fun demodulateInternal(iqData: ByteArray, outBuf: ShortArray): Int {
         val numIqSamples = iqData.size / 2
-        val maxAudioSamples = numIqSamples / (stage1Decimation * stage2Decimation) + 2
-        // Stereo output: 2 samples per audio frame (L, R)
-        val audioOut = ShortArray(maxAudioSamples * 2)
         var audioCount = 0
 
         val wbListener = widebandListener
-        val maxWbSamples = numIqSamples / stage1Decimation + 2
-        val widebandBuf = if (wbListener != null) FloatArray(maxWbSamples) else null
+        val widebandBuf = if (wbListener != null) wbBuf else null
         var wbCount = 0
-        // Pilot phase corresponding to the START of the wideband buffer —
-        // the RDS decoder seeds its 57 kHz carrier from this and advances
-        // forward, so passing the end-of-buffer phase would misalign it by
-        // the whole buffer length.
-        val pilotPhaseAtBufferStart = pilotNcoPhase
 
         for (i in 0 until numIqSamples) {
             var iSample = (iqData[i * 2].toInt() and 0xFF) / 127.5f - 1f
@@ -263,9 +283,11 @@ class FmDemodulator(
             iSample -= dcI
             qSample -= dcQ
 
-            // Store in IF filter buffer
+            // Store in IF filter double-buffer (write to both halves)
             ifBufI[ifBufIdx] = iSample
+            ifBufI[ifBufIdx + ifLpfOrder] = iSample
             ifBufQ[ifBufIdx] = qSample
+            ifBufQ[ifBufIdx + ifLpfOrder] = qSample
             ifBufIdx = (ifBufIdx + 1) % ifLpfOrder
 
             // Stage 1 decimation: 1152 kHz → 192 kHz
@@ -273,13 +295,14 @@ class FmDemodulator(
             if (stage1Counter < stage1Decimation) continue
             stage1Counter = 0
 
-            // Apply IF bandpass filter
+            // Apply IF bandpass filter — no modulo in inner loop (double-buffer trick)
             var filtI = 0f
             var filtQ = 0f
+            val ifBase = ifBufIdx  // after increment, this points to oldest; newest = ifBase + N - 1
             for (j in 0 until ifLpfOrder) {
-                val idx = (ifBufIdx - 1 - j + ifLpfOrder) % ifLpfOrder
-                filtI += ifBufI[idx] * ifLpfCoeffs[j]
-                filtQ += ifBufQ[idx] * ifLpfCoeffs[j]
+                val pos = ifBase + ifLpfOrder - 1 - j
+                filtI += ifBufI[pos] * ifLpfCoeffs[j]
+                filtQ += ifBufQ[pos] * ifLpfCoeffs[j]
             }
 
             // FM discriminator: conjugate multiply + atan2 (rtl_fm / SDR++ approach)
@@ -295,7 +318,7 @@ class FmDemodulator(
                 warmupSamples++
                 val pilotSig = pilotBpf(rawBaseband.toDouble())
                 val pilotError = pilotSig * cos(pilotNcoPhase)
-                pilotNcoFreq += pilotBeta * pilotError
+                pilotNcoFreq = (pilotNcoFreq + pilotBeta * pilotError).coerceIn(pilotFreqMin, pilotFreqMax)
                 pilotNcoPhase += pilotNcoFreq + pilotAlpha * pilotError
                 if (pilotNcoPhase > 2 * PI) pilotNcoPhase -= 2 * PI
                 if (pilotNcoPhase < 0) pilotNcoPhase += 2 * PI
@@ -303,42 +326,63 @@ class FmDemodulator(
             }
 
             // ===== Pilot PLL: lock to 19 kHz pilot tone =====
-            // The phase detector compares the CURRENT sample against the
-            // pre-update NCO phase, so that phase — not the post-update one —
-            // is what corresponds to this sample. It must also be the phase
-            // the 38 kHz demod uses below: the post-update phase is one NCO
-            // step (≈71° at 38 kHz) ahead, which used to rotate the recovered
-            // constellation almost exactly onto the orthogonal axis.
+            // Pre-update NCO phase corresponds to THIS sample (the detector
+            // compares the current sample against it); the post-update phase is
+            // one NCO step (~71° at 38 kHz) ahead — using it rotated the
+            // recovered stereo constellation almost onto the orthogonal axis,
+            // which swapped left/right channels (verified by simulation).
             val pilotPhaseThisSample = pilotNcoPhase
             val pilotSig = pilotBpf(rawBaseband.toDouble())
             val pilotError = pilotSig * cos(pilotNcoPhase)
-            pilotNcoFreq += pilotBeta * pilotError
+            pilotNcoFreq = (pilotNcoFreq + pilotBeta * pilotError).coerceIn(pilotFreqMin, pilotFreqMax)
             pilotNcoPhase += pilotNcoFreq + pilotAlpha * pilotError
             if (pilotNcoPhase > 2 * PI) pilotNcoPhase -= 2 * PI
             if (pilotNcoPhase < 0) pilotNcoPhase += 2 * PI
 
-            // Pilot strength measurement
+            // Pilot strength measurement with hysteresis
             pilotStrengthAcc += (pilotSig * pilotSig).toFloat()
             pilotStrengthCount++
             if (pilotStrengthCount >= pilotDetectWindow) {
                 pilotStrength = pilotStrengthAcc / pilotStrengthCount
-                isStereo = pilotStrength > 0.0005f
+                isStereo = if (isStereo) {
+                    pilotStrength > stereoUnlockThreshold  // Stay stereo until weak
+                } else {
+                    pilotStrength > stereoLockThreshold     // Need strong pilot to engage
+                }
                 pilotStrengthAcc = 0f
                 pilotStrengthCount = 0
             }
 
-            // ===== Signal quality for squelch =====
+            // Smooth stereo blend (prevents pops on stereo/mono transitions)
+            if (isStereo && stereoBlend < 1f) {
+                stereoBlend = (stereoBlend + stereoBlendAttack).coerceAtMost(1f)
+            } else if (!isStereo && stereoBlend > 0f) {
+                stereoBlend = (stereoBlend - stereoBlendRelease).coerceAtLeast(0f)
+            }
+
+            // ===== Signal strength measurement (real-time, for UI) =====
+            val iqPower = (filtI * filtI + filtQ * filtQ).toDouble()
+            signalPowerAcc += iqPower
+            signalPowerCount++
+            if (signalPowerCount >= signalPowerWindow) {
+                val avgPower = signalPowerAcc / signalPowerCount
+                currentSignalStrengthDb = (10 * kotlin.math.log10(avgPower + 1e-10)).toFloat()
+                signalPowerAcc = 0.0
+                signalPowerCount = 0
+            }
+
+            // ===== Signal quality for squelch (wide window + hysteresis for driving) =====
             val absBaseband = abs(rawBaseband)
             signalQualityAcc += absBaseband
             signalQualityCount++
-            if (signalQualityCount >= intermediateRate / 16) {
+            if (signalQualityCount >= intermediateRate / 2) {  // ~500ms window for driving stability
                 val avgModulation = signalQualityAcc / signalQualityCount
-                // Pure noise gives avg |Δφ| ≈ π/2 ≈ 1.57 (uniform phase steps),
-                // real FM program material stays well below ~0.9. The previous
-                // upper bound of 2.0 never triggered on dead air, so the
-                // squelch was effectively disabled — loud static played on
-                // empty frequencies. 1.2 rejects noise with margin both ways.
-                squelchOpen = avgModulation > 0.05 && avgModulation < 1.2
+                // Hysteresis: different thresholds for open vs close prevents chattering
+                squelchOpen = if (squelchOpen) {
+                    avgModulation > squelchCloseThreshold && avgModulation < 1.2
+                } else {
+                    avgModulation > squelchOpenThreshold && avgModulation < 1.2
+                }
                 signalQualityAcc = 0.0
                 signalQualityCount = 0
             }
@@ -348,9 +392,21 @@ class FmDemodulator(
                 squelchLevel = (squelchLevel - squelchRelease).coerceAtLeast(0f)
             }
 
-            // Wideband output for RDS decoder
-            if (widebandBuf != null && wbCount < widebandBuf.size) {
+            // Wideband output for RDS decoder — capture pilot phase at sample 0
+            // so the RDS carrier reconstruction aligns with the buffer start.
+            if (widebandBuf != null) {
+                if (wbCount == 0) wbStartPilotPhase = pilotPhaseThisSample
                 widebandBuf[wbCount++] = rawBaseband
+                // Flush when full and keep collecting — the old behavior
+                // silently DROPPED everything past 6000 samples (~31 ms),
+                // so any caller feeding larger IQ chunks lost most of the
+                // RDS bitstream and block sync could never hold. The RDS
+                // carrier NCO is phase-continuous, so mid-call flushes are
+                // seamless.
+                if (wbCount == wbBuf.size) {
+                    wbListener?.invoke(widebandBuf, wbCount, wbStartPilotPhase)
+                    wbCount = 0
+                }
             }
 
             // ===== Stereo decoding (SDR++ broadcast_fm.h approach) =====
@@ -361,19 +417,17 @@ class FmDemodulator(
             val mono = baseband
 
             // L-R = baseband × 2×sin(2×pilotPhase) — PLL-locked 38 kHz demod.
-            // The detector (err = pilot × cos(φ)) locks sin(φ) in phase with
-            // the 19 kHz pilot; per the FM stereo standard the 38 kHz
-            // subcarrier crosses zero with positive slope together with the
-            // pilot, i.e. it is sin(2φ). Verified by simulation of this exact
-            // loop: sin(2φ_pre-update) recovers L-R at amplitude +1.000;
-            // the previous cos(2φ_post-update) recovered -0.947 — stereo
-            // played with LEFT AND RIGHT SWAPPED (plus 5% loss).
+            // The detector locks sin(φ) in phase with the pilot; per the FM
+            // stereo standard the 38 kHz subcarrier is sin(2φ), and the phase
+            // must be the pre-update one (see pilotPhaseThisSample above).
             val stereoCarrier = sin(2.0 * pilotPhaseThisSample).toFloat()
             val diff = baseband * stereoCarrier * 2f  // ×2 for DSB-SC amplitude recovery
 
-            // Feed into separate audio LPF buffers
+            // Feed into separate audio LPF double-buffers
             monoLpfBuf[monoLpfIdx] = mono
+            monoLpfBuf[monoLpfIdx + audioLpfOrder] = mono
             diffLpfBuf[diffLpfIdx] = diff
+            diffLpfBuf[diffLpfIdx + audioLpfOrder] = diff
             monoLpfIdx = (monoLpfIdx + 1) % audioLpfOrder
             diffLpfIdx = (diffLpfIdx + 1) % audioLpfOrder
 
@@ -382,43 +436,27 @@ class FmDemodulator(
             if (stage2Counter < stage2Decimation) continue
             stage2Counter = 0
 
-            // Apply audio LPF to both mono and diff channels
+            // Apply audio LPF — no modulo in inner loop (double-buffer trick)
             var filtMono = 0f
             var filtDiff = 0f
+            val monoBase = monoLpfIdx
+            val diffBase = diffLpfIdx
             for (j in 0 until audioLpfOrder) {
-                val mIdx = (monoLpfIdx - 1 - j + audioLpfOrder) % audioLpfOrder
-                val dIdx = (diffLpfIdx - 1 - j + audioLpfOrder) % audioLpfOrder
-                filtMono += monoLpfBuf[mIdx] * audioLpfCoeffs[j]
-                filtDiff += diffLpfBuf[dIdx] * audioLpfCoeffs[j]
+                val mPos = monoBase + audioLpfOrder - 1 - j
+                val dPos = diffBase + audioLpfOrder - 1 - j
+                filtMono += monoLpfBuf[mPos] * audioLpfCoeffs[j]
+                filtDiff += diffLpfBuf[dPos] * audioLpfCoeffs[j]
             }
 
-            // Stereo matrix. The composite carries (L+R)/2 in the mono channel
-            // and (L-R)/2 on the 38 kHz subcarrier, so after demodulation:
-            // L = mono + diff, R = mono - diff — with no extra 0.5 factor.
-            // (Halving here would make stereo 6 dB quieter than mono and cause
-            // loudness jumps whenever the pilot detector toggles.)
-            val left: Float
-            val right: Float
-            if (isStereo) {
-                left = filtMono + filtDiff
-                right = filtMono - filtDiff
-            } else {
-                left = filtMono
-                right = filtMono
-            }
-
-            // 19 kHz pilot notch — the 15 kHz audio LPF's transition band only
-            // partially attenuates the pilot; this removes the residual whine.
-            val nL = notchB0 * left + notchB1 * notchLX1 + notchB2 * notchLX2 -
-                notchA1 * notchLY1 - notchA2 * notchLY2
-            notchLX2 = notchLX1; notchLX1 = left; notchLY2 = notchLY1; notchLY1 = nL
-            val nR = notchB0 * right + notchB1 * notchRX1 + notchB2 * notchRX2 -
-                notchA1 * notchRY1 - notchA2 * notchRY2
-            notchRX2 = notchRX1; notchRX1 = right; notchRY2 = notchRY1; notchRY1 = nR
+            // Stereo matrix with smooth blend (prevents pops on stereo/mono switch)
+            // blend=0: mono (L=R=filtMono), blend=1: full stereo
+            val diffGain = stereoBlend * 0.7f  // match C++ native DSP
+            val left = filtMono + filtDiff * diffGain
+            val right = filtMono - filtDiff * diffGain
 
             // De-emphasis filter (50µs) — separate state for L and R
-            deEmphasisStateL += deEmphasisAlpha * (nL - deEmphasisStateL)
-            deEmphasisStateR += deEmphasisAlpha * (nR - deEmphasisStateR)
+            deEmphasisStateL += deEmphasisAlpha * (left - deEmphasisStateL)
+            deEmphasisStateR += deEmphasisAlpha * (right - deEmphasisStateR)
 
             // Apply squelch with smooth level
             val outL = deEmphasisStateL * squelchLevel
@@ -429,24 +467,27 @@ class FmDemodulator(
                 muteRamp = (muteRamp + muteRampUp).coerceAtMost(1f)
             }
 
-            // Scale to 16-bit PCM
-            val gain = muteRamp * 24000f
-            val sampleL = (outL * gain).toInt().coerceIn(-32767, 32767)
-            val sampleR = (outR * gain).toInt().coerceIn(-32767, 32767)
+            // Scale to 16-bit PCM with soft-clip limiter (eliminates harsh hard-clip artifacts
+            // on deep-modulated peaks). Uses a cubic soft-knee that is transparent below
+            // 0.8 full-scale and rolls off smoothly toward ±1.0.
+            val gain = muteRamp * 28000f  // match C++ native DSP
+            val sampleL = (softClip(outL * gain / 32767f) * 32767f).toInt()
+            val sampleR = (softClip(outR * gain / 32767f) * 32767f).toInt()
 
-            if (audioCount + 1 < audioOut.size) {
-                audioOut[audioCount++] = sampleL.toShort()
-                audioOut[audioCount++] = sampleR.toShort()
+            if (audioCount + 1 < outBuf.size) {
+                outBuf[audioCount++] = sampleL.toShort()
+                outBuf[audioCount++] = sampleR.toShort()
             }
         }
 
-        // Send wideband data to RDS with the pilot phase at buffer start
+        // Send wideband data to RDS with the phase captured at wbBuf[0]
+        // (not the current end-of-buffer phase, which introduced a constant
+        // per-buffer rotation and broke DBPSK decoding across boundaries).
         if (wbListener != null && wbCount > 0) {
-            val buf = if (wbCount == widebandBuf!!.size) widebandBuf else widebandBuf.copyOf(wbCount)
-            wbListener.invoke(buf, pilotPhaseAtBufferStart)
+            wbListener.invoke(widebandBuf!!, wbCount, wbStartPilotPhase)
         }
 
-        return if (audioCount == audioOut.size) audioOut else audioOut.copyOf(audioCount)
+        return audioCount
     }
 
     fun measureSignalStrength(iqData: ByteArray): Float {
@@ -489,22 +530,27 @@ class FmDemodulator(
     }
 
     fun reset() {
-        prevI = 0f; prevQ = 0f; deEmphasisStateL = 0f; deEmphasisStateR = 0f
-        dcI = 0f; dcQ = 0f
-        notchLX1 = 0f; notchLX2 = 0f; notchLY1 = 0f; notchLY2 = 0f
-        notchRX1 = 0f; notchRX2 = 0f; notchRY1 = 0f; notchRY2 = 0f
-        ifBufI = FloatArray(ifLpfOrder); ifBufQ = FloatArray(ifLpfOrder); ifBufIdx = 0
-        monoLpfBuf = FloatArray(audioLpfOrder); monoLpfIdx = 0
-        diffLpfBuf = FloatArray(audioLpfOrder); diffLpfIdx = 0
-        stage1Counter = 0; stage2Counter = 0
-        pilotNcoPhase = 0.0
-        pilotNcoFreq = 2.0 * PI * 19000.0 / intermediateRate
-        for (i in pilotBpfState.indices) pilotBpfState[i] = 0.0
-        pilotStrength = 0f; pilotStrengthAcc = 0f; pilotStrengthCount = 0
-        isStereo = false
-        signalQualityAcc = 0.0; signalQualityCount = 0
-        squelchOpen = false; squelchLevel = 0f
-        warmupSamples = 0
-        muteRamp = 0f  // Start muted, ramp up smoothly
+        dspLock.lock()
+        try {
+            prevI = 0f; prevQ = 0f; deEmphasisStateL = 0f; deEmphasisStateR = 0f
+            dcI = 0f; dcQ = 0f
+            ifBufI = FloatArray(ifLpfOrder * 2); ifBufQ = FloatArray(ifLpfOrder * 2); ifBufIdx = 0
+            monoLpfBuf = FloatArray(audioLpfOrder * 2); monoLpfIdx = 0
+            diffLpfBuf = FloatArray(audioLpfOrder * 2); diffLpfIdx = 0
+            stage1Counter = 0; stage2Counter = 0
+            pilotNcoPhase = 0.0
+            pilotNcoFreq = 2.0 * PI * 19000.0 / intermediateRate
+            for (i in pilotBpfState.indices) pilotBpfState[i] = 0.0
+            pilotStrength = 0f; pilotStrengthAcc = 0f; pilotStrengthCount = 0
+            stereoBlend = 0f
+            isStereo = false
+            currentSignalStrengthDb = -100f; signalPowerAcc = 0.0; signalPowerCount = 0
+            signalQualityAcc = 0.0; signalQualityCount = 0
+            squelchOpen = true; squelchLevel = 1f
+            warmupSamples = 0
+            muteRamp = 0f  // Start muted, ramp up after warmup
+        } finally {
+            dspLock.unlock()
+        }
     }
 }

@@ -2,7 +2,7 @@ name: Build FM Radio
 
 on:
   push:
-    branches: [ 'claude/fm-radio-app-*', 'main', 'master' ]
+    branches: [ 'claude/fm-radio-app-*', 'claude/rebuild-apk-sync-audio-*', 'main', 'master' ]
   workflow_dispatch:
 
 jobs:
@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history for git rev-list --count (version number)
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -21,17 +23,35 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Build FM Radio APK
+      - name: Install NDK and CMake
+        run: |
+          sdkmanager "ndk;26.1.10909125" "cmake;3.22.1"
+
+      - name: Build FM Radio APK (debug + release)
+        env:
+          IPTV_ISSUE_TOKEN: ${{ secrets.IPTV_ISSUE_TOKEN }}
         run: |
           chmod +x gradlew
-          ./gradlew :fmradio:assembleDebug
+          ./gradlew :fmradio:assembleDebug :fmradio:assembleRelease :app:assembleDebug
 
-      - name: Upload APK
+      - name: Upload FM Radio Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: FmRadio-Android
+          name: FmRadio-debug.apk
           path: fmradio/build/outputs/apk/debug/fmradio-debug.apk
 
+      - name: Upload FM Radio Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: FmRadio-release.apk
+          path: fmradio/build/outputs/apk/release/fmradio-release.apk
+          if-no-files-found: ignore
+
+      - name: Upload TVViewer Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TVViewer-debug.apk
+          path: app/build/outputs/apk/debug/app-debug.apk
   build-desktop-jar:
     name: Build Desktop JAR (Kotlin)
     runs-on: ubuntu-latest
@@ -64,53 +84,121 @@ jobs:
   create-release:
     name: Create Release
     needs: [build-android-apk, build-desktop-jar]
+    if: always() && needs.build-android-apk.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update version.json
+        run: |
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+          cat > fmradio/version.json << EOF
+          {
+            "versionCode": $COMMIT_COUNT,
+            "versionName": "3.0.$COMMIT_COUNT",
+            "downloadUrl": "https://github.com/donmax76/IpTv/releases/download/fmradio-latest/FmRadio-release.apk"
+          }
+          EOF
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add fmradio/version.json
+          git diff --cached --quiet || git commit -m "Auto-update version.json to 3.0.$COMMIT_COUNT"
+          git push || true
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
 
+      - name: List downloaded artifacts
+        run: |
+          echo "=== All artifacts ==="
+          find artifacts -type f 2>/dev/null || echo "No artifacts found"
+
       - name: Prepare release files
         run: |
           mkdir release
-          cp artifacts/FmRadio-Android/fmradio-debug.apk release/FmRadio-Android.apk
-          cp artifacts/FmRadio-Desktop/fmradio-desktop.jar release/fmradio-desktop.jar
-          # Windows launcher for the JAR (pre-built, committed in repo)
+          # Desktop JAR (Kotlin app) + Windows launcher for it
+          if [ -f artifacts/FmRadio-Desktop/fmradio-desktop.jar ]; then
+            cp artifacts/FmRadio-Desktop/fmradio-desktop.jar release/
+          fi
           if [ -f FmRadio.exe ]; then
             cp FmRadio.exe release/FmRadio.exe
+          fi
+          # APKs - copy if exist
+          if [ -f artifacts/FmRadio-debug.apk/fmradio-debug.apk ]; then
+            cp artifacts/FmRadio-debug.apk/fmradio-debug.apk release/FmRadio.apk
+          fi
+          # Release APK — signed with debug key, so filename is fmradio-release.apk (not unsigned)
+          if [ -f artifacts/FmRadio-release.apk/fmradio-release.apk ]; then
+            cp artifacts/FmRadio-release.apk/fmradio-release.apk release/FmRadio-release.apk
+          elif [ -f artifacts/FmRadio-release.apk/fmradio-release-unsigned.apk ]; then
+            cp artifacts/FmRadio-release.apk/fmradio-release-unsigned.apk release/FmRadio-release.apk
+          fi
+          if [ -f artifacts/TVViewer-debug.apk/app-debug.apk ]; then
+            cp artifacts/TVViewer-debug.apk/app-debug.apk release/TVViewer.apk
           fi
 
       - name: Delete old release
         run: |
-          gh release delete latest --yes 2>/dev/null || true
-          git push origin :refs/tags/latest 2>/dev/null || true
+          gh release delete fmradio-latest --yes 2>/dev/null || true
+          git push origin :refs/tags/fmradio-latest 2>/dev/null || true
+          git tag -d fmradio-latest 2>/dev/null || true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create Release
         run: |
-          FILES="release/FmRadio-Android.apk release/fmradio-desktop.jar"
+          # Build version info from git
+          VERSION_HASH=$(git rev-parse --short=7 HEAD)
+          VERSION_DATE=$(date -u +%Y-%m-%d\ %H:%M\ UTC)
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+          BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+          RECENT_COMMITS=$(git log --oneline -10 --no-decorate)
+
+          FILES=""
+          if [ -f release/FmRadio.apk ]; then
+            FILES="$FILES release/FmRadio.apk"
+          fi
+          if [ -f release/fmradio-desktop.jar ]; then
+            FILES="$FILES release/fmradio-desktop.jar"
+          fi
           if [ -f release/FmRadio.exe ]; then
             FILES="$FILES release/FmRadio.exe"
           fi
-          gh release create latest \
-            --title "FM Radio - Latest Build" \
-            --notes "Автоматическая сборка FM Radio из актуальных исходников.
+          if [ -f release/FmRadio-release.apk ]; then
+            FILES="$FILES release/FmRadio-release.apk"
+          fi
+          if [ -f release/TVViewer.apk ]; then
+            FILES="$FILES release/TVViewer.apk"
+          fi
 
-          **Android:**
-          - **FmRadio-Android.apk** — установить на телефон/планшет (это СВЕЖАЯ сборка со всеми исправлениями)
+          NOTES=$(cat <<NOTES_EOF
+          ## FM Radio — сборка #${COMMIT_COUNT} (${VERSION_HASH})
+          **Дата:** ${VERSION_DATE}
+          **Ветка:** \`${BRANCH_NAME}\`
+          **Коммит:** \`${VERSION_HASH}\`
 
-          **Windows/Linux/Mac (нужна Java 11+):**
-          - **fmradio-desktop.jar** — запускать: \`java -jar fmradio-desktop.jar\`
-          - **FmRadio.exe** — лаунчер для Windows (положить рядом с fmradio-desktop.jar и запустить)
+          ### Скачать:
+          - **FmRadio.apk** — Android debug (RTL-SDR через USB OTG)
+          - **FmRadio-release.apk** — Android release
+          - **fmradio-desktop.jar** — Windows/Linux/Mac (java -jar, рядом положить FmRadio.exe как лаунчер)
+          - **TVViewer.apk** — TV Viewer
 
-          Версия и дата сборки видны в заголовке окна приложения." \
-            --latest \
+          ### Последние изменения:
+          \`\`\`
+          ${RECENT_COMMITS}
+          \`\`\`
+          NOTES_EOF
+          )
+
+          gh release create fmradio-latest \
+            --title "FM Radio — сборка #${COMMIT_COUNT} (${VERSION_HASH})" \
+            --notes "$NOTES" \
             $FILES
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
