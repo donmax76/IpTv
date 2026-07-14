@@ -125,11 +125,25 @@ jobs:
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
         git fetch origin main
         git checkout main
+        # Дублируем поля под разными именами: у клиентов разных
+        # поколений парсеры version.json читали разные ключи
+        # (versionCode/code/build, downloadUrl/url/apk, versionName/
+        # version). Лишние поля новым клиентам не мешают (они берут
+        # versionCode/downloadUrl), а старым дают шанс распознать
+        # обновление их «старым методом».
+        APK_URL="https://github.com/donmax76/IpTv/releases/download/v5.4-build${{ github.run_number }}/TVViewer-v5.4-debug.apk"
         cat > version.json <<EOF
         {
           "versionCode": ${{ github.run_number }},
+          "code": ${{ github.run_number }},
+          "build": ${{ github.run_number }},
+          "buildNumber": ${{ github.run_number }},
           "versionName": "5.4",
-          "downloadUrl": "https://github.com/donmax76/IpTv/releases/download/v5.4-build${{ github.run_number }}/TVViewer-v5.4-debug.apk"
+          "version": "5.4",
+          "downloadUrl": "$APK_URL",
+          "url": "$APK_URL",
+          "apkUrl": "$APK_URL",
+          "apk": "$APK_URL"
         }
         EOF
         git add version.json
