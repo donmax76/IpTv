@@ -1936,6 +1936,14 @@ class PlayerActivity : BaseActivity() {
         if (savedAspect in 0..3) {
             aspectRatioMode = savedAspect
             applyAspectRatioMode()
+        } else {
+            // Round 364: у канала нет своего режима — сбрасываем на FIT
+            // СРАЗУ, иначе resizeMode «залипал» от предыдущего канала
+            // (если там был ZOOM/FILL) до первого onVideoSizeChanged, и
+            // видео секунду-две вылезало за края.
+            aspectRatioMode = 0
+            playerView.resizeMode =
+                androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
         }
     }
 
@@ -1955,28 +1963,27 @@ class PlayerActivity : BaseActivity() {
         }
     }
 
-    /** Если у канала ещё нет сохранённого aspect-режима — берём
-     *  «умный» auto: если source AR заметно ÝŸже экрана (4:3 в 16:9) —
-     *  RESIZE_MODE_ZOOM (заполняет высоту, кропает по бокам). Иначе
-     *  RESIZE_MODE_FIT (сохраняет пропорции). Это убирает чёрные
-     *  поля у каналов которые юзер раньше настраивал вручную.
-     *  Пользовательский per-channel override не трогаем. */
+    /** Round 364: юзер — «соотношение сторон опять не работает
+     *  автоматом, видео за пределами экрана выходит».
+     *
+     *  Старая «умная» авто-логика ставила RESIZE_MODE_ZOOM для
+     *  контента у́же экрана (4:3 на 16:9), чтобы убрать чёрные поля —
+     *  но ZOOM МАСШТАБИРУЕТ видео до заполнения кадра и обрезает то,
+     *  что не влезло, т.е. часть картинки уходит за края экрана.
+     *  Именно это юзер и видит. Авто-режим НЕ должен ничего терять.
+     *
+     *  Теперь auto = RESIZE_MODE_FIT: видео целиком вписывается в
+     *  экран (могут быть чёрные поля по бокам/сверху — это нормально
+     *  и ничего не обрезает). Если юзер хочет заполнить экран —
+     *  жмёт кнопку соотношения (ZOOM/FILL), это сохранится per-channel.
+     *  Пользовательский override не трогаем. */
     private fun autoApplyAspectIfNeeded(videoSize: androidx.media3.common.VideoSize) {
         val url = currentUrl ?: return
         if (videoSize.width <= 0 || videoSize.height <= 0) return
         val saved = prefs.getChannelState(url).optInt("aspect", -1)
         if (saved >= 0) return  // user already set a mode for this channel
-        val srcRatio = (videoSize.width.toFloat() *
-            (if (videoSize.pixelWidthHeightRatio > 0f) videoSize.pixelWidthHeightRatio else 1f)) /
-            videoSize.height.toFloat()
-        val view = playerView
-        val displayRatio = if (view.height > 0) view.width.toFloat() / view.height.toFloat() else 16f / 9f
         playerView.resizeMode =
-            if (srcRatio < displayRatio * 0.95f) {
-                androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-            } else {
-                androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
-            }
+            androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
     }
 
     /** Показывает разрешение текущего потока в нижней инфо-панели
