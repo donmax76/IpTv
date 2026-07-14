@@ -60,7 +60,12 @@ class PlaylistsFragment : Fragment() {
         val ctx = requireContext().applicationContext
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                val name = queryFileName(uri) ?: "Imported.m3u"
+                // Android Round 353: queryFileName тоже в IO — это
+                // cross-process binder-запрос к SAF-провайдеру, облачные
+                // провайдеры могут блокировать секунды.
+                val name = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    queryFileName(uri)
+                } ?: "Imported.m3u"
                 val url = withContext(kotlinx.coroutines.Dispatchers.IO) {
                     val content = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                         ?: throw java.io.IOException("empty stream")

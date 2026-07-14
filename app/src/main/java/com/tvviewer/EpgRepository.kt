@@ -171,6 +171,10 @@ object EpgRepository {
                 it.acquire(15 * 60 * 1000L /* 15 min max */)
             }
         } catch (_: Throwable) { null }
+        // Android Round 353: реальный try/finally для WakeLock — release
+        // ниже стоял в прямом потоке кода, и Throwable из merge/save
+        // секции держал lock до 15-минутного таймаута acquire.
+        try {
         val summary = mutableListOf<Pair<String, Int>>()
         val errors = mutableListOf<Pair<String, String>>()
         // Раньше каждый fetchSingle оборачивался в runCatching и его
@@ -239,19 +243,16 @@ object EpgRepository {
             "fetchAll done: merged=${merged.size} channels, " +
             "summary=${summary.joinToString { "${it.first.substringAfter("://").substringBefore("/").take(20)}=${it.second}" }}, " +
             "errors=${errors.size}")
-        // Round 217: освобождаем WakeLock. У него 15-мин таймаут, так
-        // что даже при exception fileLock не висит навсегда.
-        try { wakeLock?.takeIf { it.isHeld }?.release() } catch (_: Throwable) {}
         merged.ifEmpty { loadFromCache(context) ?: emptyMap() }
+        } finally {
+            // Round 217/353: освобождаем WakeLock гарантированно.
+            try { wakeLock?.takeIf { it.isHeld }?.release() } catch (_: Throwable) {}
+        }
     }
 
-    suspend fun fetchEpg(epgUrl: String?, context: Context? = null): Map<String, List<Programme>> = withContext(Dispatchers.IO) {
-        if (epgUrl.isNullOrBlank()) {
-            // Try to load from cache
-            return@withContext loadFromCache(context) ?: emptyMap()
-        }
-        fetchSingle(epgUrl, context)
-    }
+    // Android Round 353: удалён мёртвый fetchEpg(epgUrl, context) —
+    // ноль вызывающих; он обходил inFlight-дедуп fetchAll и был
+    // готовой лазейкой для конкурентных загрузок/записей кэша.
 
     /** Last fetch raw response peek (first 200 chars after gzip).
      *  Используется в debugStatus в TvGuide для диагностики "почему 0". */
@@ -533,7 +534,15 @@ object EpgRepository {
             // удалял файл — юзер видел пустую программу до ручного
             // обновления. (Тот же баг был найден и исправлен в
             // Windows-порте.)
-            val tmp = File(context.filesDir, "$EPG_CACHE_FILE.tmp")
+            // Android Round 353: УНИКАЛЬНОЕ имя tmp на каждую запись.
+            // Фиксированный "$EPG_CACHE_FILE.tmp" оставлял окно гонки:
+            // отменённый по таймауту парсер-сирота (см. комментарии в
+            // fetchSingle — он дорабатывает и пишет кэш) и следующий
+            // источник могли писать ОДИН tmp конкурентно — interleaved
+            // writeText + rename ставили битый кэш, который следующий
+            // loadFromCache молча удалял (тихая потеря EPG).
+            val tmp = File(context.filesDir,
+                "$EPG_CACHE_FILE.${System.nanoTime()}.tmp")
             tmp.writeText(json)
             if (!tmp.renameTo(file)) {
                 // rename поверх существующего файла на некоторых FS

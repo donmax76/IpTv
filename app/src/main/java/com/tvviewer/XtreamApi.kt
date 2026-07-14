@@ -31,11 +31,16 @@ object XtreamApi {
                 val baseUrl = server.trimEnd('/')
                 val url = "$baseUrl/player_api.php?username=$username&password=$password"
                 val request = Request.Builder().url(url).build()
-                val response = client.newCall(request).execute()
-                if (!response.isSuccessful) {
-                    return@withContext Result.failure(Exception("Server error: ${response.code}"))
-                }
-                val body = response.body?.string() ?: return@withContext Result.failure(Exception("Empty response"))
+                // Android Round 353: .use — ранние return при
+                // неуспешном коде не закрывали Response (утечка
+                // соединения OkHttp).
+                val body = client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        return@withContext Result.failure(
+                            Exception("Server error: ${response.code}"))
+                    }
+                    response.body?.string()
+                } ?: return@withContext Result.failure(Exception("Empty response"))
                 val json = JSONObject(body)
 
                 val userInfo = json.optJSONObject("user_info")
@@ -66,9 +71,11 @@ object XtreamApi {
                 val baseUrl = server.trimEnd('/')
                 val url = "$baseUrl/player_api.php?username=$username&password=$password&action=get_live_categories"
                 val request = Request.Builder().url(url).build()
-                val response = client.newCall(request).execute()
-                if (!response.isSuccessful) return@withContext emptyList()
-                val body = response.body?.string() ?: return@withContext emptyList()
+                // Android Round 353: .use — см. authenticate.
+                val body = client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@withContext emptyList()
+                    response.body?.string()
+                } ?: return@withContext emptyList()
                 val arr = JSONArray(body)
                 (0 until arr.length()).map {
                     val obj = arr.getJSONObject(it)

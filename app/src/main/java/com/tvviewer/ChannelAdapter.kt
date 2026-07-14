@@ -100,11 +100,17 @@ class ChannelAdapter(
         // с инициалами и цветом из имени канала вместо пустого
         // placeholder'а.
         val tile = LetterTileDrawable(channel.name)
-        holder.channelLogo.load(resolvedLogo) {
+        // Android Round 353: дохлые URL не грузим повторно — см.
+        // FailedLogoUrls (fallback(tile) обрабатывает null).
+        val logoToLoad = resolvedLogo?.takeUnless(FailedLogoUrls::isFailed)
+        holder.channelLogo.load(logoToLoad) {
             crossfade(true)
             error(tile)
             placeholder(tile)
             fallback(tile)
+            listener(onError = { req, _ ->
+                FailedLogoUrls.markFailed(req.data as? String)
+            })
         }
 
         // EPG

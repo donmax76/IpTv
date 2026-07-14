@@ -96,11 +96,16 @@ class OverlayChannelAdapter(
             ?: LearnedLogos.lookup(channel.name)
             ?: ChannelMetaLookup.lookup(channel.name)?.logoUrl
         val tile = LetterTileDrawable(channel.name)
-        holder.logo.load(logoUrl) {
+        // Android Round 353: см. FailedLogoUrls.
+        val logoToLoad = logoUrl?.takeUnless(FailedLogoUrls::isFailed)
+        holder.logo.load(logoToLoad) {
             crossfade(true)
             error(tile)
             placeholder(tile)
             fallback(tile)
+            listener(onError = { req, _ ->
+                FailedLogoUrls.markFailed(req.data as? String)
+            })
         }
 
         // EPG now/next with time

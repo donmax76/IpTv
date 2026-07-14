@@ -20,6 +20,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import coil.imageLoader
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class SettingsFragment : Fragment() {
 
@@ -831,7 +832,18 @@ class SettingsFragment : Fragment() {
     }
 
     private fun showErrorLog() {
-        val content = ErrorLogger.getErrorContent(requireContext())
+        // Android Round 353: чтение файла до 500КБ — на IO, раньше шло
+        // синхронно в клик-хендлере на main thread.
+        viewLifecycleOwner.lifecycleScope.launch {
+            val content = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                ErrorLogger.getErrorContent(requireContext().applicationContext)
+            }
+            showErrorLogDialog(content)
+        }
+    }
+
+    private fun showErrorLogDialog(content: String) {
+        if (!isAdded) return
         if (content.isBlank()) {
             Toast.makeText(requireContext(), R.string.no_errors_saved, Toast.LENGTH_SHORT).show()
             return

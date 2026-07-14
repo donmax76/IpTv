@@ -129,13 +129,23 @@ object M3UParser {
         val tvgId: String?
     )
 
+    // Android Round 353: кэш скомпилированных паттернов. Раньше attr()
+    // компилировал 3 regex на КАЖДЫЙ вызов — до ~18 Pattern.compile на
+    // каждую строку #EXTINF, ~180k компиляций на 10k-канальном
+    // плейлисте. Всё это в IO-потоке, но на TV-боксе добавляло секунды
+    // к каждой загрузке плейлиста. Имён атрибутов конечное множество
+    // (tvg-id/tvg-name/tvg-logo/group-title/…) — кэшируем навсегда.
+    private val attrPatternCache = java.util.concurrent.ConcurrentHashMap<String, List<Regex>>()
+
     /** Match attr names case-insensitively, accept double / single / un-quoted values. */
     private fun attr(line: String, name: String): String? {
-        val patterns = listOf(
-            """(?i)\b$name\s*=\s*"([^"]*)"""".toRegex(),
-            """(?i)\b$name\s*=\s*'([^']*)'""".toRegex(),
-            """(?i)\b$name\s*=\s*(\S+)""".toRegex(),
-        )
+        val patterns = attrPatternCache.getOrPut(name) {
+            listOf(
+                """(?i)\b$name\s*=\s*"([^"]*)"""".toRegex(),
+                """(?i)\b$name\s*=\s*'([^']*)'""".toRegex(),
+                """(?i)\b$name\s*=\s*(\S+)""".toRegex(),
+            )
+        }
         for (p in patterns) {
             val v = p.find(line)?.groupValues?.get(1)
             if (!v.isNullOrEmpty()) return v

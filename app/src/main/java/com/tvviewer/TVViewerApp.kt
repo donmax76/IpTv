@@ -171,6 +171,15 @@ class TVViewerApp : Application(), ImageLoaderFactory {
                     java.io.File(filesDir, "epg_cache_v3.json").delete()
                     java.io.File(filesDir, "epg_cache.json").delete()
                 } catch (_: Exception) {}
+                // Android Round 353: осиротевшие tmp атомарных записей
+                // (смерть процесса между writeText и rename).
+                try {
+                    filesDir?.listFiles()?.forEach { f ->
+                        if (f.name.endsWith(".tmp")) {
+                            try { f.delete() } catch (_: Exception) {}
+                        }
+                    }
+                } catch (_: Exception) {}
             } catch (_: Exception) {}
         }
         // Pre-warm the iptv-org channel database so logos / tvg-ids for

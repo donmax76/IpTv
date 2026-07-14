@@ -1248,6 +1248,23 @@ class PlayerActivity : BaseActivity() {
                             .buildUpon()
                             .setOverrideForType(override)
                             .build()
+                        // Android Round 353: запоминаем выбор per-channel
+                        // (id + label + язык) — паритет с Windows Round
+                        // 360. Восстановление — maybeRestoreSavedAudio
+                        // из onTracksChanged: id может меняться между
+                        // сессиями у HLS, поэтому храним три ключа для
+                        // fallback-матча.
+                        try {
+                            val u = currentUrl
+                            if (!u.isNullOrBlank()) {
+                                val fmt = group.getTrackFormat(i)
+                                val st = prefs.getChannelState(u)
+                                st.put("audioId", fmt.id ?: "")
+                                st.put("audioLabel", fmt.label ?: "")
+                                st.put("audioLang", fmt.language ?: "")
+                                prefs.saveChannelState(u, st)
+                            }
+                        } catch (_: Exception) {}
                         Toast.makeText(this, "${getString(R.string.audio_track)}: ${group.getTrackFormat(i).label ?: "Track ${trackIndex + 1}"}", Toast.LENGTH_SHORT).show()
                         return
                     }
@@ -1456,6 +1473,10 @@ class PlayerActivity : BaseActivity() {
                     }
 
                     override fun onTracksChanged(tracks: Tracks) {
+                        // Android Round 353: сохранённый выбор дорожки
+                        // применяем ПЕРВЫМ — иначе ensure-логика успеет
+                        // форсировать первую попавшуюся.
+                        maybeRestoreSavedAudio(tracks)
                         ensureAudioTrackSelected(tracks)
                         updateAudioTrackInfo()
                     }
@@ -1599,6 +1620,49 @@ class PlayerActivity : BaseActivity() {
      * идёт. Здесь вручную включаем первую поддерживаемую аудио-дорожку,
      * если автовыбор оставил всё выключенным.
      */
+    private fun maybeRestoreSavedAudio(tracks: Tracks) {
+        // Android Round 353: см. pendingAudioRestore.
+        val want = pendingAudioRestore ?: return
+        val p = player ?: return
+        val (wantId, wantLabel, wantLang) = want
+        var best: Pair<Tracks.Group, Int>? = null
+        var bestRank = Int.MAX_VALUE
+        for (group in tracks.groups) {
+            if (group.type != C.TRACK_TYPE_AUDIO) continue
+            for (i in 0 until group.length) {
+                val f = group.getTrackFormat(i)
+                // Приоритет матча: точный id → label → язык. id у HLS
+                // может меняться между сессиями, label/язык стабильны.
+                val rank = when {
+                    wantId.isNotBlank() && (f.id ?: "") == wantId -> 0
+                    wantLabel.isNotBlank() && (f.label ?: "") == wantLabel -> 1
+                    wantLang.isNotBlank() && (f.language ?: "") == wantLang -> 2
+                    else -> Int.MAX_VALUE
+                }
+                if (rank < bestRank) {
+                    bestRank = rank
+                    best = group to i
+                    if (rank == 0) break
+                }
+            }
+            if (bestRank == 0) break
+        }
+        val (g, idx) = best ?: return
+        pendingAudioRestore = null
+        try {
+            val override = TrackSelectionOverride(g.mediaTrackGroup, idx)
+            p.trackSelectionParameters = p.trackSelectionParameters
+                .buildUpon()
+                .setOverrideForType(override)
+                .build()
+            Log.d("PlayerActivity",
+                "Restored saved audio track: id='$wantId' " +
+                "label='$wantLabel' lang='$wantLang' rank=$bestRank")
+        } catch (e: Exception) {
+            Log.e("PlayerActivity", "audio restore failed", e)
+        }
+    }
+
     private fun ensureAudioTrackSelected(tracks: Tracks) {
         val p = player ?: return
         val hasSelectedAudio = tracks.groups.any { g ->
@@ -1791,6 +1855,14 @@ class PlayerActivity : BaseActivity() {
     // отсюда GC-паузы и зависания после долгого просмотра.
     private var pendingSeekListener: Player.Listener? = null
 
+    /** Android Round 353: сохранённый выбор аудиодорожки текущего
+     *  канала (id, label, язык), ожидающий восстановления. Ставится в
+     *  playStream, применяется в maybeRestoreSavedAudio при
+     *  onTracksChanged — дорожки известны только после prepare, и
+     *  onTracksChanged может прийти несколько раз, поэтому pending
+     *  живёт до успешного матча (или до следующего playStream). */
+    private var pendingAudioRestore: Triple<String, String, String>? = null
+
     /** Listener для приёма EPG-апдейтов из фонового fetch / load.
      *  Перерисовывает текущий баннер, epgNow в верхней панели И
      *  всю overlay-ленту каналов чтобы у каждого появилась программа. */
@@ -1812,6 +1884,15 @@ class PlayerActivity : BaseActivity() {
         val savedSpeed = savedState.optDouble("speed", 1.0).toFloat()
         val savedAspect = savedState.optInt("aspect", -1)
         val savedPos = savedState.optLong("pos", -1L)
+        // Android Round 353: восстановление выбранной аудиодорожки —
+        // декларативно через onTracksChanged (см. pendingAudioRestore).
+        pendingAudioRestore = run {
+            val id = savedState.optString("audioId", "")
+            val label = savedState.optString("audioLabel", "")
+            val lang = savedState.optString("audioLang", "")
+            if (id.isBlank() && label.isBlank() && lang.isBlank()) null
+            else Triple(id, label, lang)
+        }
 
         player?.apply {
             // Build the source explicitly so HLS / DASH / Progressive is
@@ -1924,7 +2005,16 @@ class PlayerActivity : BaseActivity() {
         if (url.isBlank()) return
         val p = player
         try {
-            val obj = org.json.JSONObject()
+            // Android Round 353: MERGE поверх уже сохранённого состояния.
+            // Раньше объект строился С НУЛЯ, а saveChannelState заменял
+            // весь state канала целиком — при КАЖДОМ уходе с канала
+            // стирались ключи, которые пишут другие места: "ua"
+            // (per-channel User-Agent — канал снова ловил 403), "h"
+            // (кэш качества для бейджей/сортировки), "audio*" (выбор
+            // дорожки, добавлен в этом же раунде). Тот же класс бага
+            // чинился в Windows-порте (Round 360).
+            // Мёртвая запись "volume" убрана — её никто не читал.
+            val obj = prefs.getChannelState(url)
             obj.put("speed", speedValues[currentSpeedIndex].toDouble())
             obj.put("aspect", aspectRatioMode)
             if (p != null) {
@@ -1936,7 +2026,6 @@ class PlayerActivity : BaseActivity() {
                 } else {
                     obj.put("pos", -1L)
                 }
-                obj.put("volume", p.volume.toDouble())
             }
             prefs.saveChannelState(url, obj)
         } catch (_: Exception) {}
@@ -2095,12 +2184,18 @@ class PlayerActivity : BaseActivity() {
             ?: ChannelMetaLookup.lookup(channel.name)?.logoUrl
         // Round 221c: единый fallback — цветная плашка с инициалами.
         val tile = LetterTileDrawable(channel.name)
-        if (resolvedLogo != null) {
-            bannerChannelLogo.load(resolvedLogo) {
+        // Android Round 353: дохлый URL → сразу плашка, без повторного
+        // 8-секундного connect'а на каждый зэп (см. FailedLogoUrls).
+        val logoToLoad = resolvedLogo?.takeUnless(FailedLogoUrls::isFailed)
+        if (logoToLoad != null) {
+            bannerChannelLogo.load(logoToLoad) {
                 crossfade(true)
                 error(tile)
                 placeholder(tile)
                 fallback(tile)
+                listener(onError = { req, _ ->
+                    FailedLogoUrls.markFailed(req.data as? String)
+                })
             }
         } else {
             bannerChannelLogo.setImageDrawable(tile)
@@ -3088,7 +3183,23 @@ class PlayerActivity : BaseActivity() {
         // Возвращаемся из Настроек / другой активити — флаг сбрасываем,
         // дальнейшие onPause работают как обычно.
         keepPlayingInBackground = false
-        player?.play()
+        // Android Round 353: если плеер был ОСТАНОВЛЕН (onStop /
+        // app-background хук → stop() → STATE_IDLE), голый play() без
+        // prepare() ничего не делает — юзер возвращался на чёрный
+        // экран. Перезапускаем поток.
+        val p0 = player
+        if (p0 != null && p0.playbackState == Player.STATE_IDLE
+                && !currentUrl.isNullOrBlank()) {
+            playStream(currentUrl!!)
+        } else {
+            p0?.play()
+        }
+        // Android Round 353: перезахватываем app-background хук — если
+        // существовало ДВА экземпляра PlayerActivity (PiP + новый
+        // канал из MainActivity) и второй умер, его onDestroy снял
+        // СВОЙ хук, оставив живой экземпляр без защиты «Настройки →
+        // HOME». Возврат на экран — момент, когда мы снова главные.
+        appBackgroundHook?.let { TVViewerApp.onAppBackgrounded = it }
         hideSystemUI()
         // Round 210: пересоздаём плеер если юзер сменил «Буфер» в
         // Settings — иначе LoadControl остаётся прежним и настройка
