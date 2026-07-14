@@ -1674,8 +1674,21 @@ class Config:
                 if isinstance(pcs, dict):
                     self.per_channel_state = pcs
                 # Round 232: загружаем сохранённый язык если он есть.
+                # Round 359: юзер — «при смене языка он не сохраняет при
+                # следующем открытии». Комбо в Настройках предлагает
+                # 12+ кодов (включая 'system' и языки без перевода), а
+                # этот gate принимал только ru/en/uk/az — любой другой
+                # выбор сохранялся на диск, но при старте молча
+                # отбрасывался и язык откатывался. Принимаем все коды
+                # из SUPPORTED_LANGUAGES: set_ui_language сам корректно
+                # резолвит 'system' и делает fallback для языков без
+                # перевода.
                 stored_lang = data.get('ui_language', '')
-                if stored_lang in ("ru", "en", "uk", "az"):
+                try:
+                    valid = {c for c, _l in SUPPORTED_LANGUAGES}
+                except Exception:
+                    valid = {"ru", "en", "uk", "az", "system"}
+                if stored_lang in valid:
                     self.ui_language = stored_lang
             except Exception:
                 pass
@@ -7064,11 +7077,22 @@ class PlayerPage(QWidget):
         except Exception as e:
             log_error('_maybe_seek', e)
 
-    def _maybe_set_audio_track(self, track_id: int, gen: int = None):
+    def _maybe_set_audio_track(self, track_id: int, gen: int = None,
+                               attempts: int = 12):
         # Round 281: VLC audio_set_track блокирует 21+ сек на сложных
         # стримах — watchdog поймал. Перенос в фон, как play_url и
         # cycle_audio_track в Round 279.
         # Round 337: gen-проверка — та же логика что в _maybe_seek.
+        # Round 359: юзер — «должен сохранять индивидуально все
+        # параметры канала, хоть это аудио». Восстановление
+        # аудиодорожки было ОДНИМ выстрелом через 1.5с после старта —
+        # live-поток к этому моменту обычно ещё буферизуется (5с
+        # network-caching, холодный старт дольше), СПИСКА ДОРОЖЕК ещё
+        # не существует, и audio_set_track молча проваливался, никогда
+        # не повторяясь. Теперь: проверяем, что дорожка уже есть в
+        # audio_get_track_description(); если нет — повторяем каждую
+        # секунду до ~12 попыток, с gen-проверкой на каждой (юзер мог
+        # уже переключить канал).
         if gen is not None and gen != self._play_generation:
             return
         if not self.player:
@@ -7079,8 +7103,32 @@ class PlayerPage(QWidget):
             # Round 341: под общим lock'ом — сериализует с активным
             # _swap/toggle_play/seek.
             def _bg():
-                with self._vlc_op_lock:
-                    _safe_call(player.audio_set_track, track_id)
+                applied = False
+                try:
+                    with self._vlc_op_lock:
+                        if (gen is None
+                                or gen == self._play_generation):
+                            try:
+                                descs = (player.audio_get_track_description()
+                                         or [])
+                                ids = [t[0] for t in descs if t]
+                            except Exception:
+                                ids = []
+                            if track_id in ids:
+                                _safe_call(player.audio_set_track, track_id)
+                                applied = True
+                except Exception as e:
+                    log_error('_maybe_set_audio_track.bg', e)
+                if not applied and attempts > 1:
+                    # Дорожки ещё не готовы — пробуем позже, через
+                    # main thread (QTimer законен только там).
+                    self._invoke_on_main.emit(
+                        lambda: QTimer.singleShot(
+                            1000,
+                            lambda: self._maybe_set_audio_track(
+                                track_id, gen, attempts - 1)))
+                elif applied:
+                    log_info('vlc', f"restored audio track {track_id}")
             _th.Thread(target=_bg, daemon=True, name='vlc-set-aud').start()
         except Exception as e:
             log_error('_maybe_set_audio_track', e)
@@ -7858,10 +7906,13 @@ class PlayerPage(QWidget):
                 act.setEnabled(False)
             else:
                 import threading as _th
+                cur_action = None
                 for tid, name in items:
                     label = ("✓ " if tid == cur else "    ") + (
                         name or f"Track {tid}")
                     act = menu.addAction(label)
+                    if tid == cur:
+                        cur_action = act
                     def _make_handler(track_id=tid, track_name=name):
                         def _h():
                             # Round 337: menu.exec_() ниже блокирует
@@ -7881,6 +7932,12 @@ class PlayerPage(QWidget):
                                     log_info('vlc',
                                              f"audio track → {track_id} "
                                              f"'{track_name}'")
+                                    # Round 359: сохраняем выбор СРАЗУ
+                                    # (per-channel state), а не только
+                                    # при уходе с канала — иначе kill
+                                    # приложения терял выбор дорожки.
+                                    self._invoke_on_main.emit(
+                                        self._save_current_channel_state)
                                 except Exception as e:
                                     log_error('audio_set_track.bg', e)
                             _th.Thread(target=_bg, daemon=True,
@@ -7892,6 +7949,14 @@ class PlayerPage(QWidget):
                                 pass
                         return _h
                     act.triggered.connect(_make_handler())
+                # Round 359: подсвечиваем ТЕКУЩУЮ дорожку как активный
+                # пункт — юзер: «нет фокуса на какой строке». Без
+                # setActiveAction QMenu открывается без выделения, и
+                # стрелкам «не от чего» шагать.
+                if cur_action is not None:
+                    menu.setActiveAction(cur_action)
+                elif menu.actions():
+                    menu.setActiveAction(menu.actions()[0])
             # Позиционируем под кнопкой если она видна, иначе по курсору.
             btn = getattr(self, 'btn_audio', None)
             if btn is not None and btn.isVisible():
@@ -9555,6 +9620,14 @@ class MainWindow(QMainWindow):
         чтобы юзер мог печатать."""
         try:
             if event.type() == event.KeyPress:
+                # Round 359: если открыт popup (QMenu выбора аудио-
+                # дорожки и т.п.) — НЕ перехватываем. Раньше стрелки
+                # Up/Down при открытом меню уходили в _handle_key →
+                # switch_channel, а меню их не видело вовсе — юзер:
+                # «переключение дорожек аудио не получается при помощи
+                # клавиатуры, можно только мышкой».
+                if QApplication.activePopupWidget() is not None:
+                    return False
                 fw = QApplication.focusWidget()
                 # Не мешаем вводу текста.
                 if isinstance(fw, QLineEdit):
