@@ -1,7 +1,7 @@
 {
-  "versionCode": 7,
-  "versionName": "1.7",
-  "releaseNotes": "Поддержка тюнера FC0013, исправление стерео (каналы были перепутаны), рабочий шумоподавитель, надёжный RDS, компенсация дрейфа звука",
+  "versionCode": 8,
+  "versionName": "1.8.0",
+  "releaseNotes": "Драйверы тюнеров FC0013/R820T сверены с эталоном librtlsdr, исправлена AGC демодулятора, FIR-фильтр, стерео, RDS (A/B флаг, кодировка EBU), шумоподавитель, поддержка Android 14, AM-диапазоны, 44 модели донглов",
   "androidDownloadUrl": "https://github.com/donmax76/IpTv/releases/latest/download/FmRadio-Android.apk",
   "windowsDownloadUrl": "https://github.com/donmax76/IpTv/releases/latest"
 }
