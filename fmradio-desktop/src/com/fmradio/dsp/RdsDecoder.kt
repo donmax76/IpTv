@@ -33,6 +33,21 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             "Jazz", "Country", "National Music", "Oldies",
             "Folk", "Documentary", "Alarm Test", "Alarm"
         )
+
+        // EBU Latin-based repertoire (EN 50067 Annex E, table E.1), rows
+        // 0x80-0xFF mapped to Unicode. RDS text is NOT ASCII/Latin-1: stations
+        // transmitting accented characters use these codes, and rejecting them
+        // (the old behavior) punched holes in PS/RT text.
+        private val RDS_CHARSET_HIGH = charArrayOf(
+            'á', 'à', 'é', 'è', 'í', 'ì', 'ó', 'ò', 'ú', 'ù', 'Ñ', 'Ç', 'Ş', 'β', '¡', 'Ĳ',
+            'â', 'ä', 'ê', 'ë', 'î', 'ï', 'ô', 'ö', 'û', 'ü', 'ñ', 'ç', 'ş', 'ǧ', 'ı', 'ĳ',
+            'ª', 'α', '©', '‰', 'Ǧ', 'ě', 'ň', 'ő', 'π', '€', '£', '$', '←', '↑', '→', '↓',
+            'º', '¹', '²', '³', '±', 'İ', 'ń', 'ű', 'µ', '¿', '÷', '°', '¼', '½', '¾', '§',
+            'Á', 'À', 'É', 'È', 'Í', 'Ì', 'Ó', 'Ò', 'Ú', 'Ù', 'Ř', 'Č', 'Š', 'Ž', 'Ð', 'Ŀ',
+            'Â', 'Ä', 'Ê', 'Ë', 'Î', 'Ï', 'Ô', 'Ö', 'Û', 'Ü', 'ř', 'č', 'š', 'ž', 'đ', 'ŀ',
+            'Ã', 'Å', 'Æ', 'Œ', 'ŷ', 'ý', 'Õ', 'Ø', 'Þ', 'Ŋ', 'Ŕ', 'Ć', 'Ś', 'Ź', 'Ŧ', 'ð',
+            'ã', 'å', 'æ', 'œ', 'ŵ', 'ý', 'õ', 'ø', 'þ', 'ŋ', 'ŕ', 'ć', 'ś', 'ź', 'ŧ', ' '
+        )
     }
 
     data class RdsData(
@@ -99,6 +114,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private val rtPending = CharArray(64) { ' ' }
     private var rtLength = 0
     private var rtConfirmedLength = 0
+    private var lastTextAB = -1  // radiotext A/B flag; buffer cleared on toggle
 
     // RDS fields
     private var piCode = 0
@@ -312,8 +328,15 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         return reg
     }
 
-    private fun isValidRdsChar(c: Char): Boolean {
-        return c.code in 0x20..0x7E
+    /**
+     * Map an RDS byte to a displayable Unicode char, or null for control
+     * codes / unusable values. 0x20-0x7E matches ASCII; 0x80-0xFF uses the
+     * EBU table (accented European characters).
+     */
+    private fun rdsChar(code: Int): Char? = when (code) {
+        in 0x20..0x7E -> code.toChar()
+        in 0x80..0xFF -> RDS_CHARSET_HIGH[code - 0x80]
+        else -> null
     }
 
     private fun decodeGroup() {
@@ -339,10 +362,10 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private fun decodeGroup0(blockB: Int, blockC: Int, blockD: Int, versionB: Boolean) {
         val pos = (blockB and 0x03)
         val charPos = pos * 2
-        val c1 = ((blockD shr 8) and 0xFF).toChar()
-        val c2 = (blockD and 0xFF).toChar()
+        val c1 = rdsChar((blockD shr 8) and 0xFF)
+        val c2 = rdsChar(blockD and 0xFF)
 
-        if (isValidRdsChar(c1) && isValidRdsChar(c2)) {
+        if (c1 != null && c2 != null) {
             if (psPending[charPos] == c1 && psPending[charPos + 1] == c2) {
                 psHitCount[pos]++
             } else {
@@ -377,16 +400,29 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
 
     private fun decodeGroup2(blockB: Int, blockC: Int, blockD: Int, versionB: Boolean) {
         val segmentAddr = blockB and 0x0F
+
+        // Text A/B flag: the station toggles it when the radiotext message
+        // changes. The buffer must be cleared on toggle — otherwise segments
+        // of the OLD message linger between the newly received ones, showing
+        // as garbled mixed text of the wrong length.
+        val textAB = (blockB shr 4) and 0x01
+        if (textAB != lastTextAB) {
+            lastTextAB = textAB
+            for (i in rtChars.indices) rtChars[i] = ' '
+            rtLength = 0
+            dataChanged = true
+        }
+
         if (!versionB) {
             val pos = segmentAddr * 4
             if (pos + 3 < rtChars.size) {
-                val c1 = ((blockC shr 8) and 0xFF).toChar(); val c2 = (blockC and 0xFF).toChar()
-                val c3 = ((blockD shr 8) and 0xFF).toChar(); val c4 = (blockD and 0xFF).toChar()
+                val c1 = rdsChar((blockC shr 8) and 0xFF); val c2 = rdsChar(blockC and 0xFF)
+                val c3 = rdsChar((blockD shr 8) and 0xFF); val c4 = rdsChar(blockD and 0xFF)
                 var anyValid = false
-                if (isValidRdsChar(c1)) { rtChars[pos] = c1; anyValid = true }
-                if (isValidRdsChar(c2)) { rtChars[pos + 1] = c2; anyValid = true }
-                if (isValidRdsChar(c3)) { rtChars[pos + 2] = c3; anyValid = true }
-                if (isValidRdsChar(c4)) { rtChars[pos + 3] = c4; anyValid = true }
+                if (c1 != null) { rtChars[pos] = c1; anyValid = true }
+                if (c2 != null) { rtChars[pos + 1] = c2; anyValid = true }
+                if (c3 != null) { rtChars[pos + 2] = c3; anyValid = true }
+                if (c4 != null) { rtChars[pos + 3] = c4; anyValid = true }
                 if (anyValid) {
                     rtLength = maxOf(rtLength, pos + 4)
                     dataChanged = true
@@ -395,10 +431,10 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         } else {
             val pos = segmentAddr * 2
             if (pos + 1 < rtChars.size) {
-                val c1 = ((blockD shr 8) and 0xFF).toChar(); val c2 = (blockD and 0xFF).toChar()
+                val c1 = rdsChar((blockD shr 8) and 0xFF); val c2 = rdsChar(blockD and 0xFF)
                 var anyValid = false
-                if (isValidRdsChar(c1)) { rtChars[pos] = c1; anyValid = true }
-                if (isValidRdsChar(c2)) { rtChars[pos + 1] = c2; anyValid = true }
+                if (c1 != null) { rtChars[pos] = c1; anyValid = true }
+                if (c2 != null) { rtChars[pos + 1] = c2; anyValid = true }
                 if (anyValid) {
                     rtLength = maxOf(rtLength, pos + 2)
                     dataChanged = true
@@ -431,7 +467,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         for (i in psHitCount.indices) psHitCount[i] = 0
         for (i in rtChars.indices) rtChars[i] = ' '
         for (i in rtPending.indices) rtPending[i] = ' '
-        rtLength = 0; rtConfirmedLength = 0
+        rtLength = 0; rtConfirmedLength = 0; lastTextAB = -1
         piCode = 0; ptyCode = 0; tpFlag = false; taFlag = false; msFlag = false
         afFrequencies.clear(); dataChanged = false
         psi = 0.0; z2Re = 0f; z2Im = 0f; z2Count = 0

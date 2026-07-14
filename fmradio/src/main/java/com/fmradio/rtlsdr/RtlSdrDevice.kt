@@ -58,11 +58,14 @@ class RtlSdrDevice(private val context: Context) {
         const val DEFAULT_SAMPLE_RATE = 1152000
         private const val RTL_XTAL_HZ = 28_800_000L
 
-        // Tuner I2C addresses + chip-ID check values (librtlsdr detection order)
-        private const val R820T_I2C_ADDR = 0x1A
-        private const val R828D_I2C_ADDR = 0x74
+        // Tuner I2C addresses + chip-ID check values (librtlsdr detection order).
+        // These are the 8-BIT bus addresses librtlsdr passes in wValue: R820T
+        // is 0x34, NOT its 7-bit form 0x1A — probing/programming at 0x1A hits
+        // an empty bus address and the tuner is never even detected.
+        private const val R820T_I2C_ADDR = R82xxTuner.R820T_I2C_ADDR
+        private const val R828D_I2C_ADDR = R82xxTuner.R828D_I2C_ADDR
         private const val FC0013_I2C_ADDR = 0xC6
-        private const val R82XX_CHECK_VAL = 0x69
+        private const val R82XX_CHECK_VAL = R82xxTuner.CHECK_VAL
         private const val FC0013_CHECK_VAL = 0xA3
 
         fun findDevice(context: Context): UsbDevice? {
@@ -88,6 +91,7 @@ class RtlSdrDevice(private val context: Context) {
     private var centerFrequency: Long = 100000000L // 100 MHz default
     private var sampleRate: Int = DEFAULT_SAMPLE_RATE
     private var tunerType: TunerType = TunerType.UNKNOWN
+    private var r82xx: R82xxTuner? = null
 
     @Volatile
     var isStreaming = false
@@ -205,11 +209,41 @@ class RtlSdrDevice(private val context: Context) {
         Log.i(TAG, "Detected tuner: $tunerType")
 
         when (tunerType) {
-            TunerType.R820T, TunerType.R828D -> initR820T()
+            TunerType.R820T, TunerType.R828D -> {
+                val addr = if (tunerType == TunerType.R828D) R828D_I2C_ADDR else R820T_I2C_ADDR
+                val xtal = if (tunerType == TunerType.R828D) 16_000_000L else RTL_XTAL_HZ
+                val tuner = R82xxTuner(
+                    i2cAddr = addr,
+                    isR828D = tunerType == TunerType.R828D,
+                    xtalHz = xtal,
+                    i2cWriteRaw = ::i2cWriteRaw,
+                    i2cReadRaw = ::i2cReadRaw
+                )
+                r82xx = tuner
+                tuner.init()
+            }
             TunerType.FC0013 -> fc0013Init()
             else -> Log.w(TAG, "Unsupported/undetected tuner type: $tunerType — tuning will not work")
         }
         enableI2CRepeater(false)
+
+        // ---- Per-tuner demod configuration (librtlsdr rtlsdr_open) ----
+        if (tunerType == TunerType.R820T || tunerType == TunerType.R828D) {
+            // The R82xx is a LOW-IF tuner: the RTL2832U must run in real
+            // sampling on the I-ADC with its DDC at the tuner IF and spectrum
+            // inversion enabled. Running it zero-IF (the previous behavior)
+            // parks the signal at the edge of the tuner's IF filter —
+            // attenuated, distorted reception across the board.
+            demodWriteReg(1, 0xb1, 0x1a, 1)   // disable Zero-IF mode
+            demodWriteReg(0, 0x08, 0x4d, 1)   // only enable In-phase ADC input
+            setIfFrequency(r82xx?.intFreq ?: R82xxTuner.DEFAULT_IF_FREQ)
+            demodWriteReg(1, 0x15, 0x01, 1)   // enable spectrum inversion
+        } else {
+            setIfFrequency(0)
+            demodWriteReg(0, 0x08, 0xcd, 1)   // enable I+Q ADC input
+            demodWriteReg(1, 0xb1, 0x1b, 1)   // enable Zero-IF mode
+            demodWriteReg(1, 0x15, 0x00, 1)   // no spectrum inversion
+        }
 
         setSampleRate(sampleRate)
     }
@@ -229,83 +263,8 @@ class RtlSdrDevice(private val context: Context) {
         return TunerType.UNKNOWN
     }
 
-    // =========================================================================
-    //  R820T / R828D tuner (simplified — see caveat in class doc)
-    // =========================================================================
-
-    private fun initR820T() {
-        val addr = if (tunerType == TunerType.R828D) R828D_I2C_ADDR else R820T_I2C_ADDR
-        val initRegs = byteArrayOf(
-            0x83.toByte(), 0x32.toByte(), 0x75.toByte(),
-            0xC0.toByte(), 0x40.toByte(), 0xD6.toByte(),
-            0x6C.toByte(), 0xF5.toByte(), 0x63.toByte(),
-            0x75.toByte(), 0x68.toByte(), 0x6C.toByte(),
-            0x83.toByte(), 0x80.toByte(), 0x00.toByte(),
-            0x0F.toByte(), 0x00.toByte(), 0xC0.toByte(),
-            0x30.toByte(), 0x48.toByte(), 0xCC.toByte(),
-            0x60.toByte(), 0x00.toByte(), 0x54.toByte(),
-            0xAE.toByte(), 0x4A.toByte(), 0xC0.toByte(),
-        )
-        for (i in initRegs.indices) {
-            i2cWrite(addr, 0x05 + i, byteArrayOf(initRegs[i]))
-        }
-    }
-
-    private fun setR820TFrequency(freq: Long) {
-        val addr = if (tunerType == TunerType.R828D) R828D_I2C_ADDR else R820T_I2C_ADDR
-        val vcoMin = 1770000000L
-        var mixDiv = 2
-        var divNum = 0
-
-        var vcoFreq = freq * mixDiv
-        while (vcoFreq < vcoMin && mixDiv <= 64) {
-            mixDiv *= 2
-            divNum++
-            vcoFreq = freq * mixDiv
-        }
-
-        val pllRef = RTL_XTAL_HZ
-        val nInt = (vcoFreq / (2 * pllRef)).toInt()
-        val vcoFra = ((vcoFreq - 2L * pllRef * nInt) / 1000).toInt()
-
-        val ni = (nInt - 13) / 4
-        val si = (nInt - 13) % 4
-        val sdm = ((vcoFra.toLong() * 65536L) / (pllRef / 1000)).toInt()
-
-        i2cWrite(addr, 0x10, byteArrayOf(((divNum shl 5) or 0x00).toByte()))
-        i2cWrite(addr, 0x14, byteArrayOf((0x00 or (ni and 0x1F)).toByte()))
-        i2cWrite(addr, 0x15, byteArrayOf(((si shl 6) or ((sdm shr 8) and 0x3F)).toByte()))
-        i2cWrite(addr, 0x16, byteArrayOf((sdm and 0xFF).toByte()))
-    }
-
-    private fun setR820TBandwidth(bandwidth: Int) {
-        val addr = if (tunerType == TunerType.R828D) R828D_I2C_ADDR else R820T_I2C_ADDR
-        val bwKhz = bandwidth / 1000
-        val filterCap = when {
-            bwKhz < 200 -> 0x0F
-            bwKhz < 350 -> 0x0B
-            bwKhz < 500 -> 0x08
-            bwKhz < 800 -> 0x04
-            bwKhz < 1200 -> 0x02
-            else -> 0x00
-        }
-        i2cWrite(addr, 0x0A, byteArrayOf(((filterCap shl 4) or 0x0B).toByte()))
-    }
-
-    private fun setR820TGain(gainIndex: Int) {
-        val addr = if (tunerType == TunerType.R828D) R828D_I2C_ADDR else R820T_I2C_ADDR
-        val idx = gainIndex.coerceIn(0, 15)
-        i2cWrite(addr, 0x05, byteArrayOf((0x10 or idx).toByte()))
-        i2cWrite(addr, 0x07, byteArrayOf((0x10 or idx).toByte()))
-    }
-
-    private fun setR820TAutoGain(enabled: Boolean) {
-        val addr = if (tunerType == TunerType.R828D) R828D_I2C_ADDR else R820T_I2C_ADDR
-        if (enabled) {
-            i2cWrite(addr, 0x05, byteArrayOf(0x00))
-            i2cWrite(addr, 0x07, byteArrayOf(0x10.toByte()))
-        }
-    }
+    // R820T/R828D handling lives in R82xxTuner (faithful librtlsdr port);
+    // this class only wires its raw I2C callbacks and demod configuration.
 
     // =========================================================================
     //  FC0013 tuner — ported from librtlsdr's tuner_fc001x.c (Fitipower FC0013)
@@ -537,11 +496,11 @@ class RtlSdrDevice(private val context: Context) {
         return try {
             enableI2CRepeater(true)
             val ok = when (tunerType) {
-                TunerType.R820T, TunerType.R828D -> {
-                    setR820TFrequency(frequencyHz)
-                    setIfFrequency(0) // R820T uses zero-IF; FC0013 sets its own compensation
-                    true
-                }
+                TunerType.R820T, TunerType.R828D ->
+                    // LO offset by intFreq + DDC compensation are handled by
+                    // the low-IF configuration set up at init — do NOT touch
+                    // the demod DDC here.
+                    r82xx?.setFreq(frequencyHz) == true
                 TunerType.FC0013 -> fc0013SetFrequency(frequencyHz)
                 else -> {
                     Log.w(TAG, "setFrequency: no supported tuner detected")
@@ -585,7 +544,13 @@ class RtlSdrDevice(private val context: Context) {
 
             enableI2CRepeater(true)
             when (tunerType) {
-                TunerType.R820T, TunerType.R828D -> setR820TBandwidth(rate)
+                TunerType.R820T, TunerType.R828D -> {
+                    // Narrow the tuner IF filter to the sample rate and move
+                    // the demod DDC to the (changed) IF — matches librtlsdr's
+                    // set_bw path (1.152 MHz rate → 1.2 MHz filter, IF 1.7 MHz)
+                    val newIf = r82xx?.setBandwidth(rate)
+                    if (newIf != null) setIfFrequency(newIf)
+                }
                 TunerType.FC0013 -> { /* FC0013 filter bandwidth is fixed at 5 MHz in hardware */ }
                 else -> {}
             }
@@ -611,7 +576,11 @@ class RtlSdrDevice(private val context: Context) {
         return try {
             enableI2CRepeater(true)
             when (tunerType) {
-                TunerType.R820T, TunerType.R828D -> setR820TGain(gainIndex)
+                TunerType.R820T, TunerType.R828D -> {
+                    // Map 0..15 index onto the r82xx gain range (0..49.6 dB)
+                    val gainTenths = (gainIndex.coerceIn(0, 15) * 496) / 15
+                    r82xx?.setGain(manual = true, gainTenthDb = gainTenths)
+                }
                 TunerType.FC0013 -> setFc0013Gain(gainIndex)
                 else -> {}
             }
@@ -628,7 +597,8 @@ class RtlSdrDevice(private val context: Context) {
         return try {
             enableI2CRepeater(true)
             when (tunerType) {
-                TunerType.R820T, TunerType.R828D -> setR820TAutoGain(enabled)
+                TunerType.R820T, TunerType.R828D ->
+                    r82xx?.setGain(manual = !enabled, gainTenthDb = 300)
                 TunerType.FC0013 -> setFc0013GainMode(!enabled)
                 else -> {}
             }
@@ -765,6 +735,7 @@ class RtlSdrDevice(private val context: Context) {
         usbConnection = null
         usbInterface = null
         bulkEndpoint = null
+        r82xx = null
         isOpen = false
     }
 
@@ -803,6 +774,22 @@ class RtlSdrDevice(private val context: Context) {
 
     private fun enableI2CRepeater(enable: Boolean) {
         demodWriteReg(1, 0x01, if (enable) 0x18 else 0x10, 1)
+    }
+
+    /** Raw I2C buffer write (caller provides register-prefixed payload). */
+    private fun i2cWriteRaw(addr: Int, buf: ByteArray): Boolean {
+        val conn = usbConnection ?: return false
+        val index = (IICB shl 8) or 0x10
+        return conn.controlTransfer(CTRL_OUT, 0, addr, index, buf, buf.size, CTRL_TIMEOUT) == buf.size
+    }
+
+    /** Raw I2C read (register pointer must be written first via i2cWriteRaw). */
+    private fun i2cReadRaw(addr: Int, len: Int): ByteArray? {
+        val conn = usbConnection ?: return null
+        val index = IICB shl 8
+        val data = ByteArray(len)
+        val r = conn.controlTransfer(CTRL_IN, 0, addr, index, data, len, CTRL_TIMEOUT)
+        return if (r == len) data else null
     }
 
     /** Multi-byte I2C write to a tuner chip (register address + payload in one transfer). */
