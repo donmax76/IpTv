@@ -64,7 +64,8 @@ class SplashActivity : AppCompatActivity() {
                 prefs.lastUpdateCheckMs = System.currentTimeMillis()
             }
 
-            if (update != null && update.versionCode > BuildConfig.VERSION_CODE) {
+            if (update != null && UpdateChecker.isServerNewer(
+                    update, BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME)) {
                 showUpdateDialog(update)
             } else {
                 proceedToMain()

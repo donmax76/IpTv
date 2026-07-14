@@ -785,7 +785,8 @@ class SettingsFragment : Fragment() {
                 val result = UpdateChecker.check(prefs.updateCheckUrl)
                 val updateInfo = result.getOrNull()
                 versionText.text = getString(R.string.version_format, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)
-                if (updateInfo != null && updateInfo.versionCode > BuildConfig.VERSION_CODE) {
+                if (updateInfo != null && UpdateChecker.isServerNewer(
+                        updateInfo, BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME)) {
                     val message = buildString {
                         append("${getString(R.string.current_version)}: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
                         append("\n${getString(R.string.new_version)}: ${updateInfo.versionName} (${updateInfo.versionCode})")

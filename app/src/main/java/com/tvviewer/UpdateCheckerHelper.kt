@@ -42,7 +42,8 @@ object UpdateCheckerHelper {
             try {
                 val result = UpdateChecker.check(prefs.updateCheckUrl)
                 val updateInfo = result.getOrNull()
-                if (updateInfo != null && updateInfo.versionCode > BuildConfig.VERSION_CODE) {
+                if (updateInfo != null && UpdateChecker.isServerNewer(
+                        updateInfo, BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME)) {
                     val message = buildString {
                         append("${activity.getString(R.string.current_version)}: " +
                             "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")

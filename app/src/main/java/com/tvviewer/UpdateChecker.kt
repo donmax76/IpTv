@@ -80,8 +80,12 @@ object UpdateChecker {
         Result.success(null)
     }
 
-    /** Парсит {versionCode,versionName,downloadUrl,releaseNotes?} JSON.
-     *  Возвращает null если не удалось скачать / распарсить. */
+    /** Парсит version.json. Возвращает null если не удалось скачать /
+     *  распарсить.
+     *  Round 363: читаем поля под НЕСКОЛЬКИМИ именами-алиасами
+     *  (versionCode/code/build/buildNumber, downloadUrl/url/apkUrl/apk,
+     *  versionName/version). Если сервер когда-нибудь снова сменит
+     *  схему имён полей — новый клиент всё равно распарсит. */
     private fun checkVersionJson(url: String): UpdateInfo? {
         return try {
             val request = Request.Builder()
@@ -93,14 +97,77 @@ object UpdateChecker {
                 if (!response.isSuccessful) return null
                 val body = response.body?.string() ?: return null
                 val json = JSONObject(body)
-                val code = json.optInt("versionCode", 0)
-                val name = json.optString("versionName", "")
-                val downloadUrl = json.optString("downloadUrl", "")
-                val notes = json.optString("releaseNotes", "")
+                val code = firstInt(json, "versionCode", "code", "build", "buildNumber")
+                val name = firstStr(json, "versionName", "version")
+                val downloadUrl = firstStr(json, "downloadUrl", "url", "apkUrl", "apk")
+                val notes = firstStr(json, "releaseNotes", "notes")
                 if (code <= 0 || downloadUrl.isBlank()) return null
                 UpdateInfo(code, name, downloadUrl, notes)
             }
         } catch (_: Exception) { null }
+    }
+
+    private fun firstInt(o: JSONObject, vararg keys: String): Int {
+        for (k in keys) {
+            val v = o.optInt(k, 0)
+            if (v > 0) return v
+        }
+        return 0
+    }
+
+    private fun firstStr(o: JSONObject, vararg keys: String): String {
+        for (k in keys) {
+            if (!o.isNull(k)) {
+                val v = o.optString(k, "")
+                if (v.isNotBlank()) return v
+            }
+        }
+        return ""
+    }
+
+    /** Round 363: устойчивое «сервер новее меня?».
+     *
+     *  Раньше сравнивали ТОЛЬКО versionCode. Когда схема нумерации
+     *  сменилась (эпоха «3.0» кодировала мажор в большое число →
+     *  нынешний маленький номер CI-сборки), старые клиенты стали
+     *  считать себя новее сервера и перестали обновляться навсегда.
+     *
+     *  Теперь ПЕРВИЧНЫЙ сигнал — semver ИМЕНИ версии: "5.4" > "3.0"
+     *  независимо от кода. Это ловит любую смену схемы кода. Если
+     *  имена равны (или нечитаемы) — падаем на сравнение кодов.
+     *
+     *  ВАЖНО: возвращаем true ТОЛЬКО при СТРОГО большей версии — если
+     *  имя сервера НИЖЕ локального (теоретический откат), обновление
+     *  не навязываем. */
+    fun isServerNewer(serverInfo: UpdateInfo,
+                      localCode: Int, localName: String): Boolean {
+        val cmp = compareVersionNames(serverInfo.versionName, localName)
+        if (cmp > 0) return true         // сервер по имени новее
+        if (cmp < 0) return false        // сервер по имени старше — не навязываем
+        // Имена равны/непарсибельны → сравниваем код сборки.
+        return serverInfo.versionCode > localCode
+    }
+
+    /** Semver-подобное сравнение "5.4"/"3.0.351". Возвращает
+     *  >0 если a новее b, <0 если старше, 0 если равны/непарсибельны. */
+    private fun compareVersionNames(a: String?, b: String?): Int {
+        val pa = parseVer(a)
+        val pb = parseVer(b)
+        if (pa.isEmpty() || pb.isEmpty()) return 0
+        val n = maxOf(pa.size, pb.size)
+        for (i in 0 until n) {
+            val x = pa.getOrElse(i) { 0 }
+            val y = pb.getOrElse(i) { 0 }
+            if (x != y) return x.compareTo(y)
+        }
+        return 0
+    }
+
+    private fun parseVer(s: String?): List<Int> {
+        if (s.isNullOrBlank()) return emptyList()
+        // Берём только числовые компоненты: "5.4" → [5,4],
+        // "3.0.351" → [3,0,351], "v5.4-build476" → [5,4,476].
+        return Regex("\\d+").findAll(s).map { it.value.toIntOrNull() ?: 0 }.toList()
     }
 
     private fun checkGitHubReleases(): Result<UpdateInfo?> {
