@@ -46,16 +46,29 @@ object ParentalControl {
         return false
     }
 
-    /** Заблокирован ли канал (точечно или через его категорию). */
-    fun isLocked(prefs: AppPreferences, channel: Channel): Boolean {
+    /** Точечная блокировка канала по URL (независимо от категории). */
+    fun isChannelUrlLocked(prefs: AppPreferences, channel: Channel): Boolean =
+        channel.url in prefs.lockedChannelUrls
+
+    /** Настроена ли блокировка канала (точечно ИЛИ через категорию).
+     *  НЕ учитывает sessionUnlocked — используется для отрисовки
+     *  иконки замка и подписи кнопки: замок показываем всегда, пока
+     *  блокировка настроена, даже если в этой сессии PIN уже вводили. */
+    fun isChannelConfiguredLocked(prefs: AppPreferences, channel: Channel): Boolean {
         if (!isEnabled(prefs)) return false
-        if (sessionUnlocked) return false
         if (channel.url in prefs.lockedChannelUrls) return true
         val lockedCats = prefs.lockedCategories
         if (lockedCats.isEmpty()) return false
         // group-title бывает составным ("Кино;HD") — как в фильтрах.
         val groups = channel.group?.split(';', ',')?.map { it.trim() } ?: return false
         return groups.any { it.isNotEmpty() && it in lockedCats }
+    }
+
+    /** Нужен ли PIN перед просмотром (гейт воспроизведения). Настроенная
+     *  блокировка + защита включена + PIN в этой сессии ещё не вводили. */
+    fun isLocked(prefs: AppPreferences, channel: Channel): Boolean {
+        if (sessionUnlocked) return false
+        return isChannelConfiguredLocked(prefs, channel)
     }
 
     /** Диалог ввода PIN. onSuccess зовётся на main после верного PIN
