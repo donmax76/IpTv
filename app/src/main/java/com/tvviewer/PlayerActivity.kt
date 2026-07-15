@@ -237,6 +237,18 @@ class PlayerActivity : BaseActivity() {
     // ввода верного PIN.
     private var awaitingParentalPin = false
 
+    // Android Round 374: диалог «неподдерживаемый кодек» — держим
+    // ссылку, чтобы закрыть его при переключении канала (иначе его OK
+    // открывал внешний плеер для СТАРОГО канала).
+    private var codecErrorDialog: android.app.AlertDialog? = null
+    // Ретрай при DECODER_INIT_FAILED: на быстром зэппинге MediaCodec-
+    // инстансы не успевают освободиться и init падает СПОРАДИЧЕСКИ у
+    // каналов, которые обычно играют. Сначала пара авто-ретраев, и
+    // только потом предлагаем внешний плеер.
+    private var decoderInitRetries = 0
+    private var lastDecoderRetryUrl: String? = null
+    private val MAX_DECODER_RETRIES = 2
+
     private var overlayAdapter: OverlayChannelAdapter? = null
     private var overlaySearchEdit: EditText? = null
     private var overlayChannelCount: TextView? = null
@@ -1520,6 +1532,11 @@ class PlayerActivity : BaseActivity() {
                                 // Successful playback resets the back-off
                                 reconnectAttempts = 0
                                 reconnectHandler.removeCallbacks(reconnectRunnable)
+                                // Android Round 374: успешный старт —
+                                // сбрасываем счётчик ретраев декодера,
+                                // чтобы поздний транзиентный сбой снова
+                                // мог отретраиться.
+                                decoderInitRetries = 0
                             }
                             Player.STATE_ENDED -> {
                                 loadingIndicator.visibility = View.GONE
@@ -1586,6 +1603,25 @@ class PlayerActivity : BaseActivity() {
                         if (error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
                             error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
                             error.errorCode == PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED) {
+                            // Android Round 374: спорадический сбой
+                            // инициализации декодера при быстром
+                            // переключении (MediaCodec не освободился) —
+                            // сначала пара авто-ретраев (пере-prepare),
+                            // и только если канал реально не по зубам
+                            // железу — предлагаем внешний плеер.
+                            val u = currentUrl
+                            if (u != null && decoderInitRetries < MAX_DECODER_RETRIES) {
+                                decoderInitRetries++
+                                errorLayout.visibility = View.VISIBLE
+                                errorText.text = getString(R.string.reconnecting) +
+                                    " (${decoderInitRetries}/$MAX_DECODER_RETRIES)"
+                                // Небольшая задержка, чтобы старый
+                                // MediaCodec успел освободиться.
+                                reconnectHandler.postDelayed({
+                                    if (currentUrl == u) playStream(u)
+                                }, 700)
+                                return
+                            }
                             offerExternalPlayer(error)
                             return
                         }
@@ -1643,17 +1679,28 @@ class PlayerActivity : BaseActivity() {
         // завершающейся Activity кидает WindowManager$BadTokenException
         // и роняет приложение.
         if (isFinishing || isDestroyed) return
+        // Android Round 374: не плодим диалоги — закрываем предыдущий.
+        codecErrorDialog?.dismiss()
         errorLayout.visibility = View.VISIBLE
         val codec = (error.cause as? MediaCodecRenderer.DecoderInitializationException)
             ?.mimeType?.substringAfter('/') ?: "?"
         errorText.text = getString(R.string.codec_unsupported_short, codec)
-        android.app.AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
+        // URL фиксируем СЕЙЧАС — если юзер переключит канал, диалог
+        // будет закрыт в playStream, но на всякий случай кнопка
+        // открывает именно ЭТОТ канал, а не текущий.
+        val dialogUrl = url
+        codecErrorDialog = android.app.AlertDialog.Builder(this, R.style.Theme_TVViewer_Dialog)
             .setTitle(R.string.codec_unsupported_title)
             .setMessage(getString(R.string.codec_unsupported_message, codec))
             .setPositiveButton(R.string.open_external) { _, _ ->
-                if (launchExternalVideo(url)) finish()
+                if (launchExternalVideo(dialogUrl)) finish()
             }
-            .setNegativeButton(R.string.cancel, null)
+            .setNegativeButton(R.string.cancel) { _, _ ->
+                // Отказ — прячем красный экран ошибки, канал остаётся
+                // «пустым», но переключение работает как обычно.
+                errorLayout.visibility = View.GONE
+            }
+            .setOnDismissListener { codecErrorDialog = null }
             .show()
     }
 
@@ -1941,6 +1988,18 @@ class PlayerActivity : BaseActivity() {
     private fun playStream(url: String) {
         loadingIndicator.visibility = View.VISIBLE
         errorLayout.visibility = View.GONE
+        // Android Round 374: закрываем «залипший» диалог кодека от
+        // ПРЕДЫДУЩЕГО канала. Раньше при переключении диалог оставался
+        // на экране, и его OK (с URL старого канала в замыкании)
+        // открывал внешний плеер — юзер: «при отказе, при переключении
+        // он уже открывает».
+        codecErrorDialog?.dismiss()
+        codecErrorDialog = null
+        // Счётчик ретраев декодера — новый канал начинает с нуля.
+        if (url != lastDecoderRetryUrl) {
+            decoderInitRetries = 0
+            lastDecoderRetryUrl = url
+        }
         // Restore per-channel saved state (speed, aspect, position).
         val savedState = prefs.getChannelState(url)
         val savedSpeed = savedState.optDouble("speed", 1.0).toFloat()
@@ -2100,11 +2159,41 @@ class PlayerActivity : BaseActivity() {
         } catch (_: Exception) {}
     }
 
+    /** Android Round 374: индексы (в allChannels) каналов ТЕКУЩЕЙ
+     *  выбранной категории — по ним и листаем CH+/CH-. Раньше
+     *  switchChannel шёл по всему allChannels, и листание из категории
+     *  «проваливалось» в чужие каналы. Категория берётся из того же
+     *  overlaySelectedCategory, что и оверлей списка. Search-фильтр НЕ
+     *  учитываем: при закрытом списке юзер листает именно категорию. */
+    private fun categoryNavIndices(): List<Int> {
+        val channels = ChannelDataHolder.allChannels
+        val allLabel = getString(R.string.all)
+        val cat = overlaySelectedCategory
+        if (cat.isEmpty() || cat == allLabel) return channels.indices.toList()
+        val out = ArrayList<Int>()
+        for (i in channels.indices) {
+            val canonical = channels[i].group
+                ?.split(';', ',', '|')?.firstOrNull()?.trim()
+            if (canonical == cat) out.add(i)
+        }
+        // Если в категории вдруг пусто (напр. категория из другого
+        // плейлиста) — не ломаем навигацию, идём по всему списку.
+        return if (out.isEmpty()) channels.indices.toList() else out
+    }
+
     private fun switchChannel(direction: Int) {
         val channels = ChannelDataHolder.allChannels
         if (channels.isEmpty()) return
 
-        val target = (currentIndex + direction + channels.size) % channels.size
+        val nav = categoryNavIndices()
+        val posInNav = nav.indexOf(currentIndex)
+        val target = if (posInNav < 0) {
+            // Текущий канал не в категории (не должно случаться) —
+            // обычный шаг по всему списку.
+            (currentIndex + direction + channels.size) % channels.size
+        } else {
+            nav[(posInNav + direction + nav.size) % nav.size]
+        }
         switchToChannel(target)
     }
 
