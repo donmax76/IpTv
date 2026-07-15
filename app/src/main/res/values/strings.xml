@@ -313,4 +313,31 @@
     <string name="software_decoder_title">Программный декодер видео</string>
     <string name="software_decoder_hint">Включи если канал тормозит / пропадают кадры (например HEVC/H.265 каналы на слабом боксе). Применяется при следующем переключении канала.</string>
     <string name="software_decoder_changed_hint">Изменения применятся при следующем переключении канала</string>
+
+    <!-- Android Round 366: родительский контроль
+         (parental_control уже объявлен выше — не дублируем) -->
+    <string name="parental_set_pin">Установить PIN-код</string>
+    <string name="parental_change_pin">Сменить PIN-код</string>
+    <string name="parental_remove_pin">Отключить (убрать PIN)</string>
+    <string name="parental_locked_categories">Заблокированные категории</string>
+    <string name="parental_enter_pin">Введите PIN-код</string>
+    <string name="parental_new_pin">Новый PIN-код (4–8 цифр)</string>
+    <string name="parental_wrong_pin">Неверный PIN-код</string>
+    <string name="parental_pin_set">PIN-код установлен</string>
+    <string name="parental_pin_removed">Родительский контроль отключён</string>
+    <string name="parental_channel_locked">Канал заблокирован 🔒</string>
+    <string name="parental_channel_unlocked">Канал разблокирован</string>
+    <string name="parental_lock_channel">🔒 Заблокировать канал</string>
+    <string name="parental_unlock_channel">🔓 Разблокировать канал</string>
+    <string name="parental_no_categories">Категории появятся после загрузки плейлиста</string>
+    <string name="parental_disabled_hint">Сначала установите PIN-код</string>
+
+    <!-- Android Round 366: редактирование плейлиста -->
+    <string name="playlist_edit">Редактировать</string>
+    <string name="playlist_copy_url">Копировать URL</string>
+    <string name="playlist_delete">Удалить</string>
+    <string name="playlist_url_copied">URL скопирован в буфер обмена</string>
+    <string name="playlist_name_hint">Название</string>
+    <string name="playlist_url_hint">URL плейлиста</string>
+    <string name="save">Сохранить</string>
 </resources>

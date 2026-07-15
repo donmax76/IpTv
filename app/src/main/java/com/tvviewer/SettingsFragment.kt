@@ -383,7 +383,8 @@ class SettingsFragment : Fragment() {
             if (prefs.epgAutoUpdate) getString(R.string.epg_auto_update_hint) else getString(R.string.time_off)
 
         view.findViewById<TextView>(R.id.parentalValue)?.text =
-            if (prefs.parentalPin != null) getString(R.string.pin_set) else getString(R.string.time_off)
+            if (ParentalControl.isEnabled(prefs)) getString(R.string.pin_set)
+            else getString(R.string.time_off)
 
         view.findViewById<TextView>(R.id.versionText)?.text =
             getString(R.string.version_format, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)
@@ -653,51 +654,87 @@ class SettingsFragment : Fragment() {
             epgAutoUpdateValue.text = if (prefs.epgAutoUpdate) getString(R.string.epg_auto_update_hint) else getString(R.string.time_off)
         }
 
-        // Parental control
+        // Android Round 366: родительский контроль — теперь РАБОЧИЙ.
+        // Раньше этот пункт только хранил PIN (открытым текстом) и
+        // ничего не блокировал. Теперь: PIN (SHA-256, старый plain-PIN
+        // мигрируется при первом вводе) + блокировка целых категорий
+        // здесь + точечная блокировка каналов из панели деталей канала
+        // в плеере. Заблокированное требует PIN перед воспроизведением.
         val parentalValue = view.findViewById<TextView>(R.id.parentalValue)
-        parentalValue.text = if (prefs.parentalPin != null) getString(R.string.pin_set) else getString(R.string.time_off)
+        fun refreshParentalValue() {
+            parentalValue.text =
+                if (ParentalControl.isEnabled(prefs)) getString(R.string.pin_set)
+                else getString(R.string.time_off)
+        }
+        refreshParentalValue()
+
+        fun showLockedCategoriesDialog() {
+            // Категории: из текущего плейлиста + уже заблокированные
+            // (могут быть из другого плейлиста — не теряем их).
+            val fromPlaylist = ChannelDataHolder.allChannels
+                .flatMap { ch -> ch.group?.split(';', ',')?.map { it.trim() } ?: emptyList() }
+                .filter { it.isNotEmpty() }
+            val all = (fromPlaylist + prefs.lockedCategories)
+                .distinct().sorted()
+            if (all.isEmpty()) {
+                Toast.makeText(requireContext(),
+                    R.string.parental_no_categories, Toast.LENGTH_SHORT).show()
+                return
+            }
+            val locked = prefs.lockedCategories.toMutableSet()
+            val checked = BooleanArray(all.size) { all[it] in locked }
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
+                .setTitle(R.string.parental_locked_categories)
+                .setMultiChoiceItems(all.toTypedArray(), checked) { _, which, isChecked ->
+                    if (isChecked) locked.add(all[which]) else locked.remove(all[which])
+                }
+                .setPositiveButton(R.string.ok) { _, _ ->
+                    prefs.lockedCategories = locked
+                }
+                .setNegativeButton(R.string.cancel, null)
+                .show()
+                .installFocusListBackground()
+        }
+
+        fun showParentalMenu() {
+            val act = requireActivity()
+            val opts = arrayOf(
+                getString(R.string.parental_change_pin),
+                getString(R.string.parental_locked_categories),
+                getString(R.string.parental_remove_pin)
+            )
+            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
+                .setTitle(R.string.parental_control)
+                .setItems(opts) { _, which ->
+                    when (which) {
+                        0 -> ParentalControl.askNewPin(act, prefs) { refreshParentalValue() }
+                        1 -> showLockedCategoriesDialog()
+                        2 -> {
+                            prefs.parentalPinHash = null
+                            prefs.parentalPin = null
+                            ParentalControl.sessionUnlocked = false
+                            refreshParentalValue()
+                            Toast.makeText(requireContext(),
+                                R.string.parental_pin_removed, Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+                .setNegativeButton(R.string.cancel, null)
+                .show()
+                .installFocusListBackground()
+        }
 
         view.findViewById<LinearLayout>(R.id.parentalLayout).setOnClickListener {
-            if (prefs.parentalPin != null) {
-                // Remove PIN
-                AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
-                    .setTitle(R.string.parental_control)
-                    .setMessage(R.string.pin_enter)
-                    .setView(EditText(requireContext()).apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD; id = android.R.id.edit })
-                    .setPositiveButton(R.string.ok) { dialog, _ ->
-                        val input = (dialog as AlertDialog).findViewById<EditText>(android.R.id.edit)?.text.toString()
-                        if (input == prefs.parentalPin) {
-                            prefs.parentalPin = null
-                            parentalValue.text = getString(R.string.time_off)
-                            Toast.makeText(requireContext(), R.string.pin_removed, Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(requireContext(), R.string.pin_wrong, Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    .setNegativeButton(R.string.cancel, null)
-                    .show()
-                    .installFocusListBackground()
+            val act = requireActivity()
+            if (!ParentalControl.isEnabled(prefs)) {
+                // Первичная установка PIN.
+                ParentalControl.askNewPin(act, prefs) { refreshParentalValue() }
             } else {
-                // Set PIN
-                val editText = EditText(requireContext()).apply {
-                    inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
-                    hint = getString(R.string.pin_enter)
-                    id = android.R.id.edit
+                // Любое управление — только после PIN (без снятия
+                // сессионной блокировки просмотра).
+                ParentalControl.askPin(act, prefs, unlockSession = false) {
+                    showParentalMenu()
                 }
-                AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
-                    .setTitle(R.string.parental_control)
-                    .setView(editText)
-                    .setPositiveButton(R.string.ok) { _, _ ->
-                        val pin = editText.text.toString()
-                        if (pin.length >= 4) {
-                            prefs.parentalPin = pin
-                            parentalValue.text = getString(R.string.pin_set)
-                            Toast.makeText(requireContext(), R.string.pin_set, Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    .setNegativeButton(R.string.cancel, null)
-                    .show()
-                    .installFocusListBackground()
             }
         }
 

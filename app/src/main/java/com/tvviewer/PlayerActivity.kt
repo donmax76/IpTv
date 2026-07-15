@@ -294,8 +294,21 @@ class PlayerActivity : BaseActivity() {
 
         updateEpg()
         initPlayer()
-        playStream(currentUrl!!)
-        showChannelBanner()
+        // Android Round 366: родительский контроль на ПЕРВЫЙ канал
+        // (открытие плеера/autoplay). Заблокирован — PIN перед стартом;
+        // отмена → выходим из плеера.
+        val initialChannel = ChannelDataHolder.allChannels.getOrNull(currentIndex)
+        if (initialChannel != null &&
+                ParentalControl.isLocked(prefs, initialChannel)) {
+            ParentalControl.askPin(this, prefs,
+                onCancel = { finish() }) {
+                playStream(currentUrl!!)
+                showChannelBanner()
+            }
+        } else {
+            playStream(currentUrl!!)
+            showChannelBanner()
+        }
         scheduleHideControls()
         startClock()
         setupMediaSession()
@@ -937,6 +950,35 @@ class PlayerActivity : BaseActivity() {
             nextLabel.visibility = View.GONE
             nextTimeView.visibility = View.GONE
             nextTitleView.visibility = View.GONE
+        }
+
+        // Android Round 366: кнопка точечной блокировки канала.
+        // Показывается только когда родительский контроль включён
+        // (PIN установлен). Любое изменение — через PIN.
+        val lockBtn = findViewById<com.google.android.material.button.MaterialButton>(
+            R.id.detailsLockChannel)
+        if (lockBtn != null) {
+            if (ParentalControl.isEnabled(prefs)) {
+                lockBtn.visibility = View.VISIBLE
+                val locked = channel.url in prefs.lockedChannelUrls
+                lockBtn.setText(if (locked) R.string.parental_unlock_channel
+                                else R.string.parental_lock_channel)
+                lockBtn.setOnClickListener {
+                    ParentalControl.askPin(this, prefs,
+                        unlockSession = false) {
+                        val nowLocked = prefs.toggleChannelLock(channel.url)
+                        lockBtn.setText(
+                            if (nowLocked) R.string.parental_unlock_channel
+                            else R.string.parental_lock_channel)
+                        Toast.makeText(this,
+                            if (nowLocked) R.string.parental_channel_locked
+                            else R.string.parental_channel_unlocked,
+                            Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } else {
+                lockBtn.visibility = View.GONE
+            }
         }
 
         panel.visibility = View.VISIBLE
@@ -2064,6 +2106,19 @@ class PlayerActivity : BaseActivity() {
         val channels = ChannelDataHolder.allChannels
         if (index !in channels.indices) return
         if (index == currentIndex) return // ничего не меняется
+
+        // Android Round 366: родительский контроль — заблокированный
+        // канал/категория требует PIN перед воспроизведением. После
+        // верного PIN блокировки сняты до конца сессии (см.
+        // ParentalControl.sessionUnlocked), поэтому зэппинг дальше
+        // не переспрашивает.
+        val target = channels[index]
+        if (ParentalControl.isLocked(prefs, target)) {
+            ParentalControl.askPin(this, prefs) {
+                switchToChannel(index)
+            }
+            return
+        }
 
         // New channel — reset reconnect counter
         reconnectAttempts = 0

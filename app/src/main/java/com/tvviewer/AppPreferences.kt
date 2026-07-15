@@ -660,6 +660,48 @@ class AppPreferences(context: Context) {
             prefs.edit().putString(KEY_USER_AGENT, v).apply()
         }
 
+    // === Android Round 366: родительский контроль ===
+    // ВАЖНО: set, который вернул getStringSet, НЕЛЬЗЯ мутировать —
+    // всегда копия (документированное ограничение SharedPreferences).
+
+    var parentalPinHash: String?
+        get() = prefs.getString(KEY_PARENTAL_PIN_HASH, null)
+        set(value) {
+            if (value.isNullOrBlank()) prefs.edit().remove(KEY_PARENTAL_PIN_HASH).apply()
+            else prefs.edit().putString(KEY_PARENTAL_PIN_HASH, value).apply()
+        }
+
+    var lockedCategories: Set<String>
+        get() = prefs.getStringSet(KEY_LOCKED_CATEGORIES, emptySet())?.toSet()
+            ?: emptySet()
+        set(value) {
+            prefs.edit().putStringSet(KEY_LOCKED_CATEGORIES, value.toSet()).apply()
+        }
+
+    var lockedChannelUrls: Set<String>
+        get() = prefs.getStringSet(KEY_LOCKED_CHANNELS, emptySet())?.toSet()
+            ?: emptySet()
+        set(value) {
+            prefs.edit().putStringSet(KEY_LOCKED_CHANNELS, value.toSet()).apply()
+        }
+
+    fun toggleChannelLock(url: String): Boolean {
+        val cur = lockedChannelUrls.toMutableSet()
+        val nowLocked = if (url in cur) { cur.remove(url); false }
+                        else { cur.add(url); true }
+        lockedChannelUrls = cur
+        return nowLocked
+    }
+
+    // === Android Round 366: редактирование пользовательского плейлиста ===
+    fun updateCustomPlaylist(index: Int, name: String, url: String) {
+        val current = customPlaylists.toMutableList()
+        if (index in current.indices) {
+            current[index] = name to url
+            customPlaylists = current
+        }
+    }
+
     companion object {
         // Кэш распарсенного per_channel_state — см. allChannelStates().
         // Static (companion), потому что AppPreferences создаётся
@@ -760,6 +802,9 @@ class AppPreferences(context: Context) {
         private const val KEY_PER_CHANNEL_STATE = "per_channel_state"
         private const val KEY_ADDITIONAL_EPG_URLS = "additional_epg_urls"
         private const val KEY_USER_AGENT = "user_agent"
+        private const val KEY_PARENTAL_PIN_HASH = "parental_pin_hash"
+        private const val KEY_LOCKED_CATEGORIES = "parental_locked_categories"
+        private const val KEY_LOCKED_CHANNELS = "parental_locked_channels"
         private const val MAX_RECENT = 30
         private const val DEFAULT_UPDATE_CHECK_URL = "https://raw.githubusercontent.com/donmax76/TestApp/master/TVViewer/version.json"
         // VLC user-agent — many regional IPTV portals (izone.az,

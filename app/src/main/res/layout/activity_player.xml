@@ -548,6 +548,17 @@
                     android:textSize="15sp"
                     android:layout_marginTop="4dp"/>
 
+                <!-- Android Round 366: родительский контроль — точечная
+                     блокировка канала прямо из панели деталей. -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/detailsLockChannel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:textSize="13sp"
+                    android:visibility="gone"
+                    android:text="@string/parental_lock_channel"/>
+
                 <TextView
                     android:id="@+id/detailsHint"
                     android:layout_width="match_parent"

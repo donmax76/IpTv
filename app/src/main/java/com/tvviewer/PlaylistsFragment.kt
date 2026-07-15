@@ -138,8 +138,10 @@ class PlaylistsFragment : Fragment() {
                 (activity as? MainActivity)?.switchToChannels(playlist.first, playlist.second)
             },
             onDeleteClick = { index ->
-                prefs.removeCustomPlaylist(index)
-                refreshPlaylists()
+                // Android Round 366: долгое нажатие раньше УДАЛЯЛО
+                // плейлист сразу — теперь меню действий:
+                // редактировать / копировать URL / удалить.
+                showPlaylistActionsMenu(index)
             }
         )
 
@@ -280,5 +282,87 @@ class PlaylistsFragment : Fragment() {
         emptyText.visibility = if (empty) View.VISIBLE else View.GONE
         recyclerView.visibility = if (empty) View.GONE else View.VISIBLE
         customSectionLabel.visibility = if (empty) View.GONE else View.VISIBLE
+    }
+
+    /** Android Round 366: меню действий по долгому нажатию на свой
+     *  плейлист — редактировать (имя + URL), копировать URL, удалить.
+     *  Раньше долгое нажатие сразу удаляло. */
+    private fun showPlaylistActionsMenu(index: Int) {
+        val ctx = requireContext()
+        val playlist = prefs.customPlaylists.getOrNull(index) ?: return
+        val opts = arrayOf(
+            getString(R.string.playlist_edit),
+            getString(R.string.playlist_copy_url),
+            getString(R.string.playlist_delete)
+        )
+        android.app.AlertDialog.Builder(ctx, R.style.Theme_TVViewer_Dialog)
+            .setTitle(playlist.first)
+            .setItems(opts) { _, which ->
+                when (which) {
+                    0 -> showEditPlaylistDialog(index)
+                    1 -> {
+                        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE)
+                            as? android.content.ClipboardManager
+                        cm?.setPrimaryClip(android.content.ClipData
+                            .newPlainText("playlist_url", playlist.second))
+                        Toast.makeText(ctx, R.string.playlist_url_copied,
+                            Toast.LENGTH_SHORT).show()
+                    }
+                    2 -> {
+                        prefs.removeCustomPlaylist(index)
+                        refreshPlaylists()
+                    }
+                }
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    /** Android Round 366: диалог редактирования плейлиста — имя и URL
+     *  с предзаполнением. Из поля URL можно и вручную скопировать
+     *  текст (selectable). */
+    private fun showEditPlaylistDialog(index: Int) {
+        val ctx = requireContext()
+        val playlist = prefs.customPlaylists.getOrNull(index) ?: return
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val nameEdit = android.widget.EditText(ctx).apply {
+            hint = getString(R.string.playlist_name_hint)
+            setText(playlist.first)
+            setSingleLine()
+        }
+        val urlEdit = android.widget.EditText(ctx).apply {
+            hint = getString(R.string.playlist_url_hint)
+            setText(playlist.second)
+            setSingleLine()
+            setTextIsSelectable(true)
+        }
+        val layout = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, 0)
+            addView(nameEdit)
+            addView(urlEdit)
+        }
+        android.app.AlertDialog.Builder(ctx, R.style.Theme_TVViewer_Dialog)
+            .setTitle(R.string.playlist_edit)
+            .setView(layout)
+            .setPositiveButton(R.string.save) { _, _ ->
+                val newName = nameEdit.text?.toString()?.trim().orEmpty()
+                val newUrl = urlEdit.text?.toString()?.trim().orEmpty()
+                if (newName.isNotEmpty() && newUrl.isNotEmpty()) {
+                    prefs.updateCustomPlaylist(index, newName, newUrl)
+                    refreshPlaylists()
+                }
+            }
+            .setNeutralButton(R.string.playlist_copy_url) { _, _ ->
+                val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE)
+                    as? android.content.ClipboardManager
+                cm?.setPrimaryClip(android.content.ClipData
+                    .newPlainText("playlist_url",
+                        urlEdit.text?.toString() ?: playlist.second))
+                Toast.makeText(ctx, R.string.playlist_url_copied,
+                    Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
     }
 }
