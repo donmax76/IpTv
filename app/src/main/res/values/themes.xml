@@ -30,10 +30,17 @@
         <item name="android:textColor">@android:color/white</item>
         <item name="android:textColorPrimary">@android:color/white</item>
         <item name="android:textColorSecondary">#CCCCDD</item>
+        <!-- Android Round 375: цвет текста пунктов setItems/
+             setMultiChoiceItems. Без него пункты рисовались тёмным на
+             тёмном — юзер: «в меню родительского контроля шрифты не
+             видны». textColorPrimary на список НЕ распространяется —
+             у элементов диалога свой атрибут. -->
+        <item name="android:textColorAlertDialogListItem">@android:color/white</item>
         <item name="colorControlNormal">#AAAACC</item>
         <item name="colorControlActivated">#7C6CF7</item>
         <item name="colorControlHighlight">#407C6CF7</item>
         <item name="materialAlertDialogTitleTextStyle">@style/DialogTitleStyle</item>
+        <item name="materialAlertDialogBodyTextStyle">@style/DialogBodyStyle</item>
         <!-- Make focus on dialog list items (radio/checkbox/single-choice)
              clearly visible for D-pad / TV remote users. -->
         <item name="android:listChoiceBackgroundIndicator">@drawable/bg_dialog_list_item</item>
@@ -44,6 +51,11 @@
     <style name="DialogTitleStyle" parent="MaterialAlertDialog.MaterialComponents.Title.Text">
         <item name="android:textColor">@android:color/white</item>
         <item name="android:textSize">18sp</item>
+    </style>
+
+    <!-- Android Round 375: белый текст сообщения диалога (setMessage). -->
+    <style name="DialogBodyStyle" parent="MaterialAlertDialog.MaterialComponents.Body.Text">
+        <item name="android:textColor">@android:color/white</item>
     </style>
 
     <!-- Боковая панель вместо центрального диалога. Используется в

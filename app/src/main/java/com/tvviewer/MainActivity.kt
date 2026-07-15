@@ -85,7 +85,13 @@ class MainActivity : BaseActivity() {
                 val lastUrl = prefs.lastChannelUrl
                 if (!lastUrl.isNullOrBlank()) {
                     val channel = ChannelDataHolder.allChannels.find { it.url == lastUrl }
-                    if (channel != null) {
+                    // Android Round 375: если последний канал ЗАБЛОКИРОВАН
+                    // родительским контролем — НЕ автозапускаем его.
+                    // Юзер: не должно открывать заблокированный канал и
+                    // спрашивать PIN на старте; вместо этого остаёмся в
+                    // общем списке каналов (эта же MainActivity).
+                    if (channel != null &&
+                            !ParentalControl.isLocked(prefs, channel)) {
                         val index = ChannelDataHolder.allChannels.indexOf(channel)
                         ChannelDataHolder.currentChannelIndex = index
                         prefs.pushRecentChannel(channel)

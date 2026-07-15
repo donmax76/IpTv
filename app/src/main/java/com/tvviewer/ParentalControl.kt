@@ -23,12 +23,14 @@ object ParentalControl {
 
     @Volatile var sessionUnlocked = false
 
-    /** Round 371: поле ввода PIN с видимым фоном/фокусом — на ТВ голый
-     *  EditText на тёмном диалоге не показывал, что он активен. */
+    /** Round 371/375: поле ввода PIN с видимым фоном/фокусом.
+     *  imeOptions=actionDone — «OK» на экранной клавиатуре подтверждает
+     *  ввод (сам submit-слушатель вешают askPin/askNewPin). */
     private fun pinField(activity: Activity, hintText: String): EditText =
         EditText(activity).apply {
             inputType = InputType.TYPE_CLASS_NUMBER or
                 InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
             hint = hintText
             setBackgroundResource(R.drawable.bg_overlay_search)
             val p = (12 * activity.resources.displayMetrics.density).toInt()
@@ -114,9 +116,8 @@ object ParentalControl {
             .setOnCancelListener { onCancel?.invoke() }
             .create()
         dlg.show()
-        // Кастомный обработчик OK — НЕ закрываем диалог при неверном
-        // PIN (стандартный PositiveButton закрывает всегда).
-        dlg.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
+        // Общая проверка — из кнопки OK и из IME-Done (OK на клавиатуре).
+        val submit = {
             val pin = input.text?.toString() ?: ""
             if (checkPin(prefs, pin)) {
                 if (unlockSession) sessionUnlocked = true
@@ -127,6 +128,8 @@ object ParentalControl {
                 input.setText("")
             }
         }
+        input.setOnEditorActionListener { _, _, _ -> submit(); true }
+        dlg.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener { submit() }
         input.post { input.requestFocus() }
     }
 
@@ -142,7 +145,7 @@ object ParentalControl {
             .setNegativeButton(R.string.cancel, null)
             .create()
         dlg.show()
-        dlg.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
+        val submit = {
             val pin = input.text?.toString() ?: ""
             if (pin.length in 4..8 && pin.all { it.isDigit() }) {
                 prefs.parentalPinHash = sha256(pin)
@@ -155,6 +158,8 @@ object ParentalControl {
                 input.error = activity.getString(R.string.parental_new_pin)
             }
         }
+        input.setOnEditorActionListener { _, _, _ -> submit(); true }
+        dlg.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener { submit() }
         input.post { input.requestFocus() }
     }
 }
