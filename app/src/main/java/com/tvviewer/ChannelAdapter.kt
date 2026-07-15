@@ -63,11 +63,18 @@ class ChannelAdapter(
         // part of the channel name.
         // Бейдж качества: сначала фактическая высота из prefs (если канал
         // когда-то открывался), иначе парсинг имени канала.
-        val knownH = AppPreferences(context).getChannelHeight(channel.url)
+        val prefs = AppPreferences(context)
+        val knownH = prefs.getChannelHeight(channel.url)
         val realLabel = QualityUtil.detectByHeight(knownH)
-        holder.channelName.text = QualityUtil.formatNameWithQualityBadge(
+        val nameCs = QualityUtil.formatNameWithQualityBadge(
             context, channel.name, realLabel
         )
+        // Android Round 371: иконка замка у заблокированных каналов
+        // (точечно или через категорию).
+        holder.channelName.text =
+            if (ParentalControl.isChannelConfiguredLocked(prefs, channel))
+                android.text.TextUtils.concat("🔒 ", nameCs)
+            else nameCs
 
         // Подзаголовок: для избранных каналов показываем имя
         // плейлиста-источника (▸ Россия), для обычных — группу

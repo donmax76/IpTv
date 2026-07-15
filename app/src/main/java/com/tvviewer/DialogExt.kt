@@ -14,10 +14,13 @@ fun AlertDialog.installFocusListBackground(): AlertDialog {
         val selector = ContextCompat.getDrawable(context, R.drawable.bg_dialog_list_item)
         selector?.let {
             lv.selector = it
-            // Selector рисуется ПОВЕРХ строк — иначе тёмная подложка
-            // плейлистного диалога перекрывает фиолетовую заливку и
-            // юзер не видит куда переместился фокус через DPAD.
-            lv.isDrawSelectorOnTop = false
+            // Round 371: рисуем ПОВЕРХ строк. Раньше было false —
+            // селектор оказывался ПОД пунктами, и их тёмный фон
+            // полностью прятал подсветку фокуса (юзер: «не видно что
+            // выбрано»). Заливка селектора сделана полупрозрачной
+            // (см. bg_dialog_list_item), поэтому текст пункта читается
+            // сквозь подсветку.
+            lv.isDrawSelectorOnTop = true
         }
         lv.descendantFocusability = android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS
         lv.isFocusable = true

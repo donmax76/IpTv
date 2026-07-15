@@ -5,16 +5,21 @@
          (state_activated) — приглушённая лиловая заливка с пунктирной
          рамкой, чтобы видно было «эта строка выбрана» даже когда
          фокус ушёл на другую. -->
+    <!-- Round 371: заливка ПОЛУПРОЗРАЧНАЯ (#CC = 80%), т.к. селектор
+         теперь рисуется ПОВЕРХ строк (isDrawSelectorOnTop=true) —
+         иначе непрозрачная заливка перекрывала бы текст пункта.
+         Раньше селектор был под строками и тёмный фон пунктов
+         полностью прятал подсветку — юзер не видел, что выбрано. -->
     <item android:state_focused="true">
         <layer-list>
-            <item><shape><solid android:color="#7C6CF7"/></shape></item>
-            <item><shape><stroke android:width="2dp" android:color="#FFFFFF"/></shape></item>
+            <item><shape><solid android:color="#CC7C6CF7"/></shape></item>
+            <item><shape><stroke android:width="3dp" android:color="#FFFFFF"/></shape></item>
         </layer-list>
     </item>
     <item android:state_selected="true">
         <layer-list>
-            <item><shape><solid android:color="#7C6CF7"/></shape></item>
-            <item><shape><stroke android:width="2dp" android:color="#FFFFFF"/></shape></item>
+            <item><shape><solid android:color="#CC7C6CF7"/></shape></item>
+            <item><shape><stroke android:width="3dp" android:color="#FFFFFF"/></shape></item>
         </layer-list>
     </item>
     <item android:state_activated="true">

@@ -77,11 +77,17 @@ class OverlayChannelAdapter(
         val channel = channels[position]
         holder.number.text = "${position + 1}"
         val ctx = holder.itemView.context
-        val knownH = AppPreferences(ctx).getChannelHeight(channel.url)
+        val prefs = AppPreferences(ctx)
+        val knownH = prefs.getChannelHeight(channel.url)
         val realLabel = QualityUtil.detectByHeight(knownH)
-        holder.name.text = QualityUtil.formatNameWithQualityBadge(
+        val nameCs = QualityUtil.formatNameWithQualityBadge(
             ctx, channel.name, realLabel
         )
+        // Android Round 371: иконка замка у заблокированных каналов.
+        holder.name.text =
+            if (ParentalControl.isChannelConfiguredLocked(prefs, channel))
+                android.text.TextUtils.concat("🔒 ", nameCs)
+            else nameCs
         // Источник плейлиста (для избранных) — "▸ Россия".
         val src = channel.sourcePlaylist
         if (!src.isNullOrBlank()) {

@@ -330,6 +330,8 @@
     <string name="parental_lock_channel">🔒 Заблокировать канал</string>
     <string name="parental_unlock_channel">🔓 Разблокировать канал</string>
     <string name="parental_no_categories">Категории появятся после загрузки плейлиста</string>
+    <string name="parental_locked_channels">Заблокировать каналы</string>
+    <string name="parental_no_channels">Каналы появятся после загрузки плейлиста</string>
     <string name="parental_disabled_hint">Сначала установите PIN-код</string>
 
     <!-- Android Round 366: редактирование плейлиста -->

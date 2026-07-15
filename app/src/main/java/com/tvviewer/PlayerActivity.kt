@@ -540,7 +540,28 @@ class PlayerActivity : BaseActivity() {
         }
         findViewById<View>(R.id.rightMenuLock).setOnClickListener {
             hidePlayerRightMenu()
-            toggleScreenLock()
+            // Android Round 371: блокируем/разблокируем ТЕКУЩИЙ канал.
+            // Блокировка — БЕЗ PIN (PIN уже задан в настройках).
+            // Разблокировка — требует PIN.
+            val ch = ChannelDataHolder.allChannels.getOrNull(currentIndex) ?: return@setOnClickListener
+            if (!ParentalControl.isEnabled(prefs)) {
+                Toast.makeText(this, R.string.parental_disabled_hint,
+                    Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            if (ParentalControl.isChannelUrlLocked(prefs, ch)) {
+                // Разблокировка — с PIN.
+                ParentalControl.askPin(this, prefs, unlockSession = false) {
+                    prefs.toggleChannelLock(ch.url)
+                    Toast.makeText(this, R.string.parental_channel_unlocked,
+                        Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                // Блокировка — без PIN.
+                prefs.toggleChannelLock(ch.url)
+                Toast.makeText(this, R.string.parental_channel_locked,
+                    Toast.LENGTH_SHORT).show()
+            }
         }
         findViewById<View>(R.id.rightMenuHttp).setOnClickListener {
             hidePlayerRightMenu()
@@ -952,34 +973,12 @@ class PlayerActivity : BaseActivity() {
             nextTitleView.visibility = View.GONE
         }
 
-        // Android Round 366: кнопка точечной блокировки канала.
-        // Показывается только когда родительский контроль включён
-        // (PIN установлен). Любое изменение — через PIN.
-        val lockBtn = findViewById<com.google.android.material.button.MaterialButton>(
-            R.id.detailsLockChannel)
-        if (lockBtn != null) {
-            if (ParentalControl.isEnabled(prefs)) {
-                lockBtn.visibility = View.VISIBLE
-                val locked = channel.url in prefs.lockedChannelUrls
-                lockBtn.setText(if (locked) R.string.parental_unlock_channel
-                                else R.string.parental_lock_channel)
-                lockBtn.setOnClickListener {
-                    ParentalControl.askPin(this, prefs,
-                        unlockSession = false) {
-                        val nowLocked = prefs.toggleChannelLock(channel.url)
-                        lockBtn.setText(
-                            if (nowLocked) R.string.parental_unlock_channel
-                            else R.string.parental_lock_channel)
-                        Toast.makeText(this,
-                            if (nowLocked) R.string.parental_channel_locked
-                            else R.string.parental_channel_unlocked,
-                            Toast.LENGTH_SHORT).show()
-                    }
-                }
-            } else {
-                lockBtn.visibility = View.GONE
-            }
-        }
+        // Android Round 371: кнопка блокировки убрана из панели деталей
+        // (юзер: «убери её оттуда»). Блокировка канала теперь — в
+        // правом меню (DPAD RIGHT → «Заблокировать/Разблокировать
+        // канал»). Прячем на случай старой разметки.
+        findViewById<com.google.android.material.button.MaterialButton>(
+            R.id.detailsLockChannel)?.visibility = View.GONE
 
         panel.visibility = View.VISIBLE
         panel.requestFocus()
@@ -2665,6 +2664,23 @@ class PlayerActivity : BaseActivity() {
         if (ch != null) {
             val isFav = prefs.isFavorite(ch.url)
             favBtn?.text = getString(if (isFav) R.string.unfavorite else R.string.favorite)
+        }
+        // Android Round 371: пункт «Блокировка» правого меню теперь
+        // блокирует КАНАЛ (родительский контроль), а не экран.
+        // Подпись зависит от состояния + видим только когда PIN
+        // установлен. Пункт скрыт, если контроль не включён.
+        val lockItem = playerRightMenuOverlay
+            .findViewById<com.google.android.material.button.MaterialButton>(R.id.rightMenuLock)
+        if (lockItem != null) {
+            if (ch != null && ParentalControl.isEnabled(prefs)) {
+                lockItem.visibility = View.VISIBLE
+                val urlLocked = ParentalControl.isChannelUrlLocked(prefs, ch)
+                lockItem.setText(
+                    if (urlLocked) R.string.parental_unlock_channel
+                    else R.string.parental_lock_channel)
+            } else {
+                lockItem.visibility = View.GONE
+            }
         }
         // Round 211: slide-in справа.
         if (!wasVisible) {

@@ -23,6 +23,29 @@ object ParentalControl {
 
     @Volatile var sessionUnlocked = false
 
+    /** Round 371: поле ввода PIN с видимым фоном/фокусом — на ТВ голый
+     *  EditText на тёмном диалоге не показывал, что он активен. */
+    private fun pinField(activity: Activity, hintText: String): EditText =
+        EditText(activity).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER or
+                InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            hint = hintText
+            setBackgroundResource(R.drawable.bg_overlay_search)
+            val p = (12 * activity.resources.displayMetrics.density).toInt()
+            setPadding(p, p, p, p)
+            setTextColor(0xFFFFFFFF.toInt())
+            setHintTextColor(0x80FFFFFF.toInt())
+            isFocusableInTouchMode = true
+        }
+
+    private fun wrapField(activity: Activity, field: android.view.View): android.view.View {
+        val pad = (20 * activity.resources.displayMetrics.density).toInt()
+        return android.widget.FrameLayout(activity).apply {
+            setPadding(pad, pad / 2, pad, 0)
+            addView(field)
+        }
+    }
+
     fun isEnabled(prefs: AppPreferences): Boolean =
         !prefs.parentalPinHash.isNullOrBlank() ||
         !prefs.parentalPin.isNullOrBlank()  // legacy plain-PIN (мигрируется)
@@ -80,14 +103,10 @@ object ParentalControl {
                onCancel: (() -> Unit)? = null,
                onSuccess: () -> Unit) {
         if (activity.isFinishing || activity.isDestroyed) return
-        val input = EditText(activity).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER or
-                InputType.TYPE_NUMBER_VARIATION_PASSWORD
-            hint = activity.getString(R.string.parental_enter_pin)
-        }
+        val input = pinField(activity, activity.getString(R.string.parental_enter_pin))
         val dlg = AlertDialog.Builder(activity, R.style.Theme_TVViewer_Dialog)
             .setTitle(R.string.parental_control)
-            .setView(input)
+            .setView(wrapField(activity, input))
             .setPositiveButton(android.R.string.ok, null)
             .setNegativeButton(R.string.cancel) { d, _ ->
                 d.dismiss(); onCancel?.invoke()
@@ -108,21 +127,17 @@ object ParentalControl {
                 input.setText("")
             }
         }
-        input.requestFocus()
+        input.post { input.requestFocus() }
     }
 
     /** Диалог установки нового PIN (4-8 цифр). */
     fun askNewPin(activity: Activity, prefs: AppPreferences,
                   onDone: (() -> Unit)? = null) {
         if (activity.isFinishing || activity.isDestroyed) return
-        val input = EditText(activity).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER or
-                InputType.TYPE_NUMBER_VARIATION_PASSWORD
-            hint = activity.getString(R.string.parental_new_pin)
-        }
+        val input = pinField(activity, activity.getString(R.string.parental_new_pin))
         val dlg = AlertDialog.Builder(activity, R.style.Theme_TVViewer_Dialog)
             .setTitle(R.string.parental_set_pin)
-            .setView(input)
+            .setView(wrapField(activity, input))
             .setPositiveButton(android.R.string.ok, null)
             .setNegativeButton(R.string.cancel, null)
             .create()
@@ -140,6 +155,6 @@ object ParentalControl {
                 input.error = activity.getString(R.string.parental_new_pin)
             }
         }
-        input.requestFocus()
+        input.post { input.requestFocus() }
     }
 }
