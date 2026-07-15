@@ -696,50 +696,16 @@ class SettingsFragment : Fragment() {
                 .installFocusListBackground()
         }
 
-        // Round 371: мульти-выбор каналов — заблокировать/разблокировать
-        // сразу несколько за раз (галочками). Юзер: «как заблокировать
-        // несколько каналов за раз?».
-        fun showLockedChannelsDialog() {
-            val channels = ChannelDataHolder.allChannels
-            if (channels.isEmpty()) {
-                Toast.makeText(requireContext(),
-                    R.string.parental_no_channels, Toast.LENGTH_SHORT).show()
-                return
-            }
-            // Пары (url, отображаемое имя). Дедуп по url — в плейлисте
-            // бывают дубли. Порядок как в плейлисте.
-            val seen = HashSet<String>()
-            val items = ArrayList<Pair<String, String>>()
-            for (ch in channels) {
-                if (ch.url.isNotBlank() && seen.add(ch.url)) {
-                    items.add(ch.url to ch.name)
-                }
-            }
-            val names = items.map { it.second }.toTypedArray()
-            val locked = prefs.lockedChannelUrls.toMutableSet()
-            val checked = BooleanArray(items.size) { items[it].first in locked }
-            AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
-                .setTitle(R.string.parental_locked_channels)
-                .setMultiChoiceItems(names, checked) { _, which, isChecked ->
-                    val url = items[which].first
-                    if (isChecked) locked.add(url) else locked.remove(url)
-                }
-                .setPositiveButton(R.string.save) { _, _ ->
-                    prefs.lockedChannelUrls = locked
-                    Toast.makeText(requireContext(),
-                        R.string.parental_pin_set, Toast.LENGTH_SHORT).show()
-                }
-                .setNegativeButton(R.string.cancel, null)
-                .show()
-                .installFocusListBackground()
-        }
-
         fun showParentalMenu() {
             val act = requireActivity()
+            // Android Round 372: пункт «Заблокировать каналы» убран из
+            // настроек (юзер: каналов очень много, листать список
+            // сложно). Отдельные каналы блокируются в плеере — правое
+            // меню (DPAD RIGHT) → «Заблокировать/Разблокировать канал».
+            // Здесь — только PIN и блокировка целых категорий.
             val opts = arrayOf(
                 getString(R.string.parental_change_pin),
                 getString(R.string.parental_locked_categories),
-                getString(R.string.parental_locked_channels),
                 getString(R.string.parental_remove_pin)
             )
             AlertDialog.Builder(requireContext(), R.style.Theme_TVViewer_Dialog)
@@ -748,8 +714,7 @@ class SettingsFragment : Fragment() {
                     when (which) {
                         0 -> ParentalControl.askNewPin(act, prefs) { refreshParentalValue() }
                         1 -> showLockedCategoriesDialog()
-                        2 -> showLockedChannelsDialog()
-                        3 -> {
+                        2 -> {
                             prefs.parentalPinHash = null
                             prefs.parentalPin = null
                             ParentalControl.sessionUnlocked = false

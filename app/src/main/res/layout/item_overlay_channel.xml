@@ -31,14 +31,31 @@
             android:textStyle="bold"
             android:background="@drawable/bg_channel_number"/>
 
-        <ImageView
-            android:id="@+id/overlayChannelLogo"
+        <!-- Android Round 372: логотип + бейдж замка поверх. -->
+        <FrameLayout
             android:layout_width="@dimen/overlay_channel_logo"
             android:layout_height="@dimen/overlay_channel_logo"
-            android:layout_marginStart="8dp"
-            android:scaleType="fitCenter"
-            android:adjustViewBounds="true"
-            android:src="@drawable/ic_channel_placeholder"/>
+            android:layout_marginStart="8dp">
+
+            <ImageView
+                android:id="@+id/overlayChannelLogo"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="fitCenter"
+                android:adjustViewBounds="true"
+                android:src="@drawable/ic_channel_placeholder"/>
+
+            <ImageView
+                android:id="@+id/overlayChannelLockBadge"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_gravity="bottom|end"
+                android:src="@drawable/ic_lock"
+                android:tint="#FFFFFF"
+                android:background="@drawable/bg_channel_number"
+                android:padding="2dp"
+                android:visibility="gone"/>
+        </FrameLayout>
 
         <!-- Колонка названия канала: имя, источник (для favorites),
              текущая программа (now). Фиксированная ширина 180dp чтобы

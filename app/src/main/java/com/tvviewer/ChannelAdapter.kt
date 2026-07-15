@@ -24,6 +24,8 @@ class ChannelAdapter(
         val channelNumber: TextView? = view.findViewById(R.id.channelNumber)
         val channelName: TextView = view.findViewById(R.id.channelName)
         val channelLogo: ImageView = view.findViewById(R.id.channelLogo)
+        // nullable — в grid-разметке бейджа нет.
+        val channelLockBadge: ImageView? = view.findViewById(R.id.channelLockBadge)
         val channelEpg: TextView? = view.findViewById(R.id.channelEpg)
         val channelGroup: TextView? = view.findViewById(R.id.channelGroup)
         val btnFavorite: ImageButton = view.findViewById(R.id.btnFavorite)
@@ -66,15 +68,14 @@ class ChannelAdapter(
         val prefs = AppPreferences(context)
         val knownH = prefs.getChannelHeight(channel.url)
         val realLabel = QualityUtil.detectByHeight(knownH)
-        val nameCs = QualityUtil.formatNameWithQualityBadge(
+        holder.channelName.text = QualityUtil.formatNameWithQualityBadge(
             context, channel.name, realLabel
         )
-        // Android Round 371: иконка замка у заблокированных каналов
-        // (точечно или через категорию).
-        holder.channelName.text =
+        // Android Round 372: бейдж замка поверх логотипа у
+        // заблокированных каналов (точечно или через категорию).
+        holder.channelLockBadge?.visibility =
             if (ParentalControl.isChannelConfiguredLocked(prefs, channel))
-                android.text.TextUtils.concat("🔒 ", nameCs)
-            else nameCs
+                View.VISIBLE else View.GONE
 
         // Подзаголовок: для избранных каналов показываем имя
         // плейлиста-источника (▸ Россия), для обычных — группу

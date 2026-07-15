@@ -31,7 +31,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_toEndOf="@id/playlistIcon"
-            android:layout_toStartOf="@+id/btnDelete"
+            android:layout_toStartOf="@+id/btnEdit"
             android:layout_centerVertical="true"
             android:layout_marginStart="16dp"
             android:orientation="vertical">
@@ -67,18 +67,30 @@
 
         </LinearLayout>
 
-        <!-- Android Round 370: видимая кнопка меню (⋮) — редактировать /
-             копировать URL / удалить. Раньше меню было спрятано под
-             долгое нажатие: ненадёжно на пульте и давало двойное
-             срабатывание (открывался и плейлист, и меню). -->
+        <!-- Android Round 372: две отдельные видимые кнопки —
+             «Редактировать» (карандаш) и «Удалить» (корзина). Долгое
+             нажатие полностью убрано (давало двойное открытие). -->
         <ImageButton
             android:id="@+id/btnDelete"
             android:layout_width="@dimen/favorite_btn_size"
             android:layout_height="@dimen/favorite_btn_size"
             android:layout_centerVertical="true"
             android:layout_alignParentEnd="true"
-            android:src="@drawable/ic_menu"
-            android:tint="@color/text_primary"
+            android:src="@drawable/ic_delete"
+            android:background="@drawable/item_playlist_focused"
+            android:contentDescription="@string/playlist_delete"
+            android:visibility="visible"
+            android:focusable="true"
+            android:focusableInTouchMode="false"/>
+
+        <ImageButton
+            android:id="@+id/btnEdit"
+            android:layout_width="@dimen/favorite_btn_size"
+            android:layout_height="@dimen/favorite_btn_size"
+            android:layout_centerVertical="true"
+            android:layout_toStartOf="@id/btnDelete"
+            android:layout_marginEnd="4dp"
+            android:src="@drawable/ic_edit"
             android:background="@drawable/item_playlist_focused"
             android:contentDescription="@string/playlist_edit"
             android:visibility="visible"

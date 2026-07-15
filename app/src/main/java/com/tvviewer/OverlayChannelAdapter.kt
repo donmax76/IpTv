@@ -51,6 +51,7 @@ class OverlayChannelAdapter(
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val number: TextView = view.findViewById(R.id.overlayChannelNumber)
         val logo: ImageView = view.findViewById(R.id.overlayChannelLogo)
+        val lockBadge: ImageView = view.findViewById(R.id.overlayChannelLockBadge)
         val name: TextView = view.findViewById(R.id.overlayChannelName)
         val epg: TextView = view.findViewById(R.id.overlayChannelEpg)
         val source: TextView = view.findViewById(R.id.overlayChannelSource)
@@ -80,14 +81,14 @@ class OverlayChannelAdapter(
         val prefs = AppPreferences(ctx)
         val knownH = prefs.getChannelHeight(channel.url)
         val realLabel = QualityUtil.detectByHeight(knownH)
-        val nameCs = QualityUtil.formatNameWithQualityBadge(
+        holder.name.text = QualityUtil.formatNameWithQualityBadge(
             ctx, channel.name, realLabel
         )
-        // Android Round 371: иконка замка у заблокированных каналов.
-        holder.name.text =
+        // Android Round 372: бейдж замка поверх логотипа у
+        // заблокированных каналов (точечно или через категорию).
+        holder.lockBadge.visibility =
             if (ParentalControl.isChannelConfiguredLocked(prefs, channel))
-                android.text.TextUtils.concat("🔒 ", nameCs)
-            else nameCs
+                View.VISIBLE else View.GONE
         // Источник плейлиста (для избранных) — "▸ Россия".
         val src = channel.sourcePlaylist
         if (!src.isNullOrBlank()) {
