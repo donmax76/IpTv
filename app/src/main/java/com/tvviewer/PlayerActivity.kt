@@ -2862,7 +2862,31 @@ class PlayerActivity : BaseActivity() {
             KeyEvent.KEYCODE_NAVIGATE_NEXT,
             KeyEvent.KEYCODE_F12,
             KeyEvent.KEYCODE_BUTTON_R1 -> {
-                if (channelListVisible) return super.onKeyDown(keyCode, event)
+                if (channelListVisible) {
+                    // Android Round 365: юзер — «поиск при нажатии
+                    // вверх с пульта не активируется в списке
+                    // каналов». Дефолтный FocusFinder с первой строки
+                    // RecyclerView на ряде TV-боксов не добирается до
+                    // EditText поиска (событие «съедается» как достиг
+                    // верха списка). Делаем детерминированно: UP с
+                    // ПЕРВОЙ строки — явный фокус в поиск. С остальных
+                    // строк — обычная навигация по списку.
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                        val focused = currentFocus
+                        if (focused != null) {
+                            val item = try {
+                                overlayChannelsList.findContainingItemView(focused)
+                            } catch (_: Exception) { null }
+                            if (item != null &&
+                                overlayChannelsList.getChildAdapterPosition(item) == 0) {
+                                overlaySearchEdit?.requestFocus()
+                                bumpChannelListIdleTimer()
+                                return true
+                            }
+                        }
+                    }
+                    return super.onKeyDown(keyCode, event)
+                }
                 switchChannel(-1)
                 return true
             }
@@ -2873,7 +2897,21 @@ class PlayerActivity : BaseActivity() {
             KeyEvent.KEYCODE_NAVIGATE_PREVIOUS,
             KeyEvent.KEYCODE_F11,
             KeyEvent.KEYCODE_BUTTON_L1 -> {
-                if (channelListVisible) return super.onKeyDown(keyCode, event)
+                if (channelListVisible) {
+                    // Android Round 365: симметрично UP→поиск — DOWN из
+                    // поля поиска детерминированно возвращает фокус на
+                    // первую строку списка.
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN &&
+                        overlaySearchEdit?.hasFocus() == true) {
+                        val vh = overlayChannelsList
+                            .findViewHolderForAdapterPosition(0)
+                        if (vh != null) vh.itemView.requestFocus()
+                        else overlayChannelsList.requestFocus()
+                        bumpChannelListIdleTimer()
+                        return true
+                    }
+                    return super.onKeyDown(keyCode, event)
+                }
                 switchChannel(1)
                 return true
             }
