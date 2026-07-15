@@ -1468,6 +1468,15 @@ class PlayerActivity : BaseActivity() {
             .setLoadControl(loadControl)
             .setMediaSourceFactory(mediaSourceFactory)
             .setTrackSelector(trackSelector)
+            // Android Round 368: короткий release-timeout. Юзер: «не
+            // могу вернуться на главный / выйти». Лог (Xiaomi MiTV,
+            // 4K HEVC): ExoTimeoutException «Player release timed out»
+            // в onDestroy — заклиненный аппаратный декодер не отвечал,
+            // release() ждал ДЕФОЛТНЫЕ 500мс×... и в итоге БРОСАЛ
+            // исключение, роняя onDestroy → активити не уничтожалась
+            // корректно, возврат/выход крашился. Ставим короткий
+            // таймаут (1с) и ловим исключение в onDestroy (см. ниже).
+            .setReleaseTimeoutMs(1000)
             .setSeekBackIncrementMs(10_000)
             .setSeekForwardIncrementMs(10_000)
             // Round 183: явный AudioAttributes + handleAudioFocus=true.
@@ -3219,8 +3228,13 @@ class PlayerActivity : BaseActivity() {
             // надо прибить, иначе звук остаётся висеть до следующего onCreate.
             if (lifecycle.currentState == androidx.lifecycle.Lifecycle.State.CREATED ||
                 lifecycle.currentState == androidx.lifecycle.Lifecycle.State.DESTROYED) {
-                player?.stop()
-                player?.release()
+                // Android Round 368: release в try/catch — см. onDestroy.
+                try {
+                    player?.let { p ->
+                        try { p.stop() } catch (_: Throwable) {}
+                        p.release()
+                    }
+                } catch (_: Throwable) {}
                 player = null
                 finish()
             }
@@ -3454,7 +3468,22 @@ class PlayerActivity : BaseActivity() {
         bannerHandler.removeCallbacks(bannerHideRunnable)
         reconnectHandler.removeCallbacks(reconnectRunnable)
         channelListHideHandler.removeCallbacks(channelListHideRunnable)
-        player?.release()
+        // Android Round 368: release() на заклиненном декодере бросает
+        // ExoTimeoutException — раньше НЕ ловился, и onDestroy падал,
+        // из-за чего выход/возврат из плеера крашился. Перед release
+        // отвязываем surface и останавливаем — это снимает нагрузку с
+        // кодека и снижает риск таймаута. Всё в try/catch: даже если
+        // release всё же кинет — активити спокойно уничтожится.
+        try {
+            player?.let { p ->
+                try { playerView.player = null } catch (_: Throwable) {}
+                try { p.clearVideoSurface() } catch (_: Throwable) {}
+                try { p.stop() } catch (_: Throwable) {}
+                p.release()
+            }
+        } catch (_: Throwable) {
+            // ExoTimeoutException и пр. — глотаем, выход важнее.
+        }
         player = null
     }
 }
