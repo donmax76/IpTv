@@ -35,14 +35,26 @@ class PlaylistAdapter(
         holder.name.text = playlist.first
         holder.url.text = playlist.second
 
-        // Hide the inline trash icon entirely. On a TV remote it sits
-        // right next to the row's main click target and the user kept
-        // accidentally deleting playlists when trying to open them.
-        // Custom playlists are removed via long-press instead (see below).
+        // Android Round 370: кнопка «⋮» (меню действий) видима ТОЛЬКО у
+        // своих плейлистов. Клик по строке — открывает плейлист; клик
+        // по кнопке — меню (редактировать / копировать URL / удалить).
+        // Раздельные цели убирают двойное срабатывание, которое было
+        // при подходе через долгое нажатие.
         val isCustom = position < customCount
-        holder.btnDelete.visibility = View.GONE
-        holder.btnDelete.isFocusable = false
-        holder.btnDelete.isFocusableInTouchMode = false
+        if (isCustom) {
+            holder.btnDelete.visibility = View.VISIBLE
+            holder.btnDelete.isFocusable = true
+            holder.btnDelete.isFocusableInTouchMode = false
+            holder.btnDelete.setOnClickListener {
+                val pos = holder.adapterPosition
+                if (pos in 0 until customCount) onDeleteClick(pos)
+            }
+        } else {
+            holder.btnDelete.visibility = View.GONE
+            holder.btnDelete.isFocusable = false
+            holder.btnDelete.isFocusableInTouchMode = false
+            holder.btnDelete.setOnClickListener(null)
+        }
 
         // Different icon tint for built-in vs custom
         holder.icon.setColorFilter(
@@ -50,6 +62,10 @@ class PlaylistAdapter(
             else holder.itemView.context.getColor(R.color.primary)
         )
 
+        // Android Round 370: короткий клик по строке — открыть плейлист.
+        // Долгое нажатие как ДОПОЛНИТЕЛЬНЫЙ путь к меню (для тех, кто
+        // привык), но БЕЗ двойного срабатывания: long-click возвращает
+        // true и Android сам подавляет последующий click.
         holder.itemView.setOnClickListener { onPlaylistClick(playlist) }
         holder.itemView.setOnLongClickListener {
             if (isCustom) {
@@ -60,38 +76,16 @@ class PlaylistAdapter(
                 false
             }
         }
-
-        // Android Round 367: юзер — «нет редактирования уже
-        // добавленного плейлиста». Старый обработчик кликал СРАЗУ на
-        // ACTION_DOWN и съедал событие — долгое удержание OK на пульте
-        // физически не могло сработать, и меню действий (редактировать/
-        // копировать URL/удалить) было недостижимо с ТВ. Теперь
-        // стандартный паттерн: startTracking на DOWN, long-press →
-        // performLongClick, обычный UP → performClick (UP после
-        // long-press помечен FLAG_CANCELED_LONG_PRESS — не кликаем).
+        // Стандартная обработка OK/ENTER на строке — просто клик
+        // (открыть плейлист). НЕ перехватываем DOWN/UP вручную:
+        // прошлая ручная схема на этом ТВ давала И long-click (меню),
+        // И click (открытие плейлиста) одновременно.
         holder.itemView.setOnKeyListener { v, keyCode, event ->
-            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
-                keyCode == KeyEvent.KEYCODE_ENTER) {
-                when {
-                    event.action == KeyEvent.ACTION_DOWN &&
-                        event.repeatCount == 0 -> {
-                        event.startTracking()
-                        true
-                    }
-                    event.action == KeyEvent.ACTION_DOWN &&
-                        event.isLongPress -> {
-                        v.performLongClick()
-                        true
-                    }
-                    event.action == KeyEvent.ACTION_DOWN -> true  // авто-повторы гасим
-                    event.action == KeyEvent.ACTION_UP -> {
-                        if (event.flags and KeyEvent.FLAG_CANCELED_LONG_PRESS == 0) {
-                            v.performClick()
-                        }
-                        true
-                    }
-                    else -> false
-                }
+            if (event.action == KeyEvent.ACTION_UP &&
+                (keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                 keyCode == KeyEvent.KEYCODE_ENTER)) {
+                v.performClick()
+                true
             } else {
                 false
             }

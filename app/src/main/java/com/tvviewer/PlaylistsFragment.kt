@@ -316,30 +316,57 @@ class PlaylistsFragment : Fragment() {
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
+            .installFocusListBackground()  // Round 370: видимый фокус в меню
     }
 
-    /** Android Round 366: диалог редактирования плейлиста — имя и URL
-     *  с предзаполнением. Из поля URL можно и вручную скопировать
-     *  текст (selectable). */
+    /** Android Round 366/370: диалог редактирования плейлиста — имя и
+     *  URL с предзаполнением. Round 370: поля получили видимый фон,
+     *  подписи и подсветку фокуса — на ТВ раньше не было видно, какое
+     *  поле активно. */
     private fun showEditPlaylistDialog(index: Int) {
         val ctx = requireContext()
         val playlist = prefs.customPlaylists.getOrNull(index) ?: return
         val pad = (16 * resources.displayMetrics.density).toInt()
-        val nameEdit = android.widget.EditText(ctx).apply {
-            hint = getString(R.string.playlist_name_hint)
-            setText(playlist.first)
-            setSingleLine()
+        val gap = (10 * resources.displayMetrics.density).toInt()
+        val innerPad = (12 * resources.displayMetrics.density).toInt()
+
+        fun label(text: String) = android.widget.TextView(ctx).apply {
+            setText(text)
+            setTextColor(0xFFB0B0C0.toInt())
+            textSize = 12f
         }
-        val urlEdit = android.widget.EditText(ctx).apply {
-            hint = getString(R.string.playlist_url_hint)
-            setText(playlist.second)
-            setSingleLine()
-            setTextIsSelectable(true)
-        }
+        fun field(value: String, hintText: String, selectable: Boolean) =
+            android.widget.EditText(ctx).apply {
+                hint = hintText
+                setText(value)
+                setSingleLine()
+                // Видимый фон + подсветка фокуса (тот же, что у поиска
+                // в оверлее — рамка меняет цвет при фокусе).
+                setBackgroundResource(R.drawable.bg_overlay_search)
+                setPadding(innerPad, innerPad, innerPad, innerPad)
+                setTextColor(0xFFFFFFFF.toInt())
+                setHintTextColor(0x80FFFFFF.toInt())
+                isFocusable = true
+                isFocusableInTouchMode = true
+                if (selectable) setTextIsSelectable(true)
+            }
+
+        val nameEdit = field(playlist.first,
+            getString(R.string.playlist_name_hint), false)
+        val urlEdit = field(playlist.second,
+            getString(R.string.playlist_url_hint), true)
+
         val layout = android.widget.LinearLayout(ctx).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             setPadding(pad, pad / 2, pad, 0)
+            addView(label(getString(R.string.playlist_name_hint)))
             addView(nameEdit)
+            (nameEdit.layoutParams as? android.widget.LinearLayout.LayoutParams)
+                ?.bottomMargin = gap
+            addView(label(getString(R.string.playlist_url_hint)).apply {
+                (layoutParams as? android.widget.LinearLayout.LayoutParams)
+                    ?.topMargin = gap
+            })
             addView(urlEdit)
         }
         android.app.AlertDialog.Builder(ctx, R.style.Theme_TVViewer_Dialog)
@@ -364,5 +391,10 @@ class PlaylistsFragment : Fragment() {
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
+        // Фокус на первое поле — сразу видно, что активно.
+        nameEdit.post {
+            nameEdit.requestFocus()
+            nameEdit.setSelection(nameEdit.text?.length ?: 0)
+        }
     }
 }
