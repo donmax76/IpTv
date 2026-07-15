@@ -230,6 +230,13 @@ class PlayerActivity : BaseActivity() {
     // Хук «приложение полностью в фоне» — см. onCreate/onDestroy.
     private var appBackgroundHook: (() -> Unit)? = null
 
+    // Android Round 373: пока показан PIN-диалог родительского контроля
+    // (заблокированный канал), playback НЕ должен стартовать. onResume
+    // (Round 353) авто-возобновлял поток при STATE_IDLE — и стрим
+    // проигрывался ЗА диалогом. Флаг блокирует любой авто-старт до
+    // ввода верного PIN.
+    private var awaitingParentalPin = false
+
     private var overlayAdapter: OverlayChannelAdapter? = null
     private var overlaySearchEdit: EditText? = null
     private var overlayChannelCount: TextView? = null
@@ -300,8 +307,13 @@ class PlayerActivity : BaseActivity() {
         val initialChannel = ChannelDataHolder.allChannels.getOrNull(currentIndex)
         if (initialChannel != null &&
                 ParentalControl.isLocked(prefs, initialChannel)) {
+            // Флаг ставим ДО показа диалога — иначе onResume, который
+            // выполнится сразу после onCreate, запустит поток за
+            // диалогом.
+            awaitingParentalPin = true
             ParentalControl.askPin(this, prefs,
-                onCancel = { finish() }) {
+                onCancel = { awaitingParentalPin = false; finish() }) {
+                awaitingParentalPin = false
                 playStream(currentUrl!!)
                 showChannelBanner()
             }
@@ -3313,6 +3325,27 @@ class PlayerActivity : BaseActivity() {
         // Возвращаемся из Настроек / другой активити — флаг сбрасываем,
         // дальнейшие onPause работают как обычно.
         keepPlayingInBackground = false
+        // Android Round 373: родительский контроль. Пока ждём ввод PIN
+        // на заблокированном канале — НЕ авто-стартуем поток (иначе он
+        // играл бы за диалогом). Плюс: если за время нахождения в фоне
+        // родительская сессия сбросилась (см. TVViewerApp), а текущий
+        // канал заблокирован — перезапрашиваем PIN и держим поток
+        // остановленным до верного ввода.
+        if (awaitingParentalPin) {
+            return
+        }
+        val curCh = ChannelDataHolder.allChannels.getOrNull(currentIndex)
+        if (curCh != null && ParentalControl.isLocked(prefs, curCh)) {
+            awaitingParentalPin = true
+            try { player?.stop() } catch (_: Throwable) {}
+            ParentalControl.askPin(this, prefs,
+                onCancel = { awaitingParentalPin = false; finish() }) {
+                awaitingParentalPin = false
+                currentUrl?.let { playStream(it) }
+            }
+            hideSystemUI()
+            return
+        }
         // Android Round 353: если плеер был ОСТАНОВЛЕН (onStop /
         // app-background хук → stop() → STATE_IDLE), голый play() без
         // prepare() ничего не делает — юзер возвращался на чёрный

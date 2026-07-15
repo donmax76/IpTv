@@ -140,6 +140,13 @@ class TVViewerApp : Application(), ImageLoaderFactory {
                 startedActivityCount--
                 if (startedActivityCount <= 0) {
                     startedActivityCount = 0
+                    // Android Round 373: приложение ушло в фон —
+                    // сбрасываем сессионную разблокировку родительского
+                    // контроля. Юзер: после одного ввода PIN канал
+                    // открывался без PIN в следующие разы. Теперь при
+                    // каждом возврате из фона заблокированный канал
+                    // снова требует PIN.
+                    ParentalControl.sessionUnlocked = false
                     try { onAppBackgrounded?.invoke() } catch (_: Throwable) {}
                 }
             }
