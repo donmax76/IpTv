@@ -61,11 +61,37 @@ class PlaylistAdapter(
             }
         }
 
-        holder.itemView.setOnKeyListener { _, keyCode, event ->
-            if (event.action == KeyEvent.ACTION_DOWN &&
-                (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER)) {
-                holder.itemView.performClick()
-                true
+        // Android Round 367: юзер — «нет редактирования уже
+        // добавленного плейлиста». Старый обработчик кликал СРАЗУ на
+        // ACTION_DOWN и съедал событие — долгое удержание OK на пульте
+        // физически не могло сработать, и меню действий (редактировать/
+        // копировать URL/удалить) было недостижимо с ТВ. Теперь
+        // стандартный паттерн: startTracking на DOWN, long-press →
+        // performLongClick, обычный UP → performClick (UP после
+        // long-press помечен FLAG_CANCELED_LONG_PRESS — не кликаем).
+        holder.itemView.setOnKeyListener { v, keyCode, event ->
+            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                keyCode == KeyEvent.KEYCODE_ENTER) {
+                when {
+                    event.action == KeyEvent.ACTION_DOWN &&
+                        event.repeatCount == 0 -> {
+                        event.startTracking()
+                        true
+                    }
+                    event.action == KeyEvent.ACTION_DOWN &&
+                        event.isLongPress -> {
+                        v.performLongClick()
+                        true
+                    }
+                    event.action == KeyEvent.ACTION_DOWN -> true  // авто-повторы гасим
+                    event.action == KeyEvent.ACTION_UP -> {
+                        if (event.flags and KeyEvent.FLAG_CANCELED_LONG_PRESS == 0) {
+                            v.performClick()
+                        }
+                        true
+                    }
+                    else -> false
+                }
             } else {
                 false
             }
