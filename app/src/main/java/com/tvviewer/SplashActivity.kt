@@ -47,6 +47,13 @@ class SplashActivity : AppCompatActivity() {
         // setContentView НЕ вызываем — тема прозрачная, окна не видно.
         UpdateCheckerHelper.resetSessionDialogFlag()
 
+        // Round 376: play-флейвор — без встроенной проверки обновлений
+        // (Google Play запрещает само-обновление). Сразу на главный.
+        if (!BuildConfig.SELF_UPDATE_ENABLED) {
+            proceedToMain()
+            return
+        }
+
         // Round 228a: убрал кэш по просьбе юзера «при каждом запуске
         // он не проверяет разве есть или нет новая версия?» — теперь
         // сеть дёргается КАЖДЫЙ старт, но fast: UpdateChecker.check

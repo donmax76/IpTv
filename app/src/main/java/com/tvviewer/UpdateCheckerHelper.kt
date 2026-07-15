@@ -31,6 +31,10 @@ object UpdateCheckerHelper {
 
     fun <A> maybeCheck(activity: A, force: Boolean = false)
             where A : Activity, A : LifecycleOwner {
+        // Round 376: в play-флейворе встроенного обновления нет
+        // (Google Play запрещает само-обновление; апдейты — через
+        // магазин). Полностью пропускаем проверку.
+        if (!BuildConfig.SELF_UPDATE_ENABLED) return
         if (sessionDialogShown) return
         val prefs = AppPreferences(activity)
         val now = System.currentTimeMillis()

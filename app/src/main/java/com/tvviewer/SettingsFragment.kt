@@ -810,8 +810,15 @@ class SettingsFragment : Fragment() {
         val versionText = view.findViewById<TextView>(R.id.versionText)
         versionText.text = getString(R.string.version_format, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)
 
-        view.findViewById<LinearLayout>(R.id.updateLayout).setOnClickListener {
-            checkForUpdates(versionText)
+        // Round 376: пункт «Проверить обновление» только в github-
+        // флейворе. В play обновления идут через магазин, встроенной
+        // проверки нет — прячем пункт.
+        val updateLayout = view.findViewById<LinearLayout>(R.id.updateLayout)
+        if (BuildConfig.SELF_UPDATE_ENABLED) {
+            updateLayout.visibility = View.VISIBLE
+            updateLayout.setOnClickListener { checkForUpdates(versionText) }
+        } else {
+            updateLayout.visibility = View.GONE
         }
 
         view.findViewById<LinearLayout>(R.id.errorLogLayout).setOnClickListener {

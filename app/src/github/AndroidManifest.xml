@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Round 376: разрешение на установку APK нужно ТОЛЬКО github-флейвору
+     (встроенный авто-апдейтер). В play-флейворе его нет. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+</manifest>

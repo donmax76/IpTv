@@ -42,12 +42,49 @@ android {
     // signed with the same key. Without this, each CI run generates a
     // random debug keystore and Android refuses to install the new APK
     // over the old one ("App not installed" / signature mismatch).
+    //
+    // Round 376: для Play Store нужен НЕ-debug ключ загрузки. Читаем его
+    // из переменных окружения (в CI — из секретов), файл в репозиторий
+    // НЕ кладём. Если переменных нет — play-сборка подпишется тем же
+    // debug-ключом (соберётся локально, но Play такой .aab не примет).
+    val uploadStoreFile = System.getenv("UPLOAD_KEYSTORE_FILE")
     signingConfigs {
         create("releaseLikeDebug") {
             storeFile = rootProject.file("debug-stable.keystore")
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"
+        }
+        if (!uploadStoreFile.isNullOrBlank()) {
+            create("upload") {
+                storeFile = file(uploadStoreFile)
+                storePassword = System.getenv("UPLOAD_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("UPLOAD_KEY_ALIAS")
+                keyPassword = System.getenv("UPLOAD_KEY_PASSWORD")
+            }
+        }
+    }
+
+    // Round 376: две дистрибуции из одного кода.
+    //   github — как раньше: встроенный авто-апдейтер (REQUEST_INSTALL_
+    //            PACKAGES в src/github/AndroidManifest.xml), APK для
+    //            установки «сбоку».
+    //   play   — БЕЗ апдейтера и без разрешения на установку APK
+    //            (Google Play запрещает само-обновление); собирается в
+    //            .aab, обновления идут через магазин.
+    flavorDimensions += "dist"
+    productFlavors {
+        create("github") {
+            dimension = "dist"
+            isDefault = true
+            buildConfigField("boolean", "SELF_UPDATE_ENABLED", "true")
+        }
+        create("play") {
+            dimension = "dist"
+            buildConfigField("boolean", "SELF_UPDATE_ENABLED", "false")
+            if (!uploadStoreFile.isNullOrBlank()) {
+                signingConfig = signingConfigs.getByName("upload")
+            }
         }
     }
 
@@ -61,6 +98,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // github-release подписываем стабильным debug-ключом (как
+            // раньше), play-release — upload-ключом (задан на флейворе
+            // выше, если есть переменные окружения).
             signingConfig = signingConfigs.getByName("releaseLikeDebug")
         }
     }
