@@ -135,7 +135,14 @@ if not _LOGGER.handlers:
         _h.setFormatter(_logging.Formatter(
             '%(asctime)s %(levelname)s [%(name)s] %(message)s'))
         _LOGGER.addHandler(_h)
-        _LOGGER.setLevel(_logging.INFO)
+        # Round 381: по просьбе юзера «в логе много ненужного — оставь
+        # только критическое». Уровень WARNING: все log_info(...) (диагно-
+        # стический шум по playlist/update/epg/logo/overlay/vlc/play)
+        # больше НЕ пишутся в файл; в лог попадают только предупреждения
+        # (log_warn) и ошибки с трейсбеком (log_error). Сами вызовы
+        # log_info оставлены в коде — они просто отфильтровываются
+        # уровнем, так что вернуть подробный лог = сменить одну строку.
+        _LOGGER.setLevel(_logging.WARNING)
         _LOGGER.propagate = False
     except Exception:
         pass
