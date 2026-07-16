@@ -82,23 +82,56 @@ class MainActivity : BaseActivity() {
 
             // Autoplay last channel if enabled
             if (prefs.autoplayLast) {
-                val lastUrl = prefs.lastChannelUrl
-                if (!lastUrl.isNullOrBlank()) {
-                    val channel = ChannelDataHolder.allChannels.find { it.url == lastUrl }
-                    // Android Round 375: если последний канал ЗАБЛОКИРОВАН
-                    // родительским контролем — НЕ автозапускаем его.
-                    // Юзер: не должно открывать заблокированный канал и
-                    // спрашивать PIN на старте; вместо этого остаёмся в
-                    // общем списке каналов (эта же MainActivity).
-                    if (channel != null &&
-                            !ParentalControl.isLocked(prefs, channel)) {
-                        val index = ChannelDataHolder.allChannels.indexOf(channel)
-                        ChannelDataHolder.currentChannelIndex = index
-                        prefs.pushRecentChannel(channel)
-                        this.launchPreferredPlayer(channel, index)
-                    }
-                }
+                maybeAutoplayLast()
             }
+        }
+    }
+
+    /** Round 380: автозапуск последнего канала при старте.
+     *
+     *  Быстрый путь — канал уже в памяти (тёплый перезапуск, процесс не
+     *  убивался): открываем мгновенно, как и раньше.
+     *
+     *  Холодный старт (в т.ч. сразу ПОСЛЕ ОБНОВЛЕНИЯ, когда память пуста)
+     *  — читаем список каналов из дискового кэша, а не качаем плейлист
+     *  заново из сети. Это убирает «ожидание в минуту» перед открытием
+     *  канала: раньше без кэша холодный старт заново скачивал и парсил
+     *  3000-4000 каналов. */
+    private fun maybeAutoplayLast() {
+        val lastUrl = prefs.lastChannelUrl
+        if (lastUrl.isNullOrBlank()) return
+
+        // Быстрый путь: канал уже в памяти.
+        val inMem = ChannelDataHolder.allChannels.find { it.url == lastUrl }
+        if (inMem != null) {
+            if (!ParentalControl.isLocked(prefs, inMem)) {
+                val index = ChannelDataHolder.allChannels.indexOf(inMem)
+                ChannelDataHolder.currentChannelIndex = index
+                prefs.pushRecentChannel(inMem)
+                this.launchPreferredPlayer(inMem, index)
+            }
+            return
+        }
+
+        // Холодный старт: пробуем дисковый кэш.
+        lifecycleScope.launch {
+            val cached = withContext(kotlinx.coroutines.Dispatchers.Default) {
+                ChannelCache.load(applicationContext)
+            }
+            if (isFinishing || isDestroyed) return@launch
+            val channels = cached?.channels ?: return@launch
+            val channel = channels.find { it.url == lastUrl } ?: return@launch
+            // Заблокированный родительским контролем канал не
+            // автозапускаем (как в Round 375).
+            if (ParentalControl.isLocked(prefs, channel)) return@launch
+            // Пополняем holder, чтобы плеер мог листать каналы. НЕ ставим
+            // loadedPlaylistUrl — тогда при следующем явном открытии
+            // «Эфира» плейлист обновится из сети (свежесть).
+            ChannelDataHolder.allChannels = channels
+            val index = channels.indexOf(channel)
+            ChannelDataHolder.currentChannelIndex = index
+            prefs.pushRecentChannel(channel)
+            this@MainActivity.launchPreferredPlayer(channel, index)
         }
     }
 
@@ -229,6 +262,9 @@ class MainActivity : BaseActivity() {
                             ChannelDataHolder.allChannels = sorted
                             ChannelDataHolder.loadedPlaylistUrl = url
                             prefs.enrichFavorites(sorted)
+                            // Round 380: кэшируем на диск для мгновенного
+                            // старта после обновления/холодного запуска.
+                            ChannelCache.save(ctx, url, sorted)
                             sorted
                         }
                     }

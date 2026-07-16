@@ -222,6 +222,9 @@ class HomeFragment : Fragment() {
                             ChannelDataHolder.allChannels = sorted
                             ChannelDataHolder.loadedPlaylistUrl = url
                             prefs.enrichFavorites(sorted)
+                            // Round 380: кэшируем на диск для мгновенного
+                            // старта после обновления/холодного запуска.
+                            ChannelCache.save(ctx, url, sorted)
                             sorted
                         }
                     }
