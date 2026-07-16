@@ -11396,7 +11396,64 @@ def _app_icon_path() -> str:
     return ''
 
 
+def _acquire_single_instance():
+    """Round 363 (Windows): запрет второго экземпляра. Юзер: «открылись
+    две программы» — авто-обновление перезапускало приложение, а старый
+    процесс не успевал закрыться (или юзер запускал вручную во время
+    долгого обновления), и оказывалось ДВА окна с разными каналами.
+
+    Именованный Win32-мьютекс: если он уже существует (программа
+    запущена) — пытаемся вынести существующее окно на передний план и
+    сообщаем, что нужно выйти. Возвращает (mutex_handle, already_running).
+    mutex_handle держим живым весь сеанс (не даём GC закрыть его).
+    На не-Windows — no-op."""
+    if sys.platform != 'win32':
+        return None, False
+    try:
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.windll.kernel32
+        user32 = ctypes.windll.user32
+        ERROR_ALREADY_EXISTS = 183
+        name = "TVViewer_SingleInstance_Mutex_donmax76"
+        kernel32.CreateMutexW.restype = wintypes.HANDLE
+        handle = kernel32.CreateMutexW(None, wintypes.BOOL(True),
+                                       ctypes.c_wchar_p(name))
+        already = (kernel32.GetLastError() == ERROR_ALREADY_EXISTS)
+        if already:
+            # Выносим уже запущенное окно на передний план. Заголовок
+            # приложения — "M3U IPTV" или "M3U IPTV - TVViewer".
+            try:
+                hwnd = 0
+                for title in ("M3U IPTV", "M3U IPTV - TVViewer"):
+                    hwnd = user32.FindWindowW(None, ctypes.c_wchar_p(title))
+                    if hwnd:
+                        break
+                if hwnd:
+                    SW_RESTORE = 9
+                    user32.ShowWindow(hwnd, SW_RESTORE)
+                    user32.SetForegroundWindow(hwnd)
+            except Exception:
+                pass
+        return handle, already
+    except Exception as e:
+        log_error('single_instance', e)
+        return None, False
+
+
 def main():
+    # Round 363: единственный экземпляр. Второй запуск — выходим сразу,
+    # ДО создания QApplication/окна, чтобы не появлялось второе окно.
+    _si_handle, _si_running = _acquire_single_instance()
+    if _si_running:
+        log_info('app', "second instance detected — exiting")
+        try:
+            os._exit(0)
+        except Exception:
+            return
+    # Держим ссылку на мьютекс живой весь сеанс.
+    globals()['_SINGLE_INSTANCE_HANDLE'] = _si_handle
+
     app = QApplication(sys.argv)
     app.setFont(QFont('Segoe UI', 12))
     # Round 291: forcing cursor blink ON — на Windows Tool-окнах
