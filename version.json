@@ -1,12 +1,12 @@
 {
-  "versionCode": 499,
-  "code": 499,
-  "build": 499,
-  "buildNumber": 499,
+  "versionCode": 500,
+  "code": 500,
+  "build": 500,
+  "buildNumber": 500,
   "versionName": "5.4",
   "version": "5.4",
-  "downloadUrl": "https://github.com/donmax76/IpTv/releases/download/v5.4-build499/TVViewer-v5.4-debug.apk",
-  "url": "https://github.com/donmax76/IpTv/releases/download/v5.4-build499/TVViewer-v5.4-debug.apk",
-  "apkUrl": "https://github.com/donmax76/IpTv/releases/download/v5.4-build499/TVViewer-v5.4-debug.apk",
-  "apk": "https://github.com/donmax76/IpTv/releases/download/v5.4-build499/TVViewer-v5.4-debug.apk"
+  "downloadUrl": "https://github.com/donmax76/IpTv/releases/download/v5.4-build500/TVViewer-v5.4-debug.apk",
+  "url": "https://github.com/donmax76/IpTv/releases/download/v5.4-build500/TVViewer-v5.4-debug.apk",
+  "apkUrl": "https://github.com/donmax76/IpTv/releases/download/v5.4-build500/TVViewer-v5.4-debug.apk",
+  "apk": "https://github.com/donmax76/IpTv/releases/download/v5.4-build500/TVViewer-v5.4-debug.apk"
 }
