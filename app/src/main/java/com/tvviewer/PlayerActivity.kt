@@ -564,13 +564,16 @@ class PlayerActivity : BaseActivity() {
         }
         findViewById<View>(R.id.rightMenuLock).setOnClickListener {
             hidePlayerRightMenu()
-            // Android Round 371: блокируем/разблокируем ТЕКУЩИЙ канал.
-            // Блокировка — БЕЗ PIN (PIN уже задан в настройках).
-            // Разблокировка — требует PIN.
             val ch = ChannelDataHolder.allChannels.getOrNull(currentIndex) ?: return@setOnClickListener
+            // Android Round 377: PIN не задан — предлагаем установить
+            // прямо здесь, затем сразу блокируем канал. Раньше просто
+            // тост «сначала установите PIN» и ничего не делали.
             if (!ParentalControl.isEnabled(prefs)) {
-                Toast.makeText(this, R.string.parental_disabled_hint,
-                    Toast.LENGTH_SHORT).show()
+                ParentalControl.askNewPin(this, prefs) {
+                    prefs.toggleChannelLock(ch.url)
+                    Toast.makeText(this, R.string.parental_channel_locked,
+                        Toast.LENGTH_SHORT).show()
+                }
                 return@setOnClickListener
             }
             if (ParentalControl.isChannelUrlLocked(prefs, ch)) {
@@ -2770,18 +2773,19 @@ class PlayerActivity : BaseActivity() {
         // блокирует КАНАЛ (родительский контроль), а не экран.
         // Подпись зависит от состояния + видим только когда PIN
         // установлен. Пункт скрыт, если контроль не включён.
+        // Android Round 377: пункт «Блокировка» ВСЕГДА виден (юзер:
+        // «не вижу его»). Раньше скрывался, если PIN не задан — юзер
+        // думал, что кнопку убрали. Теперь если PIN нет — по нажатию
+        // предложим его установить (см. обработчик rightMenuLock).
         val lockItem = playerRightMenuOverlay
             .findViewById<com.google.android.material.button.MaterialButton>(R.id.rightMenuLock)
         if (lockItem != null) {
-            if (ch != null && ParentalControl.isEnabled(prefs)) {
-                lockItem.visibility = View.VISIBLE
-                val urlLocked = ParentalControl.isChannelUrlLocked(prefs, ch)
-                lockItem.setText(
-                    if (urlLocked) R.string.parental_unlock_channel
-                    else R.string.parental_lock_channel)
-            } else {
-                lockItem.visibility = View.GONE
-            }
+            lockItem.visibility = View.VISIBLE
+            val urlLocked = ch != null && ParentalControl.isEnabled(prefs) &&
+                ParentalControl.isChannelUrlLocked(prefs, ch)
+            lockItem.setText(
+                if (urlLocked) R.string.parental_unlock_channel
+                else R.string.parental_lock_channel)
         }
         // Round 211: slide-in справа.
         if (!wasVisible) {
