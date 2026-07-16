@@ -35,7 +35,39 @@ keytool -genkeypair -v -keystore upload-key.jks \
 
 ## Как собрать `.aab` для загрузки
 
-Локально (нужен установленный Android SDK):
+### Вариант A — автоматически в CI (Round 379)
+
+CI (`.github/workflows/build.yml`) собирает `.aab` **сам на каждый пуш**,
+но только если в репозитории заданы секреты с ключом загрузки. Готовый
+файл выкладывается как artifact `TVViewer-play-aab` в разделе Actions →
+конкретный запуск → Artifacts. Скачай его оттуда и загрузи в Play Console.
+
+Один раз добавь секреты: **Settings → Secrets and variables → Actions →
+New repository secret**:
+
+| Секрет | Значение |
+|--------|----------|
+| `UPLOAD_KEYSTORE_BASE64` | сам файл ключа в base64 (см. команду ниже) |
+| `UPLOAD_KEYSTORE_PASSWORD` | пароль хранилища |
+| `UPLOAD_KEY_ALIAS` | `upload` |
+| `UPLOAD_KEY_PASSWORD` | пароль ключа |
+
+Получить base64 из `upload-key.jks`:
+
+```bash
+base64 -w0 upload-key.jks         # Linux
+base64 -i upload-key.jks          # macOS
+```
+
+Скопируй вывод целиком в значение секрета `UPLOAD_KEYSTORE_BASE64`.
+
+Пока `UPLOAD_KEYSTORE_BASE64` не задан — шаг сборки `.aab` просто
+пропускается (в логе появится notice), а обычная APK-сборка идёт как
+раньше.
+
+### Вариант B — локально
+
+Нужен установленный Android SDK:
 
 ```bash
 UPLOAD_KEYSTORE_FILE=/полный/путь/upload-key.jks \
