@@ -352,11 +352,13 @@ class TVViewerApp : Application(), ImageLoaderFactory {
                     // юзер не мог отключить автообновление.
                     val needFetch = prefs.epgAutoUpdate &&
                         urls.isNotEmpty() && prefs.epgLastUpdate < staleAt
-                    try {
-                        ErrorLogger.info(applicationContext, "EPG",
-                            "auto-tick urls=${urls.size} lastUpdate=${prefs.epgLastUpdate} " +
-                            "stale=${prefs.epgLastUpdate < staleAt} needFetch=$needFetch")
-                    } catch (_: Throwable) {}
+                    // Android Round 378: auto-tick больше НЕ пишем в
+                    // файл лога (ErrorLogger) — юзер: «убери EPG
+                    // логирование». Эта строка писалась каждую минуту и
+                    // забивала лог ошибок, который потом уходит в отчёт.
+                    // Оставляем только в logcat для отладки.
+                    android.util.Log.d("EPG",
+                        "auto-tick urls=${urls.size} needFetch=$needFetch")
                     if (needFetch) {
                         try {
                             val data = EpgRepository.fetchAll(urls, applicationContext)

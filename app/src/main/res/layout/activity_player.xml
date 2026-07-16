@@ -807,6 +807,23 @@
                 android:textSize="16sp"
                 android:textStyle="bold"/>
 
+            <!-- Android Round 378: прокрутка пунктов. На телефоне в
+                 альбомной ориентации 9 пунктов не влезали по высоте, и
+                 нижние (Блокировка, HTTP) обрезались — юзер не видел
+                 кнопку блокировки канала. ScrollView + weight делает
+                 все пункты доступными. -->
+            <ScrollView
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:fillViewport="true"
+                android:scrollbars="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/rightMenuFavorite"
                 style="@style/PlayerDrawerItem"
@@ -896,6 +913,9 @@
                 android:textColor="@color/text_primary"
                 android:focusable="true"
                 app:icon="@drawable/ic_settings"/>
+
+            </LinearLayout>
+            </ScrollView>
 
         </LinearLayout>
 
