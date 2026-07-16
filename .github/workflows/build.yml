@@ -149,6 +149,36 @@ jobs:
         path: aab_output/TVViewer-v5.4-play.aab
         if-no-files-found: error
 
+    # Round 379: авто-деплой .aab в Google Play. Работает только если
+    # задан секрет PLAY_SERVICE_ACCOUNT_JSON (service-account с правами на
+    # публикацию). Без него шаг пропускается. Заливаем на трек
+    # "internal" (внутреннее тестирование) — оттуда владелец сам
+    # продвигает в production. ВАЖНО: первую версию .aab нужно один раз
+    # загрузить в Play Console вручную — Google не даёт публиковать через
+    # API, пока приложение не создано и не залит первый бандл.
+    - name: Check Play service account
+      id: hasplay
+      if: steps.build.outputs.exit_code == '0' && steps.haskey.outputs.present == 'true' && github.event_name == 'push'
+      env:
+        PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+      run: |
+        if [ -n "$PLAY_SERVICE_ACCOUNT_JSON" ]; then
+          echo "present=true" >> $GITHUB_OUTPUT
+        else
+          echo "present=false" >> $GITHUB_OUTPUT
+          echo "::notice::PLAY_SERVICE_ACCOUNT_JSON не задан — авто-деплой в Play пропущен. См. PLAY_STORE.md."
+        fi
+
+    - name: Deploy AAB to Google Play (internal)
+      if: steps.hasplay.outputs.present == 'true'
+      uses: r0adkll/upload-google-play@v1
+      with:
+        serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        packageName: com.tvviewer
+        releaseFiles: aab_output/TVViewer-v5.4-play.aab
+        track: internal
+        status: completed
+
     - name: Create Release
       if: steps.build.outputs.exit_code == '0' && github.event_name == 'push'
       uses: softprops/action-gh-release@v2

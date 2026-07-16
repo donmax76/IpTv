@@ -118,7 +118,35 @@ UPLOAD_KEY_PASSWORD=ВАШ_ПАРОЛЬ \
 
 ---
 
-## Загрузка в Play Console
+## Авто-деплой `.aab` прямо в Play Console (Round 379)
+
+CI может **сам заливать** `.aab` в Play (трек «Внутреннее тестирование»)
+на каждый пуш — без ручной загрузки. Настраивается один раз:
+
+1. **Первую версию `.aab` загрузи в Play Console вручную.** Google не даёт
+   публиковать через API, пока приложение не создано и не залит первый
+   бандл. (Возьми `.aab` из artifact `TVViewer-play-aab`.)
+2. **Создай service-аккаунт** с правом публикации:
+   - Play Console → **Настройки → Доступ к API** → создать/привязать
+     проект Google Cloud → создать service account.
+   - Дай ему роль с правом «Управление выпусками» (Release manager) для
+     твоего приложения.
+   - Скачай его **JSON-ключ**.
+3. **Добавь секрет** в GitHub (Settings → Secrets and variables →
+   Actions): `PLAY_SERVICE_ACCOUNT_JSON` = **всё содержимое** этого JSON.
+
+После этого каждый пуш: собирает `.aab` → подписывает upload-ключом →
+заливает в трек **internal**. Оттуда продвигаешь в production кнопкой в
+Play Console. Пока `PLAY_SERVICE_ACCOUNT_JSON` не задан — шаг деплоя
+пропускается (в логе notice), `.aab` просто остаётся artifact'ом.
+
+> Трек можно сменить в `.github/workflows/build.yml` (`track: internal`
+> → `production`/`beta`/`alpha`), но production на каждый пуш обычно не
+> нужен — лучше internal, а релиз в прод жать вручную.
+
+---
+
+## Загрузка в Play Console (вручную, если без авто-деплоя)
 
 1. **Создай приложение** в Play Console → название, язык, тип «Приложение», бесплатное.
 2. **Play App Signing** — оставь включённым (по умолчанию). При первой
