@@ -3033,13 +3033,16 @@ class _PhotoFetcher(QThread):
                 headers={'User-Agent': 'TVViewer/Windows'})
             with urllib.request.urlopen(req, timeout=8) as resp:
                 data = resp.read()
-        except Exception as e:
-            log_error('PhotoFetcher', e, extra=f"url={self._url}")
+        except Exception:
+            # Round 381: фоновое ДЕКОРАТИВНОЕ фото (picsum.photos). Таймаут
+            # или обрыв сети здесь — не ошибка приложения, а просто «фон не
+            # подгрузился» (остаётся градиент). НЕ логируем — раньше это
+            # засоряло лог ERROR'ами с трейсбеком.
             data = b""
         try:
             self.image_ready.emit(data)
-        except Exception as e:
-            log_error('PhotoFetcher.emit', e)
+        except Exception:
+            pass
 
 
 # ============================================================
