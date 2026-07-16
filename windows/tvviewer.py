@@ -486,6 +486,27 @@ class XtreamApi:
 TRANSLATIONS = {
     'ru': {
         'app_name': "M3U IPTV",
+        # Round 364: родительский контроль + правка плейлистов.
+        'parental_control': "Родительский контроль",
+        'parental_set_pin': "Установить PIN-код",
+        'parental_change_pin': "Сменить PIN-код",
+        'parental_remove_pin': "Отключить (убрать PIN)",
+        'parental_locked_categories': "Заблокированные категории",
+        'parental_enter_pin': "Введите PIN-код",
+        'parental_new_pin': "Новый PIN-код (4–8 цифр)",
+        'parental_wrong_pin': "Неверный PIN-код",
+        'parental_pin_set': "PIN-код установлен",
+        'parental_pin_removed': "Родительский контроль отключён",
+        'parental_channel_locked': "Канал заблокирован 🔒",
+        'parental_channel_unlocked': "Канал разблокирован",
+        'parental_lock_channel': "🔒 Заблокировать канал",
+        'parental_unlock_channel': "🔓 Разблокировать канал",
+        'parental_status_on': "PIN установлен",
+        'playlist_edit': "Редактировать",
+        'playlist_copy_url': "Копировать URL",
+        'playlist_url_copied': "URL скопирован в буфер обмена",
+        'playlist_name_hint': "Название",
+        'playlist_url_hint': "URL плейлиста",
         'home': "Главная",
         'channels': "Каналы",
         'playlists': "Плейлисты",
@@ -657,6 +678,26 @@ TRANSLATIONS = {
     },
     'en': {
         'app_name': "M3U IPTV",
+        'parental_control': "Parental control",
+        'parental_set_pin': "Set PIN",
+        'parental_change_pin': "Change PIN",
+        'parental_remove_pin': "Disable (remove PIN)",
+        'parental_locked_categories': "Locked categories",
+        'parental_enter_pin': "Enter PIN",
+        'parental_new_pin': "New PIN (4–8 digits)",
+        'parental_wrong_pin': "Wrong PIN",
+        'parental_pin_set': "PIN set",
+        'parental_pin_removed': "Parental control disabled",
+        'parental_channel_locked': "Channel locked 🔒",
+        'parental_channel_unlocked': "Channel unlocked",
+        'parental_lock_channel': "🔒 Lock channel",
+        'parental_unlock_channel': "🔓 Unlock channel",
+        'parental_status_on': "PIN set",
+        'playlist_edit': "Edit",
+        'playlist_copy_url': "Copy URL",
+        'playlist_url_copied': "URL copied to clipboard",
+        'playlist_name_hint': "Name",
+        'playlist_url_hint': "Playlist URL",
         'home': "Home",
         'channels': "Channels",
         'playlists': "Playlists",
@@ -1600,6 +1641,10 @@ class Config:
         # не подсасывается на первом запуске — пользователь может
         # сменить язык вручную в Settings.
         self.ui_language = "en"
+        # Round 364 (Windows): родительский контроль — паритет с Android.
+        self.parental_pin_hash = ""        # SHA-256 hex; "" = выключен
+        self.locked_categories = set()     # имена заблокированных категорий
+        self.locked_channel_urls = set()   # url'ы заблокированных каналов
         self.load()
 
     RECENT_LIMIT = 30
@@ -1615,6 +1660,63 @@ class Config:
         self.recent_urls.insert(0, url)
         if len(self.recent_urls) > self.RECENT_LIMIT:
             self.recent_urls = self.recent_urls[:self.RECENT_LIMIT]
+
+    def update_playlist(self, index: int, name: str, url: str):
+        """Round 364 (Windows): правка своего плейлиста — паритет с
+        Android. Меняем имя и/или URL по индексу."""
+        if 0 <= index < len(self.playlists):
+            self.playlists[index] = {'name': name, 'url': url}
+            self.save_async()
+
+    # ---- Round 364: родительский контроль ----
+    def parental_enabled(self) -> bool:
+        return bool(getattr(self, 'parental_pin_hash', ''))
+
+    @staticmethod
+    def _pin_hash(pin: str) -> str:
+        import hashlib as _hl
+        return _hl.sha256(pin.encode('utf-8', 'ignore')).hexdigest()
+
+    def check_pin(self, pin: str) -> bool:
+        return bool(self.parental_pin_hash) and \
+            self._pin_hash(pin) == self.parental_pin_hash
+
+    def set_pin(self, pin: str):
+        self.parental_pin_hash = self._pin_hash(pin)
+        self.save_async()
+
+    def clear_pin(self):
+        self.parental_pin_hash = ''
+        self.save_async()
+
+    def channel_configured_locked(self, ch) -> bool:
+        """Настроена ли блокировка канала (точечно или через категорию).
+        НЕ учитывает сессионную разблокировку — для значка замка."""
+        if not self.parental_enabled():
+            return False
+        try:
+            if ch.url in self.locked_channel_urls:
+                return True
+            if not self.locked_categories:
+                return False
+            grp = ch.group or ''
+            for part in grp.replace('|', ';').replace(',', ';').split(';'):
+                p = part.strip()
+                if p and p in self.locked_categories:
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def toggle_channel_lock(self, url: str) -> bool:
+        if url in self.locked_channel_urls:
+            self.locked_channel_urls.discard(url)
+            locked = False
+        else:
+            self.locked_channel_urls.add(url)
+            locked = True
+        self.save_async()
+        return locked
 
     def get_channel_state(self, url: str) -> dict:
         if not url:
@@ -1708,6 +1810,10 @@ class Config:
                     valid = {"ru", "en", "uk", "az", "system"}
                 if stored_lang in valid:
                     self.ui_language = stored_lang
+                # Round 364: родительский контроль.
+                self.parental_pin_hash = data.get('parental_pin_hash', '') or ''
+                self.locked_categories = set(data.get('locked_categories', []) or [])
+                self.locked_channel_urls = set(data.get('locked_channel_urls', []) or [])
             except Exception:
                 pass
 
@@ -1736,6 +1842,9 @@ class Config:
             'theme_color': self.theme_color,
             'per_channel_state': self.per_channel_state,
             'ui_language': getattr(self, 'ui_language', 'en'),
+            'parental_pin_hash': getattr(self, 'parental_pin_hash', '') or '',
+            'locked_categories': list(getattr(self, 'locked_categories', set())),
+            'locked_channel_urls': list(getattr(self, 'locked_channel_urls', set())),
         }
         # Round 351: атомарная запись (tmp + os.replace) под lock'ом.
         # Раньше писали прямо в CONFIG_FILE: конкурентный save() из
@@ -1802,6 +1911,67 @@ class Config:
                     self.save()
                 except Exception as e:
                     log_error('Config._save_worker', e)
+
+
+# ============================================================
+# Round 364 (Windows): родительский контроль — паритет с Android.
+# ============================================================
+# Сессионная разблокировка: после верного PIN блокировки сняты до
+# конца сеанса (перезапуск снова включает защиту) — иначе зэппинг
+# через заблокированную зону спрашивал бы PIN на каждый канал.
+_PARENTAL_SESSION_UNLOCKED = False
+
+
+def parental_is_locked(config, ch) -> bool:
+    """Нужен ли PIN перед просмотром канала."""
+    if _PARENTAL_SESSION_UNLOCKED:
+        return False
+    return config.channel_configured_locked(ch)
+
+
+def ask_pin(parent, config, on_success, unlock_session=True, on_cancel=None):
+    """Диалог ввода PIN. При верном — on_success(). Неверный — просим
+    ещё раз. Отмена — on_cancel()."""
+    from PyQt5.QtWidgets import QInputDialog, QLineEdit
+    while True:
+        pin, ok = QInputDialog.getText(
+            parent, t('parental_control'), t('parental_enter_pin'),
+            QLineEdit.Password)
+        if not ok:
+            if on_cancel:
+                on_cancel()
+            return
+        if config.check_pin(pin):
+            if unlock_session:
+                global _PARENTAL_SESSION_UNLOCKED
+                _PARENTAL_SESSION_UNLOCKED = True
+            on_success()
+            return
+        # неверный — цикл повторится
+        from PyQt5.QtWidgets import QMessageBox
+        QMessageBox.warning(parent, t('parental_control'),
+                            t('parental_wrong_pin'))
+
+
+def ask_new_pin(parent, config, on_done=None):
+    """Диалог установки нового PIN (4–8 цифр)."""
+    from PyQt5.QtWidgets import QInputDialog, QLineEdit, QMessageBox
+    pin, ok = QInputDialog.getText(
+        parent, t('parental_set_pin'), t('parental_new_pin'),
+        QLineEdit.Password)
+    if not ok:
+        return
+    if pin.isdigit() and 4 <= len(pin) <= 8:
+        global _PARENTAL_SESSION_UNLOCKED
+        config.set_pin(pin)
+        _PARENTAL_SESSION_UNLOCKED = False
+        QMessageBox.information(parent, t('parental_control'),
+                               t('parental_pin_set'))
+        if on_done:
+            on_done()
+    else:
+        QMessageBox.warning(parent, t('parental_set_pin'),
+                            t('parental_new_pin'))
 
 
 class LoadPlaylistThread(QThread):
@@ -3302,6 +3472,16 @@ class PlaylistsPage(QWidget):
 
         btn_row.addStretch()
 
+        # Round 364 (Windows): правка и копирование URL своего плейлиста
+        # — паритет с Android.
+        self._btn_edit = QPushButton(t('playlist_edit'))
+        self._btn_edit.clicked.connect(self.edit_playlist)
+        btn_row.addWidget(self._btn_edit)
+
+        self._btn_copy = QPushButton(t('playlist_copy_url'))
+        self._btn_copy.clicked.connect(self.copy_playlist_url)
+        btn_row.addWidget(self._btn_copy)
+
         self._btn_remove = QPushButton(t('remove'))
         self._btn_remove.setStyleSheet(f"color: {COLORS['error']};")
         self._btn_remove.clicked.connect(self.remove_playlist)
@@ -3309,6 +3489,64 @@ class PlaylistsPage(QWidget):
 
         layout.addLayout(btn_row)
         self.refresh_list()
+
+    def _selected_playlist_index(self):
+        """Индекс выбранного СВОЕГО плейлиста в config.playlists (строки
+        списка соответствуют config.playlists 1:1)."""
+        row = self.playlist_list.currentRow()
+        if 0 <= row < len(self.config.playlists):
+            return row
+        return -1
+
+    def edit_playlist(self):
+        idx = self._selected_playlist_index()
+        if idx < 0:
+            return
+        pl = self.config.playlists[idx]
+        from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QLabel,
+                                     QLineEdit, QDialogButtonBox)
+        dlg = QDialog(self)
+        dlg.setWindowTitle(t('playlist_edit'))
+        dlg.setStyleSheet(STYLESHEET)
+        dlg.setMinimumWidth(460)
+        v = QVBoxLayout(dlg)
+        v.addWidget(QLabel(t('playlist_name_hint')))
+        name_edit = QLineEdit(pl.get('name', ''))
+        v.addWidget(name_edit)
+        v.addWidget(QLabel(t('playlist_url_hint')))
+        url_edit = QLineEdit(pl.get('url', ''))
+        v.addWidget(url_edit)
+        bb = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        # Кнопка «Копировать URL» прямо в редакторе.
+        btn_copy = bb.addButton(t('playlist_copy_url'),
+                                QDialogButtonBox.ActionRole)
+        btn_copy.clicked.connect(
+            lambda: self._copy_to_clipboard(url_edit.text()))
+        v.addWidget(bb)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        if dlg.exec_() == QDialog.Accepted:
+            new_name = name_edit.text().strip()
+            new_url = url_edit.text().strip()
+            if new_name and new_url:
+                self.config.update_playlist(idx, new_name, new_url)
+                self.refresh_list()
+                self.playlist_list.setCurrentRow(idx)
+
+    def _copy_to_clipboard(self, text):
+        try:
+            QApplication.clipboard().setText(text or "")
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.information(self, t('playlist_copy_url'),
+                                   t('playlist_url_copied'))
+        except Exception as e:
+            log_error('copy_playlist_url', e)
+
+    def copy_playlist_url(self):
+        idx = self._selected_playlist_index()
+        if idx < 0:
+            return
+        self._copy_to_clipboard(self.config.playlists[idx].get('url', ''))
 
     def on_builtin_chosen(self, combo):
         idx = combo.currentIndex()
@@ -3359,6 +3597,10 @@ class PlaylistsPage(QWidget):
                 self._btn_paste.setText(t('from_clipboard'))
             if hasattr(self, '_btn_remove'):
                 self._btn_remove.setText(t('remove'))
+            if hasattr(self, '_btn_edit'):
+                self._btn_edit.setText(t('playlist_edit'))
+            if hasattr(self, '_btn_copy'):
+                self._btn_copy.setText(t('playlist_copy_url'))
             # Generic sweep for anything tagged with _t_key.
             _retranslate_widgets(self)
         except Exception as e:
@@ -3837,7 +4079,9 @@ class ChannelsPage(QWidget):
             group_txt = f" [{ch.group}]" if ch.group else ""
             q = detect_quality(ch.name)
             qbadge = f"  ◆{q}" if q else ""
-            item = QListWidgetItem(f"{i+1}. {ch.name}{qbadge}{fav}{group_txt}{epg_text}")
+            # Round 364: значок замка у заблокированных каналов.
+            lock = "🔒 " if self.config.channel_configured_locked(ch) else ""
+            item = QListWidgetItem(f"{lock}{i+1}. {ch.name}{qbadge}{fav}{group_txt}{epg_text}")
             item.setData(Qt.UserRole, ch_to_index.get(id(ch), -1))
             if q:
                 item.setForeground(QColor(QUALITY_COLORS[q]))
@@ -5380,7 +5624,12 @@ class PlayerPage(QWidget):
         b4 = _row("🔍  " + t('menu_search'),
                   lambda: self._center_menu_action('search'))
         b4.setProperty('_t_key', 'menu_search'); b4.setProperty('_t_prefix', '🔍  ')
-        for bb in (b0a, b0b, b0c, b1, b2, b3, b4):
+        # Round 364: блокировка/разблокировка ТЕКУЩЕГО канала. Подпись
+        # обновляется при показе меня (см. _update_center_menu_lock).
+        b5 = _row(t('parental_lock_channel'),
+                  lambda: self._center_menu_action('lock_channel'))
+        self._center_menu_lock_btn = b5
+        for bb in (b0a, b0b, b0c, b1, b2, b3, b4, b5):
             bb.setFocusPolicy(Qt.StrongFocus)
             inner.addWidget(bb)
             self._center_menu_buttons.append(bb)
@@ -5467,6 +5716,62 @@ class PlayerPage(QWidget):
                 mw.switch_page(0)
             elif action == 'tv_guide':
                 mw.switch_page(5)
+            elif action == 'lock_channel':
+                self._toggle_current_channel_lock()
+        except Exception:
+            pass
+
+    def _toggle_current_channel_lock(self):
+        """Round 364: блокировка/разблокировка текущего канала.
+        Блокировка — без PIN (PIN уже задан). Разблокировка — с PIN.
+        PIN не задан — предлагаем установить, затем блокируем."""
+        if not self.channels or self.current_index >= len(self.channels):
+            return
+        ch = self.channels[self.current_index]
+        cfg = self.config
+        from PyQt5.QtWidgets import QMessageBox
+
+        def _do_lock():
+            locked = cfg.toggle_channel_lock(ch.url)
+            self.show_mini_osd(
+                t('parental_channel_locked') if locked
+                else t('parental_channel_unlocked'))
+            self._refresh_channel_lists()
+
+        if not cfg.parental_enabled():
+            ask_new_pin(self, cfg, on_done=_do_lock)
+            return
+        if ch.url in cfg.locked_channel_urls:
+            # Разблокировка — с PIN.
+            ask_pin(self, cfg, _do_lock, unlock_session=False)
+        else:
+            _do_lock()
+
+    def _refresh_channel_lists(self):
+        """Round 364: перерисовать списки каналов (значки замка)."""
+        try:
+            mw = self.window()
+            if hasattr(mw, 'channels_page'):
+                mw.channels_page.filter_channels()
+            if hasattr(self, 'channels_overlay') and \
+                    self.channels_overlay.isVisible():
+                self._refresh_channels_overlay()
+        except Exception as e:
+            log_error('_refresh_channel_lists', e)
+
+    def _update_center_menu_lock(self):
+        """Round 364: подпись кнопки блокировки — Заблокировать/
+        Разблокировать в зависимости от состояния текущего канала."""
+        try:
+            btn = getattr(self, '_center_menu_lock_btn', None)
+            if btn is None:
+                return
+            locked = False
+            if self.channels and self.current_index < len(self.channels):
+                url = self.channels[self.current_index].url
+                locked = url in self.config.locked_channel_urls
+            btn.setText(t('parental_unlock_channel') if locked
+                        else t('parental_lock_channel'))
         except Exception:
             pass
 
@@ -5908,6 +6213,7 @@ class PlayerPage(QWidget):
                 self._cat_list.setCurrentRow(0)
         elif stage == 3:
             self._update_center_menu_epg()
+            self._update_center_menu_lock()
             self.center_menu_overlay.show()
             self.center_menu_overlay.raise_()
             # Round 256: подсветка первой кнопки через property-механизм
@@ -6144,10 +6450,15 @@ class PlayerPage(QWidget):
                 icon = self.logo_cache.get(ch.logo_url)
             except Exception:
                 icon = None
-        item = QListWidgetItem(f"{idx+1}. {ch.name}")
+        try:
+            _locked = self.config.channel_configured_locked(ch)
+        except Exception:
+            _locked = False
+        _lock_pfx = "🔒 " if _locked else ""
+        item = QListWidgetItem(f"{_lock_pfx}{idx+1}. {ch.name}")
         item.setData(Qt.UserRole, idx)
         item.setData(Qt.UserRole + 1, {
-            'name': ch.name or '',
+            'name': f"{_lock_pfx}{ch.name or ''}",
             'group': ch.group or '',
             'number': str(idx + 1),
             'quality': detect_quality(ch.name or ''),
@@ -7023,6 +7334,19 @@ class PlayerPage(QWidget):
         QTimer.singleShot(delay, _fire)
 
     def play_channel(self, index, channels, epg_data):
+        # Round 364: родительский контроль — заблокированный канал
+        # требует PIN перед воспроизведением. После верного PIN
+        # блокировки сняты до конца сеанса (parental_is_locked вернёт
+        # False), поэтому зэппинг дальше не переспрашивает.
+        try:
+            if 0 <= index < len(channels):
+                _ch = channels[index]
+                if parental_is_locked(self.config, _ch):
+                    ask_pin(self, self.config,
+                            lambda: self.play_channel(index, channels, epg_data))
+                    return
+        except Exception as e:
+            log_error('parental.gate', e)
         # Save state for previously-playing channel before switching
         self._save_current_channel_state()
         # Round 288: сбрасываем reconnect-счётчик при ручном выборе
@@ -9125,6 +9449,20 @@ class SettingsPage(QWidget):
         data_row.addStretch()
         layout.addLayout(data_row)
 
+        # --- Round 364: родительский контроль ---
+        layout.addSpacing(8)
+        layout.addWidget(self._section('parental_control'))
+        par_row = QHBoxLayout()
+        self._btn_parental = QPushButton()
+        self._btn_parental.clicked.connect(self._parental_clicked)
+        par_row.addWidget(self._btn_parental)
+        self._btn_parental_cats = QPushButton(t('parental_locked_categories'))
+        self._btn_parental_cats.clicked.connect(self._parental_categories)
+        par_row.addWidget(self._btn_parental_cats)
+        par_row.addStretch()
+        layout.addLayout(par_row)
+        self._refresh_parental_btn()
+
         # --- Updates ---
         layout.addSpacing(8)
         layout.addWidget(self._section('section_updates'))
@@ -9383,6 +9721,96 @@ class SettingsPage(QWidget):
     def _clear_per_channel_state(self):
         self.config.per_channel_state = {}
         self.config.save_async()
+
+    # ---- Round 364: родительский контроль ----
+    def _refresh_parental_btn(self):
+        try:
+            if self.config.parental_enabled():
+                self._btn_parental.setText(t('parental_status_on'))
+            else:
+                self._btn_parental.setText(t('parental_set_pin'))
+            self._btn_parental_cats.setEnabled(self.config.parental_enabled())
+        except Exception:
+            pass
+
+    def _parental_clicked(self):
+        # PIN не задан — устанавливаем. Задан — просим текущий PIN,
+        # затем предлагаем сменить/отключить.
+        if not self.config.parental_enabled():
+            ask_new_pin(self, self.config, on_done=self._refresh_parental_btn)
+            return
+
+        def _authed():
+            from PyQt5.QtWidgets import QMessageBox
+            box = QMessageBox(self)
+            box.setWindowTitle(t('parental_control'))
+            box.setText(t('parental_control'))
+            b_change = box.addButton(t('parental_change_pin'),
+                                     QMessageBox.AcceptRole)
+            b_remove = box.addButton(t('parental_remove_pin'),
+                                     QMessageBox.DestructiveRole)
+            box.addButton(t('cancel'), QMessageBox.RejectRole)
+            box.exec_()
+            clicked = box.clickedButton()
+            if clicked is b_change:
+                ask_new_pin(self, self.config, on_done=self._refresh_parental_btn)
+            elif clicked is b_remove:
+                self.config.clear_pin()
+                global _PARENTAL_SESSION_UNLOCKED
+                _PARENTAL_SESSION_UNLOCKED = False
+                self._refresh_parental_btn()
+                QMessageBox.information(self, t('parental_control'),
+                                       t('parental_pin_removed'))
+        # Управление — только после ввода текущего PIN (не снимая
+        # сессионную блокировку просмотра).
+        ask_pin(self, self.config, _authed, unlock_session=False)
+
+    def _parental_categories(self):
+        if not self.config.parental_enabled():
+            return
+
+        def _authed():
+            from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QScrollArea,
+                                         QWidget, QCheckBox, QDialogButtonBox)
+            # Категории: из текущего плейлиста + уже заблокированные.
+            cats = set()
+            try:
+                mw = self.window()
+                for ch in getattr(mw, 'channels', []) or []:
+                    grp = (ch.group or '').split(';')[0].strip()
+                    if grp:
+                        cats.add(grp)
+            except Exception:
+                pass
+            cats |= set(self.config.locked_categories)
+            cats = sorted(cats)
+            dlg = QDialog(self)
+            dlg.setWindowTitle(t('parental_locked_categories'))
+            dlg.setStyleSheet(STYLESHEET)
+            dlg.setMinimumSize(360, 420)
+            v = QVBoxLayout(dlg)
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            inner = QWidget()
+            iv = QVBoxLayout(inner)
+            checks = {}
+            for c in cats:
+                cb = QCheckBox(c)
+                cb.setChecked(c in self.config.locked_categories)
+                iv.addWidget(cb)
+                checks[c] = cb
+            iv.addStretch()
+            scroll.setWidget(inner)
+            v.addWidget(scroll)
+            bb = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+            v.addWidget(bb)
+            bb.accepted.connect(dlg.accept)
+            bb.rejected.connect(dlg.reject)
+            if dlg.exec_() == QDialog.Accepted:
+                self.config.locked_categories = {
+                    c for c, cb in checks.items() if cb.isChecked()}
+                self.config.save_async()
+        ask_pin(self, self.config, _authed, unlock_session=False)
 
     def _report_issue(self):
         try:
