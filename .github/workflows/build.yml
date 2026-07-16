@@ -1,0 +1,153 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main, 'claude/**' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: 'gradle'
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+
+    - name: Fix line endings
+      run: sed -i 's/\r$//' gradlew
+
+    - name: Build Debug APK
+      id: build
+      env:
+        # Optional: when this secret is set in repo settings, the APK ships
+        # with a baked-in token so crash/error reports POST directly to the
+        # issue tracker. If not set, the app falls back to opening the
+        # browser at github.com/.../issues/new.
+        IPTV_ISSUE_TOKEN: ${{ secrets.IPTV_ISSUE_TOKEN }}
+      run: |
+        ./gradlew assembleGithubDebug --stacktrace 2>&1 | tee build_output.log || true
+        BUILD_EXIT=${PIPESTATUS[0]}
+        echo "exit_code=$BUILD_EXIT" >> $GITHUB_OUTPUT
+        if [ "$BUILD_EXIT" != "0" ]; then
+          echo "Build failed with exit code $BUILD_EXIT"
+        fi
+
+    - name: Create issue on build failure
+      if: steps.build.outputs.exit_code != '0'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # Сначала выдёргиваем именно kotlinc-ошибки (формат "e: file://"
+        # и "error:") — они происходят в начале лога и теряются при
+        # tail. Если их нет — берём последние 200 строк.
+        KOTLIN_ERRORS=$(grep -E "^(e: |.*error: )" build_output.log | head -60 || true)
+        if [ -z "$KOTLIN_ERRORS" ]; then
+          ERROR_CONTENT=$(tail -200 build_output.log)
+        else
+          ERROR_CONTENT="=== Kotlin compile errors ===
+        $KOTLIN_ERRORS
+
+        === Build tail ===
+        $(tail -80 build_output.log)"
+        fi
+        gh issue create \
+          --title "Build Error - $(date +%Y%m%d-%H%M)" \
+          --body "## Build Error Log
+
+        \`\`\`
+        $ERROR_CONTENT
+        \`\`\`
+
+        Commit: ${{ github.sha }}
+        Run: ${{ github.run_id }}"
+        exit 1
+
+    - name: Find and prepare APK
+      if: steps.build.outputs.exit_code == '0'
+      run: |
+        find . -name "*.apk" -type f -ls
+        APK_PATH=$(find . -name "*.apk" -path "*/outputs/*" -type f | head -1)
+        if [ -z "$APK_PATH" ]; then
+          APK_PATH=$(find . -name "*.apk" -type f | head -1)
+        fi
+        if [ -n "$APK_PATH" ]; then
+          mkdir -p apk_output
+          cp "$APK_PATH" apk_output/TVViewer-v5.4-debug.apk
+        else
+          echo "::error::No APK found"
+          exit 1
+        fi
+
+    - name: Upload APK artifact
+      if: steps.build.outputs.exit_code == '0'
+      uses: actions/upload-artifact@v4
+      with:
+        name: TVViewer-debug
+        path: apk_output/TVViewer-v5.4-debug.apk
+        if-no-files-found: error
+
+    - name: Create Release
+      if: steps.build.outputs.exit_code == '0' && github.event_name == 'push'
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v5.4-build${{ github.run_number }}
+        name: TVViewer v5.4 (Build ${{ github.run_number }})
+        files: apk_output/TVViewer-v5.4-debug.apk
+        fail_on_unmatched_files: true
+        make_latest: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    # Round 229: bump version.json on main so the Android app can
+    # read latest build info via raw.githubusercontent.com in a
+    # single ~100 ms request, instead of paginating the releases
+    # endpoint.
+    - name: Bump version.json on main
+      if: steps.build.outputs.exit_code == '0' && github.event_name == 'push'
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git fetch origin main
+        git checkout main
+        # Дублируем поля под разными именами: у клиентов разных
+        # поколений парсеры version.json читали разные ключи
+        # (versionCode/code/build, downloadUrl/url/apk, versionName/
+        # version). Лишние поля новым клиентам не мешают (они берут
+        # versionCode/downloadUrl), а старым дают шанс распознать
+        # обновление их «старым методом».
+        APK_URL="https://github.com/donmax76/IpTv/releases/download/v5.4-build${{ github.run_number }}/TVViewer-v5.4-debug.apk"
+        cat > version.json <<EOF
+        {
+          "versionCode": ${{ github.run_number }},
+          "code": ${{ github.run_number }},
+          "build": ${{ github.run_number }},
+          "buildNumber": ${{ github.run_number }},
+          "versionName": "5.4",
+          "version": "5.4",
+          "downloadUrl": "$APK_URL",
+          "url": "$APK_URL",
+          "apkUrl": "$APK_URL",
+          "apk": "$APK_URL"
+        }
+        EOF
+        git add version.json
+        if ! git diff --cached --quiet; then
+          git commit -m "Bump version.json to build ${{ github.run_number }} [skip ci]"
+          git push origin main || true
+        fi

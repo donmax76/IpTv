@@ -1,0 +1,250 @@
+package com.tvviewer
+
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.ImageButton
+import android.widget.ImageView
+import android.widget.ProgressBar
+import android.widget.TextView
+import androidx.recyclerview.widget.RecyclerView
+import coil.load
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+class OverlayChannelAdapter(
+    initialChannels: List<Channel>,
+    private var epgData: Map<String, List<EpgRepository.Programme>>,
+    private var currentIndex: Int,
+    private var favorites: Set<String> = emptySet(),
+    private val onChannelClick: (Int) -> Unit,
+    private val onFavoriteClick: ((Channel) -> Unit)? = null,
+    // DPAD_RIGHT после "избранное" — показываем детальную информацию
+    // о текущей программе на канале.
+    private val onShowDetailsClick: ((Channel) -> Unit)? = null
+) : RecyclerView.Adapter<OverlayChannelAdapter.ViewHolder>() {
+
+    private var channels: List<Channel> = initialChannels
+
+    /** Обновляет содержимое списка без пересоздания адаптера. Использует
+     *  notifyDataSetChanged потому что и список и индексы меняются
+     *  целиком (например при фильтре поиска). */
+    fun updateChannels(newChannels: List<Channel>, newCurrentIndex: Int) {
+        channels = newChannels
+        currentIndex = newCurrentIndex
+        notifyDataSetChanged()
+    }
+
+    /** Подменяет EPG-карту и перерисовывает все строки. Вызывается когда
+     *  фоновый fetchAll / loadFromCache принёс свежие данные — без этого
+     *  список открытый ДО прихода EPG так и оставался без программы
+     *  (детали в боковой панели появлялись потому что они дёргают
+     *  EpgRepository.getNowNextDetailed заново при открытии). */
+    fun updateEpg(newEpg: Map<String, List<EpgRepository.Programme>>) {
+        epgData = newEpg
+        notifyDataSetChanged()
+    }
+
+    private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+
+    class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val number: TextView = view.findViewById(R.id.overlayChannelNumber)
+        val logo: ImageView = view.findViewById(R.id.overlayChannelLogo)
+        val lockBadge: ImageView = view.findViewById(R.id.overlayChannelLockBadge)
+        val name: TextView = view.findViewById(R.id.overlayChannelName)
+        val epg: TextView = view.findViewById(R.id.overlayChannelEpg)
+        val source: TextView = view.findViewById(R.id.overlayChannelSource)
+        val favoriteBtn: ImageButton = view.findViewById(R.id.overlayFavoriteBtn)
+        val epgProgress: ProgressBar = view.findViewById(R.id.overlayEpgProgress)
+        // Round 212: 3 ячейки EPG-расписания справа от названия канала.
+        val epgSlot1: View = view.findViewById(R.id.overlayEpgSlot1)
+        val epgSlot2: View = view.findViewById(R.id.overlayEpgSlot2)
+        val epgSlot3: View = view.findViewById(R.id.overlayEpgSlot3)
+        val epgTime1: TextView = view.findViewById(R.id.overlayEpgTime1)
+        val epgTime2: TextView = view.findViewById(R.id.overlayEpgTime2)
+        val epgTime3: TextView = view.findViewById(R.id.overlayEpgTime3)
+        val epgTitle1: TextView = view.findViewById(R.id.overlayEpgTitle1)
+        val epgTitle2: TextView = view.findViewById(R.id.overlayEpgTitle2)
+        val epgTitle3: TextView = view.findViewById(R.id.overlayEpgTitle3)
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+        val view = LayoutInflater.from(parent.context).inflate(R.layout.item_overlay_channel, parent, false)
+        return ViewHolder(view)
+    }
+
+    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+        val channel = channels[position]
+        holder.number.text = "${position + 1}"
+        val ctx = holder.itemView.context
+        val prefs = AppPreferences(ctx)
+        val knownH = prefs.getChannelHeight(channel.url)
+        val realLabel = QualityUtil.detectByHeight(knownH)
+        holder.name.text = QualityUtil.formatNameWithQualityBadge(
+            ctx, channel.name, realLabel
+        )
+        // Android Round 372: бейдж замка поверх логотипа у
+        // заблокированных каналов (точечно или через категорию).
+        holder.lockBadge.visibility =
+            if (ParentalControl.isChannelConfiguredLocked(prefs, channel))
+                View.VISIBLE else View.GONE
+        // Источник плейлиста (для избранных) — "▸ Россия".
+        val src = channel.sourcePlaylist
+        if (!src.isNullOrBlank()) {
+            holder.source.text = "▸ $src"
+            holder.source.visibility = View.VISIBLE
+        } else {
+            holder.source.visibility = View.GONE
+        }
+
+        // Лого: tvg-logo → обучаемый кэш → iptv-org → инициалы.
+        val logoUrl = channel.logoUrl
+            ?: LearnedLogos.lookup(channel.name)
+            ?: ChannelMetaLookup.lookup(channel.name)?.logoUrl
+        val tile = LetterTileDrawable(channel.name)
+        // Android Round 353: см. FailedLogoUrls.
+        val logoToLoad = logoUrl?.takeUnless(FailedLogoUrls::isFailed)
+        holder.logo.load(logoToLoad) {
+            crossfade(true)
+            error(tile)
+            placeholder(tile)
+            fallback(tile)
+            listener(onError = { req, _ ->
+                FailedLogoUrls.markFailed(req.data as? String)
+            })
+        }
+
+        // EPG now/next with time
+        val (nowProg, _) = EpgRepository.getNowNextDetailed(epgData, channel.tvgId, channel.name)
+        if (nowProg != null) {
+            val nowTime = timeFormat.format(Date(nowProg.start))
+            val nowEndTime = timeFormat.format(Date(nowProg.end))
+            holder.epg.text = "$nowTime-$nowEndTime ${nowProg.title}"
+            holder.epg.visibility = View.VISIBLE
+
+            // Progress bar
+            val progress = EpgRepository.getCurrentProgress(nowProg)
+            holder.epgProgress.progress = (progress * 100).toInt()
+            holder.epgProgress.visibility = View.VISIBLE
+        } else {
+            holder.epg.visibility = View.GONE
+            holder.epgProgress.visibility = View.GONE
+        }
+
+        // Round 212: 3 ячейки расписания справа (SS IPTV-стиль).
+        // Получаем следующие 3 программы после "now" и подставляем.
+        val upcoming = EpgRepository.getUpcomingProgrammes(
+            epgData, channel.tvgId, channel.name, 3)
+        val slots = listOf(
+            Triple(holder.epgSlot1, holder.epgTime1, holder.epgTitle1),
+            Triple(holder.epgSlot2, holder.epgTime2, holder.epgTitle2),
+            Triple(holder.epgSlot3, holder.epgTime3, holder.epgTitle3),
+        )
+        for (i in slots.indices) {
+            val (slot, timeView, titleView) = slots[i]
+            val prog = upcoming.getOrNull(i)
+            if (prog != null) {
+                timeView.text = timeFormat.format(Date(prog.start))
+                titleView.text = prog.title
+                slot.visibility = View.VISIBLE
+            } else {
+                slot.visibility = View.GONE
+            }
+        }
+
+        // Highlight the currently-playing channel WITHOUT overriding the
+        // background (the bg_epg_item selector handles focus state and we
+        // must keep it intact so the D-pad focus highlight works).
+        holder.itemView.isSelected = (position == currentIndex)
+        holder.name.setTextColor(
+            if (position == currentIndex) 0xFF7C6CF7.toInt() else 0xFFFFFFFF.toInt()
+        )
+        holder.number.setTextColor(
+            if (position == currentIndex) 0xFF7C6CF7.toInt() else 0xFFFFFFFF.toInt()
+        )
+
+        // Favorites
+        val isFav = channel.url in favorites
+        holder.favoriteBtn.setImageResource(
+            if (isFav) R.drawable.ic_favorite else R.drawable.ic_favorite_border
+        )
+        holder.favoriteBtn.setColorFilter(
+            if (isFav) 0xFFFF5252.toInt() else 0x80FFFFFF.toInt()
+        )
+        holder.favoriteBtn.setOnClickListener {
+            onFavoriteClick?.invoke(channel)
+        }
+
+        holder.itemView.setOnClickListener { onChannelClick(position) }
+        holder.itemView.setOnLongClickListener {
+            onFavoriteClick?.invoke(channel); true
+        }
+        holder.itemView.setOnKeyListener { _, keyCode, event ->
+            if (event.action == android.view.KeyEvent.ACTION_DOWN) {
+                when (keyCode) {
+                    // Round 221k: только RIGHT открывает подробную
+                    // программу. LEFT пускаем как раньше — он улетит в
+                    // PlayerActivity.onKeyDown и тот откроет панель
+                    // категорий слева. Round 221h/221j ошибочно
+                    // забирал LEFT тоже.
+                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                        onShowDetailsClick?.invoke(channel); true
+                    }
+                    android.view.KeyEvent.KEYCODE_F,
+                    android.view.KeyEvent.KEYCODE_BUTTON_Y,
+                    android.view.KeyEvent.KEYCODE_PROG_YELLOW,
+                    android.view.KeyEvent.KEYCODE_BOOKMARK -> {
+                        onFavoriteClick?.invoke(channel); true
+                    }
+                    else -> false
+                }
+            } else false
+        }
+        holder.favoriteBtn.setOnKeyListener { _, keyCode, event ->
+            if (event.action == android.view.KeyEvent.ACTION_DOWN) {
+                when (keyCode) {
+                    android.view.KeyEvent.KEYCODE_DPAD_LEFT -> {
+                        // Round 200: clearFocus + post() чтобы фокус
+                        // ГАРАНТИРОВАННО переехал на саму строку, а не
+                        // улетел в боковую панель категорий. Раньше
+                        // requestFocus() вызывался синхронно — на
+                        // некоторых TV-боксах фокус не успевал
+                        // переключиться, и нативный focus-search
+                        // отправлял ←-нажатие в overlayCategoriesPanel.
+                        holder.favoriteBtn.clearFocus()
+                        holder.itemView.post { holder.itemView.requestFocus() }
+                        true
+                    }
+                    // Ещё раз вправо после "избранное" — детальная инфа.
+                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                        onShowDetailsClick?.invoke(channel); true
+                    }
+                    // Round 199: блокируем UP/DOWN на сердечке — фокус
+                    // должен оставаться на текущей строке, чтобы юзер
+                    // случайно не добавил в избранное соседний канал.
+                    android.view.KeyEvent.KEYCODE_DPAD_UP,
+                    android.view.KeyEvent.KEYCODE_DPAD_DOWN -> true
+                    else -> false
+                }
+            } else false
+        }
+    }
+
+    override fun getItemCount() = channels.size
+
+    fun updateCurrentIndex(index: Int) {
+        val old = currentIndex
+        currentIndex = index
+        // Guard: index может быть -1 (текущий канал не входит в
+        // отфильтрованный список) — notifyItemChanged с отрицательной
+        // позицией бросает исключение.
+        if (old in 0 until channels.size) notifyItemChanged(old)
+        if (index in 0 until channels.size) notifyItemChanged(index)
+    }
+
+    fun updateFavorites(newFavorites: Set<String>) {
+        favorites = newFavorites
+        notifyDataSetChanged()
+    }
+}

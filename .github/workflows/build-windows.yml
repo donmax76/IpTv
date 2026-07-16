@@ -1,0 +1,186 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [ main, 'claude/**' ]
+    paths:
+      - 'windows/**'
+      - '.github/workflows/build-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        pip install PyQt5>=5.15.0 python-vlc>=3.0.0 requests>=2.28.0 pyinstaller
+
+    # Round 220a: качаем VLC portable и кладём libvlc.dll + libvlccore.dll
+    # + папку plugins/ внутрь PyInstaller-бандла. Раньше EXE искал
+    # libvlc.dll рядом с собой и падал FileNotFoundError у пользователей
+    # без установленного VLC.
+    - name: Download portable VLC
+      shell: pwsh
+      run: |
+        $vlcUrl = "https://download.videolan.org/pub/videolan/vlc/3.0.21/win64/vlc-3.0.21-win64.zip"
+        Invoke-WebRequest -Uri $vlcUrl -OutFile vlc.zip -UseBasicParsing
+        Expand-Archive -Path vlc.zip -DestinationPath vlc_portable
+        $vlcDir = Get-ChildItem vlc_portable -Directory | Select-Object -First 1
+        Write-Host "VLC extracted to: $($vlcDir.FullName)"
+        # Move libvlc.dll, libvlccore.dll, plugins/ next to tvviewer.py
+        Copy-Item "$($vlcDir.FullName)\libvlc.dll" -Destination windows\libvlc.dll
+        Copy-Item "$($vlcDir.FullName)\libvlccore.dll" -Destination windows\libvlccore.dll
+        Copy-Item "$($vlcDir.FullName)\plugins" -Destination windows\plugins -Recurse
+        Write-Host "Bundled VLC files:"
+        Get-ChildItem windows\libvlc*.dll
+        Write-Host ("Plugins count: " + (Get-ChildItem windows\plugins -Recurse -File).Count)
+
+    - name: Bake build version
+      shell: pwsh
+      run: |
+        Set-Content windows/version.py "WIN_VERSION_CODE = ${{ github.run_number }}"
+
+    # Round 220a: --onedir вместо --onefile. С --onefile все плагины VLC
+    # каждый раз распаковывались во временную папку (300+ файлов = 3-5
+    # секунд старта). --onedir + ZIP грузится мгновенно.
+    - name: Build with PyInstaller (onedir)
+      shell: pwsh
+      run: |
+        cd windows
+        # Round 271: --icon встраивает иконку в EXE (Windows taskbar /
+        # Alt-Tab / Explorer); --add-data assets копирует PNG в бандл
+        # для runtime (splash, setWindowIcon).
+        pyinstaller --onedir --windowed --name TVViewer `
+          --icon assets/tvviewer.ico `
+          --hidden-import m3u_parser `
+          --hidden-import epg_parser `
+          --hidden-import channel_meta_lookup `
+          --hidden-import version `
+          --add-data "m3u_parser.py;." `
+          --add-data "epg_parser.py;." `
+          --add-data "channel_meta_lookup.py;." `
+          --add-data "version.py;." `
+          --add-data "assets;assets" `
+          --add-binary "libvlc.dll;." `
+          --add-binary "libvlccore.dll;." `
+          --add-data "plugins;plugins" `
+          tvviewer.py
+
+    - name: Verify VLC bundled
+      shell: pwsh
+      run: |
+        $exeDir = "windows\dist\TVViewer"
+        Write-Host "Contents of $exeDir`:"
+        Get-ChildItem $exeDir | Select-Object Name, Length
+        if (-not (Test-Path "$exeDir\libvlc.dll")) {
+          # PyInstaller may have placed binaries in _internal/ on newer versions
+          if (Test-Path "$exeDir\_internal\libvlc.dll") {
+            Write-Host "libvlc.dll is in _internal/, copying to exe root..."
+            Copy-Item "$exeDir\_internal\libvlc.dll" -Destination "$exeDir\libvlc.dll"
+            Copy-Item "$exeDir\_internal\libvlccore.dll" -Destination "$exeDir\libvlccore.dll"
+            if (Test-Path "$exeDir\_internal\plugins") {
+              Copy-Item "$exeDir\_internal\plugins" -Destination "$exeDir\plugins" -Recurse
+            }
+          } else {
+            Write-Error "libvlc.dll missing from build output!"
+            exit 1
+          }
+        }
+        Write-Host "Final layout:"
+        Get-ChildItem $exeDir | Select-Object Name
+
+    - name: Package into ZIP
+      shell: pwsh
+      run: |
+        mkdir release_output
+        Compress-Archive -Path windows\dist\TVViewer\* `
+          -DestinationPath release_output\TVViewer-Windows-Portable.zip `
+          -CompressionLevel Optimal
+        Write-Host ("ZIP size: " + (Get-Item release_output\TVViewer-Windows-Portable.zip).Length)
+
+    # Round 301: УБРАН --onefile TVViewer-update.exe ОКОНЧАТЕЛЬНО.
+    # Round 296 пытался с --runtime-tmpdir _tvupd обойти «Failed to
+    # load Python DLL», но теперь PyInstaller 6.x выдаёт другую
+    # ошибку «_PYI_APPLICATION_HOME_DIR environment variable is not
+    # defined!» — onefile в этом окружении просто не жилец. Возврат
+    # к чистой схеме Round 269: обновление через ZIP с авто-
+    # распаковкой поверх install-папки. Юзер видит то же «нажал —
+    # обновилось», только под капотом не дёргается падающий
+    # bootloader onefile-EXE.
+
+    - name: Upload ZIP artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: TVViewer-Windows-Portable
+        path: release_output/TVViewer-Windows-Portable.zip
+        if-no-files-found: error
+
+    # Round 264: bump windows-version.json on main — копируем Android
+    # подход (Round 229 в build.yml). Один HTTP GET к raw.githubusercontent.com
+    # ≈ 100 мс, гораздо надёжнее пагинации Releases API на стороне юзера
+    # (особенно когда PyInstaller-сборка не несёт cacert.pem).
+    - name: Bump windows-version.json on main
+      if: github.event_name == 'push'
+      shell: pwsh
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git fetch origin main
+        git checkout main
+        $build = "${{ github.run_number }}"
+        # Round 301: убран exeUrl — onefile EXE падает у юзера с
+        # «_PYI_APPLICATION_HOME_DIR is not defined!». Возврат к ZIP-
+        # обновлению Round 269 которое работало стабильно.
+        $json = @"
+        {
+          "versionCode": $build,
+          "versionName": "5.4",
+          "tag": "win-v5.4-build$build",
+          "zipUrl":   "https://github.com/donmax76/IpTv/releases/download/win-v5.4-build$build/TVViewer-Windows-Portable.zip"
+        }
+        "@
+        Set-Content windows-version.json $json
+        git add windows-version.json
+        git diff --cached --quiet
+        if ($LASTEXITCODE -ne 0) {
+          git commit -m "Bump windows-version.json to build $build [skip ci]"
+          git push origin main
+        }
+
+    - name: Create Release
+      if: github.event_name == 'push'
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: win-v5.4-build${{ github.run_number }}
+        name: TVViewer v5.4 Windows (Build ${{ github.run_number }}) — standalone
+        body: |
+          Автономная сборка для Windows. VLC встроен, ничего отдельно
+          ставить не нужно. Распакуйте архив и запустите TVViewer.exe.
+
+          • Round 220: вкладка «Плейлисты» — встроенные через комбобоксы,
+            свои в виде списка
+          • Round 220a: libvlc.dll + plugins внутри ZIP, автономный запуск
+          • Round 269: обновление встроенным авто-апдейтером скачивает
+            этот же ZIP и распаковывает поверх install-папки. Раньше был
+            отдельный TVViewer-update.exe (--onefile), но он падал у
+            юзеров с «Failed to load Python DLL python311.dll» — известный
+            баг PyInstaller --onefile.
+        files: |
+          release_output/TVViewer-Windows-Portable.zip
+        fail_on_unmatched_files: true
+        make_latest: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,78 +1,304 @@
 package com.tvviewer
 
-import android.app.DownloadManager
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.net.Uri
-import android.os.Build
-import android.os.Environment
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
 import android.widget.Toast
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.File
+import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 /**
- * Downloads APK and triggers install. Uses DownloadManager + install intent.
+ * Round 186: ПОЛНЫЙ РЕРАЙТ. Раньше использовался Android DownloadManager —
+ * на Allwinner / Rockchip TV-боксах он принимает enqueue() но
+ * BroadcastReceiver на ACTION_DOWNLOAD_COMPLETE никогда не приходит,
+ * прогресс невидимый, юзер видит "Загрузка" в Toast и ничего больше не
+ * происходит. Жалоба: "загрузка пишет но ничего не качает".
+ *
+ * Теперь качаем напрямую через OkHttp, показываем процент в Toast,
+ * сохраняем в cacheDir, и запускаем установщик через FileProvider.
+ * Никаких системных сервисов, никаких permission'ов.
  */
 object UpdateInstaller {
 
-    private var downloadId: Long = -1
-    private var receiver: BroadcastReceiver? = null
+    private const val TAG = "UpdateInstaller"
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .build()
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile private var ongoing: Job? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    /** Round 222b: SplashActivity подписывается сюда чтобы узнать
+     *  что апдейт завершился (или провалился) и пора пускать юзера
+     *  в MainActivity. Вызывается из main-thread. */
+    @Volatile var onFinishedCallback: (() -> Unit)? = null
+
+    /** Round 227: коллбэк процентов загрузки (0..100) на main-thread.
+     *  Splash рисует через него настоящий progress bar вместо
+     *  бесконечного спиннера. */
+    @Volatile var onProgressCallback: ((Int) -> Unit)? = null
+
+    internal fun notifyFinished() {
+        val cb = onFinishedCallback
+        onFinishedCallback = null
+        onProgressCallback = null
+        if (cb != null) mainHandler.post { cb.invoke() }
+    }
 
     fun downloadAndInstall(context: Context, downloadUrl: String) {
-        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val request = DownloadManager.Request(Uri.parse(downloadUrl)).apply {
-            setTitle("TVViewer Update")
-            setDescription("Downloading update...")
-            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "TVViewer-update.apk")
-            setMimeType("application/vnd.android.package-archive")
+        if (ongoing?.isActive == true) {
+            Toast.makeText(context, R.string.update_downloading, Toast.LENGTH_SHORT).show()
+            return
         }
-        downloadId = dm.enqueue(request)
-        Toast.makeText(context, context.getString(R.string.update_downloading), Toast.LENGTH_LONG).show()
-
-        receiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context, intent: Intent) {
-                val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
-                if (id != downloadId) return
-                try {
-                    val uri = dm.getUriForDownloadedFile(downloadId)
-                    if (uri != null) {
-                        installApk(ctx, uri)
-                    } else {
-                        openInBrowser(ctx, downloadUrl)
-                    }
-                } catch (e: Exception) {
-                    openInBrowser(ctx, downloadUrl)
-                }
-                try { ctx.unregisterReceiver(this) } catch (_: Exception) {}
-                receiver = null
+        if (!downloadUrl.lowercase().endsWith(".apk")) {
+            Toast.makeText(
+                context,
+                "Сборка ещё загружается на GitHub. Попробуйте через минуту.",
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
+        // Round 203: проверяем системное разрешение "Установка из
+        // неизвестных источников" ДО скачивания. Без него
+        // PackageInstaller игнорирует наш Intent и юзер видит "ничего
+        // не происходит" после загрузки. На Android 8+ это per-app
+        // permission (canRequestPackageInstalls), на 7 и ниже — system-
+        // wide setting в "Безопасности". Если выключено — отправляем
+        // юзера прямо в нужную страницу настроек.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val canInstall = try { context.packageManager.canRequestPackageInstalls() }
+                catch (_: Throwable) { true }  // some TV ROMs throw — assume ok
+            if (!canInstall) {
+                promptInstallPermission(context)
+                return
             }
         }
-        val flags = if (Build.VERSION.SDK_INT >= 33) Context.RECEIVER_NOT_EXPORTED else 0
-        context.registerReceiver(receiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), flags)
+        val appCtx = context.applicationContext
+        val outFile = File(appCtx.cacheDir, "TVViewer-update.apk")
+        if (outFile.exists()) outFile.delete()
+
+        toast(appCtx, "Загрузка обновления…")
+        ongoing = scope.launch {
+            val ok = try {
+                doDownload(downloadUrl, outFile, appCtx)
+            } catch (e: Exception) {
+                Log.e(TAG, "Download failed", e)
+                false
+            }
+            if (ok && outFile.exists() && outFile.length() > 0) {
+                toast(appCtx, "Загружено, открываю установку")
+                // triggerInstall остаётся ЗДЕСЬ, на Dispatchers.IO:
+                // tryPackageInstaller копирует ВЕСЬ APK (10-30МБ) в
+                // сессию PackageInstaller + fsync — раньше это
+                // выполнялось внутри withContext(Dispatchers.Main),
+                // т.е. многосекундный дисковый I/O на main thread
+                // ровно в момент, когда юзер нажал «Обновить» —
+                // гарантированный ANR на медленных TV-боксах.
+                // PackageInstaller API безопасен вне main thread;
+                // toast() внутри сам постит на mainHandler.
+                triggerInstall(appCtx, outFile)
+                // Install dialog взял управление. notifyFinished
+                // придёт из InstallStatusReceiver на success /
+                // failure / aborted.
+            } else {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(appCtx,
+                        "Не удалось скачать обновление. Откройте страницу релиза.",
+                        Toast.LENGTH_LONG).show()
+                    openInBrowser(appCtx, downloadUrl)
+                    notifyFinished()
+                }
+            }
+        }
     }
 
-    private fun installApk(context: Context, uri: Uri) {
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    private fun doDownload(url: String, dest: File, ctx: Context): Boolean {
+        val req = Request.Builder()
+            .url(url)
+            .header("User-Agent", "TVViewer-App")
+            .build()
+        client.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) {
+                Log.e(TAG, "HTTP ${resp.code}")
+                return false
+            }
+            val body = resp.body ?: return false
+            val total = body.contentLength()
+            var lastReportedPct = -1
+            var written = 0L
+            body.byteStream().use { input ->
+                dest.outputStream().use { output ->
+                    val buf = ByteArray(64 * 1024)
+                    var lastUiPct = -1
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n <= 0) break
+                        output.write(buf, 0, n)
+                        written += n
+                        if (total > 0) {
+                            val pct = ((written * 100) / total).toInt()
+                            // Round 227: UI-коллбэк на каждое изменение
+                            // процента — progress bar в Splash должен
+                            // плавно расти.
+                            if (pct != lastUiPct) {
+                                lastUiPct = pct
+                                val cb = onProgressCallback
+                                if (cb != null) mainHandler.post { cb.invoke(pct) }
+                            }
+                            // Round 229a: Toast про процент показываем
+                            // ТОЛЬКО если нет визуального прогресс-бара
+                            // (т.е. без splash callback'а). Иначе юзер
+                            // видит и бар и Toast параллельно.
+                            val bucket = (pct / 10) * 10
+                            if (bucket != lastReportedPct && bucket > 0 && bucket < 100 &&
+                                onProgressCallback == null) {
+                                lastReportedPct = bucket
+                                mainHandler.post {
+                                    Toast.makeText(ctx,
+                                        "Загрузка обновления: $bucket%",
+                                        Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    }
+                    output.flush()
+                }
+            }
         }
-        try {
-            context.startActivity(intent)
+        return true
+    }
+
+    private fun toast(ctx: Context, text: String) {
+        mainHandler.post {
+            Toast.makeText(ctx, text, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun triggerInstall(ctx: Context, apk: File) {
+        // Round 221f: сначала пробуем PackageInstaller (более надёжный
+        // на TV-боксах с Android 8+: ACTION_VIEW + FileProvider может
+        // не вызывать системный installer на некоторых launcher'ах,
+        // юзер видел «загружено» и ничего дальше).
+        if (tryPackageInstaller(ctx, apk)) return
+        // Fallback на ACTION_VIEW (как было).
+        tryActionViewInstall(ctx, apk)
+    }
+
+    private fun tryPackageInstaller(ctx: Context, apk: File): Boolean {
+        return try {
+            val pm = ctx.packageManager
+            val installer = pm.packageInstaller
+            val params = android.content.pm.PackageInstaller.SessionParams(
+                android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL
+            )
+            params.setAppPackageName(ctx.packageName)
+            val sessionId = installer.createSession(params)
+            installer.openSession(sessionId).use { session ->
+                apk.inputStream().use { input ->
+                    session.openWrite("apk", 0, apk.length()).use { output ->
+                        input.copyTo(output)
+                        session.fsync(output)
+                    }
+                }
+                val intent = Intent(ctx, InstallStatusReceiver::class.java).apply {
+                    `package` = ctx.packageName
+                    action = "com.tvviewer.INSTALL_STATUS"
+                }
+                val flags = android.app.PendingIntent.FLAG_UPDATE_CURRENT or
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S)
+                        android.app.PendingIntent.FLAG_MUTABLE else 0
+                val pi = android.app.PendingIntent.getBroadcast(
+                    ctx, sessionId, intent, flags)
+                session.commit(pi.intentSender)
+            }
+            Log.d(TAG, "PackageInstaller session committed, sessionId=$sessionId")
+            true
         } catch (e: Exception) {
-            openInBrowser(context, uri.toString())
+            Log.e(TAG, "PackageInstaller failed, will fall back to ACTION_VIEW", e)
+            false
         }
     }
 
-    private fun openInBrowser(context: Context, url: String) {
+    private fun tryActionViewInstall(ctx: Context, apk: File) {
+        try {
+            val authority = "${ctx.packageName}.fileprovider"
+            val uri: Uri = FileProvider.getUriForFile(ctx, authority, apk)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            ctx.startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Install intent failed", e)
+            // Через mainHandler: triggerInstall теперь вызывается с
+            // Dispatchers.IO, а Toast с не-Looper-нитки кидает
+            // RuntimeException.
+            mainHandler.post {
+                Toast.makeText(ctx,
+                    "Не удалось запустить установку: ${e.message?.take(80)}",
+                    Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun openInBrowser(ctx: Context, url: String) {
         try {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            context.startActivity(Intent.createChooser(intent, context.getString(R.string.update_download)))
+            ctx.startActivity(intent)
         } catch (_: Exception) {}
+    }
+
+    /** Round 203: открываем системную страницу "Установка из
+     *  неизвестных источников" для текущего приложения с пояснением
+     *  что нужно сделать. Без AlertDialog (нужен Activity-контекст,
+     *  а нас могут дёрнуть из applicationContext) — просто длинный
+     *  Toast + Intent. */
+    private fun promptInstallPermission(ctx: Context) {
+        Toast.makeText(
+            ctx,
+            "Включите «Установка из неизвестных источников» для TVViewer и нажмите «Обновить» снова.",
+            Toast.LENGTH_LONG
+        ).show()
+        try {
+            val intent = if (android.os.Build.VERSION.SDK_INT >=
+                    android.os.Build.VERSION_CODES.O) {
+                Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+                    .setData(Uri.parse("package:${ctx.packageName}"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            } else {
+                Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            ctx.startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Cannot open install-sources settings", e)
+            // Fallback: просто открываем общие настройки приложения.
+            try {
+                val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                    .setData(Uri.parse("package:${ctx.packageName}"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                ctx.startActivity(intent)
+            } catch (_: Exception) {}
+        }
     }
 }

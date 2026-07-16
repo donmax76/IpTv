@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- D-pad navigation: focused/selected row подсвечивается ярко
+         (фиолетовая заливка + белая рамка). Радио-выбранная строка
+         (state_activated) — приглушённая лиловая заливка с пунктирной
+         рамкой, чтобы видно было «эта строка выбрана» даже когда
+         фокус ушёл на другую. -->
+    <!-- Round 371: заливка ПОЛУПРОЗРАЧНАЯ (#CC = 80%), т.к. селектор
+         теперь рисуется ПОВЕРХ строк (isDrawSelectorOnTop=true) —
+         иначе непрозрачная заливка перекрывала бы текст пункта.
+         Раньше селектор был под строками и тёмный фон пунктов
+         полностью прятал подсветку — юзер не видел, что выбрано. -->
+    <item android:state_focused="true">
+        <layer-list>
+            <item><shape><solid android:color="#CC7C6CF7"/></shape></item>
+            <item><shape><stroke android:width="3dp" android:color="#FFFFFF"/></shape></item>
+        </layer-list>
+    </item>
+    <item android:state_selected="true">
+        <layer-list>
+            <item><shape><solid android:color="#CC7C6CF7"/></shape></item>
+            <item><shape><stroke android:width="3dp" android:color="#FFFFFF"/></shape></item>
+        </layer-list>
+    </item>
+    <item android:state_activated="true">
+        <layer-list>
+            <item><shape><solid android:color="#503A2D9C"/></shape></item>
+            <item><shape><stroke android:width="2dp" android:color="#7C6CF7"/></shape></item>
+        </layer-list>
+    </item>
+    <item android:state_checked="true">
+        <layer-list>
+            <item><shape><solid android:color="#503A2D9C"/></shape></item>
+            <item><shape><stroke android:width="2dp" android:color="#7C6CF7"/></shape></item>
+        </layer-list>
+    </item>
+    <item android:state_pressed="true">
+        <shape><solid android:color="#506C5CE7"/></shape>
+    </item>
+    <item><color android:color="@android:color/transparent"/></item>
+</selector>

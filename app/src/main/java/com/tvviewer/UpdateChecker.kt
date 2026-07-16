@@ -5,41 +5,330 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * Checks for app updates by fetching a JSON from URL.
- * Expected format: {"versionCode": 17, "versionName": "4.1", "downloadUrl": "https://..."}
+ * Checks for app updates via GitHub Releases API or a custom version.json URL.
  */
 object UpdateChecker {
 
     private const val TAG = "TVViewer"
+    /** Round 215: GitHub API сортирует /releases по created_at DESC, но
+     *  у нашего репо все теги имеют одну и ту же created_at дату (дата
+     *  создания репо). При совпадающих created_at API возвращает
+     *  СТАРЕЙШИЕ первыми (по id ASC), и первая страница содержит билды
+     *  86-185 примерно — наши свежие 280+ не находились, авто-проверка
+     *  видела «На сервере: build 95».
+     *  Решение: пагинация. Перебираем до 20 страниц по 100 релизов
+     *  (2000 макс), фильтруем v*-buildN, берём максимальный билд. */
+    private const val GITHUB_API_BASE = "https://api.github.com/repos/donmax76/IpTv/releases"
+    // Round 228a: 5 страниц по 100 = до 500 релизов. Хватит на все
+    // build* теги репо. Запрашиваем ПАРАЛЛЕЛЬНО (см. checkGitHubReleases),
+    // поэтому общее время — почти как один HTTP-запрос (~200-500 мс).
+    private const val MAX_PAGES = 5
+    private const val PER_PAGE = 100
+    private val OUR_TAG_REGEX = Regex("^v\\d+\\.\\d+-build\\d+$")
+
     private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
-    data class UpdateInfo(val versionCode: Int, val versionName: String, val downloadUrl: String)
+    data class UpdateInfo(
+        val versionCode: Int,
+        val versionName: String,
+        val downloadUrl: String,
+        val releaseNotes: String = ""
+    )
 
-    suspend fun check(url: String?): Result<UpdateInfo?> = withContext(Dispatchers.IO) {
-        if (url.isNullOrBlank()) return@withContext Result.success(null)
+    // Round 229: версионный JSON, который CI бампает на ветке main
+    // после каждого успешного релиза. Один HTTP GET к CDN-кэшу
+    // raw.githubusercontent.com ≈ 100 мс — быстрее любой пагинации
+    // releases-эндпоинта.
+    private const val FAST_VERSION_JSON =
+        "https://raw.githubusercontent.com/donmax76/IpTv/main/version.json"
+
+    /**
+     * Check for updates. Round 229: fast path через version.json на main
+     * (≈100 мс CDN). Если упало — fallback на параллельный скан
+     * Releases API (Round 228a). Customer URL — последний шанс.
+     */
+    suspend fun check(customUrl: String? = null): Result<UpdateInfo?> = withContext(Dispatchers.IO) {
+        // Fast path.
         try {
-            val request = Request.Builder().url(url).build()
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) return@withContext Result.failure(Exception("HTTP ${response.code}"))
-            val body = response.body?.string() ?: return@withContext Result.failure(Exception("Empty response"))
-            val json = JSONObject(body)
-            val versionCode = json.optInt("versionCode", 0)
-            val versionName = json.optString("versionName", "")
-            val downloadUrl = json.optString("downloadUrl", "")
-            if (versionCode <= 0 || downloadUrl.isBlank()) {
-                return@withContext Result.failure(Exception("Invalid version.json"))
+            val fast = checkVersionJson(FAST_VERSION_JSON)
+            if (fast != null) return@withContext Result.success(fast)
+        } catch (_: Throwable) {}
+
+        // Slow fallback: paginated GitHub Releases API.
+        try {
+            val result = checkGitHubReleases()
+            if (result.isSuccess && result.getOrNull() != null) {
+                return@withContext result
             }
-            Result.success(UpdateInfo(versionCode, versionName, downloadUrl))
         } catch (e: Exception) {
-            Log.e(TAG, "Update check failed", e)
+            Log.d(TAG, "GitHub releases check failed, trying custom URL", e)
+        }
+
+        // Custom URL fallback.
+        if (!customUrl.isNullOrBlank()) {
+            return@withContext checkCustomUrl(customUrl)
+        }
+
+        Result.success(null)
+    }
+
+    /** Парсит version.json. Возвращает null если не удалось скачать /
+     *  распарсить.
+     *  Round 363: читаем поля под НЕСКОЛЬКИМИ именами-алиасами
+     *  (versionCode/code/build/buildNumber, downloadUrl/url/apkUrl/apk,
+     *  versionName/version). Если сервер когда-нибудь снова сменит
+     *  схему имён полей — новый клиент всё равно распарсит. */
+    private fun checkVersionJson(url: String): UpdateInfo? {
+        return try {
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "TVViewer-App")
+                .header("Cache-Control", "no-cache")
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return null
+                val body = response.body?.string() ?: return null
+                val json = JSONObject(body)
+                val code = firstInt(json, "versionCode", "code", "build", "buildNumber")
+                val name = firstStr(json, "versionName", "version")
+                val downloadUrl = firstStr(json, "downloadUrl", "url", "apkUrl", "apk")
+                val notes = firstStr(json, "releaseNotes", "notes")
+                if (code <= 0 || downloadUrl.isBlank()) return null
+                UpdateInfo(code, name, downloadUrl, notes)
+            }
+        } catch (_: Exception) { null }
+    }
+
+    private fun firstInt(o: JSONObject, vararg keys: String): Int {
+        for (k in keys) {
+            val v = o.optInt(k, 0)
+            if (v > 0) return v
+        }
+        return 0
+    }
+
+    private fun firstStr(o: JSONObject, vararg keys: String): String {
+        for (k in keys) {
+            if (!o.isNull(k)) {
+                val v = o.optString(k, "")
+                if (v.isNotBlank()) return v
+            }
+        }
+        return ""
+    }
+
+    /** Round 363: устойчивое «сервер новее меня?».
+     *
+     *  Раньше сравнивали ТОЛЬКО versionCode. Когда схема нумерации
+     *  сменилась (эпоха «3.0» кодировала мажор в большое число →
+     *  нынешний маленький номер CI-сборки), старые клиенты стали
+     *  считать себя новее сервера и перестали обновляться навсегда.
+     *
+     *  Теперь ПЕРВИЧНЫЙ сигнал — semver ИМЕНИ версии: "5.4" > "3.0"
+     *  независимо от кода. Это ловит любую смену схемы кода. Если
+     *  имена равны (или нечитаемы) — падаем на сравнение кодов.
+     *
+     *  ВАЖНО: возвращаем true ТОЛЬКО при СТРОГО большей версии — если
+     *  имя сервера НИЖЕ локального (теоретический откат), обновление
+     *  не навязываем. */
+    fun isServerNewer(serverInfo: UpdateInfo,
+                      localCode: Int, localName: String): Boolean {
+        val cmp = compareVersionNames(serverInfo.versionName, localName)
+        if (cmp > 0) return true         // сервер по имени новее
+        if (cmp < 0) return false        // сервер по имени старше — не навязываем
+        // Имена равны/непарсибельны → сравниваем код сборки.
+        return serverInfo.versionCode > localCode
+    }
+
+    /** Semver-подобное сравнение "5.4"/"3.0.351". Возвращает
+     *  >0 если a новее b, <0 если старше, 0 если равны/непарсибельны. */
+    private fun compareVersionNames(a: String?, b: String?): Int {
+        val pa = parseVer(a)
+        val pb = parseVer(b)
+        if (pa.isEmpty() || pb.isEmpty()) return 0
+        val n = maxOf(pa.size, pb.size)
+        for (i in 0 until n) {
+            val x = pa.getOrElse(i) { 0 }
+            val y = pb.getOrElse(i) { 0 }
+            if (x != y) return x.compareTo(y)
+        }
+        return 0
+    }
+
+    private fun parseVer(s: String?): List<Int> {
+        if (s.isNullOrBlank()) return emptyList()
+        // Берём только числовые компоненты: "5.4" → [5,4],
+        // "3.0.351" → [3,0,351], "v5.4-build476" → [5,4,476].
+        return Regex("\\d+").findAll(s).map { it.value.toIntOrNull() ?: 0 }.toList()
+    }
+
+    private fun checkGitHubReleases(): Result<UpdateInfo?> {
+        try {
+            fun safeStr(o: JSONObject, key: String): String =
+                if (o.isNull(key)) "" else o.optString(key, "")
+
+            // Round 228a: страницы запрашиваются ПАРАЛЛЕЛЬНО — общее
+            // время = время одного HTTP-запроса, а не суммы. Раньше
+            // (Round 215) перебирали страницы последовательно, на сети
+            // это занимало 1-2 сек.
+            val bodies = java.util.concurrent.ConcurrentHashMap<Int, String>()
+            val firstPageError = java.util.concurrent.atomic.AtomicReference<Exception?>()
+            val latch = java.util.concurrent.CountDownLatch(MAX_PAGES)
+            for (page in 1..MAX_PAGES) {
+                val request = Request.Builder()
+                    .url("$GITHUB_API_BASE?per_page=$PER_PAGE&page=$page")
+                    .header("Accept", "application/vnd.github.v3+json")
+                    .header("User-Agent", "TVViewer-App")
+                    .build()
+                client.newCall(request).enqueue(object : okhttp3.Callback {
+                    override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                        if (page == 1) firstPageError.compareAndSet(null, e)
+                        latch.countDown()
+                    }
+                    override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                        try {
+                            if (response.isSuccessful) {
+                                val b = response.body?.string()
+                                if (b != null) bodies[page] = b
+                            } else if (page == 1) {
+                                firstPageError.compareAndSet(null,
+                                    Exception("GitHub API HTTP ${response.code}"))
+                            }
+                        } finally {
+                            response.close()
+                            latch.countDown()
+                        }
+                    }
+                })
+            }
+            // Лимитируем общее ожидание чтобы splash не висел дольше
+            // своего CHECK_TIMEOUT_MS (3 сек). withTimeoutOrNull
+            // снаружи (в SplashActivity) обрежет ещё раз для подстраховки.
+            latch.await(3, java.util.concurrent.TimeUnit.SECONDS)
+
+            val firstErr = firstPageError.get()
+            if (firstErr != null && bodies.isEmpty()) {
+                return Result.failure(firstErr)
+            }
+
+            var bestRelease: JSONObject? = null
+            var bestCode = 0
+            for ((_, body) in bodies) {
+                val arr = try { JSONArray(body) } catch (_: Exception) { continue }
+                for (i in 0 until arr.length()) {
+                    val rel = arr.getJSONObject(i)
+                    val tag = safeStr(rel, "tag_name")
+                    if (!OUR_TAG_REGEX.matches(tag)) continue
+                    val code = extractVersionCode(tag)
+                    if (code > bestCode) {
+                        bestCode = code
+                        bestRelease = rel
+                    }
+                }
+            }
+
+            if (bestRelease == null || bestCode <= 0) {
+                return Result.success(null)
+            }
+            val json = bestRelease
+
+            val tagName = safeStr(json, "tag_name") // e.g. "v5.2-build27"
+            val releaseNotes = safeStr(json, "body")
+
+            val versionCode = bestCode
+            val versionName = extractVersionName(tagName)
+
+            // Find APK download URL from assets
+            val assets = json.optJSONArray("assets") ?: JSONArray()
+            var downloadUrl = ""
+            for (i in 0 until assets.length()) {
+                val asset = assets.getJSONObject(i)
+                val assetName = safeStr(asset, "name")
+                if (assetName.endsWith(".apk")) {
+                    downloadUrl = safeStr(asset, "browser_download_url")
+                    break
+                }
+            }
+
+            if (downloadUrl.isBlank()) {
+                Log.d(TAG, "Release $tagName has no APK asset yet")
+                return Result.success(null)
+            }
+
+            return Result.success(UpdateInfo(versionCode, versionName, downloadUrl, releaseNotes))
+        } catch (e: Exception) {
+            Log.e(TAG, "GitHub releases check failed", e)
+            return Result.failure(e)
+        }
+    }
+
+    private fun checkCustomUrl(url: String): Result<UpdateInfo?> {
+        return try {
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "TVViewer-App")
+                .build()
+            // .use{}: раньше Response не закрывался (утечка сокета на
+            // каждую проверку обновлений), а результат Result.success
+            // с распарсенным UpdateInfo просто ВЫБРАСЫВАЛСЯ — функция
+            // всегда доходила до недостижимого return Result.success(null)
+            // в конце (мёртвый код после try-выражения без присвоения).
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return Result.failure(Exception("HTTP ${response.code}"))
+                }
+                val body = response.body?.string()
+                    ?: return Result.failure(Exception("Empty response"))
+                val json = JSONObject(body)
+                val versionCode = json.optInt("versionCode", 0)
+                val versionName = json.optString("versionName", "")
+                val downloadUrl = json.optString("downloadUrl", "")
+                if (versionCode <= 0 || downloadUrl.isBlank()) {
+                    return Result.failure(Exception("Invalid version.json"))
+                }
+                Result.success(UpdateInfo(versionCode, versionName, downloadUrl))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Custom URL check failed", e)
             Result.failure(e)
         }
+    }
+
+    /**
+     * Extract build number as version code from tag like "v5.2-build27" -> 27
+     * Or from "v5.3" -> parse as 530
+     */
+    private fun extractVersionCode(tag: String): Int {
+        // Try "v5.2-build27" format
+        val buildMatch = Regex("build(\\d+)").find(tag)
+        if (buildMatch != null) {
+            return buildMatch.groupValues[1].toIntOrNull() ?: 0
+        }
+
+        // Try "v5.2" format -> 520
+        val versionMatch = Regex("v?(\\d+)\\.(\\d+)").find(tag)
+        if (versionMatch != null) {
+            val major = versionMatch.groupValues[1].toIntOrNull() ?: 0
+            val minor = versionMatch.groupValues[2].toIntOrNull() ?: 0
+            return major * 100 + minor * 10
+        }
+
+        return 0
+    }
+
+    /**
+     * Extract version name from tag like "v5.2-build27" -> "5.2"
+     */
+    private fun extractVersionName(tag: String): String {
+        val match = Regex("v?(\\d+\\.\\d+)").find(tag)
+        return match?.groupValues?.get(1) ?: tag.removePrefix("v")
     }
 }

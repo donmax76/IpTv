@@ -1,4 +1,3 @@
 .gradle/
-local.properties
-FmRadio-Windows-Portable.zip
-fmradio-desktop/build/classes/
+__pycache__/
+*.pyc

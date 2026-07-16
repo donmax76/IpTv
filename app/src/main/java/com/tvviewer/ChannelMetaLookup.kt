@@ -1,0 +1,320 @@
+package com.tvviewer
+
+import android.content.Context
+import android.util.Log
+import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.File
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+
+/**
+ * Looks up logo URL and tvg-id for a channel by its display name using
+ * the iptv-org public channel database (https://iptv-org.github.io/api/
+ * channels.json). Used as a fallback when the user's M3U doesn't carry
+ * tvg-logo / tvg-id attributes.
+ *
+ * Strategy:
+ *  - Fetch channels.json once. Cache as a JSON file in app filesDir.
+ *  - Refresh in the background every 7 days; until the first fetch
+ *    completes, lookups return null and callers fall back to the host
+ *    favicon. After it arrives, the channels list refreshes itself.
+ *  - Build an in-memory map of normalized(name) -> (logoUrl, tvgId).
+ */
+object ChannelMetaLookup {
+
+    private const val TAG = "ChannelMetaLookup"
+    private const val URL = "https://iptv-org.github.io/api/channels.json"
+    // iptv-org перенёс лого в отдельный файл — основной channels.json
+    // больше не содержит поле "logo". logos.json: массив объектов
+    // с {channel: "...", url: "https://...png", ...}.
+    private const val LOGOS_URL = "https://iptv-org.github.io/api/logos.json"
+    private const val CACHE_FILE = "iptv_org_channels.json"
+    private const val LOGOS_CACHE_FILE = "iptv_org_logos.json"
+    private const val CACHE_LIFETIME_MS = 7L * 24 * 60 * 60 * 1000
+
+    private val client: OkHttpClient = run {
+        val trust = object : javax.net.ssl.X509TrustManager {
+            override fun checkClientTrusted(
+                chain: Array<java.security.cert.X509Certificate>,
+                authType: String
+            ) {}
+            override fun checkServerTrusted(
+                chain: Array<java.security.cert.X509Certificate>,
+                authType: String
+            ) {}
+            override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> =
+                emptyArray()
+        }
+        val ctx = javax.net.ssl.SSLContext.getInstance("TLS")
+        ctx.init(null, arrayOf<javax.net.ssl.TrustManager>(trust), java.security.SecureRandom())
+        OkHttpClient.Builder()
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(90, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .sslSocketFactory(ctx.socketFactory, trust)
+            .hostnameVerifier { _, _ -> true }
+            .build()
+    }
+
+    data class Meta(val logoUrl: String?, val tvgId: String?)
+
+    private val byName = HashMap<String, Meta>(8000)
+    // Параллельный fuzzy-индекс: fuzzyKey(name) → Meta. Для каждого
+    // канала из iptv-org добавляется ещё запись по fuzzy-ключу. Это
+    // позволяет матчить плейлисты с suffix'ами ("Cartoon Network HD")
+    // на голые имена ("Cartoon Network") за O(1).
+    private val byFuzzy = HashMap<String, Meta>(8000)
+    // Если на один fuzzyKey претендуют несколько разных каналов
+    // ("Amedia 1" и "Amedia 2" → "amedia") — обе записи бесполезны:
+    // мы не можем отличить какую вернуть. Помечаем такие ключи
+    // как ambiguous, удаляем из byFuzzy и больше не используем.
+    private val ambiguousFuzzy = HashSet<String>(256)
+    @Volatile private var loaded = false
+    private val loadingStarted = AtomicBoolean(false)
+    private val listeners = mutableListOf<() -> Unit>()
+
+    @Synchronized
+    fun isLoaded(): Boolean = loaded
+
+    /** Сколько каналов в индексе (чтобы понять — БД скачалась но
+     *  пустая, или вообще не загрузилась). */
+    @Synchronized
+    fun indexSize(): Int = byName.size
+
+    /** Первые N ключей byName для диагностики формата. */
+    @Synchronized
+    fun sampleKeys(n: Int = 10): List<String> = byName.keys.take(n).toList()
+
+    /** Проверяет конкретные ключи — есть ли точное совпадение в индексе. */
+    @Synchronized
+    fun hasKeys(keys: List<String>): List<Pair<String, Boolean>> =
+        keys.map { it to (it in byName) }
+
+    /** Notify the caller (typically a RecyclerView adapter) once the
+     *  database becomes available, so it can re-render channel rows
+     *  with the freshly-found logos. */
+    @Synchronized
+    fun onLoaded(callback: () -> Unit) {
+        if (loaded) callback() else listeners.add(callback)
+    }
+
+    @Synchronized
+    fun lookup(channelName: String): Meta? {
+        if (!loaded || channelName.isBlank()) return null
+        // 1. Точное совпадение по нормализованному имени.
+        byName[normalize(channelName)]?.let { return it }
+        // 2. Fuzzy: убираем HD/SD/4K/UK/RU и т.д. Например
+        //    "Cartoon Network HD" matches "Cartoon Network".
+        //    ambiguousFuzzy защищает от коллизий "Amedia 1"/"Amedia 2"
+        //    — оба сводятся к "amedia" и при индексации обе записи
+        //    удалены. Так что byFuzzy["amedia"] вернёт null, не чужой
+        //    канал. Это безопаснее чем глобальный блок цифровых
+        //    каналов (который ломал EPG для "Channel 1", "BBC 1").
+        val fuzzy = EpgRepository.fuzzyKey(channelName)
+        if (fuzzy.isNotEmpty()) byFuzzy[fuzzy]?.let { return it }
+        return null
+    }
+
+    /** Kick off a background load. Safe to call repeatedly.
+     *  Использует TVViewerApp.applicationScope (coroutine, отменяемая
+     *  через SupervisorJob), а не сырой Thread{} — на 256 MB heap
+     *  сырые потоки накапливаются если приложение перезапускается. */
+    fun ensureLoaded(context: Context) {
+        if (loaded) return
+        if (!loadingStarted.compareAndSet(false, true)) return
+        TVViewerApp.applicationScope.launch {
+            try {
+                // 1. Сначала загружаем logos.json и строим карту
+                //    channel_id → logo_url. iptv-org держит лого в
+                //    отдельном файле с 2024 года (channels.json больше
+                //    не содержит поле "logo").
+                val logosCache = File(context.filesDir, LOGOS_CACHE_FILE)
+                val logosFresh = logosCache.exists() &&
+                    System.currentTimeMillis() - logosCache.lastModified() < CACHE_LIFETIME_MS
+                // Fallback на протухший кэш если сеть недоступна —
+                // старые лого лучше, чем никаких.
+                val logosText = if (logosFresh) logosCache.readText()
+                                else fetchAndCacheUrl(LOGOS_URL, logosCache)
+                                    ?: (if (logosCache.exists()) try { logosCache.readText() } catch (_: Exception) { null } else null)
+                val logosByChannel = parseLogos(logosText)
+
+                // 2. Затем channels.json — строим byName/byFuzzy,
+                //    подтягивая лого из карты выше.
+                val cache = File(context.filesDir, CACHE_FILE)
+                val fresh = cache.exists() &&
+                    System.currentTimeMillis() - cache.lastModified() < CACHE_LIFETIME_MS
+                val text = if (fresh) cache.readText()
+                           else fetchAndCacheUrl(URL, cache)
+                               ?: (if (cache.exists()) try { cache.readText() } catch (_: Exception) { null } else null)
+                if (text != null) parseAndIndex(text, logosByChannel)
+                // Убран повторный fetch при "!fresh": в этой ветке мы
+                // ТОЛЬКО ЧТО скачали и закэшировали те же URL строчками
+                // выше — немедленная повторная закачка ~5МБ×2 была
+                // чистой тратой трафика/батареи на каждый холодный
+                // старт после протухания кэша.
+            } catch (e: Exception) {
+                Log.e(TAG, "ensureLoaded failed", e)
+            } finally {
+                loadingStarted.set(false)
+                synchronized(this) {
+                    loaded = true
+                    val cbs = listeners.toList()
+                    listeners.clear()
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        cbs.forEach { it.invoke() }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun fetchAndCacheUrl(url: String, cache: File): String? {
+        return try {
+            val req = Request.Builder().url(url).build()
+            client.newCall(req).execute().use { res ->
+                if (!res.isSuccessful) return null
+                val body = res.body?.string() ?: return null
+                // Атомарная запись tmp+rename — обрыв посреди записи
+                // многомегабайтного JSON оставлял обрезанный кэш,
+                // который потом 7 дней (CACHE_LIFETIME) молча кормил
+                // парсер неполными данными.
+                val tmp = File(cache.parentFile, cache.name + ".tmp")
+                tmp.writeText(body)
+                if (!tmp.renameTo(cache)) {
+                    cache.delete()
+                    if (!tmp.renameTo(cache)) tmp.delete()
+                }
+                body
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "fetch failed: $url", e)
+            null
+        }
+    }
+
+    /** Стриминг-парсер logos.json через JsonReader. JSONArray
+     *  загружает 5MB в DOM-дерево разом и держит всё в памяти —
+     *  на X4 X4 это занимает 30+ секунд. JsonReader идёт по байтам
+     *  без промежуточных JSONObject — в 3-5x быстрее. */
+    private fun parseLogos(text: String?): Map<String, String> {
+        if (text.isNullOrBlank()) return emptyMap()
+        return try {
+            val out = HashMap<String, String>(8000)
+            val r = android.util.JsonReader(java.io.StringReader(text))
+            r.beginArray()
+            while (r.hasNext()) {
+                r.beginObject()
+                var ch: String? = null
+                var u: String? = null
+                while (r.hasNext()) {
+                    when (r.nextName()) {
+                        "channel" -> ch = r.nextString()
+                        "url" -> u = r.nextString()
+                        else -> r.skipValue()
+                    }
+                }
+                r.endObject()
+                if (!ch.isNullOrEmpty() && !u.isNullOrEmpty() && ch !in out) {
+                    out[ch] = u
+                }
+            }
+            r.endArray()
+            r.close()
+            out
+        } catch (e: Throwable) {
+            Log.e(TAG, "parseLogos failed", e)
+            emptyMap()
+        }
+    }
+
+    /** Стриминг-парсер channels.json через JsonReader. */
+    private fun parseAndIndex(text: String, logosByChannel: Map<String, String>) {
+        try {
+            val r = android.util.JsonReader(java.io.StringReader(text))
+            r.beginArray()
+            while (r.hasNext()) {
+                r.beginObject()
+                var name: String? = null
+                var tvgId: String? = null
+                var logo: String? = null
+                val altNames = ArrayList<String>(4)
+                while (r.hasNext()) {
+                    when (r.nextName()) {
+                        "name" -> name = r.nextString()
+                        "id" -> tvgId = if (r.peek() == android.util.JsonToken.NULL) {
+                            r.nextNull(); null
+                        } else r.nextString()
+                        "logo" -> logo = if (r.peek() == android.util.JsonToken.NULL) {
+                            r.nextNull(); null
+                        } else r.nextString()
+                        "alt_names" -> {
+                            r.beginArray()
+                            while (r.hasNext()) altNames.add(r.nextString())
+                            r.endArray()
+                        }
+                        else -> r.skipValue()
+                    }
+                }
+                r.endObject()
+                if (name.isNullOrEmpty()) continue
+                val finalLogo = logo?.takeIf { it.isNotEmpty() }
+                    ?: tvgId?.let { logosByChannel[it] }
+                if (finalLogo == null && tvgId == null) continue
+                val key = normalize(name)
+                val meta = Meta(finalLogo, tvgId)
+                if (key.isNotEmpty() && key !in byName) {
+                    byName[key] = meta
+                    addFuzzy(EpgRepository.fuzzyKey(name), meta)
+                }
+                for (altName in altNames) {
+                    val k = normalize(altName)
+                    if (k.isNotEmpty() && k !in byName) {
+                        byName[k] = meta
+                        addFuzzy(EpgRepository.fuzzyKey(altName), meta)
+                    }
+                }
+            }
+            r.endArray()
+            r.close()
+        } catch (e: Throwable) {
+            Log.e(TAG, "parseAndIndex failed", e)
+        }
+    }
+
+    /** Добавляет (или удаляет при коллизии) fuzzy-ключ. Если на тот же
+     *  ключ уже есть запись с ДРУГОЙ Meta — оба варианта удаляем,
+     *  ключ помечаем ambiguous и больше никогда не используем для
+     *  него byFuzzy[]. Это предотвращает кейс когда "Amedia 1" и
+     *  "Amedia 2" оба сводятся к "amedia" и выдают друг другу
+     *  чужой tvg-id из iptv-org. */
+    private fun addFuzzy(fk: String, meta: Meta) {
+        if (fk.isEmpty()) return
+        if (fk in ambiguousFuzzy) return
+        val existing = byFuzzy[fk]
+        if (existing == null) {
+            byFuzzy[fk] = meta
+        } else if (existing.tvgId != meta.tvgId || existing.logoUrl != meta.logoUrl) {
+            byFuzzy.remove(fk)
+            ambiguousFuzzy.add(fk)
+        }
+    }
+
+    // Прекомпилированы: normalize зовётся из lookup() на каждый bind
+    // строки адаптеров — Regex(...) на каждый вызов был лишним
+    // CPU-налогом на кадр при скролле.
+    private val diacriticsRe = Regex("\\p{InCombiningDiacriticalMarks}+")
+    private val nonAlnumRe = Regex("[^\\p{L}\\p{N}]")
+
+    private fun normalize(s: String): String {
+        // Unicode-aware: \p{L} держит буквы любого алфавита (Cyrillic,
+        // азербайджанский ə, türk ç, и пр.), \p{N} — цифры. Должно
+        // совпадать с EpgRepository.normalizeId / TvGuideFragment.norm.
+        // Plus diacritics-fold: 'Türkiye' → 'turkiye' для матчинга
+        // ASCII-вариантов плейлиста с UTF-8 именами в iptv-org.
+        val folded = java.text.Normalizer.normalize(s.lowercase(), java.text.Normalizer.Form.NFD)
+            .replace(diacriticsRe, "")
+        return folded.replace(nonAlnumRe, "")
+    }
+}

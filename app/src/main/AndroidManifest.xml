@@ -5,7 +5,15 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Round 376: REQUEST_INSTALL_PACKAGES перенесён в
+         src/github/AndroidManifest.xml — он нужен ТОЛЬКО встроенному
+         авто-апдейтеру (установка APK). В play-флейворе его нет:
+         Google Play запрещает само-обновление, и это разрешение —
+         главный триггер отклонения / пометки «вирус». -->
+    <!-- Round 229a: для авто-открытия MainActivity после установки
+         обновления через high-priority notification + fullScreenIntent. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
@@ -21,32 +29,88 @@
         android:theme="@style/Theme.TVViewer"
         android:usesCleartextTraffic="true"
         tools:targetApi="34">
+
         <activity
             android:name=".CrashReportActivity"
             android:exported="false"
             android:theme="@style/Theme.TVViewer"
             android:noHistory="true" />
+
+        <!-- Round 222b: финальный поток (с третьего раза):
+             splash виден пока идёт проверка → если апдейт есть →
+             диалог → «Да» → splash остаётся видим до завершения
+             загрузки + установки → MainActivity только после.
+             Если апдейта нет — splash мелькает 0.5-1 сек, дальше
+             MainActivity. -->
         <activity
-            android:name=".MainActivity"
+            android:name=".SplashActivity"
             android:exported="true"
-            android:theme="@style/Theme.TVViewer.NoActionBar"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
-            android:screenOrientation="fullUser"
-            android:resizeableActivity="true">
+            android:theme="@style/Theme.TVViewer.Transparent"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.TVViewer"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:resizeableActivity="true"/>
+
+        <activity
+            android:name=".PlayerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.TVViewer.Player"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
+            android:screenOrientation="sensorLandscape"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:parentActivityName=".MainActivity" />
+
+        <activity
+            android:name=".AddPlaylistActivity"
+            android:exported="false"
+            android:theme="@style/Theme.TVViewer"
+            android:parentActivityName=".MainActivity" />
+
         <activity
             android:name=".SettingsActivity"
             android:exported="false"
+            android:theme="@style/Theme.TVViewer.SettingsPanel"
             android:parentActivityName=".MainActivity" />
-        <activity
-            android:name=".TvGuideActivity"
+
+        <!-- Round 221f: получает callback от PackageInstaller сессии и
+             запускает системный диалог подтверждения установки.
+             Зарегистрирован в манифесте (а не в коде) чтобы работал
+             даже если приложение в момент завершения скачивания
+             уйдёт в background. -->
+        <receiver
+            android:name=".InstallStatusReceiver"
             android:exported="false"
-            android:theme="@style/Theme.TVViewer.NoActionBar"
-            android:parentActivityName=".MainActivity" />
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="com.tvviewer.INSTALL_STATUS" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Round 186: FileProvider нужен чтобы отдать content:// URI
+             на скачанный APK системному установщику (PackageInstaller на
+             Android 7+ не принимает file://). Authority совпадает с тем
+             что мы передаём в FileProvider.getUriForFile() в
+             UpdateInstaller. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_provider_paths" />
+        </provider>
+
     </application>
 </manifest>

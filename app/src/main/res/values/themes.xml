@@ -1,19 +1,226 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.TVViewer" parent="Theme.MaterialComponents.DayNight.DarkActionBar">
-        <item name="colorPrimary">#1976D2</item>
-        <item name="colorPrimaryVariant">#0D47A1</item>
+    <style name="Theme.TVViewer" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#7C6CF7</item>
+        <item name="colorPrimaryVariant">#5A4DC5</item>
         <item name="colorOnPrimary">@android:color/white</item>
-        <item name="colorSecondary">#03DAC6</item>
-        <item name="colorSecondaryVariant">#018786</item>
+        <item name="colorSecondary">#00CEC9</item>
+        <item name="colorSecondaryVariant">#009E9A</item>
         <item name="colorOnSecondary">@android:color/black</item>
-        <item name="android:statusBarColor">#0D47A1</item>
-        <item name="android:navigationBarColor">#121212</item>
-        <item name="android:windowBackground">#121212</item>
+        <item name="android:statusBarColor">@color/surface</item>
+        <item name="android:navigationBarColor">@color/surface</item>
+        <item name="android:windowBackground">@color/background</item>
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorOnSurface">@android:color/white</item>
+        <item name="bottomNavigationStyle">@style/Widget.TVViewer.BottomNavigation</item>
     </style>
-    <!-- NoActionBar theme for activities that use custom Toolbar -->
+
     <style name="Theme.TVViewer.NoActionBar" parent="Theme.TVViewer">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
+    </style>
+
+    <!-- Dialog theme - proper dark dialog with visible controls -->
+    <style name="Theme.TVViewer.Dialog" parent="ThemeOverlay.MaterialComponents.MaterialAlertDialog">
+        <item name="colorPrimary">#7C6CF7</item>
+        <item name="colorSecondary">#00CEC9</item>
+        <item name="colorSurface">#2A2A48</item>
+        <item name="colorOnSurface">@android:color/white</item>
+        <item name="android:background">#2A2A48</item>
+        <item name="android:textColor">@android:color/white</item>
+        <item name="android:textColorPrimary">@android:color/white</item>
+        <item name="android:textColorSecondary">#CCCCDD</item>
+        <!-- Android Round 375: цвет текста пунктов setItems/
+             setMultiChoiceItems. Без него пункты рисовались тёмным на
+             тёмном — юзер: «в меню родительского контроля шрифты не
+             видны». textColorPrimary на список НЕ распространяется —
+             у элементов диалога свой атрибут. -->
+        <item name="android:textColorAlertDialogListItem">@android:color/white</item>
+        <item name="colorControlNormal">#AAAACC</item>
+        <item name="colorControlActivated">#7C6CF7</item>
+        <item name="colorControlHighlight">#407C6CF7</item>
+        <item name="materialAlertDialogTitleTextStyle">@style/DialogTitleStyle</item>
+        <item name="materialAlertDialogBodyTextStyle">@style/DialogBodyStyle</item>
+        <!-- Make focus on dialog list items (radio/checkbox/single-choice)
+             clearly visible for D-pad / TV remote users. -->
+        <item name="android:listChoiceBackgroundIndicator">@drawable/bg_dialog_list_item</item>
+        <item name="listChoiceBackgroundIndicator">@drawable/bg_dialog_list_item</item>
+        <item name="android:listSelector">@drawable/bg_dialog_list_item</item>
+    </style>
+
+    <style name="DialogTitleStyle" parent="MaterialAlertDialog.MaterialComponents.Title.Text">
+        <item name="android:textColor">@android:color/white</item>
+        <item name="android:textSize">18sp</item>
+    </style>
+
+    <!-- Android Round 375: белый текст сообщения диалога (setMessage). -->
+    <style name="DialogBodyStyle" parent="MaterialAlertDialog.MaterialComponents.Body.Text">
+        <item name="android:textColor">@android:color/white</item>
+    </style>
+
+    <!-- Боковая панель вместо центрального диалога. Используется в
+         FocusableDialog. Принципиально НЕ наследует от
+         MaterialAlertDialog — у того есть windowMinWidthMajor (65%) и
+         windowBackground с insets, из-за которых наш width=50% +
+         gravity=END визуально превращался в обычный центрированный
+         диалог. Здесь мы используем простую AppCompat-Dialog тему и
+         перетираем оставшиеся ограничения программно через
+         window.attributes (см. FocusableDialog.show). -->
+    <style name="Theme.TVViewer.SidePanel" parent="Theme.AppCompat.DayNight.Dialog">
+        <item name="colorPrimary">#7C6CF7</item>
+        <item name="colorAccent">#7C6CF7</item>
+        <item name="android:windowBackground">@color/surface</item>
+        <item name="android:textColor">@android:color/white</item>
+        <item name="android:textColorPrimary">@android:color/white</item>
+        <item name="android:textColorSecondary">#CCCCDD</item>
+        <item name="colorControlNormal">#AAAACC</item>
+        <item name="colorControlActivated">#7C6CF7</item>
+        <item name="colorControlHighlight">#407C6CF7</item>
+        <item name="android:listChoiceBackgroundIndicator">@drawable/bg_dialog_list_item</item>
+        <item name="listChoiceBackgroundIndicator">@drawable/bg_dialog_list_item</item>
+        <item name="android:listSelector">@drawable/bg_dialog_list_item</item>
+    </style>
+
+    <!-- Текст пунктов бокового меню — без капса, помельче, чтобы длинные
+         локализованные подписи ("Список плейлистов" / "Программа TV")
+         помещались в одну строку. -->
+    <style name="SideNavTextAppearance" parent="TextAppearance.MaterialComponents.Body2">
+        <item name="android:textSize">14sp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:ellipsize">end</item>
+    </style>
+
+    <!-- Кнопки выдвижного меню в плеере: без капса, помельче, в одну
+         строку. textSize 12sp + iconPadding 6dp + insetTop/Bottom=0
+         (по умолчанию MaterialButton добавляет 6dp) — длинные подписи
+         "Просмотренные" / "Список плейлистов" гарантированно влезают. -->
+    <style name="PlayerDrawerItem" parent="Widget.MaterialComponents.Button.TextButton">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:gravity">start|center_vertical</item>
+        <item name="android:paddingStart">8dp</item>
+        <item name="android:paddingEnd">4dp</item>
+        <item name="iconPadding">8dp</item>
+        <item name="iconSize">18dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:letterSpacing">0</item>
+        <!-- foreground делает фокус видимым: фиолетовая рамка
+             поверх кнопки при наведении D-pad. Без него юзер не
+             видел какая кнопка в фокусе в боковом меню плеера. -->
+        <item name="android:foreground">@drawable/item_channel_focused</item>
+    </style>
+
+    <!-- Round 211: пункт центрального popup-меню (фото 4 SS IPTV).
+         Тонкая граница, иконка слева, текст по левому краю с отступом.
+         Активный фокус — яркий cyan-голубой градиент через
+         bg_center_menu_item. -->
+    <!-- Round 221b: parent был Widget.MaterialComponents.Button.TextButton
+         — он рисовал свою MaterialShape поверх android:background, из-за
+         чего cyan-подсветка фокуса из bg_center_menu_item не была видна.
+         Отвязали от Material; теперь это просто styled Button и
+         android:background работает корректно. -->
+    <style name="CenterMenuItem">
+        <item name="android:textSize">15sp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:gravity">start|center_vertical</item>
+        <item name="android:textColor">@android:color/white</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">16dp</item>
+        <item name="android:layout_marginTop">3dp</item>
+        <item name="android:layout_marginBottom">3dp</item>
+        <item name="android:letterSpacing">0</item>
+        <item name="android:focusable">true</item>
+        <item name="android:focusableInTouchMode">false</item>
+        <item name="android:clickable">true</item>
+        <item name="android:background">@drawable/bg_center_menu_item</item>
+        <item name="android:minHeight">52dp</item>
+        <item name="android:stateListAnimator">@null</item>
+    </style>
+
+    <style name="Widget.TVViewer.BottomNavigation" parent="Widget.MaterialComponents.BottomNavigationView.Colored">
+        <item name="android:background">@color/surface</item>
+        <item name="itemIconTint">@color/bottom_nav_color</item>
+        <item name="itemTextColor">@color/bottom_nav_color</item>
+    </style>
+
+    <style name="Theme.TVViewer.Player" parent="Theme.TVViewer">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
+    <!-- Round 222c: прозрачный no-content launcher для SplashActivity.
+         Пока идёт проверка апдейта — окна не видно вообще, юзер
+         думает что программа ещё не запустилась. Если апдейт есть —
+         поверх прозрачного фона всплывает AlertDialog. Если нет —
+         SplashActivity молча запускает MainActivity. -->
+    <style name="Theme.TVViewer.Transparent" parent="Theme.TVViewer.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
+    <!-- Round 180: Settings рендерится как боковая панель на пол-экрана
+         поверх MainActivity. Прозрачный windowBackground +
+         windowIsTranslucent позволяют видеть MainActivity сквозь
+         dim-overlay; контент Settings рисуется в правой половине
+         (см. activity_settings.xml + SettingsActivity.onCreate). -->
+    <style name="Theme.TVViewer.SettingsPanel" parent="Theme.TVViewer.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
+    <style name="CardStyle" parent="Widget.MaterialComponents.CardView">
+        <item name="cardBackgroundColor">@color/card_background</item>
+        <item name="cardCornerRadius">12dp</item>
+        <item name="cardElevation">4dp</item>
+    </style>
+
+    <style name="SearchBarStyle" parent="Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+        <item name="boxBackgroundColor">@color/card_background</item>
+        <item name="boxCornerRadiusTopStart">24dp</item>
+        <item name="boxCornerRadiusTopEnd">24dp</item>
+        <item name="boxCornerRadiusBottomStart">24dp</item>
+        <item name="boxCornerRadiusBottomEnd">24dp</item>
+        <item name="boxStrokeColor">#7C6CF7</item>
+        <item name="hintTextColor">#80FFFFFF</item>
+    </style>
+
+    <!-- Color Theme: Blue -->
+    <style name="Theme.TVViewer.Blue" parent="Theme.TVViewer">
+        <item name="colorPrimary">#2196F3</item>
+        <item name="colorPrimaryVariant">#1976D2</item>
+        <item name="colorSecondary">#03DAC5</item>
+    </style>
+
+    <!-- Color Theme: Green -->
+    <style name="Theme.TVViewer.Green" parent="Theme.TVViewer">
+        <item name="colorPrimary">#4CAF50</item>
+        <item name="colorPrimaryVariant">#388E3C</item>
+        <item name="colorSecondary">#00BCD4</item>
+    </style>
+
+    <!-- Color Theme: Orange -->
+    <style name="Theme.TVViewer.Orange" parent="Theme.TVViewer">
+        <item name="colorPrimary">#FF9800</item>
+        <item name="colorPrimaryVariant">#F57C00</item>
+        <item name="colorSecondary">#FFB74D</item>
+    </style>
+
+    <!-- Color Theme: Red -->
+    <style name="Theme.TVViewer.Red" parent="Theme.TVViewer">
+        <item name="colorPrimary">#F44336</item>
+        <item name="colorPrimaryVariant">#D32F2F</item>
+        <item name="colorSecondary">#FF7043</item>
     </style>
 </resources>

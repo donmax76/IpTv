@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/categoryName"
+    android:layout_width="wrap_content"
+    android:layout_height="@dimen/category_chip_height"
+    android:gravity="center"
+    android:paddingStart="@dimen/category_chip_padding_h"
+    android:paddingEnd="@dimen/category_chip_padding_h"
+    android:layout_marginEnd="8dp"
+    android:background="@drawable/bg_category_chip"
+    android:textColor="@android:color/white"
+    android:textSize="@dimen/category_chip_text"
+    android:singleLine="true"
+    android:focusable="true"
+    android:focusableInTouchMode="false"/>

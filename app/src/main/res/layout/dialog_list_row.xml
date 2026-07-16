@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ListView fires onItemClick at the list level when the user presses
+     OK on a row, but only if the row itself is not clickable / focusable
+     — otherwise the row consumes the event and the dialog never gets it.
+     The bg_dialog_list_item state-list selector still highlights the
+     focused / selected row through the ListView's selector mechanism. -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="56dp"
+    android:gravity="center_vertical"
+    android:paddingStart="20dp"
+    android:paddingEnd="20dp"
+    android:textSize="16sp"
+    android:textColor="@android:color/white"
+    android:background="@drawable/bg_dialog_list_item"/>
