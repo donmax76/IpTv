@@ -113,7 +113,7 @@ class RtlSdrDevice(private val context: Context) {
         private const val FC2580_I2C_ADDR = 0xAC  // FC2580: 7-bit 0x56
 
         // Default sample rate for FM (1.152 MHz — divides cleanly to 48 kHz audio)
-        const val DEFAULT_SAMPLE_RATE = 1152000
+        const val DEFAULT_SAMPLE_RATE = 960000
 
         // Crystal frequency
         private const val RTL_XTAL_FREQ = 28800000L

@@ -19,8 +19,13 @@
 #define TAG "NativeDSP"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 
-static constexpr int SAMPLE_RATE = 1152000;
-static constexpr int STAGE1_DEC = 6;
+// 960 kHz instead of 1.152 MHz: the BYD DiLink USB host sustains only
+// ~2.26 MB/s, so at 1.152 MHz (2.304 MB/s) ~1.8% of IQ samples were lost
+// (measured from field logs) — heard as clicks and killing RDS sync with
+// phase discontinuities. 1.92 MB/s leaves ~15% bus headroom; the
+// intermediate rate stays 192 kHz so the whole DSP chain is unchanged.
+static constexpr int SAMPLE_RATE = 960000;
+static constexpr int STAGE1_DEC = 5;
 static constexpr int INTERMEDIATE_RATE = SAMPLE_RATE / STAGE1_DEC; // 192000
 static constexpr int AUDIO_RATE = 48000;
 static constexpr int STAGE2_DEC = INTERMEDIATE_RATE / AUDIO_RATE;  // 4

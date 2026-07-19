@@ -5,7 +5,7 @@ import kotlin.math.*
 /**
  * High-quality FM demodulation pipeline based on SDR++/rtl_fm/librtlsdr.
  *
- * IQ (1152 kHz) → DC removal → IF LPF (±120 kHz) → Decimate /6 → FM discriminator (192 kHz)
+ * IQ (960 kHz) → DC removal → IF LPF → Decimate /5 → FM discriminator (192 kHz)
  *   → Pilot PLL (locks 19 kHz) → pilotPhase×2 = 38 kHz for stereo L-R
  *   → Wideband baseband output + pilotPhase (for RDS decoder at 192 kHz)
  *   → Stereo decode: L+R (mono LPF) and L-R (38 kHz demod + LPF)
@@ -21,11 +21,14 @@ class FmDemodulator(
     private val audioSampleRate: Int = 48000
 ) {
     companion object {
-        const val RECOMMENDED_SAMPLE_RATE = 1152000
+        // 960 kHz: the BYD DiLink USB host can't sustain 1.152 MHz (2.304 MB/s)
+        // and lost ~1.8% of samples — clicks in audio, broken RDS sync.
+        // 960 kHz = 1.92 MB/s with headroom; intermediate stays 192 kHz.
+        const val RECOMMENDED_SAMPLE_RATE = 960000
     }
 
-    private val stage1Decimation = 6
-    private val intermediateRate: Int = inputSampleRate / stage1Decimation  // 192000
+    private val intermediateRate: Int = 192000
+    private val stage1Decimation = inputSampleRate / intermediateRate  // 5 at 960 kHz
     private val stage2Decimation: Int = intermediateRate / audioSampleRate  // 4
 
     // DC removal (IIR high-pass)
@@ -290,7 +293,7 @@ class FmDemodulator(
             ifBufQ[ifBufIdx + ifLpfOrder] = qSample
             ifBufIdx = (ifBufIdx + 1) % ifLpfOrder
 
-            // Stage 1 decimation: 1152 kHz → 192 kHz
+            // Stage 1 decimation: input rate → 192 kHz
             stage1Counter++
             if (stage1Counter < stage1Decimation) continue
             stage1Counter = 0

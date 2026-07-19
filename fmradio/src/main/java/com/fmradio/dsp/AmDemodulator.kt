@@ -9,7 +9,7 @@ import kotlin.math.*
  *   Audio LPF -> DC removal -> Noise gate -> Output
  */
 class AmDemodulator(
-    private val inputSampleRate: Int = 1152000,
+    private val inputSampleRate: Int = 960000,
     private val audioSampleRate: Int = 48000
 ) {
     private val decimationFactor = inputSampleRate / audioSampleRate

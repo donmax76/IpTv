@@ -376,7 +376,7 @@ class FmRadioService : Service() {
 
         demodulator = FmDemodulator(inputSampleRate = sampleRate, audioSampleRate = 48000)
 
-        rdsDecoder = RdsDecoder(sampleRate / 6).also { rds ->
+        rdsDecoder = RdsDecoder(192000).also { rds ->  // intermediate rate is fixed at 192 kHz
             rds.listener = object : RdsDecoder.RdsListener {
                 override fun onRdsData(data: RdsDecoder.RdsData) {
                     currentRdsData = data
@@ -621,6 +621,13 @@ class FmRadioService : Service() {
                         .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                         .build()
                 )
+                // Without this flag the SYSTEM auto-ducks our stream whenever
+                // another app takes transient-may-duck focus (the launcher does
+                // it on minimize on BYD DiLink) — the listener below never even
+                // runs for ducking, so "ignore focus changes" alone didn't help.
+                // willPauseWhenDucked(true) opts out of system auto-duck and
+                // routes CAN_DUCK to our listener, which keeps full volume.
+                .setWillPauseWhenDucked(true)
                 .setOnAudioFocusChangeListener { focusChange ->
                     // Ignore all focus changes — keep playing at full volume.
                     // FM radio should behave like a hardware tuner: always on,
