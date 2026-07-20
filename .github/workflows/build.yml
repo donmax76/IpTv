@@ -41,7 +41,12 @@ jobs:
         # browser at github.com/.../issues/new.
         IPTV_ISSUE_TOKEN: ${{ secrets.IPTV_ISSUE_TOKEN }}
       run: |
-        ./gradlew assembleGithubDebug --stacktrace 2>&1 | tee build_output.log || true
+        # Round 383: компилируем ОБА флейвора на каждый пуш — github (APK,
+        # выкладывается в релиз) и play (для Play Market). play собираем
+        # как unsigned debug — ключ загрузки не нужен, зато любая ошибка
+        # компиляции именно play-варианта ловится сразу. Подписанный .aab
+        # (bundlePlayRelease) по-прежнему собирается ниже при наличии ключа.
+        ./gradlew assembleGithubDebug assemblePlayDebug --stacktrace 2>&1 | tee build_output.log || true
         BUILD_EXIT=${PIPESTATUS[0]}
         echo "exit_code=$BUILD_EXIT" >> $GITHUB_OUTPUT
         if [ "$BUILD_EXIT" != "0" ]; then
@@ -82,7 +87,12 @@ jobs:
       if: steps.build.outputs.exit_code == '0'
       run: |
         find . -name "*.apk" -type f -ls
-        APK_PATH=$(find . -name "*.apk" -path "*/outputs/*" -type f | head -1)
+        # Round 383: теперь собираются оба флейвора — выбираем именно
+        # github-APK для релиза (не play-debug).
+        APK_PATH=$(find . -name "*.apk" -path "*github*" -path "*/outputs/*" -type f | head -1)
+        if [ -z "$APK_PATH" ]; then
+          APK_PATH=$(find . -name "*.apk" -path "*/outputs/*" -type f | head -1)
+        fi
         if [ -z "$APK_PATH" ]; then
           APK_PATH=$(find . -name "*.apk" -type f | head -1)
         fi
