@@ -649,6 +649,8 @@ TRANSLATIONS = {
         'hardware_decode_recommended': 'Аппаратное декодирование (рекомендуется)',
         'open_player_fullscreen': 'Открывать плеер в полноэкранном режиме',
         'autoplay_last_help': 'Авто-воспроизведение последнего канала при запуске',
+        'list_preview': 'Мини-превью при листании списка',
+        'show_adult': 'Показывать 18+ / XXX',
         'always_on_top_mini': 'Поверх всех окон (режим мини-плеера)',
         'audio_output_auto': 'Авто',
         'audio_output_directsound': 'DirectSound',
@@ -839,6 +841,8 @@ TRANSLATIONS = {
         'hardware_decode_recommended': 'Hardware decoding (recommended)',
         'open_player_fullscreen': 'Open player in fullscreen',
         'autoplay_last_help': 'Autoplay last channel on startup',
+        'list_preview': 'Mini preview while browsing the list',
+        'show_adult': 'Show 18+ / XXX',
         'always_on_top_mini': 'Always on top (mini-player mode)',
         'audio_output_auto': 'Auto',
         'audio_output_directsound': 'DirectSound',
@@ -1652,6 +1656,10 @@ class Config:
         self.parental_pin_hash = ""        # SHA-256 hex; "" = выключен
         self.locked_categories = set()     # имена заблокированных категорий
         self.locked_channel_urls = set()   # url'ы заблокированных каналов
+        # Round 382: показывать взрослые категории (18+/XXX). По умолчанию
+        # скрыто; включение за PIN. Мини-превью при листании списка.
+        self.show_adult = False
+        self.list_preview = False
         self.load()
 
     RECENT_LIMIT = 30
@@ -1821,6 +1829,9 @@ class Config:
                 self.parental_pin_hash = data.get('parental_pin_hash', '') or ''
                 self.locked_categories = set(data.get('locked_categories', []) or [])
                 self.locked_channel_urls = set(data.get('locked_channel_urls', []) or [])
+                # Round 382.
+                self.show_adult = bool(data.get('show_adult', False))
+                self.list_preview = bool(data.get('list_preview', False))
             except Exception:
                 pass
 
@@ -1852,6 +1863,8 @@ class Config:
             'parental_pin_hash': getattr(self, 'parental_pin_hash', '') or '',
             'locked_categories': list(getattr(self, 'locked_categories', set())),
             'locked_channel_urls': list(getattr(self, 'locked_channel_urls', set())),
+            'show_adult': bool(getattr(self, 'show_adult', False)),
+            'list_preview': bool(getattr(self, 'list_preview', False)),
         }
         # Round 351: атомарная запись (tmp + os.replace) под lock'ом.
         # Раньше писали прямо в CONFIG_FILE: конкурентный save() из
@@ -1927,6 +1940,32 @@ class Config:
 # конца сеанса (перезапуск снова включает защиту) — иначе зэппинг
 # через заблокированную зону спрашивал бы PIN на каждый канал.
 _PARENTAL_SESSION_UNLOCKED = False
+
+# Round 382: ключевые слова взрослых категорий (18+/XXX). Матчим по имени
+# ГРУППЫ (категории), а не по названию канала — поэтому подстрока
+# безопасна: категория «Adult»/«XXX»/«18+» = взрослый контент, а канал
+# «Adult Swim» лежит в другой группе и под фильтр не попадает.
+_ADULT_KEYWORDS = (
+    "18+", "xxx", "porn", "adult", "erotic",
+    "эротик", "для взрослых", "взрослое", "взрослы",
+)
+
+
+def is_adult_group(group) -> bool:
+    """true, если имя группы/категории относится к взрослому контенту."""
+    if not group:
+        return False
+    g = str(group).lower()
+    return any(k in g for k in _ADULT_KEYWORDS)
+
+
+def channel_is_adult(ch) -> bool:
+    """true, если канал принадлежит взрослой категории."""
+    grp = getattr(ch, 'group', None)
+    if not grp:
+        return False
+    canonical = str(grp).split(';')[0].split(',')[0].split('|')[0].strip()
+    return is_adult_group(canonical) or is_adult_group(grp)
 
 
 def parental_is_locked(config, ch) -> bool:
@@ -3920,7 +3959,12 @@ class ChannelsPage(QWidget):
         if epg_data:
             self.epg_data = epg_data
         self.title_label.setText(name or "Channels")
-        cats = sorted(set(ch.group for ch in channels if ch.group))
+        # Round 382: взрослые категории (18+/XXX) не показываем в панели,
+        # пока не включён показ в настройках (за PIN).
+        _show_adult = getattr(self.config, 'show_adult', False)
+        cats = sorted(set(
+            ch.group for ch in channels
+            if ch.group and (_show_adult or not is_adult_group(ch.group))))
         self.categories = ["All", "★ Recent"] + cats
         last_cat = getattr(self.config, 'last_category', '') or "All"
         self.selected_category = last_cat if last_cat in self.categories else "All"
@@ -3998,9 +4042,13 @@ class ChannelsPage(QWidget):
         recent_set = set(getattr(self.config, 'recent_urls', []) or [])
         recent_order = {u: i for i, u in enumerate(getattr(self.config, 'recent_urls', []) or [])}
         is_recent = (cat == "★ Recent")
+        # Round 382: скрываем взрослые категории, пока не включён показ.
+        show_adult = getattr(self.config, 'show_adult', False)
         # Build filtered list once
         filtered = []
         for ch in self.channels:
+            if not show_adult and channel_is_adult(ch):
+                continue
             if is_recent:
                 if ch.url not in recent_set:
                     continue
@@ -5496,6 +5544,8 @@ class PlayerPage(QWidget):
         self._overlay_list = QListWidget()
         self._overlay_list.setIconSize(QSize(28, 28))
         self._overlay_list.itemClicked.connect(self._overlay_channel_clicked)
+        # Round 382: мини-превью выделенной строки при листании.
+        self._overlay_list.currentRowChanged.connect(self._on_overlay_row_changed)
         self._overlay_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self._overlay_list.customContextMenuRequested.connect(
             self._show_overlay_channel_details)
@@ -6183,6 +6233,8 @@ class PlayerPage(QWidget):
 
     def _apply_left_stage(self, stage):
         """Round 251: показывает оверлеи соответствующие стадии 0-3."""
+        # Round 382: мини-превью прячем при любой смене стадии оверлеев.
+        self._hide_preview_win()
         # Сначала прячем всё.
         for name in ('channels_overlay', 'categories_overlay',
                      'center_menu_overlay'):
@@ -6393,8 +6445,12 @@ class PlayerPage(QWidget):
         # первичная пачка 30, остальное чанками по 50 через QTimer
         # 25мс — клик/каретка обрабатываются между чанками.
         cap = 500 if not q and not sel_cat else 10000
+        # Round 382: скрываем взрослые категории, пока не включён показ.
+        show_adult = getattr(self.config, 'show_adult', False)
         filtered = []
         for idx, ch in enumerate(self.channels or []):
+            if not show_adult and channel_is_adult(ch):
+                continue
             if recent_set:
                 if ch.url not in recent_set:
                     continue
@@ -6538,6 +6594,7 @@ class PlayerPage(QWidget):
     def _overlay_channel_clicked(self, item):
         idx = item.data(Qt.UserRole)
         if isinstance(idx, int) and 0 <= idx < len(self.channels):
+            self._hide_preview_win()  # Round 382
             try:
                 # Используем штатный play_channel — он же сбрасывает
                 # стейт и обновляет UI. Передаём текущие channels/epg
@@ -6546,6 +6603,152 @@ class PlayerPage(QWidget):
             except Exception:
                 pass
             self.channels_overlay.hide()
+
+    # ============================================================
+    # Round 382: мини-превью (PiP) выделенного канала при листании.
+    # ============================================================
+    def _ensure_preview_widgets(self):
+        if getattr(self, '_preview_frame', None) is not None:
+            return
+        from PyQt5.QtWidgets import QFrame
+        # Отдельное top-level безрамочное окно (НЕ ребёнок translucent
+        # overlay_host — иначе нативная VLC-поверхность на layered-окне
+        # может не отрисоваться). Позиционируем над видео вручную.
+        fr = QFrame(None, Qt.FramelessWindowHint | Qt.Tool)
+        fr.setAttribute(Qt.WA_NativeWindow, True)     # нативный winId для VLC
+        fr.setAttribute(Qt.WA_ShowWithoutActivating, True)  # не воровать фокус
+        fr.setStyleSheet(
+            "background-color: black;"
+            " border: 2px solid rgba(124, 108, 247, 220);")
+        fr.hide()
+        self._preview_frame = fr
+        self._preview_player = None
+        self._preview_media = None
+        self._preview_pending_idx = -1
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.setInterval(450)
+        self._preview_timer.timeout.connect(self._start_preview_win)
+
+    def _position_preview(self):
+        fr = getattr(self, '_preview_frame', None)
+        if fr is None:
+            return
+        from PyQt5.QtCore import QPoint
+        vf = getattr(self, 'video_frame', None)
+        w, h, m = 320, 180, 24
+        try:
+            tl = vf.mapToGlobal(QPoint(0, 0))
+            x = tl.x() + vf.width() - w - m
+            y = tl.y() + vf.height() - h - m
+        except Exception:
+            return
+        fr.setGeometry(int(x), int(y), w, h)
+
+    def _on_overlay_row_changed(self, row):
+        if not getattr(self.config, 'list_preview', False):
+            return
+        if row < 0 or not self.channels_overlay.isVisible():
+            return
+        item = self._overlay_list.item(row)
+        if item is None:
+            return
+        idx = item.data(Qt.UserRole)
+        if not isinstance(idx, int):
+            return
+        # Уже играющий канал не превьюим.
+        if idx == self.current_index:
+            self._hide_preview_win()
+            return
+        self._ensure_preview_widgets()
+        self._preview_pending_idx = idx
+        self._preview_timer.start()
+
+    def _start_preview_win(self):
+        if not getattr(self.config, 'list_preview', False):
+            return
+        idx = getattr(self, '_preview_pending_idx', -1)
+        if not (0 <= idx < len(self.channels)):
+            return
+        if idx == self.current_index or not self.channels_overlay.isVisible():
+            self._hide_preview_win()
+            return
+        if self.vlc_instance is None:
+            return
+        ch = self.channels[idx]
+        try:
+            self._ensure_preview_widgets()
+            if self._preview_player is None:
+                self._preview_player = self.vlc_instance.media_player_new()
+                try:
+                    self._preview_player.video_set_mouse_input(False)
+                    self._preview_player.video_set_key_input(False)
+                except Exception:
+                    pass
+            self._position_preview()
+            self._preview_frame.show()
+            self._preview_frame.raise_()
+            p = self._preview_player
+            try:
+                p.stop()
+            except Exception:
+                pass
+            hwnd = None
+            if sys.platform == 'win32':
+                hwnd = int(self._preview_frame.winId())
+                p.set_hwnd(hwnd)
+            elif sys.platform.startswith('linux'):
+                p.set_xwindow(int(self._preview_frame.winId()))
+            elif sys.platform == 'darwin':
+                p.set_nsobject(int(self._preview_frame.winId()))
+            media = self.vlc_instance.media_new(ch.url)
+            try:
+                net_cache = int(getattr(self.config, 'network_caching_ms', 3000))
+            except Exception:
+                net_cache = 3000
+            media.add_option(f':network-caching={net_cache}')
+            ua_cfg = getattr(self.config, 'user_agent', '') or ''
+            if ua_cfg:
+                media.add_option(f':http-user-agent={ua_cfg}')
+            ref = getattr(self.config, 'http_referer', '') or ''
+            if ref:
+                media.add_option(f':http-referrer={ref}')
+            p.set_media(media)
+            self._preview_media = media
+            try:
+                p.audio_set_mute(True)  # превью без звука
+            except Exception:
+                pass
+            if hwnd is not None:
+                p.set_hwnd(hwnd)
+            p.play()
+        except Exception as e:
+            log_error('preview.start', e)
+            self._hide_preview_win()
+
+    def _hide_preview_win(self):
+        tmr = getattr(self, '_preview_timer', None)
+        if tmr is not None:
+            tmr.stop()
+        p = getattr(self, '_preview_player', None)
+        if p is not None:
+            try:
+                p.stop()
+            except Exception:
+                pass
+        fr = getattr(self, '_preview_frame', None)
+        if fr is not None:
+            fr.hide()
+
+    def _release_preview_player(self):
+        self._hide_preview_win()
+        p = getattr(self, '_preview_player', None)
+        if p is not None:
+            try:
+                p.release()
+            except Exception:
+                pass
+        self._preview_player = None
 
     def _show_overlay_channel_details(self, pos):
         """Round 234: модальный popup с now/next + описанием — порт
@@ -8730,6 +8933,12 @@ class PlayerPage(QWidget):
         # Round 341: + общий lock — та же серия защит что и у остальных
         # VLC-операций.
         with self._vlc_op_lock:
+            # Round 382: сначала освобождаем плеер мини-превью (использует
+            # тот же vlc_instance).
+            try:
+                self._release_preview_player()
+            except Exception:
+                pass
             if self.player is not None:
                 try:
                     self.player.stop()
@@ -9349,6 +9558,13 @@ class SettingsPage(QWidget):
         self.cb_autoplay.toggled.connect(self._save_autoplay)
         layout.addWidget(self.cb_autoplay)
 
+        # Round 382: мини-превью выделенного канала при листании списка.
+        self.cb_list_preview = QCheckBox(t('list_preview'))
+        self.cb_list_preview.setProperty('_t_key', 'list_preview')
+        self.cb_list_preview.setChecked(getattr(self.config, 'list_preview', False))
+        self.cb_list_preview.toggled.connect(self._save_list_preview)
+        layout.addWidget(self.cb_list_preview)
+
         self.cb_fullscreen = QCheckBox(t('open_player_fullscreen'))
         self.cb_fullscreen.setProperty('_t_key', 'open_player_fullscreen')
         self.cb_fullscreen.setChecked(self.config.remember_fullscreen)
@@ -9471,6 +9687,12 @@ class SettingsPage(QWidget):
         par_row.addWidget(self._btn_parental_cats)
         par_row.addStretch()
         layout.addLayout(par_row)
+        # Round 382: показ взрослых категорий (18+/XXX) — включение за PIN.
+        self.cb_show_adult = QCheckBox(t('show_adult'))
+        self.cb_show_adult.setProperty('_t_key', 'show_adult')
+        self.cb_show_adult.setChecked(getattr(self.config, 'show_adult', False))
+        self.cb_show_adult.toggled.connect(self._toggle_show_adult)
+        layout.addWidget(self.cb_show_adult)
         self._refresh_parental_btn()
 
         # --- Updates ---
@@ -9672,6 +9894,43 @@ class SettingsPage(QWidget):
     def _save_autoplay(self, checked):
         self.config.autoplay_last = bool(checked)
         self.config.save_async()
+
+    def _save_list_preview(self, checked):
+        # Round 382: мини-превью при листании.
+        self.config.list_preview = bool(checked)
+        self.config.save_async()
+
+    def _toggle_show_adult(self, checked):
+        # Round 382: включение показа 18+/XXX — только за PIN; выключение —
+        # без PIN. Пока PIN не подтверждён, держим чекбокс выключенным.
+        if not checked:
+            self.config.show_adult = False
+            self.config.save_async()
+            self.settings_changed.emit()
+            return
+
+        def _revert():
+            self.cb_show_adult.blockSignals(True)
+            self.cb_show_adult.setChecked(False)
+            self.cb_show_adult.blockSignals(False)
+
+        def _enable():
+            self.config.show_adult = True
+            self.config.save_async()
+            self.cb_show_adult.blockSignals(True)
+            self.cb_show_adult.setChecked(True)
+            self.cb_show_adult.blockSignals(False)
+            self.settings_changed.emit()
+
+        # Держим выключенным до подтверждения.
+        _revert()
+        if not self.config.parental_enabled():
+            # PIN ещё не задан — предлагаем создать, затем включаем.
+            ask_new_pin(self, self.config,
+                        on_done=lambda: _enable()
+                        if self.config.parental_enabled() else None)
+        else:
+            ask_pin(self, self.config, _enable, unlock_session=False)
 
     def _save_fullscreen(self, checked):
         self.config.remember_fullscreen = bool(checked)
@@ -10464,7 +10723,10 @@ class MainWindow(QMainWindow):
         nav_items = [
             ('home',      getattr(self, '_home_index', 7), '🏠'),
             ('playlists', 0, '📋'),
-            ('channels',  1, '📺'),
+            # Round 382: вкладка «Каналы» убрана из навигации по просьбе
+            # юзера (не нужна — список каналов открывается из плеера/Home).
+            # Страница channels_page (индекс 1) остаётся: её использует
+            # Back из плеера, F2, зэппинг и оверлей списка.
             ('tv_guide',  5, '📅'),
             ('favorites', 2, '★'),
             ('recent',    6, '⏱'),
