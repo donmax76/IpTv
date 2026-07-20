@@ -147,6 +147,15 @@ class PlayerActivity : BaseActivity() {
     private lateinit var audioTrackInfo: TextView
 
     private var player: ExoPlayer? = null
+
+    // Round 382: мини-превью (PiP) выделенного канала при листании списка.
+    private var previewPlayer: ExoPlayer? = null
+    private var previewPlayerView: androidx.media3.ui.PlayerView? = null
+    private var listPreviewContainer: View? = null
+    private var listPreviewSpinner: View? = null
+    private val previewHandler = Handler(Looper.getMainLooper())
+    private var previewCurrentUrl: String? = null
+
     /** MediaSession ловит медиа-кнопки (CH+/CH-/PRE-CH/play/pause/etc.)
      *  которые TV-бокс роутит через dispatchMediaKeyEvent а не через
      *  обычный dispatchKeyEvent. Без этого CH+/CH- на пультах X-боксов
@@ -367,6 +376,10 @@ class PlayerActivity : BaseActivity() {
 
     private fun initViews() {
         playerView = findViewById(R.id.playerView)
+        // Round 382: мини-превью при листании списка.
+        listPreviewContainer = findViewById(R.id.listPreviewContainer)
+        previewPlayerView = findViewById(R.id.listPreviewPlayerView)
+        listPreviewSpinner = findViewById(R.id.listPreviewSpinner)
         controlsOverlay = findViewById(R.id.controlsOverlay)
         topBar = findViewById(R.id.topBar)
         btnBack = findViewById(R.id.btnBack)
@@ -775,8 +788,12 @@ class PlayerActivity : BaseActivity() {
         // Собираем категории из текущего плейлиста: первый сегмент
         // group-tag (до ; , |), уникальные, отсортированные.
         val channels = ChannelDataHolder.allChannels
+        // Round 382: взрослые категории (18+/XXX) не показываем в панели,
+        // пока не включён показ в настройках (за PIN).
+        val showAdult = prefs.showAdult
         val realCats = channels.mapNotNull { it.group?.split(';', ',', '|')?.firstOrNull()?.trim() }
             .filter { it.isNotEmpty() && it.length <= 30 }
+            .filter { showAdult || !AdultContent.isAdultGroup(it) }
             .distinct()
             .sorted()
         val cats = listOf(getString(R.string.all)) + realCats
@@ -848,9 +865,6 @@ class PlayerActivity : BaseActivity() {
         if (channels.isEmpty()) return
 
         overlaySelectedCategory = getString(R.string.all)
-        overlayFilteredChannels = channels
-        overlayFilteredIndices = channels.indices.toList()
-        overlayChannelCount?.text = "${channels.size}"
         // Имя плейлиста над списком каналов: если есть — показываем,
         // иначе "Каналы" из шаблона. Имя категории — только когда
         // выбрана конкретная (не "Все"); ставится в filterOverlayChannels.
@@ -859,13 +873,9 @@ class PlayerActivity : BaseActivity() {
                 ?: getString(R.string.channels)
         findViewById<TextView>(R.id.overlaySelectedCategoryLabel)?.visibility = View.GONE
 
-        overlayAdapter = OverlayChannelAdapter(channels, ChannelDataHolder.epgData, currentIndex,
-            favorites = prefs.favorites,
-            onChannelClick = { pos -> handleOverlayClick(pos) },
-            onFavoriteClick = { channel -> toggleFavorite(channel) },
-            onShowDetailsClick = { channel -> showChannelDetailsDialog(channel) }
-        )
-        overlayChannelsList.adapter = overlayAdapter
+        // Round 382: единый источник фильтрации (включая скрытие взрослых
+        // категорий) — filterOverlayChannels строит список + адаптер.
+        filterOverlayChannels()
     }
 
     private fun toggleFavorite(channel: Channel) {
@@ -883,6 +893,7 @@ class PlayerActivity : BaseActivity() {
 
         val query = overlaySearchEdit?.text?.toString()?.trim()?.lowercase() ?: ""
         val allLabel = getString(R.string.all)
+        val showAdult = prefs.showAdult
 
         val filtered = channels.withIndex().filter { (_, ch) ->
             val matchesSearch = query.isEmpty() || ch.name.lowercase().contains(query)
@@ -891,7 +902,9 @@ class PlayerActivity : BaseActivity() {
             val canonicalGroup = ch.group?.split(';', ',', '|')?.firstOrNull()?.trim()
             val matchesCat = overlaySelectedCategory.isEmpty() || overlaySelectedCategory == allLabel ||
                 canonicalGroup == overlaySelectedCategory
-            matchesSearch && matchesCat
+            // Round 382: взрослые категории скрыты, пока не включён показ.
+            val matchesAdult = showAdult || !AdultContent.isAdult(ch)
+            matchesSearch && matchesCat && matchesAdult
         }
 
         overlayFilteredChannels = filtered.map { it.value }
@@ -923,10 +936,83 @@ class PlayerActivity : BaseActivity() {
                 favorites = prefs.favorites,
                 onChannelClick = { pos -> handleOverlayClick(pos) },
                 onFavoriteClick = { channel -> toggleFavorite(channel) },
-                onShowDetailsClick = { channel -> showChannelDetailsDialog(channel) }
+                onShowDetailsClick = { channel -> showChannelDetailsDialog(channel) },
+                onRowFocused = { pos -> onOverlayRowFocused(pos) }
             )
             overlayChannelsList.adapter = overlayAdapter
         }
+    }
+
+    // ============================================================
+    // Round 382: мини-превью (PiP) выделенного канала при листании.
+    // ============================================================
+
+    /** Строка списка получила фокус. Если включено мини-превью и это НЕ
+     *  текущий играющий канал — с небольшой задержкой (чтобы не дёргать
+     *  поток на каждом шаге пульта) запускаем превью этого канала. */
+    private fun onOverlayRowFocused(posInList: Int) {
+        if (!prefs.listPreview) return
+        previewHandler.removeCallbacksAndMessages(null)
+        previewHandler.postDelayed({ startPreviewFor(posInList) }, 450)
+    }
+
+    private fun startPreviewFor(posInList: Int) {
+        if (!prefs.listPreview || !channelListVisible) { hideListPreview(); return }
+        val ch = overlayFilteredChannels.getOrNull(posInList) ?: run { hideListPreview(); return }
+        val realIdx = ChannelDataHolder.allChannels.indexOfFirst { it.url == ch.url }
+        // Не показываем превью для уже играющего канала.
+        if (realIdx == currentIndex) { hideListPreview(); return }
+        if (ch.url == previewCurrentUrl && previewPlayer?.isPlaying == true) return
+        try {
+            val p = ensurePreviewPlayer()
+            previewCurrentUrl = ch.url
+            listPreviewContainer?.visibility = View.VISIBLE
+            listPreviewSpinner?.visibility = View.VISIBLE
+            p.volume = 0f  // превью без звука — основной канал продолжает звучать
+            p.setMediaSource(createMediaSourceFor(ch.url))
+            p.prepare()
+            p.playWhenReady = true
+        } catch (e: Exception) {
+            ErrorLogger.logException(applicationContext, e)
+            hideListPreview()
+        }
+    }
+
+    private fun ensurePreviewPlayer(): ExoPlayer {
+        previewPlayer?.let { return it }
+        val p = ExoPlayer.Builder(this)
+            .setReleaseTimeoutMs(1000)
+            .build()
+        previewPlayerView?.player = p
+        p.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY || state == Player.STATE_ENDED) {
+                    listPreviewSpinner?.visibility = View.GONE
+                }
+            }
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                // Тихо прячем — превью не критично.
+                hideListPreview()
+            }
+        })
+        previewPlayer = p
+        return p
+    }
+
+    private fun hideListPreview() {
+        previewHandler.removeCallbacksAndMessages(null)
+        previewCurrentUrl = null
+        listPreviewContainer?.visibility = View.GONE
+        try {
+            previewPlayer?.stop()
+            previewPlayer?.clearMediaItems()
+        } catch (_: Exception) {}
+    }
+
+    private fun releasePreviewPlayer() {
+        hideListPreview()
+        try { previewPlayer?.release() } catch (_: Exception) {}
+        previewPlayer = null
     }
 
     /** Показывает inline-панель с деталями программы (не отдельное
@@ -2524,6 +2610,8 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun hideChannelList() {
+        // Round 382: прячем мини-превью вместе со списком.
+        hideListPreview()
         if (channelListOverlay.visibility != View.VISIBLE) {
             channelListVisible = false
             return
@@ -3610,6 +3698,17 @@ class PlayerActivity : BaseActivity() {
         bannerHandler.removeCallbacks(bannerHideRunnable)
         reconnectHandler.removeCallbacks(reconnectRunnable)
         channelListHideHandler.removeCallbacks(channelListHideRunnable)
+        // Round 382: освобождаем плеер мини-превью.
+        previewHandler.removeCallbacksAndMessages(null)
+        try {
+            previewPlayerView?.player = null
+            previewPlayer?.let { p ->
+                try { p.clearVideoSurface() } catch (_: Throwable) {}
+                try { p.stop() } catch (_: Throwable) {}
+                p.release()
+            }
+        } catch (_: Throwable) {}
+        previewPlayer = null
         // Android Round 368: release() на заклиненном декодере бросает
         // ExoTimeoutException — раньше НЕ ловился, и onDestroy падал,
         // из-за чего выход/возврат из плеера крашился. Перед release

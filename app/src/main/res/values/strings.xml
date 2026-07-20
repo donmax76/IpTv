@@ -16,6 +16,8 @@
     <string name="no_url_in_clipboard">В буфере обмена нет ссылки на плейлист</string>
     <string name="add">Добавить</string>
     <string name="show_builtin_playlists">Показывать встроенные плейлисты</string>
+    <string name="list_preview">Мини-превью при листании</string>
+    <string name="show_adult">Показывать 18+ / XXX</string>
     <string name="time_on">Включено</string>
     <string name="http_referer">HTTP Referer</string>
     <string name="referer_auto">Авто (origin потока)</string>

@@ -398,6 +398,18 @@ class AppPreferences(context: Context) {
         get() = prefs.getBoolean("show_builtin_playlists", true)
         set(value) = prefs.edit().putBoolean("show_builtin_playlists", value).apply()
 
+    /** Round 382: показывать взрослые категории (18+, XXX). По умолчанию
+     *  выключено — включение защищено PIN родительского контроля. */
+    var showAdult: Boolean
+        get() = prefs.getBoolean("show_adult_categories", false)
+        set(value) = prefs.edit().putBoolean("show_adult_categories", value).apply()
+
+    /** Round 382: мини-превью (PiP) выделенного канала при листании
+     *  списка в плеере. По умолчанию выключено. */
+    var listPreview: Boolean
+        get() = prefs.getBoolean("list_pip_preview", false)
+        set(value) = prefs.edit().putBoolean("list_pip_preview", value).apply()
+
     /** Referer header sent with every stream request. Blank → auto
      *  (stream's own scheme://host). Used to satisfy servers that
      *  enforce site origin (common on Azerbaijani / Russian IPTV). */

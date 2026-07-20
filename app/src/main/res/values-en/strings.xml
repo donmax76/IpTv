@@ -16,6 +16,8 @@
     <string name="no_url_in_clipboard">No playlist URL in clipboard</string>
     <string name="add">Add</string>
     <string name="show_builtin_playlists">Show built-in playlists</string>
+    <string name="list_preview">Mini preview while browsing</string>
+    <string name="show_adult">Show 18+ / XXX</string>
     <string name="time_on">On</string>
     <string name="http_referer">HTTP Referer</string>
     <string name="referer_auto">Auto (stream origin)</string>

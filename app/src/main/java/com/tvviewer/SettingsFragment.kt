@@ -654,6 +654,47 @@ class SettingsFragment : Fragment() {
             epgAutoUpdateValue.text = if (prefs.epgAutoUpdate) getString(R.string.epg_auto_update_hint) else getString(R.string.time_off)
         }
 
+        // Round 382: мини-превью (PiP) выделенного канала при листании.
+        val listPreviewValue = view.findViewById<TextView>(R.id.listPreviewValue)
+        fun updateListPreviewValue() {
+            listPreviewValue.text = if (prefs.listPreview)
+                getString(R.string.time_on) else getString(R.string.time_off)
+        }
+        updateListPreviewValue()
+        view.findViewById<LinearLayout>(R.id.listPreviewLayout).setOnClickListener {
+            prefs.listPreview = !prefs.listPreview
+            updateListPreviewValue()
+        }
+
+        // Round 382: показ взрослых категорий (18+/XXX). Включение —
+        // только после PIN родительского контроля; если PIN не задан,
+        // сначала предлагаем его создать. Выключение — без PIN.
+        val showAdultValue = view.findViewById<TextView>(R.id.showAdultValue)
+        fun updateShowAdultValue() {
+            showAdultValue.text = if (prefs.showAdult)
+                getString(R.string.time_on) else getString(R.string.time_off)
+        }
+        updateShowAdultValue()
+        view.findViewById<LinearLayout>(R.id.showAdultLayout).setOnClickListener {
+            val act = requireActivity()
+            if (prefs.showAdult) {
+                // Выключаем показ — без PIN.
+                prefs.showAdult = false
+                updateShowAdultValue()
+            } else {
+                // Включаем показ — за PIN.
+                val enable = {
+                    prefs.showAdult = true
+                    updateShowAdultValue()
+                }
+                if (!ParentalControl.isEnabled(prefs)) {
+                    ParentalControl.askNewPin(act, prefs) { enable() }
+                } else {
+                    ParentalControl.askPin(act, prefs, unlockSession = false) { enable() }
+                }
+            }
+        }
+
         // Android Round 366: родительский контроль — теперь РАБОЧИЙ.
         // Раньше этот пункт только хранил PIN (открытым текстом) и
         // ничего не блокировал. Теперь: PIN (SHA-256, старый plain-PIN

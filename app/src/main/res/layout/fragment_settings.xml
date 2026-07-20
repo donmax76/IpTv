@@ -516,6 +516,62 @@
             </LinearLayout>
 
             <LinearLayout
+                android:id="@+id/listPreviewLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginBottom="4dp"
+                android:padding="8dp"
+                android:minHeight="48dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="@drawable/settings_item_focused">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/list_preview"
+                    android:textColor="@color/text_primary"
+                    android:textSize="16sp"/>
+
+                <TextView
+                    android:id="@+id/listPreviewValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp"/>
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/showAdultLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginBottom="4dp"
+                android:padding="8dp"
+                android:minHeight="48dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="@drawable/settings_item_focused">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/show_adult"
+                    android:textColor="@color/text_primary"
+                    android:textSize="16sp"/>
+
+                <TextView
+                    android:id="@+id/showAdultValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp"/>
+
+            </LinearLayout>
+
+            <LinearLayout
                 android:id="@+id/parentalLayout"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

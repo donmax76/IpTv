@@ -572,6 +572,37 @@
 
         </ScrollView>
 
+        <!-- Round 382: мини-превью (PiP) выделенного канала при листании
+             списка. Плавает в правом-нижнем углу поверх списка. Включается
+             настройкой «Мини-превью при листании». Скрыто по умолчанию. -->
+        <FrameLayout
+            android:id="@+id/listPreviewContainer"
+            android:layout_width="320dp"
+            android:layout_height="180dp"
+            android:layout_gravity="end|bottom"
+            android:layout_marginEnd="24dp"
+            android:layout_marginBottom="24dp"
+            android:background="#E6000000"
+            android:padding="2dp"
+            android:elevation="16dp"
+            android:visibility="gone">
+
+            <androidx.media3.ui.PlayerView
+                android:id="@+id/listPreviewPlayerView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                app:use_controller="false"
+                app:resize_mode="fit"
+                app:surface_type="surface_view"/>
+
+            <ProgressBar
+                android:id="@+id/listPreviewSpinner"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_gravity="center"/>
+
+        </FrameLayout>
+
     </FrameLayout>
 
     <!-- Round 211: ЦЕНТРАЛЬНОЕ popup-меню в стиле SS IPTV (фото 4).

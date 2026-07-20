@@ -22,7 +22,9 @@ class OverlayChannelAdapter(
     private val onFavoriteClick: ((Channel) -> Unit)? = null,
     // DPAD_RIGHT после "избранное" — показываем детальную информацию
     // о текущей программе на канале.
-    private val onShowDetailsClick: ((Channel) -> Unit)? = null
+    private val onShowDetailsClick: ((Channel) -> Unit)? = null,
+    // Round 382: строка получила фокус при листании — для мини-превью.
+    private val onRowFocused: ((Int) -> Unit)? = null
 ) : RecyclerView.Adapter<OverlayChannelAdapter.ViewHolder>() {
 
     private var channels: List<Channel> = initialChannels
@@ -179,6 +181,13 @@ class OverlayChannelAdapter(
         holder.itemView.setOnClickListener { onChannelClick(position) }
         holder.itemView.setOnLongClickListener {
             onFavoriteClick?.invoke(channel); true
+        }
+        // Round 382: сообщаем плееру какая строка сейчас в фокусе —
+        // для мини-превью выделенного канала при листании.
+        onRowFocused?.let { cb ->
+            holder.itemView.setOnFocusChangeListener { _, hasFocus ->
+                if (hasFocus) cb(holder.bindingAdapterPosition)
+            }
         }
         holder.itemView.setOnKeyListener { _, keyCode, event ->
             if (event.action == android.view.KeyEvent.ACTION_DOWN) {
