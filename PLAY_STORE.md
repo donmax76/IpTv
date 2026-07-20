@@ -23,8 +23,11 @@ play-варианте авто-апдейтер отключён. Обновле
 - ✅ Два flavor'а: `github` (APK, с апдейтером) и `play` (`.aab`, без
   апдейтера) — `app/build.gradle.kts`.
 - ✅ CI собирает APK на каждый пуш и кладёт в GitHub Release.
-- ✅ CI собирает `.aab` на каждый пуш **если заданы секреты** (Round 379,
-  `.github/workflows/build.yml`) → artifact `TVViewer-play-aab`.
+- ✅ CI **компилирует ОБА flavor'а на каждый пуш** (Round 383):
+  `assembleGithubDebug` + `assemblePlayDebug` — так ошибка сборки именно
+  play-варианта ловится сразу, даже без ключа загрузки.
+- ✅ CI собирает подписанный `.aab` на каждый пуш **если заданы секреты**
+  (Round 379, `.github/workflows/build.yml`) → artifact `TVViewer-play-aab`.
 
 **Что осталось сделать (ОДИН раз, руками владельца):**
 1. ⬜ Создать ключ загрузки `upload-key.jks` (команда `keytool` ниже).
