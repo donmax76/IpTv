@@ -3461,6 +3461,9 @@ class PlaylistsPage(QWidget):
             ('🧒 Kids',       'https://iptv-org.github.io/iptv/categories/kids.m3u'),
             ('📚 Documentary','https://iptv-org.github.io/iptv/categories/documentary.m3u'),
             ('🍳 Cooking',    'https://iptv-org.github.io/iptv/categories/cooking.m3u'),
+            # Round 384: 18+ внутри «По категории». Пункт виден в комбобоксе
+            # только когда включён показ взрослого (Настройки → 18+/XXX).
+            ('🔞 18+ / XXX',  'https://iptv-org.github.io/iptv/categories/xxx.m3u'),
         ]),
         ('By country', [
             ('🇷🇺 Россия',     'https://iptv-org.github.io/iptv/countries/ru.m3u'),
@@ -3489,11 +3492,6 @@ class PlaylistsPage(QWidget):
             ('🌍 Asia',         'https://iptv-org.github.io/iptv/regions/asia.m3u'),
             ('🌍 North America','https://iptv-org.github.io/iptv/regions/noram.m3u'),
         ]),
-        # Round 384: категория 18+. Комбобокс виден только когда включён
-        # показ взрослого контента (Настройки → Показывать 18+/XXX).
-        ('Adult', [
-            ('🔞 18+ / XXX', 'https://iptv-org.github.io/iptv/categories/xxx.m3u'),
-        ]),
     ]
 
     def init_ui(self):
@@ -3517,11 +3515,12 @@ class PlaylistsPage(QWidget):
         self._builtin_combos = []
         self._builtin_cat_labels = []
         # Round 265: ключи переводов для категорий вместо хардкода.
-        cat_t_keys = ['by_language', 'by_category', 'by_country',
-                      'by_region', 'adult_category']
-        # Round 384: пары (label, combo) категории 18+ — прячем/показываем
-        # по настройке show_adult.
-        self._adult_builtin_widgets = []
+        cat_t_keys = ['by_language', 'by_category', 'by_country', 'by_region']
+        # Round 384: комбобокс «По категории» содержит пункт 18+, который
+        # виден только при show_adult. Храним ссылку + полный список, чтобы
+        # перезаполнять при смене настройки.
+        self._bycat_combo = None
+        self._bycat_items = []
         grid = QHBoxLayout()
         col_left = QVBoxLayout()
         col_right = QVBoxLayout()
@@ -3532,17 +3531,17 @@ class PlaylistsPage(QWidget):
             lbl.setProperty('_t_key', cat_key)
             self._builtin_cat_labels.append(lbl)
             combo = QComboBox()
-            combo.addItem(t('choose'), None)
-            for name, url in items:
-                combo.addItem(name, url)
             combo.currentIndexChanged.connect(
                 lambda idx, c=combo: self.on_builtin_chosen(c))
             self._builtin_combos.append(combo)
+            if cat_key == 'by_category':
+                self._bycat_combo = combo
+                self._bycat_items = list(items)
+                self._populate_builtin_combo(combo, items)
+            else:
+                self._populate_builtin_combo(combo, items)
             (col_left if i % 2 == 0 else col_right).addWidget(lbl)
             (col_left if i % 2 == 0 else col_right).addWidget(combo)
-            if cat_key == 'adult_category':
-                self._adult_builtin_widgets = [lbl, combo]
-        self._refresh_adult_builtin()
         grid.addLayout(col_left)
         grid.addSpacing(8)
         grid.addLayout(col_right)
@@ -3657,15 +3656,26 @@ class PlaylistsPage(QWidget):
             return
         self._copy_to_clipboard(self.config.playlists[idx].get('url', ''))
 
+    def _populate_builtin_combo(self, combo, items):
+        """Round 384: заполняет комбобокс встроенной категории, пропуская
+        пункты 18+ если показ взрослого выключен."""
+        show_adult = bool(getattr(self.config, 'show_adult', False))
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItem(t('choose'), None)
+        for name, url in items:
+            if not show_adult and is_adult_group(name):
+                continue
+            combo.addItem(name, url)
+        combo.setCurrentIndex(0)
+        combo.blockSignals(False)
+
     def _refresh_adult_builtin(self):
-        """Round 384: показываем/прячем встроенную категорию 18+ по
-        настройке show_adult."""
-        show = bool(getattr(self.config, 'show_adult', False))
-        for w in getattr(self, '_adult_builtin_widgets', []) or []:
-            try:
-                w.setVisible(show)
-            except Exception:
-                pass
+        """Round 384: перезаполняем комбобокс «По категории» — пункт 18+
+        появляется/исчезает по настройке show_adult."""
+        combo = getattr(self, '_bycat_combo', None)
+        if combo is not None:
+            self._populate_builtin_combo(combo, getattr(self, '_bycat_items', []))
 
     def on_builtin_chosen(self, combo):
         idx = combo.currentIndex()

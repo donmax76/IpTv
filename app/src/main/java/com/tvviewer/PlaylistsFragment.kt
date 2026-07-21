@@ -36,8 +36,6 @@ class PlaylistsFragment : Fragment() {
     private lateinit var spinnerCategory: Spinner
     private lateinit var spinnerCountry: Spinner
     private lateinit var spinnerRegion: Spinner
-    private lateinit var spinnerAdult: Spinner
-    private lateinit var adultRow: View
     private lateinit var customSectionLabel: TextView
     private lateinit var builtInSection: View
 
@@ -114,8 +112,6 @@ class PlaylistsFragment : Fragment() {
         spinnerCategory = view.findViewById(R.id.spinnerCategory)
         spinnerCountry = view.findViewById(R.id.spinnerCountry)
         spinnerRegion = view.findViewById(R.id.spinnerRegion)
-        spinnerAdult = view.findViewById(R.id.spinnerAdult)
-        adultRow = view.findViewById(R.id.adultRow)
         customSectionLabel = view.findViewById(R.id.customSectionLabel)
         builtInSection = view.findViewById(R.id.builtInSection)
 
@@ -165,18 +161,16 @@ class PlaylistsFragment : Fragment() {
         bindSpinner(spinnerCategory, "by_category")
         bindSpinner(spinnerCountry, "by_country")
         bindSpinner(spinnerRegion, "by_region")
-        // Round 384: категория 18+ — только при включённом показе.
-        if (prefs.showAdult) {
-            adultRow.visibility = View.VISIBLE
-            bindSpinner(spinnerAdult, "adult")
-        } else {
-            adultRow.visibility = View.GONE
-        }
     }
 
     private fun bindSpinner(spinner: Spinner, categoryId: String) {
-        val items = BuiltInPlaylists.categories
+        var items = BuiltInPlaylists.categories
             .firstOrNull { it.id == categoryId }?.playlists.orEmpty()
+        // Round 384: пункты 18+ показываем в выпадашке только когда включён
+        // показ взрослого контента (Настройки → Показывать 18+/XXX).
+        if (!prefs.showAdult) {
+            items = items.filterNot { AdultContent.isAdultGroup(it.name) }
+        }
 
         val labels = mutableListOf(getString(R.string.choose_builtin))
         labels.addAll(items.map { it.name })

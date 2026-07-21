@@ -186,35 +186,6 @@
 
     </LinearLayout>
 
-    <!-- Round 384: категория 18+ — видна только когда включён показ
-         взрослого контента (Настройки → Показывать 18+/XXX). -->
-    <LinearLayout
-        android:id="@+id/adultRow"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingStart="@dimen/section_padding"
-        android:paddingEnd="@dimen/section_padding"
-        android:paddingTop="4dp"
-        android:visibility="gone">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/adult_category"
-            android:textColor="@color/text_secondary"
-            android:textSize="12sp"/>
-
-        <Spinner
-            android:id="@+id/spinnerAdult"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@drawable/bg_playlist_spinner"
-            android:focusable="true"
-            android:popupBackground="#2A2A48"/>
-
-    </LinearLayout>
-
     <TextView
         android:id="@+id/customSectionLabel"
         android:layout_width="wrap_content"
