@@ -635,15 +635,21 @@ class SettingsFragment : Fragment() {
 
         // EPG auto-update
         // Built-in playlists toggle
-        val showBuiltinValue = view.findViewById<TextView>(R.id.showBuiltinValue)
-        fun updateBuiltinValue() {
-            showBuiltinValue.text = if (prefs.showBuiltInPlaylists)
-                getString(R.string.time_on) else getString(R.string.time_off)
-        }
-        updateBuiltinValue()
-        view.findViewById<LinearLayout>(R.id.showBuiltinLayout).setOnClickListener {
-            prefs.showBuiltInPlaylists = !prefs.showBuiltInPlaylists
+        // Round 386: в play-флейворе встроенных плейлистов нет — прячем
+        // и сам переключатель.
+        if (!BuildConfig.BUILTIN_PLAYLISTS_ENABLED) {
+            view.findViewById<LinearLayout>(R.id.showBuiltinLayout).visibility = View.GONE
+        } else {
+            val showBuiltinValue = view.findViewById<TextView>(R.id.showBuiltinValue)
+            fun updateBuiltinValue() {
+                showBuiltinValue.text = if (prefs.showBuiltInPlaylists)
+                    getString(R.string.time_on) else getString(R.string.time_off)
+            }
             updateBuiltinValue()
+            view.findViewById<LinearLayout>(R.id.showBuiltinLayout).setOnClickListener {
+                prefs.showBuiltInPlaylists = !prefs.showBuiltInPlaylists
+                updateBuiltinValue()
+            }
         }
 
         val epgAutoUpdateValue = view.findViewById<TextView>(R.id.epgAutoUpdateValue)

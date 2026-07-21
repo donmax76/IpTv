@@ -78,10 +78,16 @@ android {
             dimension = "dist"
             isDefault = true
             buildConfigField("boolean", "SELF_UPDATE_ENABLED", "true")
+            // Round 386: встроенные подборки плейлистов (iptv-org + 18+).
+            buildConfigField("boolean", "BUILTIN_PLAYLISTS_ENABLED", "true")
         }
         create("play") {
             dimension = "dist"
             buildConfigField("boolean", "SELF_UPDATE_ENABLED", "false")
+            // Round 386: в Play-версии встроенных плейлистов НЕТ вообще —
+            // Google строго ревьюит IPTV-приложения со встроенным контентом
+            // (особенно 18+). Пользователь добавляет свои плейлисты сам.
+            buildConfigField("boolean", "BUILTIN_PLAYLISTS_ENABLED", "false")
             if (!uploadStoreFile.isNullOrBlank()) {
                 signingConfig = signingConfigs.getByName("upload")
             }

@@ -153,7 +153,9 @@ class PlaylistsFragment : Fragment() {
      *  по языку / категории / стране / региону. Раньше всё это было 30+
      *  строк в одном списке. */
     private fun setupBuiltInSpinners() {
-        val show = prefs.showBuiltInPlaylists
+        // Round 386: в play-флейворе встроенных плейлистов нет вообще
+        // (политики Google Play на встроенный IPTV-контент).
+        val show = BuildConfig.BUILTIN_PLAYLISTS_ENABLED && prefs.showBuiltInPlaylists
         builtInSection.visibility = if (show) View.VISIBLE else View.GONE
         if (!show) return
 

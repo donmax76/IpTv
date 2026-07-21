@@ -156,7 +156,14 @@ class AddPlaylistActivity : BaseActivity() {
         }
 
         // Built-in playlists
+        // Round 386: в play-флейворе встроенных плейлистов нет вообще.
         val builtinRecycler = findViewById<RecyclerView>(R.id.builtinPlaylistsRecyclerView)
+        if (!BuildConfig.BUILTIN_PLAYLISTS_ENABLED) {
+            builtinRecycler.visibility = android.view.View.GONE
+            findViewById<android.view.View>(R.id.builtinPlaylistsLabel)?.visibility =
+                android.view.View.GONE
+            return
+        }
         builtinRecycler.layoutManager = LinearLayoutManager(this)
 
         val builtinPlaylists = BuiltInPlaylists.getAllPlaylists()
