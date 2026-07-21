@@ -154,6 +154,7 @@
     <string name="by_category">По категории</string>
     <string name="by_country">По стране</string>
     <string name="by_region">По региону</string>
+    <string name="adult_category">18+ / XXX</string>
     <string name="choose_builtin">— Выберите —</string>
     <string name="channels_count">%d каналов</string>
     <string name="delete">Удалить</string>

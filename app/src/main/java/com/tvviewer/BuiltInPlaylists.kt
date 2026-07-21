@@ -25,6 +25,11 @@ object BuiltInPlaylists {
             Playlist("🌐 Deutsch",       "$IPTV/languages/deu.m3u"),
             Playlist("🌐 Español",       "$IPTV/languages/spa.m3u"),
         )),
+        // Round 384: категория 18+. Показывается в UI только когда включён
+        // показ взрослого контента (Настройки → Показывать 18+/XXX).
+        PlaylistCategory("adult", listOf(
+            Playlist("🔞 18+ / XXX", "$IPTV/categories/xxx.m3u"),
+        )),
         PlaylistCategory("by_category", listOf(
             Playlist("⚽ Спорт",      "$IPTV/categories/sports.m3u"),
             Playlist("📰 Новости",    "$IPTV/categories/news.m3u"),

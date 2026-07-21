@@ -545,6 +545,7 @@ TRANSLATIONS = {
         'by_category': "По категории",
         'by_country': "По стране",
         'by_region': "По региону",
+        'adult_category': "18+ / XXX",
         'no_logos': "Нет логотипов",
         'channel_count': "{n} каналов",
         'panel_channels': "Каналы",
@@ -738,6 +739,7 @@ TRANSLATIONS = {
         'by_category': "By category",
         'by_country': "By country",
         'by_region': "By region",
+        'adult_category': "18+ / XXX",
         'no_logos': "No logos",
         'channel_count': "{n} channels",
         'panel_channels': "Channels",
@@ -910,6 +912,29 @@ TRANSLATIONS = {
         'by_category': "За категорією",
         'by_country': "За країною",
         'by_region': "За регіоном",
+        'adult_category': "18+ / XXX",
+        'list_preview': "Міні-превʼю під час гортання",
+        'parental_change_pin': "Змінити PIN-код",
+        'parental_channel_locked': "Канал заблоковано 🔒",
+        'parental_channel_unlocked': "Канал розблоковано",
+        'parental_control': "Батьківський контроль",
+        'parental_enter_pin': "Введіть PIN-код",
+        'parental_lock_channel': "🔒 Заблокувати канал",
+        'parental_locked_categories': "Заблоковані категорії",
+        'parental_new_pin': "Новий PIN-код (4–8 цифр)",
+        'parental_pin_removed': "Батьківський контроль вимкнено",
+        'parental_pin_set': "PIN-код встановлено",
+        'parental_remove_pin': "Вимкнути (прибрати PIN)",
+        'parental_set_pin': "Встановити PIN-код",
+        'parental_status_on': "PIN встановлено",
+        'parental_unlock_channel': "🔓 Розблокувати канал",
+        'parental_wrong_pin': "Невірний PIN-код",
+        'playlist_copy_url': "Копіювати URL",
+        'playlist_edit': "Редагувати",
+        'playlist_name_hint': "Назва",
+        'playlist_url_copied': "URL скопійовано в буфер обміну",
+        'playlist_url_hint': "URL плейлиста",
+        'show_adult': "Показувати 18+ / XXX",
         'no_logos': "Немає логотипів",
         'channel_count': "{n} каналів",
         'panel_channels': "Канали",
@@ -1082,6 +1107,29 @@ TRANSLATIONS = {
         'by_category': "Kateqoriyaya görə",
         'by_country': "Ölkəyə görə",
         'by_region': "Regiona görə",
+        'adult_category': "18+ / XXX",
+        'list_preview': "Vərəqləyərkən mini önizləmə",
+        'parental_change_pin': "PIN-i dəyiş",
+        'parental_channel_locked': "Kanal kilidləndi 🔒",
+        'parental_channel_unlocked': "Kanalın kilidi açıldı",
+        'parental_control': "Valideyn nəzarəti",
+        'parental_enter_pin': "PIN daxil edin",
+        'parental_lock_channel': "🔒 Kanalı kilidlə",
+        'parental_locked_categories': "Kilidlənmiş kateqoriyalar",
+        'parental_new_pin': "Yeni PIN (4–8 rəqəm)",
+        'parental_pin_removed': "Valideyn nəzarəti söndürüldü",
+        'parental_pin_set': "PIN təyin edildi",
+        'parental_remove_pin': "Söndür (PIN-i sil)",
+        'parental_set_pin': "PIN təyin et",
+        'parental_status_on': "PIN təyin edildi",
+        'parental_unlock_channel': "🔓 Kanalın kilidini aç",
+        'parental_wrong_pin': "Yanlış PIN",
+        'playlist_copy_url': "URL-i kopyala",
+        'playlist_edit': "Redaktə et",
+        'playlist_name_hint': "Ad",
+        'playlist_url_copied': "URL mübadilə buferinə kopyalandı",
+        'playlist_url_hint': "Pleylist URL-i",
+        'show_adult': "18+ / XXX göstər",
         'no_logos': "Loqo yoxdur",
         'channel_count': "{n} kanal",
         'panel_channels': "Kanallar",
@@ -3441,6 +3489,11 @@ class PlaylistsPage(QWidget):
             ('🌍 Asia',         'https://iptv-org.github.io/iptv/regions/asia.m3u'),
             ('🌍 North America','https://iptv-org.github.io/iptv/regions/noram.m3u'),
         ]),
+        # Round 384: категория 18+. Комбобокс виден только когда включён
+        # показ взрослого контента (Настройки → Показывать 18+/XXX).
+        ('Adult', [
+            ('🔞 18+ / XXX', 'https://iptv-org.github.io/iptv/categories/xxx.m3u'),
+        ]),
     ]
 
     def init_ui(self):
@@ -3464,7 +3517,11 @@ class PlaylistsPage(QWidget):
         self._builtin_combos = []
         self._builtin_cat_labels = []
         # Round 265: ключи переводов для категорий вместо хардкода.
-        cat_t_keys = ['by_language', 'by_category', 'by_country', 'by_region']
+        cat_t_keys = ['by_language', 'by_category', 'by_country',
+                      'by_region', 'adult_category']
+        # Round 384: пары (label, combo) категории 18+ — прячем/показываем
+        # по настройке show_adult.
+        self._adult_builtin_widgets = []
         grid = QHBoxLayout()
         col_left = QVBoxLayout()
         col_right = QVBoxLayout()
@@ -3483,6 +3540,9 @@ class PlaylistsPage(QWidget):
             self._builtin_combos.append(combo)
             (col_left if i % 2 == 0 else col_right).addWidget(lbl)
             (col_left if i % 2 == 0 else col_right).addWidget(combo)
+            if cat_key == 'adult_category':
+                self._adult_builtin_widgets = [lbl, combo]
+        self._refresh_adult_builtin()
         grid.addLayout(col_left)
         grid.addSpacing(8)
         grid.addLayout(col_right)
@@ -3596,6 +3656,16 @@ class PlaylistsPage(QWidget):
         if idx < 0:
             return
         self._copy_to_clipboard(self.config.playlists[idx].get('url', ''))
+
+    def _refresh_adult_builtin(self):
+        """Round 384: показываем/прячем встроенную категорию 18+ по
+        настройке show_adult."""
+        show = bool(getattr(self.config, 'show_adult', False))
+        for w in getattr(self, '_adult_builtin_widgets', []) or []:
+            try:
+                w.setVisible(show)
+            except Exception:
+                pass
 
     def on_builtin_chosen(self, combo):
         idx = combo.currentIndex()
@@ -11755,6 +11825,11 @@ class MainWindow(QMainWindow):
             pass
         # Refresh channel list (favorite state / category visibility may have changed)
         self.channels_page.filter_channels()
+        # Round 384: обновляем видимость встроенной категории 18+.
+        try:
+            self.playlists_page._refresh_adult_builtin()
+        except Exception:
+            pass
         if self.stack.currentIndex() == 2:
             self.favorites_page.refresh(self.channels, self.epg_data)
         if self.stack.currentIndex() == 5:

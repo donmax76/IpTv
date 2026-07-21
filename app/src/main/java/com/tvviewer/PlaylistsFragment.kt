@@ -36,6 +36,8 @@ class PlaylistsFragment : Fragment() {
     private lateinit var spinnerCategory: Spinner
     private lateinit var spinnerCountry: Spinner
     private lateinit var spinnerRegion: Spinner
+    private lateinit var spinnerAdult: Spinner
+    private lateinit var adultRow: View
     private lateinit var customSectionLabel: TextView
     private lateinit var builtInSection: View
 
@@ -112,6 +114,8 @@ class PlaylistsFragment : Fragment() {
         spinnerCategory = view.findViewById(R.id.spinnerCategory)
         spinnerCountry = view.findViewById(R.id.spinnerCountry)
         spinnerRegion = view.findViewById(R.id.spinnerRegion)
+        spinnerAdult = view.findViewById(R.id.spinnerAdult)
+        adultRow = view.findViewById(R.id.adultRow)
         customSectionLabel = view.findViewById(R.id.customSectionLabel)
         builtInSection = view.findViewById(R.id.builtInSection)
 
@@ -161,6 +165,13 @@ class PlaylistsFragment : Fragment() {
         bindSpinner(spinnerCategory, "by_category")
         bindSpinner(spinnerCountry, "by_country")
         bindSpinner(spinnerRegion, "by_region")
+        // Round 384: категория 18+ — только при включённом показе.
+        if (prefs.showAdult) {
+            adultRow.visibility = View.VISIBLE
+            bindSpinner(spinnerAdult, "adult")
+        } else {
+            adultRow.visibility = View.GONE
+        }
     }
 
     private fun bindSpinner(spinner: Spinner, categoryId: String) {
