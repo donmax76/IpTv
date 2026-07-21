@@ -492,7 +492,7 @@ class XtreamApi:
 # ============================================================
 TRANSLATIONS = {
     'ru': {
-        'app_name': "M3U IPTV",
+        'app_name': "TV Viewer",
         # Round 364: родительский контроль + правка плейлистов.
         'parental_control': "Родительский контроль",
         'parental_set_pin': "Установить PIN-код",
@@ -687,7 +687,7 @@ TRANSLATIONS = {
         'menu_search': 'Поиск',
     },
     'en': {
-        'app_name': "M3U IPTV",
+        'app_name': "TV Viewer",
         'parental_control': "Parental control",
         'parental_set_pin': "Set PIN",
         'parental_change_pin': "Change PIN",
@@ -880,7 +880,7 @@ TRANSLATIONS = {
         'menu_search': 'Search',
     },
     'uk': {
-        'app_name': "M3U IPTV",
+        'app_name': "TV Viewer",
         'home': "Головна",
         'channels': "Канали",
         'playlists': "Плейлисти",
@@ -1075,7 +1075,7 @@ TRANSLATIONS = {
         'menu_search': 'Пошук',
     },
     'az': {
-        'app_name': "M3U IPTV",
+        'app_name': "TV Viewer",
         'home': "Əsas",
         'channels': "Kanallar",
         'playlists': "Pleylistlər",
@@ -10419,7 +10419,7 @@ class MainWindow(QMainWindow):
             channel_meta_lookup.ensure_loaded(self.cache_dir)
         except Exception:
             pass
-        self.setWindowTitle("M3U IPTV - TVViewer")
+        self.setWindowTitle(t('app_name'))
         self.setMinimumSize(900, 600)
         self.resize(1100, 700)
         self.init_ui()

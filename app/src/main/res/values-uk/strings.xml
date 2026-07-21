@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">ТБ Онлайн</string>
+    <string name="app_name">TV Viewer</string>
     <string name="channels">Канали</string>
     <string name="playlists">Плейлисти</string>
     <string name="loading">Завантаження…</string>
