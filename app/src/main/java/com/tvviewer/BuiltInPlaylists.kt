@@ -36,7 +36,9 @@ object BuiltInPlaylists {
             Playlist("🍳 Кулинария",  "$IPTV/categories/cooking.m3u"),
             // Round 384: 18+ внутри «По категории». В выпадашке показывается
             // только когда включён показ взрослого (Настройки → 18+/XXX).
-            Playlist("🔞 18+ / XXX",  "$IPTV/categories/xxx.m3u"),
+            // Round 385: iptv-org удалил свой adult-список (файл пустой) —
+            // заменён на URL, который дал пользователь.
+            Playlist("🔞 18+ / XXX",  "http://www.iptv.cc.ua/qwe/adult.m3u"),
         )),
         PlaylistCategory("by_country", listOf(
             Playlist("🇷🇺 Россия",     "$IPTV/countries/ru.m3u"),

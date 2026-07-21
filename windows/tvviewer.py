@@ -3463,7 +3463,9 @@ class PlaylistsPage(QWidget):
             ('🍳 Cooking',    'https://iptv-org.github.io/iptv/categories/cooking.m3u'),
             # Round 384: 18+ внутри «По категории». Пункт виден в комбобоксе
             # только когда включён показ взрослого (Настройки → 18+/XXX).
-            ('🔞 18+ / XXX',  'https://iptv-org.github.io/iptv/categories/xxx.m3u'),
+            # Round 385: iptv-org удалил свой adult-список — заменён на URL
+            # от пользователя.
+            ('🔞 18+ / XXX',  'http://www.iptv.cc.ua/qwe/adult.m3u'),
         ]),
         ('By country', [
             ('🇷🇺 Россия',     'https://iptv-org.github.io/iptv/countries/ru.m3u'),
