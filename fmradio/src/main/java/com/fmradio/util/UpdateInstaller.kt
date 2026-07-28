@@ -30,13 +30,19 @@ object UpdateInstaller {
     fun downloadAndInstall(context: Context, downloadUrl: String) {
         val appContext = context.applicationContext
         Toast.makeText(context, "Загрузка обновления...", Toast.LENGTH_SHORT).show()
+        StartupLog.write("update: download from $downloadUrl")
 
         Thread {
             val apk = downloadApk(appContext, downloadUrl)
             main.post {
                 if (apk != null && apk.length() > 100_000) {
+                    StartupLog.write("update: downloaded ${apk.length()} bytes, installing")
                     installApk(appContext, apk)
                 } else {
+                    // Falling back to the browser is the visible symptom the
+                    // user reports; it means the DOWNLOAD failed, not the
+                    // install. Record why, because previously nothing did.
+                    StartupLog.write("update: download FAILED (file=${apk?.length() ?: -1}), opening browser")
                     Toast.makeText(appContext, "Ошибка загрузки, открываю браузер", Toast.LENGTH_LONG).show()
                     openInBrowser(appContext, downloadUrl)
                 }
@@ -74,6 +80,7 @@ object UpdateInstaller {
             }
 
             if (conn.responseCode !in 200..299) {
+                StartupLog.write("update: HTTP ${conn.responseCode} after $redirects redirect(s)")
                 Log.e(TAG, "Download failed: HTTP ${conn.responseCode}")
                 conn.disconnect()
                 return null
@@ -88,6 +95,7 @@ object UpdateInstaller {
             Log.i(TAG, "Downloaded ${outFile.length()} bytes to $outFile")
             outFile
         } catch (e: Exception) {
+            StartupLog.write("update: download error ${e.javaClass.simpleName}: ${e.message}")
             Log.e(TAG, "Download error", e)
             null
         }
@@ -95,6 +103,22 @@ object UpdateInstaller {
 
     private fun installApk(context: Context, apk: File) {
         try {
+            // Android 8 and later refuse an install from an app that has not
+            // been granted "install unknown apps". Without this check the
+            // install intent simply does nothing and the user is left with a
+            // downloaded file and no explanation.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                !context.packageManager.canRequestPackageInstalls()) {
+                StartupLog.write("update: install permission not granted, opening settings")
+                Toast.makeText(context,
+                    "Разрешите установку из этого источника и повторите",
+                    Toast.LENGTH_LONG).show()
+                val perm = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:${context.packageName}"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(perm)
+                return
+            }
             val uri: Uri = FileProvider.getUriForFile(
                 context, "${context.packageName}.fileprovider", apk
             )
@@ -105,6 +129,7 @@ object UpdateInstaller {
             }
             context.startActivity(intent)
         } catch (e: Exception) {
+            StartupLog.write("update: install failed ${e.javaClass.simpleName}: ${e.message}")
             Log.e(TAG, "Install failed", e)
             Toast.makeText(context, "Ошибка установки", Toast.LENGTH_LONG).show()
         }
