@@ -1,8 +1,12 @@
 #!/bin/bash
-# Bump FM Radio version in all three places at once:
-#   1. fmradio/build.gradle.kts            (versionCode, versionName)
-#   2. fmradio-desktop/.../MainWindow.kt   (VERSION, VERSION_CODE, BUILD)
-#   3. fmradio-version.json                (versionCode, versionName, releaseNotes)
+# Bump FM Radio version in both places that need it:
+#   1. fmradio-desktop/.../MainWindow.kt   (VERSION, VERSION_CODE, BUILD)
+#   2. fmradio-version.json                (versionCode, versionName, releaseNotes)
+#
+# fmradio/build.gradle.kts is NOT touched: the Android module derives its
+# version from the git commit count (3.0.<count>). The sed that used to run
+# against it matched nothing but the explanatory comment, silently rewriting it
+# to say something untrue.
 #
 # Usage:
 #   ./bump-fmradio-version.sh <versionCode> <versionName> [release notes]

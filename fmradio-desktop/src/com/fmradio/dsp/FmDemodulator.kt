@@ -78,6 +78,14 @@ class FmDemodulator(
 
     private var pilotNcoPhase = 0.0
     private var pilotNcoFreq = 2.0 * PI * 19000.0 / intermediateRate
+
+    /**
+     * Current pilot PLL frequency in rad/sample at [intermediateRate]. The RDS
+     * decoder locks its 57 kHz carrier to 3× this value; taking the frequency
+     * (not the phase) lets its NCO stay phase continuous across buffers, which
+     * differential BPSK detection requires.
+     */
+    val pilotFreqRadPerSample: Double get() = pilotNcoFreq
     private val pilotLoopBw = 2.0 * PI * 5.0 / intermediateRate
     private val pilotAlpha: Double
     private val pilotBeta: Double

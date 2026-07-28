@@ -1,7 +1,7 @@
 {
-  "versionCode": 13,
-  "versionName": "1.12.0",
-  "releaseNotes": "Windows: устранена главная причина обрывов — буфер звуковой линии 2с забирал всё мгновенно, кольцевой буфер всегда был пуст и в звук постоянно подмешивалась тишина. Линия 200мс, кольцо держит запас 400мс",
+  "versionCode": 14,
+  "versionName": "1.13.0",
+  "releaseNotes": "RDS: на Windows стоял старый декодер без защиты от ошибок — блок, не прошедший CRC, подставлял данные предыдущей группы, из-за чего в тексте появлялись чужие буквы и иероглифы. Портирован защищённый декодер; бегущая строка больше не обрезается и не наезжает на другой текст",
   "androidDownloadUrl": "https://github.com/donmax76/IpTv/releases/latest/download/FmRadio-Android.apk",
   "windowsDownloadUrl": "https://github.com/donmax76/IpTv/releases/latest"
 }

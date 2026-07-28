@@ -26,9 +26,9 @@ import org.json.JSONObject
 class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     companion object {
-        const val VERSION = "1.12.0"
+        const val VERSION = "1.13.0"
         const val BUILD = "20260728-1"
-        const val VERSION_CODE = 13
+        const val VERSION_CODE = 14
 
         // FM band range (extended: OIRT 65.8-74 + CCIR 87.5-108)
         const val FM_MIN_HZ = 76_000_000L
@@ -581,19 +581,27 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             font = Font("SansSerif", Font.BOLD, 24)
             foreground = CYAN
         }
-        val rdsBottomRow = JPanel(BorderLayout()).apply { isOpaque = false }
         rtLabel.apply {
             font = Font("Monospaced", Font.PLAIN, 15)
             foreground = TEXT_LIGHT
+            // The marquee measures itself against this width, so it must not be
+            // allowed to demand more room than the panel has — otherwise the
+            // layout stretches, the label gets clipped and the text looks cut off.
+            minimumSize = Dimension(0, 20)
+            preferredSize = Dimension(0, 20)
         }
         ptyLabel.apply {
             font = Font("SansSerif", Font.PLAIN, 13)
             foreground = CYAN_DIM
         }
-        rdsBottomRow.add(rtLabel, BorderLayout.CENTER)
-        rdsBottomRow.add(ptyLabel, BorderLayout.EAST)
-        rdsArea.add(rdsLabel, BorderLayout.NORTH)
-        rdsArea.add(rdsBottomRow, BorderLayout.CENTER)
+        // PTY shares the row with the station name instead of the RadioText row.
+        // On the RT row it ate the right-hand side of the marquee, which read as
+        // the running text overlapping another label.
+        val rdsTopRow = JPanel(BorderLayout(8, 0)).apply { isOpaque = false }
+        rdsTopRow.add(rdsLabel, BorderLayout.CENTER)
+        rdsTopRow.add(ptyLabel, BorderLayout.EAST)
+        rdsArea.add(rdsTopRow, BorderLayout.NORTH)
+        rdsArea.add(rtLabel, BorderLayout.CENTER)
 
         freqDisplayPanel.add(freqRow, BorderLayout.CENTER)
         freqDisplayPanel.add(rdsArea, BorderLayout.SOUTH)
@@ -1636,7 +1644,11 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             rdsLabel.text = data.ps.trim()
             rdsLabel.foreground = CYAN
         }
-        if (data.rt.isNotBlank()) {
+        // Only restart the marquee when the message actually changes. RDS group 2
+        // arrives several times a second, so resetting on every update pinned the
+        // scroll position at 0 — the text never advanced past the first screenful,
+        // which looked exactly like it was being cut off.
+        if (data.rt.isNotBlank() && data.rt != radioText) {
             radioText = data.rt
             radioTextScrollPos = 0
         }
@@ -1665,16 +1677,31 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     }
 
     private fun scrollRadioText() {
-        if (radioText.isBlank() || radioText.length <= 50) {
-            if (radioText.isNotBlank()) rtLabel.text = radioText
+        val text = radioText
+        if (text.isBlank()) {
+            rtLabel.text = " "
             return
         }
-        val display = radioText + "     " + radioText
-        val window = 55
+        // How many characters actually fit, measured from the label's real width
+        // instead of a hard-coded 55. The old constant assumed a window size that
+        // no longer matched the layout, so the tail was always clipped.
+        val fm = rtLabel.getFontMetrics(rtLabel.font)
+        val charW = fm.charWidth('0').coerceAtLeast(1)
+        val window = ((rtLabel.width - 4) / charW).coerceAtLeast(8)
+
+        if (text.length <= window) {
+            rtLabel.text = text
+            radioTextScrollPos = 0
+            return
+        }
+
+        val gap = "   •   "
+        val cycle = text.length + gap.length
+        if (radioTextScrollPos >= cycle) radioTextScrollPos = 0
+        val display = text + gap + text + gap
         val end = (radioTextScrollPos + window).coerceAtMost(display.length)
         rtLabel.text = display.substring(radioTextScrollPos, end)
         radioTextScrollPos++
-        if (radioTextScrollPos >= radioText.length + 5) radioTextScrollPos = 0
     }
 
     private fun updateSignalStrength(power: Float) {
@@ -1803,7 +1830,17 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                     }
                 }
             }
-            demodulator?.widebandListener = { wb, pilotPhase -> rdsDecoder?.process(wb, pilotPhase) }
+            // Steer the RDS carrier by the pilot PLL's *frequency*; its NCO phase
+            // must stay continuous across buffers or differential BPSK sees a
+            // phase jump several times a second.
+            demodulator?.let { demod ->
+                demod.widebandListener = { wb, _ ->
+                    rdsDecoder?.let { rds ->
+                        rds.setPilotFreq(demod.pilotFreqRadPerSample)
+                        rds.process(wb, wb.size)
+                    }
+                }
+            }
         }
 
         equalizer = AudioEqualizer(48000).also {
@@ -1890,6 +1927,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         rtLabel.text = " "
         ptyLabel.text = ""
         radioText = ""
+        radioTextScrollPos = 0
         stereoLabel.text = "MONO"
         signalStrength = 0
         signalPanel.repaint()
@@ -1917,6 +1955,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         rtLabel.text = " "
         ptyLabel.text = ""
         radioText = ""
+        radioTextScrollPos = 0
         updateFreqDisplay()
         // Update tuning slider and knob without triggering listener loop
         val sliderStep = band.stepHz.coerceAtLeast(5_000L)

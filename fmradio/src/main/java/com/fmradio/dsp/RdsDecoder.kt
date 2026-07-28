@@ -117,6 +117,14 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
 
     // Group data (4 blocks × 16 bits) + validity flags
     private val groupData = IntArray(4)
+    // Raw, uncorrected 16 data bits of every block in the current group, stored
+    // whether or not the CRC passed. PS is allowed to use a CRC-failed block D
+    // (otherwise it barely ever populates at FC0013's error rate), but it must
+    // read those bits from HERE, not from groupData. groupData keeps the
+    // PREVIOUS group's value while a block keeps failing, so the "received the
+    // same pair twice" test would be satisfied by one stale reading repeated —
+    // confirming wrong characters instead of filtering them.
+    private val groupRaw = IntArray(4)
     private val groupValid = BooleanArray(4)  // true = this block passed CRC in current group
     // true = block passed CRC WITHOUT error correction. Single-bit correction
     // uses 26 error patterns out of 1024 syndromes, so a random multi-bit
@@ -404,6 +412,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                     syncConfirmBad = 0
                     blockIndex = 0
                     groupData[0] = ((bitBuffer shr 10) and 0xFFFF).toInt()
+                    groupRaw[0] = groupData[0]
                     groupValid[0] = true
                     groupClean[0] = true  // matched OFFSET_A exactly, no correction
                     blockIndex = 1
@@ -422,6 +431,8 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                     3 -> OFFSET_D
                     else -> OFFSET_A
                 }
+
+                groupRaw[blockIndex] = ((bitBuffer shr 10) and 0xFFFF).toInt()
 
                 val corrected = tryCorrectBlock(bitBuffer, expectedOffset)
                 if (corrected != null) {
@@ -701,15 +712,17 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         val segmentAddr = blockB and 0x03
         val pos = segmentAddr * 2
 
-        // PS chars from block D. At 89% BER on FC0013, requiring dValid
-        // means PS never populates (block D rarely passes CRC). Instead
-        // rely on PS_CONFIRM_THRESHOLD to filter garbage — a corrupt
-        // char won't repeat identically twice.
-        val c1 = rdsCharToUnicode((blockD shr 8) and 0xFF)
-        val c2 = rdsCharToUnicode(blockD and 0xFF)
+        // PS chars from block D. At 89% BER on FC0013, requiring dValid means PS
+        // never populates (block D rarely passes CRC), so a failed block is
+        // still used — but its bits are read from groupRaw so that each
+        // reception is genuinely independent, and it must then agree with a
+        // third one before being shown.
+        val dCode = if (dValid) blockD else groupRaw[3]
+        val c1 = rdsCharToUnicode((dCode shr 8) and 0xFF)
+        val c2 = rdsCharToUnicode(dCode and 0xFF)
 
         if (isValidRdsChar(c1) && isValidRdsChar(c2)) {
-            // Consistency checking: require PS_CONFIRM_THRESHOLD identical receptions
+            // Consistency checking: require identical receptions before accepting
             if (psPending[pos] == c1 && psPending[pos + 1] == c2) {
                 psHitCount[segmentAddr]++
             } else {
@@ -718,7 +731,12 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 psHitCount[segmentAddr] = 1
             }
 
-            if (psHitCount[segmentAddr] >= PS_CONFIRM_THRESHOLD) {
+            val enough = when {
+                dValid && groupClean[3] -> 1
+                dValid -> PS_CONFIRM_THRESHOLD
+                else -> PS_CONFIRM_THRESHOLD + 1
+            }
+            if (psHitCount[segmentAddr] >= enough) {
                 if (psConfirmed[pos] != c1 || psConfirmed[pos + 1] != c2) {
                     psConfirmed[pos] = c1
                     psConfirmed[pos + 1] = c2
@@ -912,7 +930,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         blockIndex = 0
         goodBlocks = 0
         badBlocks = 0
-        for (i in groupData.indices) groupData[i] = 0
+        for (i in groupData.indices) { groupData[i] = 0; groupRaw[i] = 0 }
         for (i in groupValid.indices) groupValid[i] = false
         for (i in psChars.indices) psChars[i] = ' '
         for (i in psPending.indices) psPending[i] = ' '
