@@ -55,6 +55,18 @@ class NativeFmDsp {
     /** Percentage of raw samples pinned at the ends of the ADC range. */
     external fun getAdcClipPct(): Float
 
+    /** Ultrasonic noise level — the reception-quality metric (lower is better). */
+    external fun getNoiseLevel(): Float
+
+    /** Stereo separation currently in use: 0 = mono, 1 = full. */
+    external fun getStereoBlend(): Float
+
+    /** Current audio high-cut corner, Hz. */
+    external fun getHiCutHz(): Float
+
+    /** Samples suppressed by the impulse blanker since reset. */
+    external fun getBlankedCount(): Long
+
     /**
      * Runtime A/B test flag bitfield. See TEST_* constants below.
      * Allows toggling DSP tweaks live from the UI without rebuilding.

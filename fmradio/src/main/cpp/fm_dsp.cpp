@@ -144,6 +144,79 @@ struct DspState {
     float deEmphAlpha;
     float deEmphStateL = 0, deEmphStateR = 0;
 
+    // ===== Reception quality, measured from ultrasonic noise =====
+    //
+    // Everything a station transmits lives below ~60 kHz in the multiplex:
+    // mono to 15 kHz, pilot at 19, the stereo subcarrier to 53, RDS at 57.
+    // Above that there is nothing but receiver noise, and because FM noise
+    // density rises with frequency it is the most sensitive indicator of
+    // signal quality available — which is what a car radio uses to decide how
+    // much stereo and how much treble it can afford.
+    //
+    // The band is 62-70 kHz specifically. Measured across the whole ultrasonic
+    // region (clean vs weak signal, and loud vs quiet programme at the same
+    // signal):
+    //
+    //   band      weak/clean ratio   change with programme loudness
+    //   58-62 kHz       2.5x                 6.6x    <- RDS skirt
+    //   62-66 kHz      10.9x                 1.1x    <- clean
+    //   66-70 kHz      10.0x                 0.9x    <- clean
+    //   70-74 kHz       6.8x                 1.8x
+    //   74-78 kHz       4.1x                 3.9x    <- 2nd harmonic of 38 kHz
+    //   78-82 kHz      11.9x                 4.0x
+    //
+    // A metric that moves with loudness would collapse the stereo image on
+    // every loud passage, so the bands carrying demodulator products are
+    // avoided even where their weak/clean contrast looks good.
+    double nzHpB0, nzHpB1, nzHpB2, nzHpA1, nzHpA2;
+    double nzX1 = 0, nzX2 = 0, nzY1 = 0, nzY2 = 0;
+    double nzAcc = 0;
+    int    nzCount = 0;
+    int    nzWindow;                 // samples per measurement
+    float  noiseLevel = 0.0f;        // smoothed ultrasonic noise RMS
+    float  noiseEma = 0.0f;
+    static constexpr float NOISE_EMA_A = 0.15f;
+
+    // Blend to mono as noise rises. Below FULL the signal is clean enough for
+    // full separation; above NONE the L-R path carries more noise than
+    // information and is dropped entirely. Between the two the separation is
+    // scaled linearly — the gradual behaviour that makes a factory radio sound
+    // steady while driving instead of switching audibly in and out of stereo.
+    // Calibrated against the bench. The metric has a floor that comes from the
+    // fast-atan2 approximation rather than from the air, so the thresholds sit
+    // above it with margin — real hardware can only read higher than this
+    // idealised case, and the value is logged so it can be retuned from a
+    // field log rather than guessed at:
+    //   C/N 40 dB -> 0.0074   C/N 20 dB -> 0.0119   C/N 11 dB -> 0.0278
+    //   C/N 25 dB -> 0.0090   C/N 17 dB -> 0.0152   C/N  8 dB -> 0.0388
+    static constexpr float NOISE_STEREO_FULL = 0.012f;
+    static constexpr float NOISE_STEREO_NONE = 0.040f;
+    float snrBlend = 1.0f;
+
+    // Progressive treble roll-off. FM noise is worst at the top of the audio
+    // band, so trading high frequencies for quiet is a good deal once the
+    // signal degrades — again, standard car-radio behaviour.
+    static constexpr float NOISE_HICUT_START = 0.018f;   // still full bandwidth
+    static constexpr float NOISE_HICUT_FULL  = 0.052f;   // hardest roll-off
+    static constexpr float HICUT_MAX_HZ = 15000.0f;
+    static constexpr float HICUT_MIN_HZ = 3200.0f;
+    float hiCutHz = HICUT_MAX_HZ;
+    float hiCutAlpha = 1.0f;         // one-pole coefficient at AUDIO_RATE
+    float hiCutStateL = 0, hiCutStateR = 0;
+
+    // ===== Impulse noise blanker (operates on raw IQ) =====
+    // Ignition sparks and multipath transients arrive as short bursts that
+    // momentarily break the FM carrier's constant envelope. Working on |IQ|
+    // squared before any filtering, a burst is still only a few samples wide
+    // and can be gated out cleanly.
+    float nbAvg = 0.2f;              // slow average of |IQ|^2
+    static constexpr float NB_AVG_A = 0.0005f;
+    static constexpr float NB_THRESHOLD = 9.0f;   // multiples of mean power
+    static constexpr int   NB_MAX_RUN = 8;        // 8 us at 960 kHz
+    int   nbRun = 0;
+    float nbLastI = 0.0f, nbLastQ = 0.0f;
+    long  nbBlanked = 0;             // diagnostics
+
     // Signal strength
     double sigPowerAcc = 0;
     int sigPowerCount = 0;
@@ -202,6 +275,8 @@ struct DspState {
     static constexpr int TEST_NOTCH = 0x02;
     static constexpr int TEST_PLL = 0x04;
     static constexpr int TEST_DC = 0x08;
+    // Bit 4 = TEST_NB_OFF — disable the impulse blanker, for A/B comparison
+    static constexpr int TEST_NB_OFF = 0x10;
 
     // Two pre-computed gain values, selected by TEST_GAIN flag at runtime.
     float fmGainDefault;
@@ -242,6 +317,25 @@ struct DspState {
         designLpf(ifCoeffs, IF_LPF_ORDER, 90000.0f / SAMPLE_RATE);
         // Audio filter: 15 kHz cutoff
         designLpf(audioCoeffs, AUDIO_LPF_ORDER, 15000.0f / INTERMEDIATE_RATE);
+
+        // Noise-measuring bandpass: 65 kHz centre, ~3 kHz wide (RBJ constant
+        // skirt gain), running on the discriminator output.
+        {
+            // Q chosen so the skirts stay clear of the 76 kHz product: at
+            // Q=8 the metric still moved 2:1 with programme loudness, which is
+            // the mechanism behind audible "pumping" of the stereo image.
+            double w0n = 2.0 * PI_D * 65000.0 / INTERMEDIATE_RATE;
+            double cw = cos(w0n), sw = sin(w0n);
+            double q = 65.0 / 3.0;
+            double al = sw / (2.0 * q);
+            double a0n = 1.0 + al;
+            nzHpB0 = al / a0n;
+            nzHpB1 = 0.0;
+            nzHpB2 = -al / a0n;
+            nzHpA1 = (-2.0 * cw) / a0n;
+            nzHpA2 = (1.0 - al) / a0n;
+        }
+        nzWindow = INTERMEDIATE_RATE / 100;   // 10 ms per measurement
 
         // Pilot BPF (Q=80, 19 kHz)
         double w0 = 2.0 * PI_D * 19000.0 / INTERMEDIATE_RATE;
@@ -351,6 +445,13 @@ struct DspState {
         pilotAlpha = pilotAlphaFast;
         pilotBeta  = pilotBetaFast;
         deEmphStateL = deEmphStateR = 0;
+        nzX1 = nzX2 = nzY1 = nzY2 = 0;
+        nzAcc = 0; nzCount = 0;
+        noiseLevel = 0.0f; noiseEma = 0.0f;
+        snrBlend = 1.0f;
+        hiCutHz = HICUT_MAX_HZ; hiCutAlpha = 1.0f;
+        hiCutStateL = hiCutStateR = 0;
+        nbAvg = 0.2f; nbRun = 0; nbLastI = nbLastQ = 0.0f; nbBlanked = 0;
         sigPowerAcc = 0;
         sigPowerCount = 0;
         signalDb = -100.0f;
@@ -481,6 +582,30 @@ Java_com_fmradio_dsp_NativeFmDsp_getAdcClipPct(JNIEnv*, jobject) {
     return g_dsp.adcClipPct;
 }
 
+/** Ultrasonic noise level — the reception-quality metric (lower is better). */
+JNIEXPORT jfloat JNICALL
+Java_com_fmradio_dsp_NativeFmDsp_getNoiseLevel(JNIEnv*, jobject) {
+    return g_dsp.noiseLevel;
+}
+
+/** Current stereo separation actually in use, 0 (mono) to 1 (full). */
+JNIEXPORT jfloat JNICALL
+Java_com_fmradio_dsp_NativeFmDsp_getStereoBlend(JNIEnv*, jobject) {
+    return g_dsp.stereoBlend;
+}
+
+/** Current audio high-cut corner in Hz. */
+JNIEXPORT jfloat JNICALL
+Java_com_fmradio_dsp_NativeFmDsp_getHiCutHz(JNIEnv*, jobject) {
+    return g_dsp.hiCutHz;
+}
+
+/** Total samples suppressed by the impulse blanker since reset. */
+JNIEXPORT jlong JNICALL
+Java_com_fmradio_dsp_NativeFmDsp_getBlankedCount(JNIEnv*, jobject) {
+    return (jlong)g_dsp.nbBlanked;
+}
+
 JNIEXPORT void JNICALL
 Java_com_fmradio_dsp_NativeFmDsp_setTestFlags(JNIEnv*, jobject, jint flags) {
     g_dsp.testFlags = flags;
@@ -539,6 +664,38 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
         float iSample = byteLut[rawI];
         float qSample = byteLut[rawQ];
 
+        // ===== Impulse blanker =====
+        // Runs HERE, on the raw IQ, and not further down the chain: the IF
+        // filter is 64 taps at 960 kHz, i.e. 67 us long, so by the time an
+        // ignition spark reaches the discriminator it has been smeared into
+        // something that is no longer an impulse and can no longer be gated
+        // out. Before the filter it is still a few microseconds wide.
+        //
+        // An FM carrier has a constant envelope, so any sudden jump in |IQ| is
+        // interference by definition. Hold the previous sample through it. The
+        // run limit means a real signal can never be gated away for long: after
+        // NB_MAX_RUN samples the input is trusted again regardless.
+        {
+            float mag2 = iSample * iSample + qSample * qSample;
+            if (!(d.testFlags & DspState::TEST_NB_OFF) &&
+                mag2 > d.nbAvg * DspState::NB_THRESHOLD && d.nbRun < DspState::NB_MAX_RUN) {
+                // Zero, not hold. Holding freezes the phase, which the
+                // discriminator reads as an abrupt jump to zero frequency —
+                // a click in its own right. Zeroed samples are instead filled
+                // in by the 64-tap IF filter from their neighbours.
+                iSample = 0.0f;
+                qSample = 0.0f;
+                d.nbRun++;
+                d.nbBlanked++;
+            } else {
+                d.nbRun = 0;
+                d.nbLastI = iSample;
+                d.nbLastQ = qSample;
+                d.nbAvg += DspState::NB_AVG_A * (mag2 - d.nbAvg);
+                if (d.nbAvg < 1e-6f) d.nbAvg = 1e-6f;
+            }
+        }
+
         // ADC loading for the gain loop (raw bytes, pre-DC-removal)
         d.adcAcc += (double)iSample * iSample + (double)qSample * qSample;
         d.adcCount++;
@@ -578,6 +735,38 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
         d.prevI = filtI;
         d.prevQ = filtQ;
         float rawBB = fastAtan2(imagProd, realProd);
+
+        // ===== Ultrasonic noise measurement (70 kHz highpass) =====
+        {
+            double x = (double)rawBB;
+            double y = d.nzHpB0 * x + d.nzHpB1 * d.nzX1 + d.nzHpB2 * d.nzX2
+                     - d.nzHpA1 * d.nzY1 - d.nzHpA2 * d.nzY2;
+            d.nzX2 = d.nzX1; d.nzX1 = x;
+            d.nzY2 = d.nzY1; d.nzY1 = y;
+            d.nzAcc += y * y;
+            if (++d.nzCount >= d.nzWindow) {
+                float rms = (float)sqrt(d.nzAcc / d.nzCount);
+                d.nzAcc = 0; d.nzCount = 0;
+                d.noiseEma += DspState::NOISE_EMA_A * (rms - d.noiseEma);
+                d.noiseLevel = d.noiseEma;
+
+                // Separation the signal can support
+                float t = (d.noiseLevel - DspState::NOISE_STEREO_FULL) /
+                          (DspState::NOISE_STEREO_NONE - DspState::NOISE_STEREO_FULL);
+                if (t < 0) t = 0; else if (t > 1) t = 1;
+                d.snrBlend = 1.0f - t;
+
+                // Audio bandwidth the signal can support
+                float h = (d.noiseLevel - DspState::NOISE_HICUT_START) /
+                          (DspState::NOISE_HICUT_FULL - DspState::NOISE_HICUT_START);
+                if (h < 0) h = 0; else if (h > 1) h = 1;
+                d.hiCutHz = DspState::HICUT_MAX_HZ +
+                            h * (DspState::HICUT_MIN_HZ - DspState::HICUT_MAX_HZ);
+                float a = 1.0f - expf(-2.0f * PI_F * d.hiCutHz / (float)AUDIO_RATE);
+                if (a > 1.0f) a = 1.0f;
+                d.hiCutAlpha = a;
+            }
+        }
 
         // Warmup: skip output but still run PLL so it locks
         if (d.warmupSamples < d.warmupThreshold) {
@@ -625,11 +814,15 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
         // fade, narrow once the pilot has been held (see updatePllGear).
         d.updatePllGear(d.isStereo);
 
-        // Smooth stereo blend
-        if (d.isStereo && d.stereoBlend < 1.0f) {
-            d.stereoBlend = fminf(d.stereoBlend + DspState::STEREO_BLEND_ATTACK, 1.0f);
-        } else if (!d.isStereo && d.stereoBlend > 0.0f) {
-            d.stereoBlend = fmaxf(d.stereoBlend - DspState::STEREO_BLEND_RELEASE, 0.0f);
+        // Smooth stereo blend. The target is now the SMALLER of "is there a
+        // pilot at all" and "how much separation can this signal support" —
+        // a pilot arriving through a noisy path used to buy full stereo and
+        // all of the L-R path's noise with it.
+        float blendTarget = d.isStereo ? d.snrBlend : 0.0f;
+        if (d.stereoBlend < blendTarget) {
+            d.stereoBlend = fminf(d.stereoBlend + DspState::STEREO_BLEND_ATTACK, blendTarget);
+        } else if (d.stereoBlend > blendTarget) {
+            d.stereoBlend = fmaxf(d.stereoBlend - DspState::STEREO_BLEND_RELEASE, blendTarget);
         }
 
         // Signal strength
@@ -721,6 +914,12 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
         d.deEmphStateL += d.deEmphAlpha * (left - d.deEmphStateL);
         d.deEmphStateR += d.deEmphAlpha * (right - d.deEmphStateR);
 
+        // Progressive high-cut. At a clean signal hiCutAlpha is ~1 and this is
+        // a no-op; as noise rises the corner walks down to 3.2 kHz, trading
+        // the top of the band — where FM noise is worst — for quiet.
+        d.hiCutStateL += d.hiCutAlpha * (d.deEmphStateL - d.hiCutStateL);
+        d.hiCutStateR += d.hiCutAlpha * (d.deEmphStateR - d.hiCutStateR);
+
         // Mute ramp on startup
         if (d.muteRamp < 1.0f) {
             d.muteRamp += d.muteRampUp;
@@ -728,8 +927,8 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
         }
 
         float gain = d.muteRamp * d.squelchLevel * 28000.0f;
-        float clippedL = softClip(d.deEmphStateL * gain / 32767.0f) * 32767.0f;
-        float clippedR = softClip(d.deEmphStateR * gain / 32767.0f) * 32767.0f;
+        float clippedL = softClip(d.hiCutStateL * gain / 32767.0f) * 32767.0f;
+        float clippedR = softClip(d.hiCutStateR * gain / 32767.0f) * 32767.0f;
         int sL = (int)clippedL;
         int sR = (int)clippedR;
         if (sL > 32767) sL = 32767; else if (sL < -32767) sL = -32767;
@@ -745,9 +944,10 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
     d.logCounter += audioCount / 2;  // audioCount is L+R interleaved, so /2 for frames
     if (d.logCounter >= DspState::LOG_INTERVAL) {
         d.logCounter -= DspState::LOG_INTERVAL;
-        LOGI("DSP: audio=%d sig=%.1f stereo=%d blend=%.2f pilot=%.4f dc=%.4f/%.4f wb=%d gain=%.3f flags=0x%x",
+        LOGI("DSP: audio=%d sig=%.1f stereo=%d blend=%.2f noise=%.4f hicut=%.0f nb=%ld adc=%.3f/%.2f%% pilot=%.4f wb=%d flags=0x%x",
              audioCount, d.signalDb, (int)d.isStereo, d.stereoBlend,
-             d.pilotNcoFreq, d.dcI, d.dcQ, d.wbCount, d.fmGain, d.testFlags);
+             d.noiseLevel, d.hiCutHz, d.nbBlanked, d.adcRms, d.adcClipPct,
+             d.pilotNcoFreq, d.wbCount, d.testFlags);
     }
 
     // Publish ADC loading for this block, then start a fresh measurement.

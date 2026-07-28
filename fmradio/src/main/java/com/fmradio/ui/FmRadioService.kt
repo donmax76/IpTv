@@ -638,7 +638,10 @@ class FmRadioService : Service() {
                 } else if (++settleTicks >= GAIN_LOG_TICKS) {
                     settleTicks = 0
                     DebugLog.log("AGC", "steady: step $step (${step * 2} dB), " +
-                            "rms=%.3f clip=%.3f%%".format(rms, clip))
+                            "rms=%.3f clip=%.3f%% | noise=%.4f stereo=%.2f hicut=%.0fHz nb=%d"
+                                .format(rms, clip, ndsp.getNoiseLevel(),
+                                        ndsp.getStereoBlend(), ndsp.getHiCutHz(),
+                                        ndsp.getBlankedCount()))
                 }
             }
         }
