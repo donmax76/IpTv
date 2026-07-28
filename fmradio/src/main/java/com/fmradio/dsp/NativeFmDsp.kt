@@ -49,6 +49,12 @@ class NativeFmDsp {
     external fun getWbCount(): Int
     external fun demodulate(iqData: ByteArray, audioOut: ShortArray, wbOut: FloatArray?): Int
 
+    /** RMS of the IQ magnitude as a fraction of ADC full scale (0..1). */
+    external fun getAdcRms(): Float
+
+    /** Percentage of raw samples pinned at the ends of the ADC range. */
+    external fun getAdcClipPct(): Float
+
     /**
      * Runtime A/B test flag bitfield. See TEST_* constants below.
      * Allows toggling DSP tweaks live from the UI without rebuilding.

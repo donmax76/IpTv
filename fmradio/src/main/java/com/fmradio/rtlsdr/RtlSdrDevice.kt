@@ -981,6 +981,40 @@ class RtlSdrDevice(private val context: Context) {
         fc0013WriteReg(0x13, gain and 0xFF)
     }
 
+    /**
+     * Set the FC0013 IF gain in 2 dB steps, 0 (minimum) to 31 (~62 dB, maximum).
+     *
+     * This is the knob the automatic gain loop turns. Only the IF stage moves:
+     * the LNA and mixer stay wherever [setAutoGain] left them, so weak-signal
+     * sensitivity is exactly what it was before at step 31, and the loop can
+     * only ever back gain OFF from that point. Driving past a transmitter used
+     * to drive the 8-bit converter into its end stops with no way to recover;
+     * a 62 dB range of IF trim covers that comfortably.
+     *
+     * Returns the step actually applied, or -1 if the device is not open.
+     */
+    fun setFc0013IfGainStep(step: Int): Int {
+        if (!isOpen) return -1
+        if (tunerType != TunerType.FC0013 && tunerType != TunerType.FC0012) return -1
+        val s = step.coerceIn(0, 31)
+        usbLock.lock()
+        return try {
+            enableI2CRepeater(true)
+            setFC0013IfGain(s)
+            enableI2CRepeater(false)
+            s
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting FC0013 IF gain", e)
+            -1
+        } finally {
+            usbLock.unlock()
+        }
+    }
+
+    /** True when the connected tuner supports [setFc0013IfGainStep]. */
+    val supportsIfGainTrim: Boolean
+        get() = tunerType == TunerType.FC0013 || tunerType == TunerType.FC0012
+
     // ========================= End FC0013 Support =========================
 
     fun setGain(gainIndex: Int): Boolean {

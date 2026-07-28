@@ -41,6 +41,24 @@ class FmRadioService : Service() {
         // 64 × 14 ms ≈ 900 ms of headroom. On BYD DiLink the rear camera app
         // causes ~500-1000 ms of thread starvation — this buffer absorbs it.
         private const val IQ_QUEUE_DEPTH = 64
+
+        // ===== Tuner gain loop (see startGainControl) =====
+        // FC0013 IF gain is 2 dB per step; 31 is the ~62 dB maximum that the
+        // driver has always used, and the loop never goes above it.
+        private const val IF_GAIN_MAX_STEP = 31
+        // 200 ms tracks fading at driving speed while staying far slower than
+        // programme modulation, so the loop cannot pump on loud passages.
+        private const val GAIN_LOOP_MS = 200L
+        // Fraction of ADC full scale to aim for. A healthy RTL2832U input sits
+        // near a quarter of full scale: enough signal to keep quantisation
+        // noise irrelevant, enough headroom for FM's peaks and for a passing
+        // strong neighbour channel.
+        private const val ADC_RMS_HIGH = 0.34f
+        private const val ADC_RMS_LOW = 0.20f
+        // Any sustained clipping at all is already audible on FM.
+        private const val CLIP_LIMIT_PCT = 0.02f
+        // Log a steady-state line every ~10 s so field logs show the level.
+        private const val GAIN_LOG_TICKS = 50
     }
 
     // Dedicated single-thread dispatcher for USB streaming.
@@ -106,6 +124,7 @@ class FmRadioService : Service() {
     private var rdsDecoder: RdsDecoder? = null
     private var equalizer: AudioEqualizer? = null
     private var streamingJob: Job? = null
+    private var gainJob: Job? = null
     private var dspJob: Job? = null
     private var seekJob: Job? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -558,13 +577,77 @@ class FmRadioService : Service() {
         dspThread = thread
         thread.start()
 
+        startGainControl(dev, ndsp)
+
         updateMediaSessionState()
         updateNotification()
         Log.i(TAG, "Playback started at ${currentFrequency / 1e6} MHz")
     }
 
+    /**
+     * Automatic gain control for the tuner.
+     *
+     * The FC0013 was previously set once, at maximum, with its own AGC turned
+     * off, and never touched again for the rest of the session. That is fine
+     * sitting still, but a moving vehicle sees the received level swing by
+     * tens of dB: close to a transmitter the RTL2832U's 8-bit converter runs
+     * into its end stops, which is heard as harsh, crackly distortion on a
+     * station that sounds clean everywhere else. Picking a lower fixed value
+     * instead just moves the problem to weak signals — the code history shows
+     * exactly that being tried and reverted.
+     *
+     * So: close the loop. Only the IF trim moves, and only downward from the
+     * maximum, so a weak signal is handled exactly as it was before while a
+     * strong one gets the headroom it needs. Steps are 2 dB and the loop runs
+     * five times a second, which tracks driving-speed fading without being
+     * fast enough to pump on modulation.
+     */
+    private fun startGainControl(dev: RtlSdrDevice, ndsp: NativeFmDsp?) {
+        gainJob?.cancel()
+        if (ndsp == null || !dev.supportsIfGainTrim) {
+            Log.i(TAG, "AGC: not available (native=${ndsp != null} tunerTrim=${dev.supportsIfGainTrim})")
+            return
+        }
+        gainJob = serviceScope.launch(usbDispatcher) {
+            var step = IF_GAIN_MAX_STEP
+            dev.setFc0013IfGainStep(step)
+            var settleTicks = 0
+            while (isActive && isPlaying) {
+                delay(GAIN_LOOP_MS)
+                val rms = ndsp.getAdcRms()
+                val clip = ndsp.getAdcClipPct()
+                if (rms <= 0f) continue          // no data yet
+
+                val newStep = when {
+                    // Converter is being driven into its end stops: come down
+                    // fast, two steps at a time, this is the audible case.
+                    clip > CLIP_LIMIT_PCT -> step - 2
+                    rms > ADC_RMS_HIGH    -> step - 1
+                    // Plenty of headroom and no clipping — give sensitivity
+                    // back, one step at a time so it cannot oscillate.
+                    rms < ADC_RMS_LOW && clip < 0.001f -> step + 1
+                    else -> step
+                }.coerceIn(0, IF_GAIN_MAX_STEP)
+
+                if (newStep != step) {
+                    step = newStep
+                    dev.setFc0013IfGainStep(step)
+                    settleTicks = 0
+                    DebugLog.log("AGC", "IF gain -> step $step (${step * 2} dB), " +
+                            "rms=%.3f clip=%.3f%%".format(rms, clip))
+                } else if (++settleTicks >= GAIN_LOG_TICKS) {
+                    settleTicks = 0
+                    DebugLog.log("AGC", "steady: step $step (${step * 2} dB), " +
+                            "rms=%.3f clip=%.3f%%".format(rms, clip))
+                }
+            }
+        }
+    }
+
     fun stopPlayback() {
         isPlaying = false
+        gainJob?.cancel()
+        gainJob = null
 
         // Release wake lock
         try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) {}
