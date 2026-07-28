@@ -52,15 +52,21 @@ class FmRadioService : Service() {
         // is one 17 ms USB block and far too noisy to steer on.
         private const val GAIN_SAMPLE_MS = 20L
         private const val GAIN_SAMPLES = 10
-        // Ignore two decisions (400 ms) after a change so the loop does not
-        // react to its own move before the level has settled.
-        private const val GAIN_SETTLE_CYCLES = 2
+        // Ignore one decision (200 ms) after a change so the loop does not
+        // react to its own move before the level has settled. One is enough
+        // now that corrections are proportional and therefore few.
+        private const val GAIN_SETTLE_CYCLES = 1
         // Fraction of ADC full scale to aim for. A healthy RTL2832U input sits
         // near a quarter of full scale: enough signal to keep quantisation
         // noise irrelevant, enough headroom for FM's peaks and for a passing
         // strong neighbour channel.
         private const val ADC_RMS_HIGH = 0.34f
         private const val ADC_RMS_LOW = 0.20f
+        // Middle of the dead zone — what the proportional correction aims at.
+        private const val ADC_RMS_TARGET = 0.27f
+        // Where the loop starts. Mid-scale rather than maximum so a strong
+        // station is not grossly overloaded for the first seconds.
+        private const val IF_GAIN_START_STEP = 20
         // Any sustained clipping at all is already audible on FM.
         private const val CLIP_LIMIT_PCT = 0.02f
         // Log a steady-state line every ~10 s so field logs show the level.
@@ -629,7 +635,12 @@ class FmRadioService : Service() {
             return
         }
         gainJob = serviceScope.launch(usbDispatcher) {
-            var step = IF_GAIN_MAX_STEP
+            // Start mid-scale, not at maximum. Beginning at 62 dB means a
+            // strong local station overloads the converter from the first
+            // sample, and stepping down one or two notches at a time took
+            // about nine seconds to reach a sane level — heard as loud noise
+            // on tuning in that then clears up.
+            var step = IF_GAIN_START_STEP
             dev.setFc0013IfGainStep(step)
             var settleTicks = 0
             var settleAfterChange = 0
@@ -664,14 +675,21 @@ class FmRadioService : Service() {
                     continue
                 }
 
+                // Correct proportionally: turn the level error straight into
+                // decibels and divide by the 2 dB a step is worth. One notch
+                // at a time is fine once settled but hopeless from a cold
+                // start, which is where the audible problem was.
                 val newStep = when {
-                    // Converter is being driven into its end stops: come down
-                    // fast, two steps at a time, this is the audible case.
-                    clip > CLIP_LIMIT_PCT -> step - 2
-                    rms > ADC_RMS_HIGH    -> step - 1
-                    // Plenty of headroom and no clipping — give sensitivity
-                    // back, one step at a time so it cannot oscillate.
-                    rms < ADC_RMS_LOW && clip < 0.001f -> step + 1
+                    clip > CLIP_LIMIT_PCT -> {
+                        // Clipping compresses the reading, so rms understates
+                        // how far out we are. Move decisively.
+                        step - maxOf(2, ((clip / CLIP_LIMIT_PCT).toInt()).coerceAtMost(6))
+                    }
+                    rms > ADC_RMS_HIGH || rms < ADC_RMS_LOW -> {
+                        val errDb = 20.0 * kotlin.math.log10((rms / ADC_RMS_TARGET).toDouble())
+                        val delta = Math.round(errDb / 2.0).toInt().coerceIn(-8, 8)
+                        step - delta
+                    }
                     else -> step
                 }.coerceIn(0, IF_GAIN_MAX_STEP)
 
