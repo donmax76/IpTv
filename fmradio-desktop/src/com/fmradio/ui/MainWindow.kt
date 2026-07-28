@@ -26,9 +26,9 @@ import org.json.JSONObject
 class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     companion object {
-        const val VERSION = "1.8.0"
-        const val BUILD = "20260714-1"
-        const val VERSION_CODE = 8
+        const val VERSION = "1.9.0"
+        const val BUILD = "20260728-1"
+        const val VERSION_CODE = 9
 
         // FM band range (extended: OIRT 65.8-74 + CCIR 87.5-108)
         const val FM_MIN_HZ = 76_000_000L
@@ -1680,19 +1680,40 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                 SwingUtilities.invokeLater {
                     statusLabel.text = "RTL-SDR not found"
                     statusLabel.foreground = RED_SOFT
+                    // Say what is actually wrong. "Not found" covered two very
+                    // different failures — a missing librtlsdr.dll (nothing to do
+                    // with Zadig) and a driver not bound to the dongle — and
+                    // conflating them sent people re-installing the wrong thing.
+                    val reason = RtlSdrNative.lastFailure
+                    val detail = RtlSdrNative.lastFailureDetail
+                    val msg = when (reason) {
+                        RtlSdrNative.Companion.FailureReason.LIBRARY_MISSING ->
+                            "Не найдена библиотека librtlsdr.\n\n" +
+                                "Это НЕ драйвер Zadig — это отдельный файл, который\n" +
+                                "должен лежать РЯДОМ с fmradio-desktop.jar:\n\n" +
+                                "    rtlsdr.dll\n" +
+                                "    libusb-1.0.dll\n\n" +
+                                "Проще всего скачать готовый архив\n" +
+                                "FmRadio-Windows.zip — там уже всё вместе.\n\n" +
+                                "Подробности:\n$detail"
+                        RtlSdrNative.Companion.FailureReason.NO_DEVICE ->
+                            "Библиотека librtlsdr загрузилась, но устройств не видит.\n\n" +
+                                "Проверьте:\n" +
+                                "1. Свисток вставлен в USB\n" +
+                                "2. В Zadig на ЭТОМ устройстве (интерфейс 0)\n" +
+                                "   установлен драйвер WinUSB\n" +
+                                "3. Свисток не занят другой программой (SDR#, rtl_tcp)\n\n" +
+                                "Подробности:\n$detail"
+                        RtlSdrNative.Companion.FailureReason.OPEN_FAILED ->
+                            "Устройство видно, но открыть его не удалось.\n\n" +
+                                "Обычно это значит, что свисток занят другой\n" +
+                                "программой, либо драйвер стоит не на том интерфейсе.\n\n" +
+                                "Подробности:\n$detail"
+                        else ->
+                            "RTL-SDR не найден.\n\nПроверьте подключение и драйверы."
+                    }
                     JOptionPane.showMessageDialog(
-                        this,
-                        "RTL-SDR device not found!\n\n" +
-                            "Make sure:\n" +
-                            "1. RTL-SDR dongle is connected via USB\n" +
-                            "2. Drivers are installed:\n" +
-                            "   Windows: Zadig (WinUSB driver)\n" +
-                            "   Linux: sudo apt install librtlsdr-dev\n" +
-                            "3. No other program is using the device\n\n" +
-                            "The app needs librtlsdr.dll (Windows)\n" +
-                            "or librtlsdr.so (Linux) to work.",
-                        "FM Radio RTL-SDR",
-                        JOptionPane.ERROR_MESSAGE
+                        this, msg, "FM Radio RTL-SDR", JOptionPane.ERROR_MESSAGE
                     )
                 }
             }

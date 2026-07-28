@@ -1,6 +1,7 @@
 package com.fmradio.rtlsdr
 
 import com.sun.jna.*
+import java.io.File
 import com.sun.jna.ptr.IntByReference
 import com.sun.jna.ptr.PointerByReference
 
@@ -43,13 +44,45 @@ class RtlSdrNative {
         /**
          * Try to load librtlsdr from common locations.
          */
+        /** Why open() failed, so the UI can tell the user what to actually fix. */
+        enum class FailureReason { NONE, LIBRARY_MISSING, NO_DEVICE, OPEN_FAILED }
+
+        @Volatile
+        var lastFailure: FailureReason = FailureReason.NONE
+            internal set
+
+        @Volatile
+        var lastFailureDetail: String = ""
+            internal set
+
+        /** Directory the running JAR sits in — DLLs shipped next to it are found first. */
+        private fun appDir(): File? = try {
+            val src = RtlSdrNative::class.java.protectionDomain?.codeSource?.location
+            if (src != null) File(src.toURI()).parentFile else null
+        } catch (_: Exception) { null }
+
         fun loadLibrary(): LibRtlSdr? {
+            // Look next to the JAR first: the Windows bundle ships rtlsdr.dll and
+            // libusb-1.0.dll there, so a plain unzip-and-run works without the
+            // user editing PATH or copying anything into system directories.
+            appDir()?.let { dir ->
+                val existing = System.getProperty("jna.library.path")
+                val path = if (existing.isNullOrBlank()) dir.absolutePath
+                           else dir.absolutePath + File.pathSeparator + existing
+                System.setProperty("jna.library.path", path)
+            }
+
             val names = listOf("rtlsdr", "librtlsdr")
+            val errors = StringBuilder()
             for (name in names) {
                 try {
                     return Native.load(name, LibRtlSdr::class.java) as LibRtlSdr
-                } catch (_: UnsatisfiedLinkError) { }
+                } catch (e: UnsatisfiedLinkError) {
+                    errors.append(name).append(": ").append(e.message?.take(160)).append('\n')
+                }
             }
+            lastFailure = FailureReason.LIBRARY_MISSING
+            lastFailureDetail = "jna.library.path=${System.getProperty("jna.library.path")}\n$errors"
             return null
         }
 
@@ -87,6 +120,9 @@ class RtlSdrNative {
         val count = l.rtlsdr_get_device_count()
         if (count == 0) {
             println("ERROR: No RTL-SDR devices found.")
+            lastFailure = FailureReason.NO_DEVICE
+            lastFailureDetail = "librtlsdr loaded OK, but it reports 0 devices — " +
+                "the WinUSB/libusb driver is probably not bound to the dongle's interface 0."
             return false
         }
 
@@ -96,6 +132,9 @@ class RtlSdrNative {
         val ret = l.rtlsdr_open(devRef, deviceIndex)
         if (ret != 0) {
             println("ERROR: rtlsdr_open failed (code $ret). Device may be in use.")
+            lastFailure = FailureReason.OPEN_FAILED
+            lastFailureDetail = "rtlsdr_open() returned $ret — the device is visible but could " +
+                "not be claimed (another program using it, or wrong driver on the interface)."
             return false
         }
 
@@ -104,6 +143,8 @@ class RtlSdrNative {
         tunerName = if (tunerType in TUNER_NAMES.indices) TUNER_NAMES[tunerType] else "Unknown($tunerType)"
 
         isOpen = true
+        lastFailure = FailureReason.NONE
+        lastFailureDetail = ""
         println("RTL-SDR opened: $deviceName (tuner=$tunerName)")
         return true
     }

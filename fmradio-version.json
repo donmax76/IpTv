@@ -1,7 +1,7 @@
 {
-  "versionCode": 8,
-  "versionName": "1.8.0",
-  "releaseNotes": "Драйверы тюнеров FC0013/R820T сверены с эталоном librtlsdr, исправлена AGC демодулятора, FIR-фильтр, стерео, RDS (A/B флаг, кодировка EBU), шумоподавитель, поддержка Android 14, AM-диапазоны, 44 модели донглов",
+  "versionCode": 9,
+  "versionName": "1.9.0",
+  "releaseNotes": "Windows: в архив добавлены librtlsdr.dll и libusb (Zadig их не ставит), понятная диагностика ошибок. Android: конвейер USB-запросов против потери сэмплов, защита RDS от ложных коррекций (иероглифы и обрезка текста)",
   "androidDownloadUrl": "https://github.com/donmax76/IpTv/releases/latest/download/FmRadio-Android.apk",
   "windowsDownloadUrl": "https://github.com/donmax76/IpTv/releases/latest"
 }

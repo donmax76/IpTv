@@ -75,11 +75,73 @@ jobs:
           chmod +x fmradio-desktop/build.sh
           KOTLINC=/tmp/kotlinc/bin/kotlinc bash fmradio-desktop/build.sh
 
+      - name: Bundle Windows package (JAR + launcher + librtlsdr DLLs)
+        run: |
+          set -e
+          mkdir -p pkg
+          cp fmradio-desktop/build/fmradio-desktop.jar pkg/
+          [ -f FmRadio.exe ] && cp FmRadio.exe pkg/ || true
+
+          # librtlsdr.dll is NOT installed by Zadig — Zadig only binds the WinUSB
+          # driver to the dongle. The app additionally needs the userspace library
+          # (and its libusb dependency) to talk to it, so ship them alongside.
+          curl -sL -o rtlsdr.zip \
+            "https://github.com/rtlsdrblog/rtl-sdr-blog/releases/latest/download/Release.zip"
+          mkdir -p rtl && unzip -q -o rtlsdr.zip -d rtl
+          # Prefer the x64 build; fall back to whatever rtlsdr.dll is present
+          X64DIR=$(find rtl -type d -name 'x64' | head -1)
+          if [ -n "$X64DIR" ]; then
+            cp "$X64DIR"/*.dll pkg/ 2>/dev/null || true
+          else
+            find rtl -name '*.dll' -exec cp {} pkg/ \; 2>/dev/null || true
+          fi
+          # JNA resolves "rtlsdr"; some releases name it librtlsdr.dll
+          [ -f pkg/rtlsdr.dll ] && cp pkg/rtlsdr.dll pkg/librtlsdr.dll || true
+          echo "--- bundle contents ---"; ls -la pkg
+
+          cat > pkg/ЧИТАТЬ.txt << 'TXT'
+          FM Radio RTL-SDR — версия для Windows
+          =====================================
+
+          Запуск: двойной клик по FmRadio.exe
+          (либо в консоли:  java -jar fmradio-desktop.jar)
+
+          Нужна Java 11 или новее: https://adoptium.net
+
+          ВАЖНО про драйвер
+          -----------------
+          В этой папке уже лежат rtlsdr.dll и libusb-1.0.dll — это библиотеки,
+          через которые программа общается со свистком. Их НЕ НАДО никуда
+          копировать, просто не разделяйте файлы из этой папки.
+
+          Отдельно нужен драйвер WinUSB на самом свистке — он ставится
+          программой Zadig (https://zadig.akeo.ie):
+            1. Воткните свисток
+            2. Запустите Zadig, меню Options → List All Devices
+            3. Выберите "Bulk-In, Interface (Interface 0)" или "RTL2832U"
+            4. Справа выберите WinUSB и нажмите Replace/Install Driver
+
+          Если свисток составной (в списке два интерфейса) — ставьте
+          именно на Interface 0.
+
+          Если что-то не работает, программа теперь пишет в окне ошибки,
+          чего именно не хватает: библиотеки или драйвера.
+          TXT
+
+          cd pkg && zip -qr ../FmRadio-Windows.zip . && cd ..
+          ls -la FmRadio-Windows.zip
+
       - name: Upload Desktop JAR
         uses: actions/upload-artifact@v4
         with:
           name: FmRadio-Desktop
           path: fmradio-desktop/build/fmradio-desktop.jar
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: FmRadio-Windows-Package
+          path: FmRadio-Windows.zip
 
   create-release:
     name: Create Release
@@ -129,6 +191,9 @@ jobs:
           if [ -f FmRadio.exe ]; then
             cp FmRadio.exe release/FmRadio.exe
           fi
+          if [ -f artifacts/FmRadio-Windows-Package/FmRadio-Windows.zip ]; then
+            cp artifacts/FmRadio-Windows-Package/FmRadio-Windows.zip release/
+          fi
           # APKs - copy if exist
           if [ -f artifacts/FmRadio-debug.apk/fmradio-debug.apk ]; then
             cp artifacts/FmRadio-debug.apk/fmradio-debug.apk release/FmRadio.apk
@@ -164,6 +229,9 @@ jobs:
           if [ -f release/FmRadio.apk ]; then
             FILES="$FILES release/FmRadio.apk"
           fi
+          if [ -f release/FmRadio-Windows.zip ]; then
+            FILES="$FILES release/FmRadio-Windows.zip"
+          fi
           if [ -f release/fmradio-desktop.jar ]; then
             FILES="$FILES release/fmradio-desktop.jar"
           fi
@@ -186,7 +254,9 @@ jobs:
           ### Скачать:
           - **FmRadio.apk** — Android debug (RTL-SDR через USB OTG)
           - **FmRadio-release.apk** — Android release
-          - **fmradio-desktop.jar** — Windows/Linux/Mac (java -jar, рядом положить FmRadio.exe как лаунчер)
+          - **FmRadio-Windows.zip** — Windows: распаковать и запустить FmRadio.exe.
+            Внутри уже есть librtlsdr.dll + libusb (Zadig всё равно нужен для драйвера свистка).
+          - **fmradio-desktop.jar** — Linux/Mac (java -jar; librtlsdr ставится пакетом системы)
           - **TVViewer.apk** — TV Viewer
 
           ### Последние изменения:

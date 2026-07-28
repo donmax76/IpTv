@@ -118,6 +118,13 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     // Group data (4 blocks × 16 bits) + validity flags
     private val groupData = IntArray(4)
     private val groupValid = BooleanArray(4)  // true = this block passed CRC in current group
+    // true = block passed CRC WITHOUT error correction. Single-bit correction
+    // uses 26 error patterns out of 1024 syndromes, so a random multi-bit
+    // error is mis-'corrected' 2.5% of the time. At the BER seen in the field
+    // that made ~28% of all accepted blocks garbage. Decisions that corrupt
+    // state globally (RT A/B toggle, end-of-text truncation) must only act on
+    // clean blocks; corrected ones are still fine as confirmation evidence.
+    private val groupClean = BooleanArray(4)
 
     // PS consistency checking — require 2 identical receptions before accepting
     private val psChars = CharArray(8) { ' ' }
@@ -132,6 +139,14 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private var rtLength = 0
     private var rtConfirmedLength = 0
     private var rtAbFlag = -1  // RT A/B flag: toggles when station changes text → clear buffer
+    private var rtAbPendingFlag = -1   // candidate new A/B value awaiting confirmation
+    private var rtAbPendingCount = 0
+    // Per-character confirmation for RadioText, mirroring what PS already does.
+    // A character is only shown once the SAME code arrives twice at the same
+    // position (or once from a CRC-clean block). Garbage from a mis-corrected
+    // block practically never repeats identically, so hieroglyphs never reach
+    // the screen.
+    private val rtHitCount = IntArray(64)
 
     // RDS decoded fields
     private var piCode = 0
@@ -139,6 +154,8 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private var piCandidate = 0      // candidate PI awaiting confirmation
     private var piCandidateCount = 0
     private var ptyCode = 0
+    private var ptyCandidate = -1
+    private var ptyCandidateCount = 0
     private var tpFlag = false
     private var taFlag = false
     private var msFlag = false
@@ -388,6 +405,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                     blockIndex = 0
                     groupData[0] = ((bitBuffer shr 10) and 0xFFFF).toInt()
                     groupValid[0] = true
+                    groupClean[0] = true  // matched OFFSET_A exactly, no correction
                     blockIndex = 1
                     bitCount = 0
                     goodBlocks = 1
@@ -409,6 +427,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 if (corrected != null) {
                     groupData[blockIndex] = corrected
                     groupValid[blockIndex] = true
+                    groupClean[blockIndex] = lastBlockWasClean
                     goodBlocks++
                     totalGoodBlocks++
                     badBlocks = 0  // reset: truly consecutive bad counter
@@ -420,6 +439,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                     }
                 } else {
                     groupValid[blockIndex] = false
+                    groupClean[blockIndex] = false
                     badBlocks++
                     totalBadBlocks++
                     if (!syncConfirmed) syncConfirmBad++
@@ -468,7 +488,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                     }
                     blockIndex = 0
                     goodBlocks = 0
-                    for (i in groupValid.indices) groupValid[i] = false
+                    for (i in groupValid.indices) { groupValid[i] = false; groupClean[i] = false }
                 }
             }
         }
@@ -504,10 +524,14 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
      * Try to correct single-bit errors in a 26-bit RDS block.
      * Returns corrected 16-bit data if successful, null if not correctable.
      */
+    /** Set by tryCorrectBlock: true when the last accepted block needed no correction. */
+    private var lastBlockWasClean = false
+
     private fun tryCorrectBlock(rawBlock: Long, expectedOffset: Int): Int? {
         val syndrome = calcSyndrome(rawBlock, 26)
         if (syndrome == expectedOffset) {
             // No error
+            lastBlockWasClean = true
             return ((rawBlock shr 10) and 0xFFFF).toInt()
         }
         // Error syndrome = actual XOR expected
@@ -515,6 +539,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         val bitPos = singleBitSyndromes[errorSyndrome]
         if (bitPos != null) {
             // Single-bit error found — correct it
+            lastBlockWasClean = false
             val corrected = rawBlock xor (1L shl bitPos)
             return ((corrected shr 10) and 0xFFFF).toInt()
         }
@@ -603,7 +628,18 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         // Group type and version
         val groupType = (blockB shr 12) and 0x0F
         val versionB = (blockB and 0x0800) != 0
-        ptyCode = (blockB shr 5) and 0x1F
+        // PTY comes from block B; a mis-corrected block B yields a random
+        // genre (field logs showed PTY flipping 9 → 16 → 9 on one station).
+        // Only accept it from a clean block, and require two agreeing reads.
+        if (groupClean[1]) {
+            val pty = (blockB shr 5) and 0x1F
+            if (pty == ptyCandidate) {
+                if (++ptyCandidateCount >= 2) ptyCode = pty
+            } else {
+                ptyCandidate = pty
+                ptyCandidateCount = 1
+            }
+        }
 
         totalGroupsDecoded++
 
@@ -716,15 +752,26 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     // Only triggers dataChanged when at least one valid character is found
     private fun decodeGroup2(blockB: Int, blockC: Int, blockD: Int, versionB: Boolean,
                              cValid: Boolean, dValid: Boolean) {
-        // RT A/B flag (bit 4 of blockB): when it toggles, station changed the
-        // text → clear the entire RT buffer so old chars don't mix with new.
-        val abFlag = (blockB shr 4) and 0x01
-        if (rtAbFlag >= 0 && abFlag != rtAbFlag) {
-            for (i in rtChars.indices) rtChars[i] = ' '
-            rtLength = 0
-            dataChanged = true
+        // RT A/B flag (bit 4 of blockB): when it toggles, the station changed
+        // the text → clear the buffer so old chars don't mix with new.
+        // Only honour it from a CRC-clean block B: a mis-corrected block B
+        // carries a random A/B bit, and acting on it wipes good text — which
+        // is exactly the "text keeps getting truncated" symptom. Require two
+        // consecutive clean readings of the new value before clearing.
+        if (groupClean[1]) {
+            val abFlag = (blockB shr 4) and 0x01
+            if (rtAbFlag >= 0 && abFlag != rtAbFlag) {
+                // Real message change — clear at once so the new text isn't
+                // mixed into the old one. Requiring a clean block B is what
+                // prevents a mis-corrected block from wiping good text; adding
+                // a further confirmation delay would itself cause mixing.
+                for (i in rtChars.indices) { rtChars[i] = ' '; rtPending[i] = '\u0000' }
+                for (i in rtHitCount.indices) rtHitCount[i] = 0
+                rtLength = 0
+                dataChanged = true
+            }
+            rtAbFlag = abFlag
         }
-        rtAbFlag = abFlag
 
         val segmentAddr = blockB and 0x0F
 
@@ -740,22 +787,15 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                     if (dValid) (blockD shr 8) and 0xFF else -1,
                     if (dValid) blockD and 0xFF else -1
                 )
+                val clean = booleanArrayOf(
+                    groupClean[2], groupClean[2], groupClean[3], groupClean[3]
+                )
                 var anyValid = false
                 for (j in 0..3) {
                     if (chars[j] < 0) continue  // block not CRC-valid, skip this char
-                    if (chars[j] == RDS_END_OF_TEXT) {
-                        rtLength = pos + j
-                        for (k in rtLength until rtChars.size) rtChars[k] = ' '
-                        dataChanged = true
-                        return
-                    }
-                    val c = rdsCharToUnicode(chars[j])
-                    if (isValidRdsChar(c)) { rtChars[pos + j] = c; anyValid = true }
+                    if (commitRtChar(pos + j, chars[j], clean[j])) anyValid = true
                 }
-                if (anyValid) {
-                    rtLength = maxOf(rtLength, pos + 4)
-                    dataChanged = true
-                }
+                if (anyValid) dataChanged = true
             }
         } else {
             // Version B: 2 chars per segment from block D — require dValid
@@ -765,21 +805,57 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 val chars = intArrayOf((blockD shr 8) and 0xFF, blockD and 0xFF)
                 var anyValid = false
                 for (j in 0..1) {
-                    if (chars[j] == RDS_END_OF_TEXT) {
-                        rtLength = pos + j
-                        for (k in rtLength until rtChars.size) rtChars[k] = ' '
-                        dataChanged = true
-                        return
-                    }
-                    val c = rdsCharToUnicode(chars[j])
-                    if (isValidRdsChar(c)) { rtChars[pos + j] = c; anyValid = true }
+                    if (commitRtChar(pos + j, chars[j], groupClean[3])) anyValid = true
+                    if (chars[j] == RDS_END_OF_TEXT && groupClean[3]) return
                 }
-                if (anyValid) {
-                    rtLength = maxOf(rtLength, pos + 2)
-                    dataChanged = true
-                }
+                if (anyValid) dataChanged = true
             }
         }
+    }
+
+    /**
+     * Commit one RadioText character with confirmation.
+     * Clean (uncorrected) blocks are trusted immediately; error-corrected ones
+     * must deliver the same code twice at the same position before it is shown.
+     * Returns true if the visible buffer changed.
+     */
+    private fun commitRtChar(pos: Int, code: Int, clean: Boolean): Boolean {
+        if (pos < 0 || pos >= rtChars.size) return false
+
+        if (code == RDS_END_OF_TEXT) {
+            // A stray 0x0D from a mis-corrected block used to truncate the whole
+            // message — only honour it from a clean block.
+            if (!clean) return false
+            if (rtLength != pos) {
+                rtLength = pos
+                for (k in pos until rtChars.size) { rtChars[k] = ' '; rtHitCount[k] = 0 }
+                return true
+            }
+            return false
+        }
+
+        val c = rdsCharToUnicode(code)
+        if (!isValidRdsChar(c)) return false
+
+        val confirmed = if (clean) {
+            true
+        } else {
+            if (rtPending[pos] == c) {
+                rtHitCount[pos]++
+                rtHitCount[pos] >= 2
+            } else {
+                rtPending[pos] = c
+                rtHitCount[pos] = 1
+                false
+            }
+        }
+        if (!confirmed) return false
+
+        rtPending[pos] = c
+        val changed = rtChars[pos] != c || rtLength <= pos
+        rtChars[pos] = c
+        if (pos >= rtLength) rtLength = pos + 1
+        return changed
     }
 
     private fun notifyListener() {
@@ -847,11 +923,15 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         rtLength = 0
         rtConfirmedLength = 0
         rtAbFlag = -1
+        rtAbPendingFlag = -1; rtAbPendingCount = 0
+        for (i in rtHitCount.indices) rtHitCount[i] = 0
         piCode = 0
         piConfirmCount = 0
         piCandidate = 0
         piCandidateCount = 0
         ptyCode = 0
+        ptyCandidate = -1
+        ptyCandidateCount = 0
         tpFlag = false
         taFlag = false
         msFlag = false
