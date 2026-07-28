@@ -186,6 +186,7 @@ class RtlSdrDevice(private val context: Context) {
             close()
         }
         isOpening = true
+        com.fmradio.util.StartupLog.write("USB open: begin")
         try {
             usbDevice = device ?: findDevice(context) ?: run {
                 Log.e(TAG, "No RTL-SDR device found")
@@ -342,6 +343,7 @@ class RtlSdrDevice(private val context: Context) {
 
         // === Detect tuner type ===
         tunerType = detectTuner()
+        com.fmradio.util.StartupLog.write("USB open: tuner=$tunerType")
         Log.i(TAG, "Detected tuner: $tunerType")
         DebugLog.log("USB", "Tuner detected: $tunerType")
 

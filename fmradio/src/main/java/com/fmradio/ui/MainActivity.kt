@@ -579,6 +579,7 @@ class MainActivity : Activity() {
             return
         }
         isConnecting = true
+        com.fmradio.util.StartupLog.write("openDevice: begin")
         tvStatus.text = getString(R.string.status_connecting)
         setControlsEnabled(false)
 

@@ -471,9 +471,13 @@ class FmRadioService : Service() {
 
         // Producer: USB setup + read loop on dedicated USB thread
         streamingJob = serviceScope.launch(usbDispatcher) {
+            com.fmradio.util.StartupLog.write("stream setup: sampleRate")
             dev.setSampleRate(sampleRate)
+            com.fmradio.util.StartupLog.write("stream setup: gain")
             dev.setAutoGain(true)
+            com.fmradio.util.StartupLog.write("stream setup: fullReset")
             dev.fullReset()
+            com.fmradio.util.StartupLog.write("stream setup: frequency")
             dev.setFrequency(currentFrequency)
             Thread.sleep(50)
 
@@ -580,6 +584,7 @@ class FmRadioService : Service() {
         dspThread = thread
         thread.start()
 
+        com.fmradio.util.StartupLog.write("streaming started, AGC loop next")
         startGainControl(dev, ndsp)
 
         updateMediaSessionState()
