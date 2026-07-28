@@ -23,24 +23,24 @@ class FmDemodulator(
     companion object {
         const val RECOMMENDED_SAMPLE_RATE = 1152000
 
-        // Squelch: keyed off the ultrasonic noise measure. Calibrated on the
-        // bench so that an empty frequency mutes and any real station, however
-        // hard it is modulating, does not.
-        // Measured on the bench: an empty frequency reads 0.225, while the
-        // worst case for a real station — 180% of nominal deviation, which is
-        // already beyond anything on air — reads 0.059. Thresholds sit in the
-        // wide gap between, deliberately closer to the noise end, because
-        // muting a real station is far worse than passing a second of static.
-        private const val NOISE_SQUELCH_CLOSE = 0.150f
-        private const val NOISE_SQUELCH_OPEN = 0.120f
+        // Squelch: in-band power, with hysteresis. Field measurements put real
+        // stations at -8 to -12 dB and an empty frequency at -27 dB, so -22/-20
+        // sits in the middle of a 15 dB gap. Power is used rather than any
+        // spectral measure because a station controls what it transmits but not
+        // how much of it reaches the receiver — every spectral input tried so
+        // far could be fooled by a station's own content.
+        private const val SQUELCH_CLOSE_DB = -22f
+        private const val SQUELCH_OPEN_DB = -20f
 
         // Progressive stereo blend and treble roll-off, same idea as a car
         // radio: give up separation and bandwidth gradually as noise rises
         // rather than switching audibly between stereo and mono.
-        private const val NOISE_STEREO_FULL = 0.012f
-        private const val NOISE_STEREO_NONE = 0.040f
-        private const val NOISE_HICUT_START = 0.018f
-        private const val NOISE_HICUT_FULL = 0.052f
+        // Calibrated for the 84 kHz band: a clean signal reads 0.0037,
+        // C/N 14 dB reads 0.0092, C/N 5 dB reads 0.0242, empty air 0.18.
+        private const val NOISE_STEREO_FULL = 0.008f
+        private const val NOISE_STEREO_NONE = 0.030f
+        private const val NOISE_HICUT_START = 0.014f
+        private const val NOISE_HICUT_FULL = 0.038f
         const val HICUT_MAX_HZ = 15000f
         private const val HICUT_MIN_HZ = 3200f
     }
@@ -149,11 +149,25 @@ class FmDemodulator(
 
     // ===== Reception quality, measured from ultrasonic noise =====
     //
-    // A station transmits nothing above ~60 kHz in the multiplex (mono to 15,
-    // pilot 19, stereo subcarrier to 53, RDS 57), so the 62-70 kHz region
-    // carries receiver noise and nothing else. That makes it a noise measure
-    // that does not move with how loud the programme is — which the previous
-    // squelch input very much did.
+    // Measured at 84 kHz, above everything a station transmits.
+    //
+    // 65 kHz was the obvious choice and it was wrong. Stations carry SCA/DARC
+    // subcarriers around 67 kHz — a normal, widely used service — which lands
+    // straight in that band. A field log showed the consequence plainly: a
+    // station at -8.8 dB read 0.22 while a STRONGER one at -7.9 dB read 0.016,
+    // so the reading was following what each station transmits rather than how
+    // well it was being received. Reproduced on the bench with a synthesized
+    // 67 kHz subcarrier at normal injection:
+    //
+    //   no subcarrier        0.0075   full stereo, 15 kHz
+    //   SCA at  5%           0.0240   stereo 0.57, 12.9 kHz
+    //   SCA at 10%           0.0460   MONO,        5.3 kHz
+    //   SCA at 15%           0.0685   MONO,        3.2 kHz
+    //   (pure noise          0.0546 — LOWER than a clean station with SCA)
+    //
+    // Above the subcarriers, 76 kHz is unusable too: it is the second harmonic
+    // of the 38 kHz stereo subcarrier, an artefact whose level follows
+    // programme loudness. 84 kHz clears both and stays inside the 90 kHz IF.
     private val nzBpB0: Double
     private val nzBpB2: Double
     private val nzBpA1: Double
@@ -167,6 +181,19 @@ class FmDemodulator(
     /** Smoothed ultrasonic noise level — lower is a better signal. */
     @Volatile
     var noiseLevel = 0f
+        private set
+
+    // In-band power, on the same scale measureSignalStrength() reports. This
+    // is what the squelch runs on now: in the field it separates cleanly and
+    // unambiguously — real stations sit at -8 to -12 dB and an empty frequency
+    // at -27 — whereas any spectral measure can be fooled by what a station
+    // chooses to transmit.
+    private var sigPowerAcc = 0.0
+    private var sigPowerCount = 0
+
+    /** In-band signal power in dB (same scale as measureSignalStrength). */
+    @Volatile
+    var signalDb = -100f
         private set
 
     /** Stereo separation currently applied: 0 = mono, 1 = full. */
@@ -223,8 +250,8 @@ class FmDemodulator(
         // Noise-measuring bandpass: 65 kHz centre, ~3 kHz wide. Narrow on
         // purpose — wider skirts reach the 76 kHz demodulator product, whose
         // level follows programme loudness and would make the measure useless.
-        val nzW = 2.0 * PI * 65000.0 / intermediateRate
-        val nzA = sin(nzW) / (2.0 * (65.0 / 3.0))
+        val nzW = 2.0 * PI * 84000.0 / intermediateRate
+        val nzA = sin(nzW) / (2.0 * (84.0 / 6.0))
         val nzA0 = 1.0 + nzA
         nzBpB0 = nzA / nzA0
         nzBpB2 = -nzA / nzA0
@@ -448,10 +475,6 @@ class FmDemodulator(
                     nzAcc = 0.0; nzCount = 0
                     noiseLevel += 0.15f * (rms - noiseLevel)
 
-                    // Squelch with hysteresis, on noise alone.
-                    squelchOpen = if (squelchOpen) noiseLevel < NOISE_SQUELCH_CLOSE
-                                  else noiseLevel < NOISE_SQUELCH_OPEN
-                    squelchIsOpen = squelchOpen
 
                     // Separation this signal can support
                     val t = ((noiseLevel - NOISE_STEREO_FULL) /
@@ -465,6 +488,22 @@ class FmDemodulator(
                     hiCutAlpha = (1.0 - exp(-2.0 * PI * hiCutHz / audioSampleRate))
                         .toFloat().coerceIn(0f, 1f)
                 }
+            }
+
+            // In-band power, and the squelch. Muting is reserved for a
+            // frequency with nothing on it: the cost of wrongly muting a real
+            // station is far higher than the cost of a second of static, and
+            // every previous squelch input got that trade wrong in one
+            // direction or the other.
+            sigPowerAcc += (filtI * filtI + filtQ * filtQ).toDouble()
+            sigPowerCount++
+            if (sigPowerCount >= intermediateRate / 16) {
+                signalDb = (10.0 * log10(sigPowerAcc / sigPowerCount + 1e-10)).toFloat()
+                sigPowerAcc = 0.0
+                sigPowerCount = 0
+                squelchOpen = if (squelchOpen) signalDb > SQUELCH_CLOSE_DB
+                              else signalDb > SQUELCH_OPEN_DB
+                squelchIsOpen = squelchOpen
             }
 
             // Modulation level is still measured, but only for the log now.
@@ -639,6 +678,7 @@ class FmDemodulator(
         prevI = 0f; prevQ = 0f; deEmphasisStateL = 0f; deEmphasisStateR = 0f
         nzX1 = 0.0; nzX2 = 0.0; nzY1 = 0.0; nzY2 = 0.0
         nzAcc = 0.0; nzCount = 0
+        sigPowerAcc = 0.0; sigPowerCount = 0; signalDb = -100f
         noiseLevel = 0f; stereoBlend = 0f; snrBlendTarget = 1f
         hiCutHz = HICUT_MAX_HZ; hiCutAlpha = 1f
         hiCutStateL = 0f; hiCutStateR = 0f

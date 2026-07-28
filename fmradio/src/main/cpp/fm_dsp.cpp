@@ -153,21 +153,24 @@ struct DspState {
     // signal quality available — which is what a car radio uses to decide how
     // much stereo and how much treble it can afford.
     //
-    // The band is 62-70 kHz specifically. Measured across the whole ultrasonic
-    // region (clean vs weak signal, and loud vs quiet programme at the same
-    // signal):
+    // The band is 84 kHz. Two earlier choices were wrong and both were caught
+    // by measurement rather than reasoning:
     //
-    //   band      weak/clean ratio   change with programme loudness
-    //   58-62 kHz       2.5x                 6.6x    <- RDS skirt
-    //   62-66 kHz      10.9x                 1.1x    <- clean
-    //   66-70 kHz      10.0x                 0.9x    <- clean
-    //   70-74 kHz       6.8x                 1.8x
-    //   74-78 kHz       4.1x                 3.9x    <- 2nd harmonic of 38 kHz
-    //   78-82 kHz      11.9x                 4.0x
+    //   * 74-82 kHz carries the 2nd harmonic of the 38 kHz stereo subcarrier,
+    //     a demodulator artefact whose level follows programme loudness (it
+    //     moved 4x between a loud and a quiet passage at the same signal). A
+    //     metric that tracks loudness collapses the stereo image on every loud
+    //     passage.
+    //   * 62-70 kHz looked ideal on a synthetic signal — 10x contrast between
+    //     a weak and a clean station, 1.1x with loudness — but real stations
+    //     carry SCA/DARC subcarriers around 67 kHz. A Windows field log showed
+    //     a station at -8.8 dB reading 0.22 while a STRONGER one at -7.9 dB
+    //     read 0.016: the measure was following what each station broadcasts,
+    //     not how well it arrives. A synthesized 67 kHz subcarrier at 10%
+    //     injection reproduced it exactly, forcing a perfectly clean station
+    //     to mono with a 5 kHz high-cut.
     //
-    // A metric that moves with loudness would collapse the stereo image on
-    // every loud passage, so the bands carrying demodulator products are
-    // avoided even where their weak/clean contrast looks good.
+    // 84 kHz sits above every subcarrier in use and below the 90 kHz IF edge.
     double nzHpB0, nzHpB1, nzHpB2, nzHpA1, nzHpA2;
     double nzX1 = 0, nzX2 = 0, nzY1 = 0, nzY2 = 0;
     double nzAcc = 0;
@@ -318,15 +321,22 @@ struct DspState {
         // Audio filter: 15 kHz cutoff
         designLpf(audioCoeffs, AUDIO_LPF_ORDER, 15000.0f / INTERMEDIATE_RATE);
 
-        // Noise-measuring bandpass: 65 kHz centre, ~3 kHz wide (RBJ constant
+        // Noise-measuring bandpass: 84 kHz centre, ~6 kHz wide (RBJ constant
         // skirt gain), running on the discriminator output.
         {
-            // Q chosen so the skirts stay clear of the 76 kHz product: at
-            // Q=8 the metric still moved 2:1 with programme loudness, which is
-            // the mechanism behind audible "pumping" of the stereo image.
-            double w0n = 2.0 * PI_D * 65000.0 / INTERMEDIATE_RATE;
+            // 84 kHz, above every subcarrier a station may transmit. 65 kHz
+            // was tried first and is wrong: SCA/DARC services sit around
+            // 67 kHz, so the reading followed what the station broadcast
+            // rather than how well it was received. A Windows field log made
+            // this unmistakable — a station at -8.8 dB read 0.22 while a
+            // STRONGER one at -7.9 dB read 0.016 — and a synthesized 67 kHz
+            // subcarrier at 10% injection reproduced it exactly, forcing a
+            // perfectly clean station to mono with a 5 kHz high-cut.
+            // 76 kHz is unusable too (2nd harmonic of the stereo subcarrier,
+            // an artefact that follows programme loudness), so 84 kHz it is.
+            double w0n = 2.0 * PI_D * 84000.0 / INTERMEDIATE_RATE;
             double cw = cos(w0n), sw = sin(w0n);
-            double q = 65.0 / 3.0;
+            double q = 84.0 / 6.0;
             double al = sw / (2.0 * q);
             double a0n = 1.0 + al;
             nzHpB0 = al / a0n;
