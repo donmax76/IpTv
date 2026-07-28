@@ -58,6 +58,12 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
     fun bufferedFrames(): Int = bufferedSamples / 2
     fun underrunCount(): Long = underruns
 
+    /** Frames still queued inside the audio device — the real safety margin. */
+    fun lineQueuedFrames(): Int {
+        val line = sourceDataLine ?: return -1
+        return try { (line.bufferSize - line.available()) / 4 } catch (_: Exception) { -1 }
+    }
+
     // Drift correction state (see DRIFT_TARGET_SAMPLES/DRIFT_GAIN above)
     private var fillEma = PREFILL_SAMPLES.toDouble()
     private var driftCredit = 0.0
@@ -73,7 +79,14 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
             false   // little-endian
         )
 
-        val bufSize = sampleRate * 8  // 2s buffer in bytes (16-bit stereo) — prevents underruns
+        // 200 ms. This used to be 2 s (sampleRate*8), which broke the whole
+        // design: SourceDataLine.write() never blocked, so the drain thread
+        // emptied the ring buffer into the line as fast as it could and the
+        // ring sat permanently at ~0. Every "buffer empty" check then fired
+        // constantly, injecting silence into otherwise fine audio. With a
+        // small line buffer write() blocks on the audio clock, the ring holds
+        // the real cushion, and its level becomes meaningful again.
+        val bufSize = sampleRate * 2 * 2 / 5  // 200 ms, 16-bit stereo
         val info = DataLine.Info(SourceDataLine::class.java, format, bufSize)
         sourceDataLine = (AudioSystem.getLine(info) as SourceDataLine).also {
             it.open(format, bufSize)
@@ -126,18 +139,17 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
                               else if (available >= 512) available and 0x7FFFFFFE
                               else {
                                   underruns++
-                                  // Buffer ran dry. Rebuild the cushion before
-                                  // resuming: prefillDone used to latch true
-                                  // forever, so after the first underrun the
-                                  // drain thread kept consuming the trickle as
-                                  // it arrived and every subsequent hiccup broke
-                                  // the audio again — a single glitch turned
-                                  // into continuous chopping.
-                                  prefillDone = false
-                                  fillEma = PREFILL_SAMPLES.toDouble()
-                                  driftCredit = 0.0
+                                  // Do NOT re-prefill here. Waiting for a fresh
+                                  // 400 ms cushion stalls the drain thread for
+                                  // that whole time while the line buffer keeps
+                                  // draining — the field log showed the result
+                                  // as a steady 425 ms chop cycle. The line
+                                  // buffer is the short-term cover; we just
+                                  // bridge this gap and carry on.
+                                  val lineQueued = lineQueuedFrames()
                                   DesktopLog.log(
-                                      "AUDIO underrun #$underruns (buffered=$available samples) — refilling"
+                                      "AUDIO underrun #$underruns (ring=$available samples, " +
+                                      "line=$lineQueued frames)"
                                   )
                                   // Buffer underflow — ramp to silence
                                   for (i in 0 until chunkSamples) {

@@ -1,7 +1,7 @@
 {
-  "versionCode": 12,
-  "versionName": "1.11.0",
-  "releaseNotes": "Windows: исправлен обрыв приёма при смене частоты (сброс FIFO убивал асинхронное чтение), авто-восстановление потока, буфер 400мс с довосстановлением после провала",
+  "versionCode": 13,
+  "versionName": "1.12.0",
+  "releaseNotes": "Windows: устранена главная причина обрывов — буфер звуковой линии 2с забирал всё мгновенно, кольцевой буфер всегда был пуст и в звук постоянно подмешивалась тишина. Линия 200мс, кольцо держит запас 400мс",
   "androidDownloadUrl": "https://github.com/donmax76/IpTv/releases/latest/download/FmRadio-Android.apk",
   "windowsDownloadUrl": "https://github.com/donmax76/IpTv/releases/latest"
 }

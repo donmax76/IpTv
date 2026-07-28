@@ -26,9 +26,9 @@ import org.json.JSONObject
 class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     companion object {
-        const val VERSION = "1.11.0"
+        const val VERSION = "1.12.0"
         const val BUILD = "20260728-1"
-        const val VERSION_CODE = 12
+        const val VERSION_CODE = 13
 
         // FM band range (extended: OIRT 65.8-74 + CCIR 87.5-108)
         const val FM_MIN_HZ = 76_000_000L
@@ -1850,8 +1850,8 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                 lastStatsLogMs = now
                 val ap = audioPlayer
                 DesktopLog.log(
-                    "USB ${sdr.throughputReport()} | audio buf=${ap?.bufferedFrames() ?: -1} " +
-                    "underruns=${ap?.underrunCount() ?: -1} | sig=${"%.1f".format(power)}dB " +
+                    "USB ${sdr.throughputReport()} | ring=${ap?.bufferedFrames() ?: -1} " +
+                    "line=${ap?.lineQueuedFrames() ?: -1} underruns=${ap?.underrunCount() ?: -1} | sig=${"%.1f".format(power)}dB " +
                     "stereo=$stereoNow freq=${formatFreq(currentFrequency)}MHz"
                 )
             }
