@@ -1,7 +1,7 @@
 {
-  "versionCode": 20,
-  "versionName": "1.18.0",
-  "releaseNotes": "RDS: название станции появляется быстрее — оно не собиралось, пока код станции не подтвердится трижды; теперь чистый блок принимается сразу. Android: лог теперь сохраняется в файл report.txt, его можно приложить к сообщению",
+  "versionCode": 21,
+  "versionName": "1.19.0",
+  "releaseNotes": "RDS: на моно-станциях частота поднесущей строилась из свободно гуляющего контура пилот-тона, которого там нет. Теперь при отсутствии пилота берётся точное номинальное значение 57 кГц",
   "androidDownloadUrl": "https://github.com/donmax76/IpTv/releases/download/fmradio-latest/FmRadio-release.apk",
   "windowsDownloadUrl": "https://github.com/donmax76/IpTv/releases/download/fmradio-latest/FmRadio-Windows.zip"
 }

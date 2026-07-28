@@ -241,9 +241,24 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private var carrierPhase = 0.0
     private var carrierInc = 2.0 * PI * 57000.0 / sampleRate
 
-    fun setPilotFreq(pilotFreqRadPerSample: Double) {
-        if (pilotFreqRadPerSample > 0.6 && pilotFreqRadPerSample < 0.65) {
-            carrierInc = pilotFreqRadPerSample * 3.0
+    /**
+     * Steer the 57 kHz carrier from the pilot PLL — but only when the pilot is
+     * actually there.
+     *
+     * On a mono station there is no pilot to lock to, so the PLL free-runs and
+     * wanders. A field log on such a station showed it drifting between
+     * 0.621762 and 0.621798 rad/sample, and this multiplied that wander by
+     * three straight into the RDS carrier: about 3.3 Hz of moving frequency
+     * error, on a signal already running at 66% block errors. Nominal 57 kHz is
+     * strictly better than three times a free-running guess.
+     */
+    @JvmOverloads
+    fun setPilotFreq(pilotFreqRadPerSample: Double, locked: Boolean = true) {
+        carrierInc = if (locked &&
+            pilotFreqRadPerSample > 0.6 && pilotFreqRadPerSample < 0.65) {
+            pilotFreqRadPerSample * 3.0
+        } else {
+            2.0 * PI * 57000.0 / sampleRate
         }
     }
 

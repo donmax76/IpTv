@@ -540,7 +540,7 @@ class FmRadioService : Service() {
                     val wbListener = demodulator?.widebandListener
                     val wbCount = ndsp.getWbCount()
                     if (wbCount > 0) {
-                        rdsDecoder?.setPilotFreq(ndsp.getPilotFreq())
+                        rdsDecoder?.setPilotFreq(ndsp.getPilotFreq(), ndsp.getIsStereo())
                         wbListener?.invoke(ndsp.getWbBuffer(), wbCount, ndsp.getPilotPhase())
                     }
                 } else {
