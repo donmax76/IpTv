@@ -46,9 +46,15 @@ class FmRadioService : Service() {
         // FC0013 IF gain is 2 dB per step; 31 is the ~62 dB maximum that the
         // driver has always used, and the loop never goes above it.
         private const val IF_GAIN_MAX_STEP = 31
-        // 200 ms tracks fading at driving speed while staying far slower than
-        // programme modulation, so the loop cannot pump on loud passages.
-        private const val GAIN_LOOP_MS = 200L
+        // One decision every 200 ms tracks fading at driving speed while
+        // staying far slower than programme modulation. The meters are sampled
+        // ten times inside that window and averaged, because a single reading
+        // is one 17 ms USB block and far too noisy to steer on.
+        private const val GAIN_SAMPLE_MS = 20L
+        private const val GAIN_SAMPLES = 10
+        // Ignore two decisions (400 ms) after a change so the loop does not
+        // react to its own move before the level has settled.
+        private const val GAIN_SETTLE_CYCLES = 2
         // Fraction of ADC full scale to aim for. A healthy RTL2832U input sits
         // near a quarter of full scale: enough signal to keep quantisation
         // noise irrelevant, enough headroom for FM's peaks and for a passing
@@ -620,11 +626,37 @@ class FmRadioService : Service() {
             var step = IF_GAIN_MAX_STEP
             dev.setFc0013IfGainStep(step)
             var settleTicks = 0
+            var settleAfterChange = 0
             while (isActive && isPlaying) {
-                delay(GAIN_LOOP_MS)
-                val rms = ndsp.getAdcRms()
-                val clip = ndsp.getAdcClipPct()
-                if (rms <= 0f) continue          // no data yet
+                // Average the meters over the whole interval instead of taking
+                // one reading. Each reading covers a single 17 ms USB block,
+                // and on FM that swings about 2:1 from block to block — a field
+                // log showed the loop chasing that noise and hunting between
+                // 28 and 34 dB several times a second, which is audible as the
+                // level breathing and disturbs the RDS decoder as well.
+                var rmsSum = 0f
+                var clipMax = 0f
+                var samples = 0
+                repeat(GAIN_SAMPLES) {
+                    delay(GAIN_SAMPLE_MS)
+                    val r = ndsp.getAdcRms()
+                    if (r > 0f) {
+                        rmsSum += r
+                        val c = ndsp.getAdcClipPct()
+                        if (c > clipMax) clipMax = c
+                        samples++
+                    }
+                }
+                if (samples == 0) continue       // no data yet
+                val rms = rmsSum / samples
+                val clip = clipMax
+
+                // After a change, let the tuner and the meters settle before
+                // judging the result, or the loop reacts to its own move.
+                if (settleAfterChange > 0) {
+                    settleAfterChange--
+                    continue
+                }
 
                 val newStep = when {
                     // Converter is being driven into its end stops: come down
@@ -641,6 +673,7 @@ class FmRadioService : Service() {
                     step = newStep
                     dev.setFc0013IfGainStep(step)
                     settleTicks = 0
+                    settleAfterChange = GAIN_SETTLE_CYCLES
                     DebugLog.log("AGC", "IF gain -> step $step (${step * 2} dB), " +
                             "rms=%.3f clip=%.3f%%".format(rms, clip))
                 } else if (++settleTicks >= GAIN_LOG_TICKS) {
