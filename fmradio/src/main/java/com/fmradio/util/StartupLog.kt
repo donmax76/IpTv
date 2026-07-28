@@ -26,8 +26,11 @@ import java.util.Locale
  */
 object StartupLog {
 
-    private const val FILE_NAME = "startup.log"
-    private const val PREV_NAME = "startup-prev.log"
+    // .txt, not .log: the head unit's file manager treats an unknown extension
+    // as a binary blob and refuses to open or share it, which defeats the whole
+    // point of writing a log the user is supposed to be able to hand over.
+    private const val FILE_NAME = "startup.txt"
+    private const val PREV_NAME = "startup-prev.txt"
     private const val MAX_BYTES = 256 * 1024
 
     @Volatile
