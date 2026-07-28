@@ -116,6 +116,10 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
         isPlaying = true
 
         drainThread = Thread({
+          // stop() interrupts this thread; the sleeps below then throw and the
+          // uncaught-exception handler logged a stack trace on every shutdown.
+          // Exiting quietly is the correct response to being asked to stop.
+          try {
             val chunkSamples = 4096  // 2048 stereo frames — larger chunks reduce overhead
             val chunkBytes = ByteArray(chunkSamples * 2)
             val chunk = ShortArray(chunkSamples)
@@ -244,6 +248,9 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
                     println("Audio write error: ${e.message}")
                 }
             }
+          } catch (_: InterruptedException) {
+              // asked to stop — nothing to report
+          }
         }, "AudioDrain")
         drainThread?.isDaemon = true
         drainThread?.priority = Thread.MAX_PRIORITY

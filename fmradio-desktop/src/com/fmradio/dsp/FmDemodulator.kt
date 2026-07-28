@@ -189,7 +189,7 @@ class FmDemodulator(
 
     // Warmup: discard first N intermediate samples to flush stale filter state
     private var warmupSamples = 0
-    private val warmupThreshold = intermediateRate / 2  // 0.5s warmup for filter settling
+    private val warmupThreshold = intermediateRate / 10  // 100 ms — see the warmup block
 
     // Crossfade for seamless muting during frequency change
     private var muteRamp = 0f  // 0 = muted, 1 = full volume
@@ -381,17 +381,23 @@ class FmDemodulator(
 
             val rawBaseband = fastAtan2(imagProd, realProd)
 
-            // Warmup: skip initial samples to let filters settle
-            if (warmupSamples < warmupThreshold) {
-                warmupSamples++
-                val pilotSig = pilotBpf(rawBaseband.toDouble())
-                val pilotError = pilotSig * cos(pilotNcoPhase)
-                pilotNcoFreq += pilotBeta * pilotError
-                pilotNcoPhase += pilotNcoFreq + pilotAlpha * pilotError
-                if (pilotNcoPhase > 2 * PI) pilotNcoPhase -= 2 * PI
-                if (pilotNcoPhase < 0) pilotNcoPhase += 2 * PI
-                continue
-            }
+            // Warmup. The filters do need a moment to settle after a reset,
+            // but the audio output must NOT stop while they do.
+            //
+            // This used to skip the rest of the loop, emitting no samples at
+            // all for warmupThreshold samples — which was half a second. Every
+            // frequency change calls requestReset(), so every retune deleted
+            // 0.5 s x 48 kHz = 24000 audio frames, while the player's entire
+            // cushion after prefill is 19200 frames. The buffer was wiped out
+            // and then some, on every single retune: a field log showed the
+            // ring buffer pinned at zero for the whole session and 152 dropouts
+            // in two minutes, all of them clustered on frequency changes.
+            //
+            // Samples are now always produced; during warmup they are silent,
+            // and muteRamp fades the audio back in afterwards. The threshold is
+            // also 100 ms rather than 500, matching the Android build.
+            val warming = warmupSamples < warmupThreshold
+            if (warming) warmupSamples++
 
             // ===== Pilot PLL: lock to 19 kHz pilot tone =====
             // The phase detector compares the CURRENT sample against the
@@ -561,8 +567,12 @@ class FmDemodulator(
             val outL = hiCutStateL * squelchLevel
             val outR = hiCutStateR * squelchLevel
 
-            // Mute ramp for seamless frequency change (avoids initial burst)
-            if (muteRamp < 1f) {
+            // Mute ramp for seamless frequency change (avoids initial burst).
+            // Held at zero while the filters are still settling, so the samples
+            // emitted during warmup are silent rather than a burst of rubbish.
+            if (warming) {
+                muteRamp = 0f
+            } else if (muteRamp < 1f) {
                 muteRamp = (muteRamp + muteRampUp).coerceAtMost(1f)
             }
 
