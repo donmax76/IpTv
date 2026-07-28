@@ -26,9 +26,9 @@ import org.json.JSONObject
 class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     companion object {
-        const val VERSION = "1.13.1"
+        const val VERSION = "1.14.0"
         const val BUILD = "20260728-1"
-        const val VERSION_CODE = 15
+        const val VERSION_CODE = 16
 
         // FM band range (extended: OIRT 65.8-74 + CCIR 87.5-108)
         const val FM_MIN_HZ = 76_000_000L

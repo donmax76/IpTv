@@ -18,6 +18,12 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
         private const val FADE_IN_SAMPLES = 4800         // 50ms stereo
         private const val CROSSFADE_SAMPLES = 2048       // crossfade on buffer overflow
 
+        // An empty ring is only an emergency once the audio DEVICE is also
+        // nearly dry. Below this many frames left in the line there is no time
+        // to recover and fading out is the least bad option; above it, waiting
+        // costs nothing and the listener hears no interruption at all.
+        private const val LINE_LOW_WATER_FRAMES = 2400   // 50 ms at 48 kHz
+
         // Drift compensation: the RTL-SDR's crystal runs at a slightly different
         // rate than its nominal 28.8 MHz (typically tens of ppm), so the actual
         // IQ sample rate never matches 1152000 Hz exactly. Over a long session
@@ -27,11 +33,6 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
         // in. We counter this continuously by silently dropping or duplicating
         // a single stereo frame every so often, nudging the buffer back toward
         // a steady target level — far too sparse to be audible.
-        // Hold the level where prefill put it. This used to be RING/4 (1 s)
-        // while prefill only filled 200 ms, so the controller was permanently
-        // stretching playback toward a level it would need ~28 min to reach,
-        // and the cushion never actually grew.
-        private const val DRIFT_TARGET_SAMPLES = PREFILL_SAMPLES
         private const val DRIFT_GAIN = 0.00002
     }
 
@@ -64,8 +65,17 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
         return try { (line.bufferSize - line.available()) / 4 } catch (_: Exception) { -1 }
     }
 
-    // Drift correction state (see DRIFT_TARGET_SAMPLES/DRIFT_GAIN above)
-    private var fillEma = PREFILL_SAMPLES.toDouble()
+    // Drift correction state (see DRIFT_GAIN above).
+    //
+    // The target is the ring level the design can actually settle at, not the
+    // prefill amount. Playback buffering lives in two places: the audio line
+    // permanently holds its own bufferSize worth, and the ring holds the rest.
+    // With a 400 ms prefill and a 200 ms line, the ring settles near 200 ms —
+    // so aiming the controller at the full 400 ms left it saturated on the
+    // "drain slower" side forever, duplicating frames it never needed to.
+    // Set for real in start(), once the line's actual buffer size is known.
+    private var driftTargetSamples = PREFILL_SAMPLES / 2
+    private var fillEma = (PREFILL_SAMPLES / 2).toDouble()
     private var driftCredit = 0.0
 
     fun start() {
@@ -98,7 +108,10 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
         underruns = 0L
         samplesPlayed = 0L
         lastOutputSample = 0
-        fillEma = PREFILL_SAMPLES.toDouble()
+        // line.bufferSize is in bytes; /2 converts to 16-bit samples, which is
+        // the unit the ring counts in.
+        driftTargetSamples = (PREFILL_SAMPLES - bufSize / 2).coerceAtLeast(4800)
+        fillEma = driftTargetSamples.toDouble()
         driftCredit = 0.0
         isPlaying = true
 
@@ -124,12 +137,12 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
                 try { available = bufferedSamples } finally { lock.unlock() }
 
                 // Slowly track the buffer fill level and decide whether a single-frame
-                // drift correction is due (see DRIFT_TARGET_SAMPLES/DRIFT_GAIN above).
+                // drift correction is due (see driftTargetSamples/DRIFT_GAIN above).
                 // driftAdjust is the extra amount (beyond toDrain) to *consume* from
                 // the ring buffer: positive when the buffer is trending too full
                 // (drain faster), negative when trending too empty (drain slower).
                 fillEma = fillEma * 0.999 + available * 0.001
-                driftCredit += (fillEma - DRIFT_TARGET_SAMPLES) * DRIFT_GAIN
+                driftCredit += (fillEma - driftTargetSamples) * DRIFT_GAIN
                 var driftAdjust = 0
                 if (driftCredit >= 2.0) { driftAdjust = 2; driftCredit -= 2.0 }
                 else if (driftCredit <= -2.0) { driftAdjust = -2; driftCredit += 2.0 }
@@ -138,15 +151,33 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
                 val toDrain = if (available >= chunkSamples) chunkSamples
                               else if (available >= 512) available and 0x7FFFFFFE
                               else {
+                                  // The ring being dry is NOT by itself an
+                                  // underrun: the audio device still holds
+                                  // whatever we already handed it, and that is
+                                  // the cushion that actually protects
+                                  // playback. A field log of one session
+                                  // recorded 271 "underruns" of which every
+                                  // single one fired with 130-200 ms still
+                                  // queued in the line (the buffer is 200 ms).
+                                  // Each one shoved 43 ms of fade-to-silence
+                                  // into audio that was perfectly fine — about
+                                  // 12 seconds of injected silence over four
+                                  // minutes, and exactly what the chopping
+                                  // sounded like. They clustered around every
+                                  // frequency change, where the demodulator
+                                  // reset briefly stops producing; while the
+                                  // user stayed on one station there were none.
+                                  val lineQueued = lineQueuedFrames()
+                                  if (lineQueued >= LINE_LOW_WATER_FRAMES) {
+                                      Thread.sleep(2)
+                                      continue
+                                  }
                                   underruns++
                                   // Do NOT re-prefill here. Waiting for a fresh
                                   // 400 ms cushion stalls the drain thread for
                                   // that whole time while the line buffer keeps
-                                  // draining — the field log showed the result
-                                  // as a steady 425 ms chop cycle. The line
-                                  // buffer is the short-term cover; we just
-                                  // bridge this gap and carry on.
-                                  val lineQueued = lineQueuedFrames()
+                                  // draining — an earlier field log showed the
+                                  // result as a steady 425 ms chop cycle.
                                   DesktopLog.log(
                                       "AUDIO underrun #$underruns (ring=$available samples, " +
                                       "line=$lineQueued frames)"
