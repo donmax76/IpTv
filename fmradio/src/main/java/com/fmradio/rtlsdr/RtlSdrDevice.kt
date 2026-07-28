@@ -1361,7 +1361,23 @@ class RtlSdrDevice(private val context: Context) {
     private var readErrorCount = 0
 
     // Use async UsbRequest by default (more reliable on Android 12+)
-    private var useAsyncTransfer = true
+    /**
+     * Whether one-shot reads use the asynchronous UsbRequest path.
+     *
+     * OFF. Three crashes in a row on a DiLink 4.0 unit were all in this path,
+     * each one moving to the next call site as the previous was guarded:
+     * fullReset's drain, then the scanner's noise-floor read, then the sweep
+     * itself. The common factor is a single cached direct ByteBuffer shared
+     * across calls while requests that timed out may still be completed into it
+     * by the kernel — and the scanner calls readSamples() repeatedly right
+     * after resetBuffer(), which is exactly when reads time out.
+     *
+     * Continuous reception does not use this path at all; it has its own
+     * BulkReadPipeline. So the only callers are the scanner and a few one-shot
+     * reads, none of which are latency-critical, and a synchronous
+     * bulkTransfer cannot corrupt a queue it never touches.
+     */
+    private var useAsyncTransfer = false
 
     // Cached direct ByteBuffer for async USB reads — avoids allocating native memory per call.
     private var asyncReadBuffer: ByteBuffer? = null
