@@ -1181,7 +1181,7 @@ class RtlSdrDevice(private val context: Context) {
         // next, so two users of that queue take each other's completions and
         // read buffers the other has released. Fall back to the synchronous
         // path in that window — it is slower and entirely safe.
-        if (useAsyncTransfer && readPipeline == null) {
+        if (useAsyncTransfer && !readerActive && readPipeline == null) {
             try {
                 // Reuse cached direct ByteBuffer to avoid native memory leak
                 // (ByteBuffer.allocateDirect per call exhausts native memory in ~5-10s)
@@ -1374,8 +1374,24 @@ class RtlSdrDevice(private val context: Context) {
     @Volatile
     private var streamingJob: Job? = null
 
+    /**
+     * True from the moment the streaming read loop starts until it has really
+     * finished — not merely until it has been asked to stop.
+     *
+     * The reader owns the connection's asynchronous request queue while it
+     * runs, and requestWait() hands back whichever request completes next
+     * regardless of which thread queued it. Anyone else using that queue at the
+     * same time takes the reader's completions and reads buffers it has
+     * released. readPipeline was nulled at the START of stopStreaming, so
+     * checking that told us nothing about whether the loop had stopped: the
+     * scan crashed at its first read, right after "measuring noise floor".
+     */
+    @Volatile
+    private var readerActive = false
+
     fun startStreaming(bufferSize: Int = 16384, callback: (ByteArray) -> Unit): Job {
         isStreaming = true
+        readerActive = true
         readErrorCount = 0
 
         // Clear any USB endpoint stall condition FIRST
@@ -1506,8 +1522,18 @@ class RtlSdrDevice(private val context: Context) {
                     }
                 }
             }
+            // Cleared only here, after the last USB wait has returned. Anyone
+            // waiting to use the request queue keys off this, not off the job.
+            readerActive = false
+            com.fmradio.util.StartupLog.write("reader loop exited")
             Log.i(TAG, "Streaming stopped")
         }
+        // Belt and braces: the assignment above lives after the loop, and a
+        // cancelled coroutine can skip it. invokeOnCompletion fires whether the
+        // job ends normally, exceptionally or by cancellation, and only once
+        // the coroutine has genuinely finished — so the flag can never stick on
+        // and lock the device out of its own request queue for good.
+        job.invokeOnCompletion { readerActive = false }
         streamingJob = job
         return job
     }
@@ -1544,6 +1570,17 @@ class RtlSdrDevice(private val context: Context) {
                 waited += 20
             }
             loopExited = !job.isActive
+        }
+        // The job being complete is not the same as the reader having returned
+        // from its last requestWait(); wait for the flag the loop itself clears.
+        var spun = 0
+        while (readerActive && spun < 2000) {
+            try { Thread.sleep(20) } catch (_: InterruptedException) { break }
+            spun += 20
+        }
+        if (readerActive) {
+            loopExited = false
+            com.fmradio.util.StartupLog.write("stopStreaming: reader still inside USB wait")
         }
         if (loopExited) {
             // Safe to tear down now: the loop no longer touches the pipeline.
