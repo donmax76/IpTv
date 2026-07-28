@@ -718,7 +718,9 @@ class MainActivity : Activity() {
 
     private fun startScan() {
         val dev = rtlSdrDevice ?: run { showToast(getString(R.string.msg_connect_first)); return }
+        com.fmradio.util.StartupLog.write("startScan: stopping playback")
         stopPlayback()
+        com.fmradio.util.StartupLog.write("startScan: creating scanner")
         scanner = FmScanner(dev)
         layoutScanning.visibility = View.VISIBLE
         btnScan.text = getString(R.string.btn_stop_scan)

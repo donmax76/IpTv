@@ -189,10 +189,13 @@ class FmScanner(private val device: RtlSdrDevice) {
             // racing two readers gives null/garbage and the scanner sees no signal.
             // The fullReset() below cancels in-flight URBs, drains stale data, and
             // clears endpoint stalls so the scanner has the bus to itself.
+            com.fmradio.util.StartupLog.write("scan: stopStreaming")
             device.stopStreaming()
             delay(150)  // let any inflight USB read time out before we touch the bus
+            com.fmradio.util.StartupLog.write("scan: fullReset")
             try { device.fullReset() } catch (e: Exception) { Log.w(TAG, "pre-scan fullReset failed", e) }
 
+            com.fmradio.util.StartupLog.write("scan: setSampleRate")
             device.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
             // Use FIXED manual gain for scanning — auto AGC doesn't converge
             // within the 80 ms settle window per frequency.
@@ -220,6 +223,7 @@ class FmScanner(private val device: RtlSdrDevice) {
             delay(80)
 
             // Measure noise floor
+            com.fmradio.util.StartupLog.write("scan: measuring noise floor")
             var noiseFloor = -30f
             val noiseFreq = (startFreq - step).coerceAtLeast(RTL_SDR_MIN_FREQ)
             device.setFrequency(noiseFreq)
@@ -233,6 +237,7 @@ class FmScanner(private val device: RtlSdrDevice) {
             val adaptiveThreshold = maxOf(threshold, noiseFloor + 6f)
             Log.i(TAG, "Noise floor: $noiseFloor dB, threshold: $adaptiveThreshold dB")
 
+            com.fmradio.util.StartupLog.write("scan: sweep begin ${startFreq/1000}kHz..${endFreq/1000}kHz")
             var freq = startFreq
             while (freq <= endFreq && scanning) {
                 device.setFrequency(freq)
@@ -281,10 +286,21 @@ class FmScanner(private val device: RtlSdrDevice) {
             Log.w(TAG, "Full reset after scan failed", e)
         }
 
+        com.fmradio.util.StartupLog.write("scan: sweep done, merging ${stations.size}")
         val mergedStations = mergeCloseStations(stations, step * 2)
 
         Log.i(TAG, "Scan complete. Found ${mergedStations.size} signals")
-        withContext(Dispatchers.Main) { listener.onScanComplete(mergedStations) }
+        // The completion callback runs OUTSIDE the loop's try/catch, so an
+        // exception in the UI here would reach the coroutine scope uncaught and
+        // kill the app. Report it as a scan error instead.
+        try {
+            withContext(Dispatchers.Main) { listener.onScanComplete(mergedStations) }
+        } catch (e: Throwable) {
+            com.fmradio.util.StartupLog.write("scan: onScanComplete FAILED: $e")
+            Log.e(TAG, "onScanComplete failed", e)
+            try { withContext(Dispatchers.Main) { listener.onScanError(e.message ?: "complete failed") } } catch (_: Throwable) {}
+        }
+        com.fmradio.util.StartupLog.write("scan: finished")
         mergedStations
     }
 
