@@ -1,7 +1,7 @@
 {
-  "versionCode": 10,
-  "versionName": "1.10.0",
-  "releaseNotes": "Windows: асинхронное чтение USB (устраняет обрывы звука), запись лога в файл + просмотр через Help → Показать лог",
+  "versionCode": 11,
+  "versionName": "1.10.1",
+  "releaseNotes": "Windows: восстановление буфера после провала звука (одиночный сбой больше не переходит в постоянные обрывы), корректная цель регулятора буфера, запись провалов в лог",
   "androidDownloadUrl": "https://github.com/donmax76/IpTv/releases/latest/download/FmRadio-Android.apk",
   "windowsDownloadUrl": "https://github.com/donmax76/IpTv/releases/latest"
 }

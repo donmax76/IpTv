@@ -12,7 +12,9 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
 
     companion object {
         private const val RING_BUFFER_SAMPLES = 384000  // 4s stereo (48000 frames × 2 ch × 4)
-        private const val PREFILL_SAMPLES = 19200        // 200ms stereo — enough to absorb USB jitter
+        // 400 ms cushion. 200 ms left almost no margin: a single USB or
+        // scheduling hiccup emptied the ring and produced an audible break.
+        private const val PREFILL_SAMPLES = 38400        // 400ms stereo (48000*2*0.4)
         private const val FADE_IN_SAMPLES = 4800         // 50ms stereo
         private const val CROSSFADE_SAMPLES = 2048       // crossfade on buffer overflow
 
@@ -25,7 +27,11 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
         // in. We counter this continuously by silently dropping or duplicating
         // a single stereo frame every so often, nudging the buffer back toward
         // a steady target level — far too sparse to be audible.
-        private const val DRIFT_TARGET_SAMPLES = RING_BUFFER_SAMPLES / 4
+        // Hold the level where prefill put it. This used to be RING/4 (1 s)
+        // while prefill only filled 200 ms, so the controller was permanently
+        // stretching playback toward a level it would need ~28 min to reach,
+        // and the cushion never actually grew.
+        private const val DRIFT_TARGET_SAMPLES = PREFILL_SAMPLES
         private const val DRIFT_GAIN = 0.00002
     }
 
@@ -120,6 +126,19 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
                               else if (available >= 512) available and 0x7FFFFFFE
                               else {
                                   underruns++
+                                  // Buffer ran dry. Rebuild the cushion before
+                                  // resuming: prefillDone used to latch true
+                                  // forever, so after the first underrun the
+                                  // drain thread kept consuming the trickle as
+                                  // it arrived and every subsequent hiccup broke
+                                  // the audio again — a single glitch turned
+                                  // into continuous chopping.
+                                  prefillDone = false
+                                  fillEma = PREFILL_SAMPLES.toDouble()
+                                  driftCredit = 0.0
+                                  DesktopLog.log(
+                                      "AUDIO underrun #$underruns (buffered=$available samples) — refilling"
+                                  )
                                   // Buffer underflow — ramp to silence
                                   for (i in 0 until chunkSamples) {
                                       val fadeOut = (chunkSamples - i).toFloat() / chunkSamples
