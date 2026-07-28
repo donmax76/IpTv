@@ -23,10 +23,13 @@ class NativeFmDsp {
                 // libfmradio_dsp.so — built by cpp/CMakeLists.txt from fm_dsp.cpp.
                 // Separate from NativeUsb's "fmradio_native" so a missing Linux USB
                 // header in the NDK sysroot can't block the DSP build.
+                com.fmradio.util.StartupLog.write("loading libfmradio_dsp")
                 System.loadLibrary("fmradio_dsp")
+                com.fmradio.util.StartupLog.write("libfmradio_dsp loaded")
                 Log.i(TAG, "Native FM DSP library loaded")
                 true
             } catch (e: UnsatisfiedLinkError) {
+                com.fmradio.util.StartupLog.write("libfmradio_dsp NOT available: ${e.message}")
                 Log.w(TAG, "Native FM DSP library not available: ${e.message}")
                 false
             } catch (e: Throwable) {

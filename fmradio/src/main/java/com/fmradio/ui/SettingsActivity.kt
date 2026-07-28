@@ -473,6 +473,10 @@ class SettingsActivity : Activity() {
         val debugLog = DebugLog.getText()
         val errorLog = com.fmradio.util.ErrorLogger.getErrorContent(this)
         val combined = buildString {
+            // Always first: this one is written even when file logging is off,
+            // and it is the only record when the app dies before it can log.
+            val startup = com.fmradio.util.StartupLog.read()
+            if (startup.isNotBlank()) { append("=== STARTUP LOG ===\n"); append(startup); append("\n\n") }
             if (debugLog.isNotBlank()) { append("=== DEBUG LOG ===\n"); append(debugLog); append("\n\n") }
             if (errorLog.isNotBlank()) { append("=== ERROR LOG ===\n"); append(errorLog) }
         }

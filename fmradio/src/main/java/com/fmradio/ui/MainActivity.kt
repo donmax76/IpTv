@@ -210,10 +210,12 @@ class MainActivity : Activity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        com.fmradio.util.StartupLog.write("MainActivity.onCreate begin")
         super.onCreate(savedInstanceState)
         // Keep screen on for car use
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
+        com.fmradio.util.StartupLog.write("MainActivity setContentView")
         setContentView(R.layout.activity_main)
 
         stationStorage = StationStorage(this)
@@ -1028,6 +1030,10 @@ class MainActivity : Activity() {
         val debugLog = com.fmradio.dsp.DebugLog.getText()
         val errorLog = ErrorLogger.getErrorContent(this)
         val combined = buildString {
+            // Always first: this one is written even when file logging is off,
+            // and it is the only record when the app dies before it can log.
+            val startup = com.fmradio.util.StartupLog.read()
+            if (startup.isNotBlank()) { append("=== STARTUP LOG ===\n"); append(startup); append("\n\n") }
             if (debugLog.isNotBlank()) { append("=== DEBUG LOG ===\n"); append(debugLog); append("\n\n") }
             if (errorLog.isNotBlank()) { append("=== ERROR LOG ===\n"); append(errorLog) }
         }

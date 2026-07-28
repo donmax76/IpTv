@@ -181,6 +181,7 @@ class FmRadioService : Service() {
     override fun onBind(intent: Intent): IBinder = binder
 
     override fun onCreate() {
+        com.fmradio.util.StartupLog.write("FmRadioService.onCreate")
         super.onCreate()
         stationStorage = StationStorage(this)
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -199,7 +200,9 @@ class FmRadioService : Service() {
             } else {
                 startForeground(NOTIFICATION_ID, createNotification())
             }
+            com.fmradio.util.StartupLog.write("startForeground ok")
         } catch (e: Exception) {
+            com.fmradio.util.StartupLog.write("startForeground FAILED: $e")
             Log.e(TAG, "startForeground failed (missing permission?), continuing anyway", e)
         }
         return START_STICKY

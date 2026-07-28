@@ -7,18 +7,26 @@ import com.fmradio.dsp.DebugLog
 import com.fmradio.util.CrashReportActivity
 import com.fmradio.util.CrashReporter
 import com.fmradio.util.ErrorLogger
+import com.fmradio.util.StartupLog
 import java.io.PrintWriter
 import java.io.StringWriter
 
 class FmRadioApp : Application() {
     override fun onCreate() {
         super.onCreate()
-        DebugLog.init(this)
 
+        // Order matters. The crash handler is installed BEFORE anything else
+        // runs, so a failure inside our own startup is still reported rather
+        // than killing the process silently.
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
                 Log.e("FmRadio", "Uncaught exception", throwable)
                 val errorText = getFullStackTrace(throwable)
+
+                // Always on disk, whatever the user's logging preference is.
+                // DebugLog below is off by default, so on a device where the
+                // app would not start there was previously nothing recorded.
+                try { StartupLog.writeCrash(thread.name, throwable) } catch (_: Throwable) {}
 
                 // Log to DebugLog file
                 try {
@@ -49,6 +57,13 @@ class FmRadioApp : Application() {
                 Log.e("FmRadio", "Crash handler failed", e)
             }
         }
+
+        try { StartupLog.init(this) } catch (_: Throwable) {}
+        StartupLog.write("Application.onCreate")
+        try { DebugLog.init(this) } catch (t: Throwable) {
+            StartupLog.write("DebugLog.init failed: $t")
+        }
+        StartupLog.write("Application.onCreate done")
     }
 
     override fun onTerminate() {
