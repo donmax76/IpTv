@@ -1,7 +1,7 @@
 {
-  "versionCode": 11,
-  "versionName": "1.10.1",
-  "releaseNotes": "Windows: восстановление буфера после провала звука (одиночный сбой больше не переходит в постоянные обрывы), корректная цель регулятора буфера, запись провалов в лог",
+  "versionCode": 12,
+  "versionName": "1.11.0",
+  "releaseNotes": "Windows: исправлен обрыв приёма при смене частоты (сброс FIFO убивал асинхронное чтение), авто-восстановление потока, буфер 400мс с довосстановлением после провала",
   "androidDownloadUrl": "https://github.com/donmax76/IpTv/releases/latest/download/FmRadio-Android.apk",
   "windowsDownloadUrl": "https://github.com/donmax76/IpTv/releases/latest"
 }

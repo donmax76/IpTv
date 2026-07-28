@@ -26,9 +26,9 @@ import org.json.JSONObject
 class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     companion object {
-        const val VERSION = "1.10.1"
+        const val VERSION = "1.11.0"
         const val BUILD = "20260728-1"
-        const val VERSION_CODE = 11
+        const val VERSION_CODE = 12
 
         // FM band range (extended: OIRT 65.8-74 + CCIR 87.5-108)
         const val FM_MIN_HZ = 76_000_000L
@@ -1903,7 +1903,10 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         val clamped = freqHz.coerceIn(band.minHz, band.maxHz)
         currentFrequency = clamped
         sdr.setFrequency(clamped)
-        sdr.resetBuffer()  // flush stale IQ data from previous frequency
+        // No FIFO reset here: retuning during async streaming is normal, and
+        // resetting the endpoint aborts the in-flight transfers (see
+        // RtlSdrNative.resetBuffer). Stale IQ is handled by the DSP resets
+        // below plus the demodulator's mute ramp.
         // Reset demodulator and RDS on frequency change. requestReset defers
         // the reset to the streaming thread — resetting from the UI thread
         // here would race the concurrent demodulate()/process() calls.

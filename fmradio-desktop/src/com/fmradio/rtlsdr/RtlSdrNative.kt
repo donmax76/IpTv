@@ -258,7 +258,23 @@ class RtlSdrNative {
         }
     }
 
+    /**
+     * Reset the RTL2832U endpoint FIFO.
+     *
+     * MUST NOT run while asynchronous reading is active: it resets the USB
+     * endpoint out from under the in-flight transfers, which aborts
+     * rtlsdr_read_async (observed as rc=-5) and leaves the endpoint stalled,
+     * so every following read fails with -9 (LIBUSB_ERROR_PIPE). That is
+     * exactly what happened on every frequency change in the field log —
+     * tuning killed the stream and audio broke until things recovered.
+     */
     fun resetBuffer() {
+        if (isStreaming) return
+        resetBufferInternal()
+    }
+
+    private fun resetBufferInternal() {
+
         val dev = devPtr ?: return
         lib?.rtlsdr_reset_buffer(dev)
     }
@@ -385,13 +401,26 @@ class RtlSdrNative {
             asyncCallback = cb
 
             val t = Thread({
-                println("Streaming started (async, ${ASYNC_BUFFERS}×$bufLen B)")
-                // Blocks until rtlsdr_cancel_async() is called.
-                val rc = try { l.rtlsdr_read_async(dev, cb, null, ASYNC_BUFFERS, bufLen) }
-                         catch (e: Throwable) { println("read_async failed: ${e.message}"); -1 }
-                println("Streaming stopped (read_async returned $rc)")
-                if (rc != 0 && isStreaming) {
-                    // Fall back to synchronous reads so the app still plays.
+                var attempt = 0
+                while (isStreaming && attempt <= 3) {
+                    println("Streaming started (async, ${ASYNC_BUFFERS}×$bufLen B)")
+                    // Blocks until rtlsdr_cancel_async() is called.
+                    val rc = try { l.rtlsdr_read_async(dev, cb, null, ASYNC_BUFFERS, bufLen) }
+                             catch (e: Throwable) { println("read_async failed: ${e.message}"); -1 }
+                    if (!isStreaming) {
+                        println("Streaming stopped (clean, rc=$rc)")
+                        return@Thread
+                    }
+                    // Ended without us asking: recover instead of limping along
+                    // on synchronous reads against a possibly stalled endpoint.
+                    attempt++
+                    println("read_async ended unexpectedly (rc=$rc) — restart $attempt/3")
+                    try { l.rtlsdr_cancel_async(dev) } catch (_: Throwable) {}
+                    Thread.sleep(50)
+                    resetBufferInternal()   // clears an endpoint stall
+                    Thread.sleep(20)
+                }
+                if (isStreaming) {
                     println("Falling back to synchronous reads")
                     syncReadLoop(bufLen)
                 }
