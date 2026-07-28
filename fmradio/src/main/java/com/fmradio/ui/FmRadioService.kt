@@ -862,6 +862,13 @@ class FmRadioService : Service() {
         }
     }
 
+    /**
+     * How many actions createNotification() adds to the builder. Kept next to
+     * the builder so the compact-view slots can never name an action that does
+     * not exist — see the comment at the call site for what that costs.
+     */
+    private val notificationActionCount = 0
+
     private fun createNotification(): Notification {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -889,11 +896,21 @@ class FmRadioService : Service() {
 
         val session = mediaSession
         if (session != null) {
-            builder.setStyle(
-                Notification.MediaStyle()
-                    .setMediaSession(session.sessionToken)
-                    .setShowActionsInCompactView(0, 1, 2)
-            )
+            val style = Notification.MediaStyle().setMediaSession(session.sessionToken)
+            // Only name compact-view slots that actually exist. This asked for
+            // actions 0, 1 and 2 while the builder had none, and on Android 10
+            // that is fatal, not cosmetic: the system fails to inflate the
+            // notification and kills the process with
+            //   RemoteServiceException: Bad notification ...
+            //   setShowActionsInCompactView: action 0 out of bounds (max -1)
+            // which is exactly how the app died on a BYD DiLink 4.0 head unit
+            // moments after showing "Connecting". Newer Android tolerates it,
+            // so it went unnoticed.
+            if (notificationActionCount > 0) {
+                val slots = IntArray(minOf(3, notificationActionCount)) { it }
+                style.setShowActionsInCompactView(*slots)
+            }
+            builder.setStyle(style)
         }
 
         return builder.build()
