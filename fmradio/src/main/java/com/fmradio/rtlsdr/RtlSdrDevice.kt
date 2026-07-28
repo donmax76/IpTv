@@ -78,6 +78,10 @@ class RtlSdrDevice(private val context: Context) {
 
         // USB timeouts
         private const val USB_TIMEOUT = 5000
+        // URBs kept in flight concurrently. librtlsdr uses 15; 8 already
+        // removes the inter-transfer gap that was losing samples, while
+        // keeping pinned native memory modest (8 × 32 KB = 256 KB).
+        private const val USB_PIPELINE_DEPTH = 8
         private const val CTRL_TIMEOUT = 300
         private const val I2C_TIMEOUT = 1000  // I2C needs longer timeout on some devices
 
@@ -1212,6 +1216,103 @@ class RtlSdrDevice(private val context: Context) {
         return buffer
     }
 
+    // ===================== Pipelined bulk reads =====================
+    /**
+     * Multiple USB read requests kept in flight at once.
+     *
+     * The RTL2832U streams continuously into a small on-chip FIFO once the
+     * ADC is running. With a single UsbRequest (queue → wait → process →
+     * queue again) the endpoint is idle for the whole gap between requests,
+     * and at 1.9 MB/s that FIFO overflows within a fraction of a millisecond
+     * — every gap silently loses samples. Field logs showed the effect
+     * plainly: sustained throughput 5% below the configured rate, audio
+     * underruns, and RDS block sync collapsing (a 26-bit block spans ~22 ms,
+     * so nearly every block straddled a discontinuity → 94% BER).
+     *
+     * librtlsdr solves this with 15 concurrent libusb transfers. Same idea
+     * here: pre-initialize N requests with their own direct buffers, keep
+     * them all queued, and re-queue each one the instant its data has been
+     * copied out — so the endpoint always has pending URBs to fill.
+     */
+    private class BulkReadPipeline(
+        private val conn: UsbDeviceConnection,
+        ep: UsbEndpoint,
+        private val bufferSize: Int,
+        depth: Int
+    ) {
+        private val requests = ArrayList<UsbRequest>(depth)
+        private val buffers = ArrayList<ByteBuffer>(depth)
+        var isValid = false
+            private set
+
+        init {
+            try {
+                for (i in 0 until depth) {
+                    val req = UsbRequest()
+                    if (!req.initialize(conn, ep)) { req.close(); break }
+                    req.clientData = i
+                    val buf = ByteBuffer.allocateDirect(bufferSize)
+                    requests.add(req)
+                    buffers.add(buf)
+                }
+                // Need at least 2 in flight for the pipeline to help at all
+                if (requests.size >= 2) {
+                    for (i in requests.indices) queueAt(i)
+                    isValid = true
+                }
+            } catch (_: Throwable) {
+                isValid = false
+            }
+            if (!isValid) closeAll()
+        }
+
+        private fun queueAt(i: Int): Boolean {
+            val buf = buffers[i]
+            buf.clear()
+            buf.limit(bufferSize)
+            @Suppress("DEPRECATION")
+            return requests[i].queue(buf, bufferSize)
+        }
+
+        /** Wait for the next completed transfer, copy it out, re-queue immediately. */
+        fun read(timeoutMs: Int): ByteArray? {
+            val done = try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    conn.requestWait(timeoutMs.toLong())
+                } else {
+                    @Suppress("DEPRECATION")
+                    conn.requestWait()
+                }
+            } catch (_: Throwable) { null } ?: return null
+
+            val idx = done.clientData as? Int ?: return null
+            if (idx !in buffers.indices) return null
+
+            val buf = buffers[idx]
+            buf.flip()
+            val n = buf.remaining()
+            val out = if (n > 0) ByteArray(n).also { buf.get(it) } else null
+
+            // Re-queue before the caller processes the data — this is what
+            // keeps the endpoint busy and the FIFO drained.
+            if (!queueAt(idx)) return out
+
+            return out
+        }
+
+        fun closeAll() {
+            for (r in requests) {
+                try { r.cancel() } catch (_: Throwable) {}
+                try { r.close() } catch (_: Throwable) {}
+            }
+            requests.clear()
+            buffers.clear()
+            isValid = false
+        }
+    }
+
+    private var readPipeline: BulkReadPipeline? = null
+
     // Limit logging of read errors to avoid spam
     @Volatile
     private var readErrorCount = 0
@@ -1265,6 +1366,22 @@ class RtlSdrDevice(private val context: Context) {
         resetBuffer()
         Thread.sleep(10)
 
+        // Build the pipelined reader: several URBs in flight so the endpoint
+        // never idles between transfers (see BulkReadPipeline docs).
+        readPipeline?.closeAll()
+        readPipeline = null
+        val conn0 = usbConnection
+        val ep0 = bulkEndpoint
+        if (conn0 != null && ep0 != null) {
+            val p = BulkReadPipeline(conn0, ep0, bufferSize, USB_PIPELINE_DEPTH)
+            if (p.isValid) {
+                readPipeline = p
+                DebugLog.log("USB", "Pipelined reads active (depth=$USB_PIPELINE_DEPTH, buf=$bufferSize)")
+            } else {
+                DebugLog.log("USB", "Pipeline init failed — falling back to single-request reads")
+            }
+        }
+
         // Use a tracked scope so stopStreaming/close can cancel it
         streamingScope?.cancel()
         val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -1274,6 +1391,7 @@ class RtlSdrDevice(private val context: Context) {
             DebugLog.log("USB", "Streaming started, bufSize=$bufferSize")
             var readCount = 0L
             var totalBytes = 0L
+            val streamStartMs = System.currentTimeMillis()
             var lastLogTime = System.currentTimeMillis()
             var nullReads = 0
             while (isStreaming && isActive) {
@@ -1284,14 +1402,25 @@ class RtlSdrDevice(private val context: Context) {
                     // within ~500 ms. Shorter values caused intermittent early
                     // timeouts that dropped audio; the default 5 s was too slow
                     // for scanner handoff after stopPlayback().
-                    val data = readSamples(bufferSize, 500)
+                    val pipe = readPipeline
+                    val data = if (pipe != null && pipe.isValid) pipe.read(500)
+                               else readSamples(bufferSize, 500)
                     if (data != null && data.isNotEmpty()) {
                         readCount++
                         totalBytes += data.size
                         // Log first few reads and then periodically
                         val now = System.currentTimeMillis()
                         if (readCount <= 3 || now - lastLogTime > 5000) {
-                            DebugLog.log("USB", "read #$readCount: ${data.size}B, total=${totalBytes/1024}KB, nulls=$nullReads")
+                            // Report achieved vs required byte rate: this is the
+                            // single number that tells whether the USB host is
+                            // keeping up (shortfall = lost samples = clicks + RDS
+                            // block errors).
+                            val elapsedMs = now - streamStartMs
+                            val mbps = if (elapsedMs > 0) totalBytes * 1000.0 / elapsedMs / 1e6 else 0.0
+                            val needMbps = sampleRate * 2.0 / 1e6
+                            DebugLog.log("USB", "read #$readCount: ${data.size}B, total=${totalBytes/1024}KB, " +
+                                "rate=${String.format("%.3f", mbps)}/${String.format("%.3f", needMbps)}MB/s " +
+                                "(${String.format("%.1f", mbps / needMbps * 100)}%), nulls=$nullReads")
                             lastLogTime = now
                             nullReads = 0
                         }
@@ -1353,6 +1482,10 @@ class RtlSdrDevice(private val context: Context) {
         streamingJob = null
         streamingScope = null
         scope?.cancel()
+        // Pipeline URBs must be cancelled/closed once the read loop is done,
+        // otherwise pending kernel URBs leak across playback restarts.
+        val pipe = readPipeline
+        readPipeline = null
         // Poll-wait (no runBlocking — safe from any thread, can't deadlock)
         // up to 500 ms for the read loop to actually exit. Combined with the
         // 200 ms read timeout above, this almost always returns within 250 ms.
@@ -1363,6 +1496,8 @@ class RtlSdrDevice(private val context: Context) {
                 waited += 20
             }
         }
+        // Safe to tear down now: the loop no longer touches the pipeline.
+        pipe?.closeAll()
     }
 
     /**
@@ -1410,6 +1545,8 @@ class RtlSdrDevice(private val context: Context) {
     }
 
     fun close() {
+        readPipeline?.closeAll()
+        readPipeline = null
         stopStreaming()
         isStreaming = false
         try {
