@@ -83,6 +83,10 @@ class RtlSdrDevice(private val context: Context) {
         // removes the inter-transfer gap that was losing samples, while
         // keeping pinned native memory modest (8 × 32 KB = 256 KB).
         private const val USB_PIPELINE_DEPTH = 8
+        // Retries before a synchronous read gives up with nothing. Each costs
+        // 5 ms, so the worst case adds 50 ms to a read that was going to fail
+        // anyway — cheap next to a scan that reports an empty band.
+        private const val SYNC_READ_RETRIES = 10
         private const val CTRL_TIMEOUT = 300
         private const val I2C_TIMEOUT = 1000  // I2C needs longer timeout on some devices
 
@@ -1230,10 +1234,11 @@ class RtlSdrDevice(private val context: Context) {
             }
         }
 
-        // Synchronous fallback
+        // Synchronous read.
         val buffer = ByteArray(length)
         var totalRead = 0
         var zeroReads = 0
+        var retries = 0
 
         while (totalRead < length) {
             val toRead = minOf(length - totalRead, ep.maxPacketSize * 64)
@@ -1242,15 +1247,26 @@ class RtlSdrDevice(private val context: Context) {
             if (read > 0) {
                 totalRead += read
                 zeroReads = 0
+                retries = 0
             } else if (read == 0) {
                 zeroReads++
                 if (zeroReads > 3) {
                     return if (totalRead > 0) buffer.copyOf(totalRead) else null
                 }
             } else {
+                // A failure before ANY data has arrived is usually just an
+                // empty FIFO, not a broken endpoint: callers read immediately
+                // after resetBuffer(), and the chip needs a moment to start
+                // filling again. Giving up on the first one made the scanner
+                // measure nothing at every frequency and report an empty band.
+                if (totalRead == 0 && retries < SYNC_READ_RETRIES) {
+                    retries++
+                    try { Thread.sleep(5) } catch (_: InterruptedException) {}
+                    continue
+                }
                 if (totalRead == 0 && readErrorCount < 5) {
                     readErrorCount++
-                    DebugLog.log("USB", "bulkTransfer=$read toRead=$toRead ep=0x${ep.address.toString(16)} maxPkt=${ep.maxPacketSize}")
+                    DebugLog.log("USB", "bulkTransfer=$read toRead=$toRead ep=0x${ep.address.toString(16)} maxPkt=${ep.maxPacketSize} after $retries retries")
                 }
                 return if (totalRead > 0) buffer.copyOf(totalRead) else null
             }

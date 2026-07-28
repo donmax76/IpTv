@@ -347,6 +347,12 @@ class FmRadioService : Service() {
 
         rdsGeneration++  // invalidate any pending RDS data in queue
 
+        // Note which branch runs. When isPlaying is false the tuner is NOT
+        // told anything — only the DSP is reset — so if audio is somehow still
+        // coming through, every station would sound like the last one tuned.
+        com.fmradio.util.StartupLog.write(
+            "tune ${frequencyHz / 1000} kHz (playing=$isPlaying)")
+
         if (isPlaying) {
             serviceScope.launch {
                 device?.setFrequency(frequencyHz)
