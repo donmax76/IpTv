@@ -1174,8 +1174,14 @@ class RtlSdrDevice(private val context: Context) {
         val ep = bulkEndpoint!!
         val conn = usbConnection ?: return null
 
-        // Try async UsbRequest first (more reliable on Android 12+)
-        if (useAsyncTransfer) {
+        // Try async UsbRequest first (more reliable on Android 12+).
+        //
+        // But NOT while the streaming pipeline still owns the connection's
+        // request queue: requestWait() returns whichever request completes
+        // next, so two users of that queue take each other's completions and
+        // read buffers the other has released. Fall back to the synchronous
+        // path in that window — it is slower and entirely safe.
+        if (useAsyncTransfer && readPipeline == null) {
             try {
                 // Reuse cached direct ByteBuffer to avoid native memory leak
                 // (ByteBuffer.allocateDirect per call exhausts native memory in ~5-10s)
@@ -1526,15 +1532,27 @@ class RtlSdrDevice(private val context: Context) {
         // Poll-wait (no runBlocking — safe from any thread, can't deadlock)
         // up to 500 ms for the read loop to actually exit. Combined with the
         // 200 ms read timeout above, this almost always returns within 250 ms.
+        var loopExited = true
         if (job != null) {
             var waited = 0
-            while (job.isActive && waited < 500) {
+            // Was 500 ms. Closing a UsbRequest while another thread sits in
+            // requestWait() on it is a use-after-free in the USB stack, and a
+            // leaked URB is a far cheaper mistake than a killed process, so
+            // wait properly and give up rather than tear down underneath it.
+            while (job.isActive && waited < 2000) {
                 try { Thread.sleep(20) } catch (_: InterruptedException) { break }
                 waited += 20
             }
+            loopExited = !job.isActive
         }
-        // Safe to tear down now: the loop no longer touches the pipeline.
-        pipe?.closeAll()
+        if (loopExited) {
+            // Safe to tear down now: the loop no longer touches the pipeline.
+            pipe?.closeAll()
+        } else {
+            com.fmradio.util.StartupLog.write(
+                "stopStreaming: read loop still active, leaving URBs alone")
+            DebugLog.log("USB", "stopStreaming: read loop did not exit, skipping closeAll")
+        }
     }
 
     /**
@@ -1550,6 +1568,7 @@ class RtlSdrDevice(private val context: Context) {
             Thread.sleep(50)
 
             // Clear USB endpoint stall (CRITICAL for Android)
+            com.fmradio.util.StartupLog.write("fullReset: clearHalt")
             clearEndpointHalt()
 
             // Reset USB FIFO multiple times to ensure clean state
@@ -1561,15 +1580,42 @@ class RtlSdrDevice(private val context: Context) {
             // Clear stall again after FIFO reset
             clearEndpointHalt()
 
-            // Discard any stale data in USB pipe
-            for (i in 0 until 3) {
-                val data = readSamples(bulkEndpoint?.maxPacketSize?.times(32) ?: 16384, 200)
-                DebugLog.log("USB", "fullReset discard #$i: ${data?.size ?: -1} bytes")
-                if (data == null) break
+            // Discard any stale data in the USB pipe.
+            //
+            // Deliberately synchronous bulkTransfer rather than readSamples().
+            // readSamples() uses the asynchronous UsbRequest path, and
+            // requestWait() hands back whichever request on the connection
+            // completes next — not necessarily the one this thread queued. With
+            // the streaming pipeline still winding down, that means two threads
+            // taking each other's completions, against buffers one of them has
+            // already released. The app died here, silently, every time a scan
+            // was started on a DiLink 4.0 unit: the startup log ended at
+            // "scan: fullReset" with no Java exception, because a use-after-free
+            // in the USB stack kills the process rather than throwing.
+            //
+            // bulkTransfer does not touch that queue at all, so it cannot
+            // collide with the reader no matter what state the teardown is in.
+            run {
+                val conn = usbConnection
+                val ep = bulkEndpoint
+                if (conn != null && ep != null) {
+                    val drain = ByteArray(ep.maxPacketSize * 32)
+                    for (i in 0 until 3) {
+                        val n = try {
+                            conn.bulkTransfer(ep, drain, drain.size, 200)
+                        } catch (e: Exception) {
+                            DebugLog.log("USB", "fullReset drain #$i failed: ${e.message}")
+                            -1
+                        }
+                        DebugLog.log("USB", "fullReset discard #$i: $n bytes")
+                        if (n <= 0) break
+                    }
+                }
             }
 
             resetBufferInternal()
             Thread.sleep(10)
+            com.fmradio.util.StartupLog.write("fullReset: done")
             Log.i(TAG, "Full USB reset completed")
             DebugLog.log("USB", "Full reset completed")
             true
