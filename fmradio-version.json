@@ -1,7 +1,7 @@
 {
-  "versionCode": 9,
-  "versionName": "1.9.0",
-  "releaseNotes": "Windows: в архив добавлены librtlsdr.dll и libusb (Zadig их не ставит), понятная диагностика ошибок. Android: конвейер USB-запросов против потери сэмплов, защита RDS от ложных коррекций (иероглифы и обрезка текста)",
+  "versionCode": 10,
+  "versionName": "1.10.0",
+  "releaseNotes": "Windows: асинхронное чтение USB (устраняет обрывы звука), запись лога в файл + просмотр через Help → Показать лог",
   "androidDownloadUrl": "https://github.com/donmax76/IpTv/releases/latest/download/FmRadio-Android.apk",
   "windowsDownloadUrl": "https://github.com/donmax76/IpTv/releases/latest"
 }

@@ -26,9 +26,9 @@ import org.json.JSONObject
 class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     companion object {
-        const val VERSION = "1.9.0"
+        const val VERSION = "1.10.0"
         const val BUILD = "20260728-1"
-        const val VERSION_CODE = 9
+        const val VERSION_CODE = 10
 
         // FM band range (extended: OIRT 65.8-74 + CCIR 87.5-108)
         const val FM_MIN_HZ = 76_000_000L
@@ -66,6 +66,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     // RTL-SDR direct access
     private val sdr = RtlSdrNative()
     private var streamingThread: Thread? = null
+    private var lastStatsLogMs = 0L
 
     // DSP
     private var demodulator: FmDemodulator? = null
@@ -202,8 +203,40 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         val checkUpdatesItem = JMenuItem("Check for Updates...")
         checkUpdatesItem.addActionListener { checkForUpdates(showUpToDateMessage = true) }
         helpMenu.add(checkUpdatesItem)
+
+        val showLogItem = JMenuItem("Показать лог...")
+        showLogItem.addActionListener { showLogDialog() }
+        helpMenu.add(showLogItem)
         menuBar.add(helpMenu)
         return menuBar
+    }
+
+    /** Show the tail of the log with a button to open its folder. */
+    private fun showLogDialog() {
+        val path = DesktopLog.logFile?.absolutePath ?: "(лог не создан)"
+        val area = JTextArea(DesktopLog.tail(300), 24, 90).apply {
+            isEditable = false
+            font = Font("Monospaced", Font.PLAIN, 12)
+            caretPosition = 0
+        }
+        val panel = JPanel(BorderLayout(0, 6)).apply {
+            add(JLabel("Файл: $path"), BorderLayout.NORTH)
+            add(JScrollPane(area), BorderLayout.CENTER)
+        }
+        val options = arrayOf<Any>("Открыть папку", "Копировать всё", "Закрыть")
+        val choice = JOptionPane.showOptionDialog(
+            this, panel, "FM Radio — лог", JOptionPane.DEFAULT_OPTION,
+            JOptionPane.PLAIN_MESSAGE, null, options, options[2]
+        )
+        try {
+            when (choice) {
+                0 -> DesktopLog.logFile?.parentFile?.let { Desktop.getDesktop().open(it) }
+                1 -> Toolkit.getDefaultToolkit().systemClipboard
+                        .setContents(java.awt.datatransfer.StringSelection(area.text), null)
+            }
+        } catch (e: Exception) {
+            JOptionPane.showMessageDialog(this, "Не удалось: ${e.message}")
+        }
     }
 
     private fun checkForUpdates(showUpToDateMessage: Boolean) {
@@ -1788,7 +1821,10 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         sdr.fullReset()
         isPlaying = true
 
-        streamingThread = sdr.startStreaming(262144) { iqData ->
+        // Smaller chunks than before (64 KB ≈ 28 ms at 1.152 MHz): with the
+        // async reader the limit is no longer per-call overhead, and shorter
+        // chunks keep the audio buffer topped up more evenly.
+        streamingThread = sdr.startStreaming(65536) { iqData ->
             var audioSamples = if (isAm) {
                 amDemodulator?.demodulate(iqData)
             } else {
@@ -1805,6 +1841,21 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                 demodulator?.measureSignalStrength(iqData) ?: -50f
             }
             val stereoNow = if (!isAm) demodulator?.isStereo == true else false
+
+            // Periodic health line: USB throughput vs what the sample rate
+            // needs, audio buffer level and underruns. This is what identifies
+            // dropout causes without guessing.
+            val now = System.currentTimeMillis()
+            if (now - lastStatsLogMs > 5000) {
+                lastStatsLogMs = now
+                val ap = audioPlayer
+                DesktopLog.log(
+                    "USB ${sdr.throughputReport()} | audio buf=${ap?.bufferedFrames() ?: -1} " +
+                    "underruns=${ap?.underrunCount() ?: -1} | sig=${"%.1f".format(power)}dB " +
+                    "stereo=$stereoNow freq=${formatFreq(currentFrequency)}MHz"
+                )
+            }
+
             SwingUtilities.invokeLater {
                 stereoLabel.text = if (isAm) "AM" else if (stereoNow) "STEREO" else "MONO"
                 stereoLabel.foreground = if (isAm) CYAN else if (stereoNow) FREQ_GREEN else AMBER
@@ -1972,6 +2023,14 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 }
 
 fun main() {
+    // Must come first: tees console output to a file so problems on a user's
+    // machine leave a trace (launched via FmRadio.exe there is no console).
+    DesktopLog.init()
+    Thread.setDefaultUncaughtExceptionHandler { t, e ->
+        DesktopLog.log("UNCAUGHT in ${t.name}: ${e}")
+        e.stackTrace.take(15).forEach { DesktopLog.log("    at $it") }
+        DesktopLog.flush()
+    }
     System.setProperty("awt.useSystemAAFontSettings", "on")
     System.setProperty("swing.aatext", "true")
 

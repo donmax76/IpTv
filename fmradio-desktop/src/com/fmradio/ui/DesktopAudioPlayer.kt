@@ -46,6 +46,12 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
 
     private var lastOutputSample = 0
 
+    // Diagnostics surfaced in the log: how full the ring is and how often the
+    // drain thread ran dry (an underrun is exactly what a "click" sounds like).
+    @Volatile private var underruns = 0L
+    fun bufferedFrames(): Int = bufferedSamples / 2
+    fun underrunCount(): Long = underruns
+
     // Drift correction state (see DRIFT_TARGET_SAMPLES/DRIFT_GAIN above)
     private var fillEma = PREFILL_SAMPLES.toDouble()
     private var driftCredit = 0.0
@@ -70,6 +76,7 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
 
         writePos = 0; readPos = 0; bufferedSamples = 0
         prefillDone = false
+        underruns = 0L
         samplesPlayed = 0L
         lastOutputSample = 0
         fillEma = PREFILL_SAMPLES.toDouble()
@@ -112,6 +119,7 @@ class DesktopAudioPlayer(private val sampleRate: Int = 48000) {
                 val toDrain = if (available >= chunkSamples) chunkSamples
                               else if (available >= 512) available and 0x7FFFFFFE
                               else {
+                                  underruns++
                                   // Buffer underflow — ramp to silence
                                   for (i in 0 until chunkSamples) {
                                       val fadeOut = (chunkSamples - i).toFloat() / chunkSamples

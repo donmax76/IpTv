@@ -36,9 +36,25 @@ class RtlSdrNative {
         fun rtlsdr_get_tuner_type(dev: Pointer): Int
         fun rtlsdr_reset_buffer(dev: Pointer): Int
         fun rtlsdr_read_sync(dev: Pointer, buf: ByteArray, len: Int, nRead: IntByReference): Int
+
+        // Asynchronous reading. librtlsdr keeps `bufNum` libusb transfers in
+        // flight and delivers data on its own thread, so the USB endpoint stays
+        // busy while we process — unlike read_sync, where the device is idle
+        // for the whole time between calls.
+        fun rtlsdr_read_async(dev: Pointer, cb: ReadAsyncCallback, ctx: Pointer?,
+                              bufNum: Int, bufLen: Int): Int
+        fun rtlsdr_cancel_async(dev: Pointer): Int
+    }
+
+    /** C: void (*rtlsdr_read_async_cb_t)(unsigned char *buf, uint32_t len, void *ctx) */
+    interface ReadAsyncCallback : Callback {
+        fun invoke(buf: Pointer, len: Int, ctx: Pointer?)
     }
 
     companion object {
+        // libusb transfers kept in flight by librtlsdr (its own default is 15)
+        private const val ASYNC_BUFFERS = 16
+
         private val TUNER_NAMES = arrayOf("Unknown", "E4000", "FC0012", "FC0013", "FC2580", "R820T", "R828D")
 
         /**
@@ -151,6 +167,7 @@ class RtlSdrNative {
 
     fun setSampleRate(rate: Int) {
         val dev = devPtr ?: return
+        configuredSampleRate = rate
         lib?.rtlsdr_set_sample_rate(dev, rate)
     }
 
@@ -289,48 +306,148 @@ class RtlSdrNative {
         return if (nRead.value == length) buf else buf.copyOf(nRead.value)
     }
 
+    // Kept as a field: JNA callbacks must stay strongly reachable for as long
+    // as native code can invoke them, or the JVM collects them and the next
+    // callback crashes the process.
+    private var asyncCallback: ReadAsyncCallback? = null
+    private var asyncThread: Thread? = null
+    private var workerThread: Thread? = null
+
+    /** Bounded hand-off between the USB callback and the DSP worker. */
+    private val iqQueue = java.util.concurrent.ArrayBlockingQueue<ByteArray>(32)
+
+    // Throughput accounting, reported to the log so field problems are visible
+    @Volatile private var bytesReceived = 0L
+    @Volatile private var chunksDropped = 0L
+    @Volatile private var streamStartMs = 0L
+    var configuredSampleRate: Int = 1152000
+        private set
+
     /**
-     * Start streaming in a background thread. Calls callback with IQ data chunks.
+     * Start streaming. Uses librtlsdr's asynchronous reader, which keeps
+     * several libusb transfers in flight on its own thread.
+     *
+     * The previous implementation called rtlsdr_read_sync in a loop and ran the
+     * DSP callback inline, so the USB endpoint sat idle for the entire
+     * demodulation time of every chunk — the tuner's FIFO overflowed on each
+     * gap and the lost samples were heard as constant audio dropouts. Now the
+     * USB callback only copies data into a bounded queue and a separate worker
+     * thread does the DSP, so reading never waits for processing.
      */
     fun startStreaming(bufferSize: Int = 65536, callback: (ByteArray) -> Unit): Thread {
+        val dev = devPtr
+        val l = lib
         isStreaming = true
+        iqQueue.clear()
+        bytesReceived = 0
+        chunksDropped = 0
+        streamStartMs = System.currentTimeMillis()
 
-        // Full USB flush before streaming to prevent stale data / noise burst
-        resetBuffer()
-        // Discard first read to flush USB pipe
-        val discardBuf = ByteArray(bufferSize)
-        val nRead = IntByReference()
-        try {
-            devPtr?.let { lib?.rtlsdr_read_sync(it, discardBuf, discardBuf.size, nRead) }
-        } catch (_: Exception) {}
         resetBuffer()
 
-        val thread = Thread({
-            println("Streaming started (direct USB, buf=$bufferSize)")
-            while (isStreaming && isOpen) {
-                val data = readSamples(bufferSize)
-                if (data != null && data.isNotEmpty()) {
-                    try {
-                        callback(data)
-                    } catch (e: Exception) {
-                        println("Streaming callback error: ${e.message}")
-                    }
-                } else {
-                    Thread.sleep(1)
+        // Worker: drains the queue and runs the (slow) DSP callback.
+        val worker = Thread({
+            while (isStreaming) {
+                val data = try {
+                    iqQueue.poll(200, java.util.concurrent.TimeUnit.MILLISECONDS)
+                } catch (_: InterruptedException) { null } ?: continue
+                try {
+                    callback(data)
+                } catch (e: Throwable) {
+                    println("Streaming callback error: ${e.message}")
                 }
             }
-            println("Streaming stopped")
-        }, "RtlSdrStreaming")
-        thread.isDaemon = true
-        thread.start()
-        return thread
+        }, "RtlSdrDsp")
+        worker.isDaemon = true
+        worker.priority = Thread.NORM_PRIORITY + 1
+        worker.start()
+        workerThread = worker
+
+        if (dev != null && l != null) {
+            // librtlsdr wants a buffer length that is a multiple of 512.
+            val bufLen = (bufferSize / 512).coerceAtLeast(1) * 512
+            val cb = object : ReadAsyncCallback {
+                override fun invoke(buf: Pointer, len: Int, ctx: Pointer?) {
+                    if (!isStreaming || len <= 0) return
+                    try {
+                        val data = buf.getByteArray(0, len)
+                        bytesReceived += len
+                        // Never block the USB callback: if the DSP is behind,
+                        // drop the oldest chunk instead of stalling reads.
+                        if (!iqQueue.offer(data)) {
+                            iqQueue.poll()
+                            iqQueue.offer(data)
+                            chunksDropped++
+                        }
+                    } catch (_: Throwable) {}
+                }
+            }
+            asyncCallback = cb
+
+            val t = Thread({
+                println("Streaming started (async, ${ASYNC_BUFFERS}×$bufLen B)")
+                // Blocks until rtlsdr_cancel_async() is called.
+                val rc = try { l.rtlsdr_read_async(dev, cb, null, ASYNC_BUFFERS, bufLen) }
+                         catch (e: Throwable) { println("read_async failed: ${e.message}"); -1 }
+                println("Streaming stopped (read_async returned $rc)")
+                if (rc != 0 && isStreaming) {
+                    // Fall back to synchronous reads so the app still plays.
+                    println("Falling back to synchronous reads")
+                    syncReadLoop(bufLen)
+                }
+            }, "RtlSdrStreaming")
+            t.isDaemon = true
+            t.start()
+            asyncThread = t
+            return t
+        }
+
+        // No device/library — degrade to the old behaviour.
+        val t = Thread({ syncReadLoop(bufferSize) }, "RtlSdrStreaming")
+        t.isDaemon = true
+        t.start()
+        asyncThread = t
+        return t
+    }
+
+    private fun syncReadLoop(bufferSize: Int) {
+        while (isStreaming && isOpen) {
+            val data = readSamples(bufferSize)
+            if (data != null && data.isNotEmpty()) {
+                bytesReceived += data.size
+                if (!iqQueue.offer(data)) { iqQueue.poll(); iqQueue.offer(data); chunksDropped++ }
+            } else {
+                Thread.sleep(1)
+            }
+        }
+    }
+
+    /** Achieved vs required byte rate — the number that shows whether USB keeps up. */
+    fun throughputReport(): String {
+        val ms = System.currentTimeMillis() - streamStartMs
+        if (ms <= 0) return "n/a"
+        val got = bytesReceived * 1000.0 / ms / 1e6
+        val need = configuredSampleRate * 2.0 / 1e6
+        return String.format(java.util.Locale.US,
+            "%.3f/%.3f MB/s (%.1f%%), queue=%d, dropped=%d",
+            got, need, got / need * 100, iqQueue.size, chunksDropped)
     }
 
     fun stopStreaming() {
         isStreaming = false
+        // read_async blocks until cancelled — without this the streaming thread
+        // would sit in native code forever and the device could never be retuned.
+        try { devPtr?.let { lib?.rtlsdr_cancel_async(it) } } catch (_: Throwable) {}
+        try { asyncThread?.join(700) } catch (_: Exception) {}
+        try { workerThread?.join(300) } catch (_: Exception) {}
+        asyncThread = null
+        workerThread = null
+        asyncCallback = null   // safe to release once native reading has stopped
+        iqQueue.clear()
     }
 
     fun close() {
+        if (isStreaming) stopStreaming()
         isStreaming = false
         isOpen = false
         devPtr?.let { lib?.rtlsdr_close(it) }
