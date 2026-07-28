@@ -29,21 +29,16 @@ if ! [[ "$CODE" =~ ^[0-9]+$ ]]; then
 fi
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
-GRADLE="$DIR/fmradio/build.gradle.kts"
 MAINWINDOW="$DIR/fmradio-desktop/src/com/fmradio/ui/MainWindow.kt"
 MANIFEST="$DIR/fmradio-version.json"
 BUILD_TAG="$(date +%Y%m%d)-1"
 
-# 1. Android gradle
-sed -i -E "s/versionCode = [0-9]+/versionCode = $CODE/" "$GRADLE"
-sed -i -E "s/versionName = \"[^\"]*\"/versionName = \"$NAME\"/" "$GRADLE"
-
-# 2. Desktop MainWindow
+# 1. Desktop MainWindow
 sed -i -E "s/const val VERSION = \"[^\"]*\"/const val VERSION = \"$NAME\"/" "$MAINWINDOW"
 sed -i -E "s/const val BUILD = \"[^\"]*\"/const val BUILD = \"$BUILD_TAG\"/" "$MAINWINDOW"
 sed -i -E "s/const val VERSION_CODE = [0-9]+/const val VERSION_CODE = $CODE/" "$MAINWINDOW"
 
-# 3. Update manifest (python for safe JSON quoting of release notes)
+# 2. Update manifest (python for safe JSON quoting of release notes)
 python3 - "$MANIFEST" "$CODE" "$NAME" "$NOTES" << 'PYEOF'
 import json, sys
 path, code, name, notes = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
@@ -59,12 +54,10 @@ with open(path, "w") as f:
 PYEOF
 
 echo "=== Version bumped to $NAME (code $CODE, build $BUILD_TAG) ==="
-echo "--- $GRADLE"
-grep -E "versionCode|versionName" "$GRADLE"
 echo "--- $MAINWINDOW"
 grep -E "const val VERSION|const val BUILD|VERSION_CODE" "$MAINWINDOW" | head -3
 echo "--- $MANIFEST"
 cat "$MANIFEST"
 echo ""
-echo "Не забудьте: пересобрать APK/JAR и смержить fmradio-version.json в main,"
-echo "иначе старые версии не увидят обновление."
+echo "Не забудьте пересобрать JAR. Манифест читается прямо с ветки разработки,"
+echo "мержить его в main не нужно."

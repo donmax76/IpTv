@@ -10,8 +10,13 @@ import java.net.URI
  */
 object UpdateChecker {
 
+    // The manifest lives on the development branch, not on main — pointing this
+    // at main meant every update check returned HTTP 404, so the Windows build
+    // has never once been able to see a new version. The Android checker
+    // already reads its manifest from this branch.
+    private const val BRANCH = "claude/fm-radio-app-5ytIx"
     const val CHECK_URL =
-        "https://raw.githubusercontent.com/donmax76/IpTv/main/fmradio-version.json"
+        "https://raw.githubusercontent.com/donmax76/IpTv/$BRANCH/fmradio-version.json"
 
     data class UpdateInfo(
         val versionCode: Int,
@@ -23,10 +28,15 @@ object UpdateChecker {
     /** Blocking network call — always run from a background thread. */
     fun check(url: String = CHECK_URL): Result<UpdateInfo?> {
         return try {
-            val conn = URI(url).toURL().openConnection() as HttpURLConnection
+            // raw.githubusercontent caches aggressively; without a cache buster a
+            // freshly published manifest stays invisible for several minutes.
+            val sep = if (url.contains('?')) "&" else "?"
+            val conn = URI("$url${sep}t=${System.currentTimeMillis()}")
+                .toURL().openConnection() as HttpURLConnection
             conn.connectTimeout = 8000
             conn.readTimeout = 8000
             conn.requestMethod = "GET"
+            conn.setRequestProperty("Cache-Control", "no-cache")
             val code = conn.responseCode
             if (code !in 200..299) {
                 conn.disconnect()

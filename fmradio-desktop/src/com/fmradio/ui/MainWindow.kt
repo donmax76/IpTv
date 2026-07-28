@@ -26,9 +26,9 @@ import org.json.JSONObject
 class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     companion object {
-        const val VERSION = "1.13.0"
+        const val VERSION = "1.13.1"
         const val BUILD = "20260728-1"
-        const val VERSION_CODE = 14
+        const val VERSION_CODE = 15
 
         // FM band range (extended: OIRT 65.8-74 + CCIR 87.5-108)
         const val FM_MIN_HZ = 76_000_000L
@@ -251,7 +251,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                                 "Доступна новая версия ${info.versionName}\n" +
                                     "(у вас build $BUILD)\n\n" +
                                     (if (info.releaseNotes.isNotBlank()) "${info.releaseNotes}\n\n" else "") +
-                                    "Открыть страницу загрузки?",
+                                    "Скачать FmRadio-Windows.zip?",
                                 "FM Radio — обновление доступно",
                                 JOptionPane.YES_NO_OPTION,
                                 JOptionPane.INFORMATION_MESSAGE
