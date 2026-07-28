@@ -22,6 +22,27 @@ class FmDemodulator(
 ) {
     companion object {
         const val RECOMMENDED_SAMPLE_RATE = 1152000
+
+        // Squelch: keyed off the ultrasonic noise measure. Calibrated on the
+        // bench so that an empty frequency mutes and any real station, however
+        // hard it is modulating, does not.
+        // Measured on the bench: an empty frequency reads 0.225, while the
+        // worst case for a real station — 180% of nominal deviation, which is
+        // already beyond anything on air — reads 0.059. Thresholds sit in the
+        // wide gap between, deliberately closer to the noise end, because
+        // muting a real station is far worse than passing a second of static.
+        private const val NOISE_SQUELCH_CLOSE = 0.150f
+        private const val NOISE_SQUELCH_OPEN = 0.120f
+
+        // Progressive stereo blend and treble roll-off, same idea as a car
+        // radio: give up separation and bandwidth gradually as noise rises
+        // rather than switching audibly between stereo and mono.
+        private const val NOISE_STEREO_FULL = 0.012f
+        private const val NOISE_STEREO_NONE = 0.040f
+        private const val NOISE_HICUT_START = 0.018f
+        private const val NOISE_HICUT_FULL = 0.052f
+        const val HICUT_MAX_HZ = 15000f
+        private const val HICUT_MIN_HZ = 3200f
     }
 
     private val stage1Decimation = 6
@@ -111,6 +132,57 @@ class FmDemodulator(
     private var signalQualityAcc = 0.0
     private var signalQualityCount = 0
     private var squelchOpen = false  // Start closed to avoid initial burst of noise
+
+    /**
+     * Mean |dphi| per intermediate sample. This is a MODULATION level, not a
+     * noise level — see the squelch below for why that distinction matters.
+     * Kept for the log.
+     */
+    @Volatile
+    var modulationLevel = 0f
+        private set
+
+    /** True while the squelch is letting audio through. */
+    @Volatile
+    var squelchIsOpen = false
+        private set
+
+    // ===== Reception quality, measured from ultrasonic noise =====
+    //
+    // A station transmits nothing above ~60 kHz in the multiplex (mono to 15,
+    // pilot 19, stereo subcarrier to 53, RDS 57), so the 62-70 kHz region
+    // carries receiver noise and nothing else. That makes it a noise measure
+    // that does not move with how loud the programme is — which the previous
+    // squelch input very much did.
+    private val nzBpB0: Double
+    private val nzBpB2: Double
+    private val nzBpA1: Double
+    private val nzBpA2: Double
+    private var nzX1 = 0.0; private var nzX2 = 0.0
+    private var nzY1 = 0.0; private var nzY2 = 0.0
+    private var nzAcc = 0.0
+    private var nzCount = 0
+    private val nzWindow = intermediateRate / 100      // 10 ms
+
+    /** Smoothed ultrasonic noise level — lower is a better signal. */
+    @Volatile
+    var noiseLevel = 0f
+        private set
+
+    /** Stereo separation currently applied: 0 = mono, 1 = full. */
+    @Volatile
+    var stereoBlend = 0f
+        private set
+
+    /** Current audio high-cut corner, Hz. */
+    @Volatile
+    var hiCutHz = HICUT_MAX_HZ
+        private set
+
+    private var hiCutAlpha = 1f
+    private var hiCutStateL = 0f
+    private var hiCutStateR = 0f
+    private var snrBlendTarget = 1f
     private var squelchLevel = 0f
     private val squelchAttack = 0.03f   // ~33ms to open (smooth fade-in)
     private val squelchRelease = 0.02f  // ~50ms to close (fast mute on noise)
@@ -147,6 +219,17 @@ class FmDemodulator(
         ifLpfCoeffs = designLowPassFilter(ifLpfOrder, 90000f / inputSampleRate)
         // Audio filter: 15 kHz cutoff — standard FM mono audio
         audioLpfCoeffs = designLowPassFilter(audioLpfOrder, 15000f / intermediateRate)
+
+        // Noise-measuring bandpass: 65 kHz centre, ~3 kHz wide. Narrow on
+        // purpose — wider skirts reach the 76 kHz demodulator product, whose
+        // level follows programme loudness and would make the measure useless.
+        val nzW = 2.0 * PI * 65000.0 / intermediateRate
+        val nzA = sin(nzW) / (2.0 * (65.0 / 3.0))
+        val nzA0 = 1.0 + nzA
+        nzBpB0 = nzA / nzA0
+        nzBpB2 = -nzA / nzA0
+        nzBpA1 = (-2.0 * cos(nzW)) / nzA0
+        nzBpA2 = (1.0 - nzA) / nzA0
 
         // Design 19 kHz pilot bandpass biquad (Q=80 for narrow extraction)
         val w0 = 2.0 * PI * 19000.0 / intermediateRate
@@ -335,21 +418,64 @@ class FmDemodulator(
                 pilotStrengthCount = 0
             }
 
-            // ===== Signal quality for squelch =====
-            val absBaseband = abs(rawBaseband)
-            signalQualityAcc += absBaseband
+            // ===== Reception quality, and the squelch =====
+            //
+            // The squelch used to compare mean |dphi| against an upper bound,
+            // muting when it looked like noise. That cannot work: mean |dphi|
+            // IS the modulation level, so a loud station and static are
+            // indistinguishable to it. Measured on the bench, a mono station
+            // at nominal deviation reads 0.90, at 140% it reads 1.25, and pure
+            // noise reads 1.44 — so the 1.2 bound silenced any station that
+            // modulated hard, and made the audio cut in and out for any station
+            // sitting near it. Both were reported from the field.
+            //
+            // The ultrasonic noise measure below has no such ambiguity: it
+            // looks where the station transmits nothing at all.
+            run {
+                val x = rawBaseband.toDouble()
+                val y = nzBpB0 * x + nzBpB2 * nzX2 - nzBpA1 * nzY1 - nzBpA2 * nzY2
+                nzX2 = nzX1; nzX1 = x
+                nzY2 = nzY1; nzY1 = y
+                nzAcc += y * y
+                if (++nzCount >= nzWindow) {
+                    val rms = sqrt(nzAcc / nzCount).toFloat()
+                    nzAcc = 0.0; nzCount = 0
+                    noiseLevel += 0.15f * (rms - noiseLevel)
+
+                    // Squelch with hysteresis, on noise alone.
+                    squelchOpen = if (squelchOpen) noiseLevel < NOISE_SQUELCH_CLOSE
+                                  else noiseLevel < NOISE_SQUELCH_OPEN
+                    squelchIsOpen = squelchOpen
+
+                    // Separation this signal can support
+                    val t = ((noiseLevel - NOISE_STEREO_FULL) /
+                             (NOISE_STEREO_NONE - NOISE_STEREO_FULL)).coerceIn(0f, 1f)
+                    snrBlendTarget = 1f - t
+
+                    // Audio bandwidth this signal can support
+                    val h = ((noiseLevel - NOISE_HICUT_START) /
+                             (NOISE_HICUT_FULL - NOISE_HICUT_START)).coerceIn(0f, 1f)
+                    hiCutHz = HICUT_MAX_HZ + h * (HICUT_MIN_HZ - HICUT_MAX_HZ)
+                    hiCutAlpha = (1.0 - exp(-2.0 * PI * hiCutHz / audioSampleRate))
+                        .toFloat().coerceIn(0f, 1f)
+                }
+            }
+
+            // Modulation level is still measured, but only for the log now.
+            signalQualityAcc += abs(rawBaseband)
             signalQualityCount++
             if (signalQualityCount >= intermediateRate / 16) {
-                val avgModulation = signalQualityAcc / signalQualityCount
-                // Pure noise gives avg |Δφ| ≈ π/2 ≈ 1.57 (uniform phase steps),
-                // real FM program material stays well below ~0.9. The previous
-                // upper bound of 2.0 never triggered on dead air, so the
-                // squelch was effectively disabled — loud static played on
-                // empty frequencies. 1.2 rejects noise with margin both ways.
-                squelchOpen = avgModulation > 0.05 && avgModulation < 1.2
+                modulationLevel = (signalQualityAcc / signalQualityCount).toFloat()
                 signalQualityAcc = 0.0
                 signalQualityCount = 0
             }
+
+            // Smooth the blend toward its target: attack faster than release so
+            // a recovering signal regains stereo promptly but a fade does not
+            // pump the image back and forth.
+            val bt = if (isStereo) snrBlendTarget else 0f
+            if (stereoBlend < bt) stereoBlend = (stereoBlend + 0.0003f).coerceAtMost(bt)
+            else if (stereoBlend > bt) stereoBlend = (stereoBlend - 0.0001f).coerceAtLeast(bt)
             if (squelchOpen && squelchLevel < 1f) {
                 squelchLevel = (squelchLevel + squelchAttack).coerceAtMost(1f)
             } else if (!squelchOpen && squelchLevel > 0f) {
@@ -405,15 +531,12 @@ class FmDemodulator(
             // L = mono + diff, R = mono - diff — with no extra 0.5 factor.
             // (Halving here would make stereo 6 dB quieter than mono and cause
             // loudness jumps whenever the pilot detector toggles.)
-            val left: Float
-            val right: Float
-            if (isStereo) {
-                left = filtMono + filtDiff
-                right = filtMono - filtDiff
-            } else {
-                left = filtMono
-                right = filtMono
-            }
+            // Separation is scaled by the blend rather than switched on and
+            // off: a pilot arriving through a noisy path used to buy full
+            // stereo and all of the L-R path's extra noise along with it.
+            val g = stereoBlend
+            val left = filtMono + filtDiff * g
+            val right = filtMono - filtDiff * g
 
             // 19 kHz pilot notch — the 15 kHz audio LPF's transition band only
             // partially attenuates the pilot; this removes the residual whine.
@@ -429,8 +552,14 @@ class FmDemodulator(
             deEmphasisStateR += deEmphasisAlpha * (nR - deEmphasisStateR)
 
             // Apply squelch with smooth level
-            val outL = deEmphasisStateL * squelchLevel
-            val outR = deEmphasisStateR * squelchLevel
+            // Progressive high-cut. At a clean signal hiCutAlpha is ~1 and
+            // this is a no-op; as noise rises the corner walks down to 3.2 kHz,
+            // trading the top of the band — where FM noise is worst — for quiet.
+            hiCutStateL += hiCutAlpha * (deEmphasisStateL - hiCutStateL)
+            hiCutStateR += hiCutAlpha * (deEmphasisStateR - hiCutStateR)
+
+            val outL = hiCutStateL * squelchLevel
+            val outR = hiCutStateR * squelchLevel
 
             // Mute ramp for seamless frequency change (avoids initial burst)
             if (muteRamp < 1f) {
@@ -498,6 +627,11 @@ class FmDemodulator(
 
     fun reset() {
         prevI = 0f; prevQ = 0f; deEmphasisStateL = 0f; deEmphasisStateR = 0f
+        nzX1 = 0.0; nzX2 = 0.0; nzY1 = 0.0; nzY2 = 0.0
+        nzAcc = 0.0; nzCount = 0
+        noiseLevel = 0f; stereoBlend = 0f; snrBlendTarget = 1f
+        hiCutHz = HICUT_MAX_HZ; hiCutAlpha = 1f
+        hiCutStateL = 0f; hiCutStateR = 0f
         dcI = 0f; dcQ = 0f
         notchLX1 = 0f; notchLX2 = 0f; notchLY1 = 0f; notchLY2 = 0f
         notchRX1 = 0f; notchRX2 = 0f; notchRY1 = 0f; notchRY2 = 0f

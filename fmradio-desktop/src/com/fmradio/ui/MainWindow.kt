@@ -26,9 +26,9 @@ import org.json.JSONObject
 class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     companion object {
-        const val VERSION = "1.14.0"
+        const val VERSION = "1.15.0"
         const val BUILD = "20260728-1"
-        const val VERSION_CODE = 16
+        const val VERSION_CODE = 17
 
         // FM band range (extended: OIRT 65.8-74 + CCIR 87.5-108)
         const val FM_MIN_HZ = 76_000_000L
@@ -1889,7 +1889,14 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                 DesktopLog.log(
                     "USB ${sdr.throughputReport()} | ring=${ap?.bufferedFrames() ?: -1} " +
                     "line=${ap?.lineQueuedFrames() ?: -1} underruns=${ap?.underrunCount() ?: -1} | sig=${"%.1f".format(power)}dB " +
-                    "stereo=$stereoNow freq=${formatFreq(currentFrequency)}MHz"
+                    "stereo=$stereoNow freq=${formatFreq(currentFrequency)}MHz" +
+                    (demodulator?.let { d ->
+                        // Reception quality, so a muted or mono-blended station
+                        // is never a mystery in a field log.
+                        " | noise=%.4f squelch=%s blend=%.2f hicut=%.0fHz mod=%.2f".format(
+                            d.noiseLevel, if (d.squelchIsOpen) "open" else "CLOSED",
+                            d.stereoBlend, d.hiCutHz, d.modulationLevel)
+                    } ?: "")
                 )
             }
 
