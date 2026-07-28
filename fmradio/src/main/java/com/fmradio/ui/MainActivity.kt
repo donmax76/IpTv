@@ -1044,7 +1044,17 @@ class MainActivity : Activity() {
             showToast("Нет логов для отправки")
             return
         }
+        val saved = com.fmradio.util.StartupLog.saveReport(combined)
         com.fmradio.util.CrashReporter.sendLog(this, combined)
+        if (saved != null) {
+            // The path matters: the tracker copy cannot always be retrieved,
+            // and this one can simply be attached to a message.
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Лог сохранён")
+                .setMessage("Файл:\n${saved.absolutePath}\n\nЕго можно приложить к сообщению.")
+                .setPositiveButton("OK", null)
+                .show()
+        }
     }
 
     private fun openSettings() {

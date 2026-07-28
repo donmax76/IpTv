@@ -115,6 +115,25 @@ object StartupLog {
         }
     }
 
+    /**
+     * Write the whole assembled report next to the logs as a plain .txt the
+     * user can pick up and attach anywhere. The in-app "send" path posts to a
+     * tracker, which is fine for the developer's own inbox but useless when
+     * the report has to reach someone by hand.
+     *
+     * @return the file, or null if nothing was writable.
+     */
+    fun saveReport(text: String): File? {
+        val f = file ?: return null
+        return try {
+            val out = File(f.parentFile, "report.txt")
+            out.writeText(text)
+            out
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
     /** Record a crash in full, independently of any logging preference. */
     fun writeCrash(thread: String, t: Throwable) {
         try {
