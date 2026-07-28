@@ -2,3 +2,8 @@
 local.properties
 FmRadio-Windows-Portable.zip
 fmradio-desktop/build/classes/
+
+# Windows bundles are produced by CI and published to the release,
+# never committed — a stale copy here got appended to by `zip -r`.
+FmRadio-Windows.zip
+FmRadio-Windows-Portable.zip

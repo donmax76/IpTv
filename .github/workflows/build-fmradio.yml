@@ -128,6 +128,10 @@ jobs:
           чего именно не хватает: библиотеки или драйвера.
           TXT
 
+          # The repo used to carry a stale FmRadio-Windows.zip; `zip -r` APPENDS
+          # to an existing archive, which silently merged the old bundled-JRE
+          # tree into the new package (40 MB with two copies of everything).
+          rm -f ../FmRadio-Windows.zip FmRadio-Windows.zip
           cd pkg && zip -qr ../FmRadio-Windows.zip . && cd ..
           ls -la FmRadio-Windows.zip
 
