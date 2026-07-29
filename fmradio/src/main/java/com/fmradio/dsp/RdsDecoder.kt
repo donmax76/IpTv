@@ -708,10 +708,26 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         val psStr = String(psChars).trim()
         val rtStr = String(rtChars, 0, rtLength).trim()
         Log.d(TAG, "Group ${groupType}${versionStr}: PI=%04X PTY=$ptyCode PS='$psStr' RT='$rtStr'".format(piCode))
-        DebugLog.log(TAG, "Group ${groupType}${versionStr}: PI=%04X PTY=$ptyCode PS='$psStr' RT='$rtStr'".format(piCode))
+        // ~11 groups a second: too fast for the always-on in-memory ring, which
+        // it would flush in under a minute. The 5 s stats line below is what
+        // that ring carries; this one is for a full file log.
+        if (DebugLog.fileLoggingEnabled) {
+            DebugLog.log(TAG, "Group ${groupType}${versionStr}: PI=%04X PTY=$ptyCode PS='$psStr' RT='$rtStr'".format(piCode))
+        }
 
         // Periodic bit error statistics
         val now = System.currentTimeMillis()
+        run {
+            // Unconditionally, whether or not file logging is on: this is what
+            // a report has to say to be worth reading. See StatusSnapshot.
+            val total = totalGoodBlocks + totalBadBlocks
+            com.fmradio.util.StatusSnapshot.rdsSynced = synced
+            com.fmradio.util.StatusSnapshot.rdsBerPct =
+                if (total > 0) totalBadBlocks.toFloat() / total * 100f else 0f
+            com.fmradio.util.StatusSnapshot.rdsGroups = totalGroupsDecoded
+            com.fmradio.util.StatusSnapshot.rdsPs = psStr
+            com.fmradio.util.StatusSnapshot.rdsRt = rtStr
+        }
         if (now - lastStatsLogTime >= STATS_LOG_INTERVAL_MS) {
             lastStatsLogTime = now
             val total = totalGoodBlocks + totalBadBlocks

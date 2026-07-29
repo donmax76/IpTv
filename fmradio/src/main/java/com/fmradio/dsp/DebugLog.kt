@@ -13,9 +13,15 @@ import java.util.*
 
 /**
  * Debug logger for FM Radio.
- * - Writes to file ONLY when fileLoggingEnabled = true (LOG:ON button)
- * - Shows in UI panel when enabled = true AND fileLoggingEnabled = true
- * - In normal operation (LOG:OFF): ZERO overhead, ZERO disk I/O
+ *
+ * Two levels, deliberately:
+ *  - an in-memory ring of the last MAX_LINES lines, ALWAYS kept. Callers have
+ *    already built the message string by the time they get here, so the added
+ *    cost is one deque push; and a problem is noticed after it happens, so a
+ *    report from a session that ran with logging off used to contain nothing
+ *    at all. Now it always carries recent history.
+ *  - the file, written only when fileLoggingEnabled = true (LOG:ON). That is
+ *    the part with real cost — disk I/O on every line — and it stays opt-in.
  */
 object DebugLog {
 
@@ -73,13 +79,22 @@ object DebugLog {
     }
 
     /**
-     * Log a message. Does NOTHING unless fileLoggingEnabled = true.
+     * Log a message. The in-memory ring always takes it; the file only when
+     * file logging is switched on.
      */
     fun log(tag: String, message: String) {
-        if (!fileLoggingEnabled) return
-
         val ts = sdf.format(Date())
         val line = "$ts [$tag] $message"
+
+        synchronized(lock) {
+            uiLines.addLast(line)
+            while (uiLines.size > MAX_UI_LINES) uiLines.removeFirst()
+        }
+        if (enabled) {
+            try { onNewLine?.invoke(line) } catch (_: Exception) {}
+        }
+
+        if (!fileLoggingEnabled) return
 
         try {
             if (logWriter == null) {
@@ -89,20 +104,13 @@ object DebugLog {
             }
             logWriter?.println(line)
         } catch (_: Exception) {}
-
-        if (enabled) {
-            synchronized(lock) {
-                uiLines.addLast(line)
-                while (uiLines.size > MAX_UI_LINES) uiLines.removeFirst()
-            }
-            try { onNewLine?.invoke(line) } catch (_: Exception) {}
-        }
     }
 
     fun flush() {
         try { logWriter?.flush() } catch (_: Exception) {}
     }
 
+    /** The in-memory ring — populated whatever the logging preference is. */
     fun getText(): String {
         synchronized(lock) { return uiLines.joinToString("\n") }
     }

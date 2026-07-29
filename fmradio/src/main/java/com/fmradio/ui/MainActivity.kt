@@ -1033,33 +1033,7 @@ class MainActivity : Activity() {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
-    private fun sendErrorLog() {
-        val debugLog = com.fmradio.dsp.DebugLog.getText()
-        val errorLog = ErrorLogger.getErrorContent(this)
-        val combined = buildString {
-            // Always first: this one is written even when file logging is off,
-            // and it is the only record when the app dies before it can log.
-            val startup = com.fmradio.util.StartupLog.read()
-            if (startup.isNotBlank()) { append("=== STARTUP LOG ===\n"); append(startup); append("\n\n") }
-            if (debugLog.isNotBlank()) { append("=== DEBUG LOG ===\n"); append(debugLog); append("\n\n") }
-            if (errorLog.isNotBlank()) { append("=== ERROR LOG ===\n"); append(errorLog) }
-        }
-        if (combined.isBlank()) {
-            showToast("Нет логов для отправки")
-            return
-        }
-        val saved = com.fmradio.util.StartupLog.saveReport(combined)
-        com.fmradio.util.CrashReporter.sendLog(this, combined)
-        if (saved != null) {
-            // The path matters: the tracker copy cannot always be retrieved,
-            // and this one can simply be attached to a message.
-            android.app.AlertDialog.Builder(this)
-                .setTitle("Лог сохранён")
-                .setMessage("Файл:\n${saved.absolutePath}\n\nЕго можно приложить к сообщению.")
-                .setPositiveButton("OK", null)
-                .show()
-        }
-    }
+    private fun sendErrorLog() = com.fmradio.util.LogReport.offer(this)
 
     private fun openSettings() {
         startActivity(Intent(this, SettingsActivity::class.java))

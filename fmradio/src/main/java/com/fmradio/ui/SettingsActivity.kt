@@ -469,33 +469,7 @@ class SettingsActivity : Activity() {
         }
     }
 
-    private fun sendDebugLog() {
-        val debugLog = DebugLog.getText()
-        val errorLog = com.fmradio.util.ErrorLogger.getErrorContent(this)
-        val combined = buildString {
-            // Always first: this one is written even when file logging is off,
-            // and it is the only record when the app dies before it can log.
-            val startup = com.fmradio.util.StartupLog.read()
-            if (startup.isNotBlank()) { append("=== STARTUP LOG ===\n"); append(startup); append("\n\n") }
-            if (debugLog.isNotBlank()) { append("=== DEBUG LOG ===\n"); append(debugLog); append("\n\n") }
-            if (errorLog.isNotBlank()) { append("=== ERROR LOG ===\n"); append(errorLog) }
-        }
-        if (combined.isBlank()) {
-            Toast.makeText(this, "No log available", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val saved = com.fmradio.util.StartupLog.saveReport(combined)
-        com.fmradio.util.CrashReporter.sendLog(this, combined)
-        if (saved != null) {
-            // The path matters: the tracker copy cannot always be retrieved,
-            // and this one can simply be attached to a message.
-            android.app.AlertDialog.Builder(this)
-                .setTitle("Лог сохранён")
-                .setMessage("Файл:\n${saved.absolutePath}\n\nЕго можно приложить к сообщению.")
-                .setPositiveButton("OK", null)
-                .show()
-        }
-    }
+    private fun sendDebugLog() = com.fmradio.util.LogReport.offer(this)
 
     private fun viewErrors() {
         val content = ErrorLogger.getErrorContent(this)
@@ -507,8 +481,10 @@ class SettingsActivity : Activity() {
             .setTitle("Error Log")
             .setMessage(content.takeLast(4000))
             .setPositiveButton("OK", null)
-            .setNeutralButton("Send") { _, _ ->
-                com.fmradio.util.CrashReporter.sendLog(this, content)
+            .setNeutralButton("Отправить") { _, _ ->
+                // Same one-file report as the button above: an error log on its
+                // own says what broke but never the state it broke in.
+                com.fmradio.util.LogReport.offer(this)
             }
             .show()
     }

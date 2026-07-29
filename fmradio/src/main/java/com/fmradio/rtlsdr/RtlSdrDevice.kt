@@ -1877,7 +1877,10 @@ class RtlSdrDevice(private val context: Context) {
         val result = conn.controlTransfer(CTRL_OUT, 0, addr, index, data, data.size, CTRL_TIMEOUT)
         if (result < 0) {
             DebugLog.log("USB", "FAIL $label: ct=$result block=$block addr=0x${addr.toString(16)} val=0x${value.toString(16)}")
-        } else {
+        } else if (DebugLog.fileLoggingEnabled) {
+            // Every successful register write, so ~20 per retune and thousands
+            // across a scan. The in-memory ring is always on now and this would
+            // flush everything else out of it; failures below stay unconditional.
             DebugLog.log("USB", "OK $label: val=0x${value.toString(16)} (${result}B)")
         }
     }

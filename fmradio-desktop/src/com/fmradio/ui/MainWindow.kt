@@ -27,9 +27,9 @@ import org.json.JSONObject
 class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     companion object {
-        const val VERSION = "1.22.0"
+        const val VERSION = "1.23.0"
         const val BUILD = "20260729-1"
-        const val VERSION_CODE = 24
+        const val VERSION_CODE = 25
 
         // FM band range (extended: OIRT 65.8-74 + CCIR 87.5-108)
         const val FM_MIN_HZ = 76_000_000L
@@ -213,31 +213,95 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         return menuBar
     }
 
-    /** Show the tail of the log with a button to open its folder. */
+    /** What the radio is doing right now, for the head of a report. */
+    private fun statusLine(): String {
+        if (!isPlaying) return "playback stopped"
+        val ap = audioPlayer
+        val d = demodulator
+        return buildString {
+            append("freq=%.2fMHz %s | %s\n".format(
+                currentFrequency / 1e6, currentBandDef.name,
+                if (d?.isStereo == true) "STEREO" else "MONO"))
+            append("gain=${agc?.report() ?: "off"}\n")
+            append("usb=${sdr.throughputReport()}\n")
+            append("audio: ring=${ap?.bufferedFrames() ?: -1} line=${ap?.lineQueuedFrames() ?: -1} " +
+                   "underruns=${ap?.underrunCount() ?: -1}\n")
+            if (d != null) append("dsp: noise=%.4f squelch=%s blend=%.2f hicut=%.0fHz mod=%.2f\n"
+                .format(d.noiseLevel, if (d.squelchIsOpen) "open" else "CLOSED",
+                        d.stereoBlend, d.hiCutHz, d.modulationLevel))
+            lastRdsData?.let {
+                append("rds: PS='${it.ps}' RT='${it.rt}' PI=%04X pty=${it.ptyName}\n".format(it.pi))
+            }
+        }
+    }
+
+    /**
+     * The log, with everything needed to act on it, and a way to get it out of
+     * the app in one step. The dialog used to copy only the 300 visible lines
+     * and otherwise point at a folder — so the part that mattered was routinely
+     * the part that had been cut off.
+     */
     private fun showLogDialog() {
+        val report = DesktopLog.report(statusLine())
         val path = DesktopLog.logFile?.absolutePath ?: "(лог не создан)"
-        val area = JTextArea(DesktopLog.tail(300), 24, 90).apply {
+        val area = JTextArea(report, 26, 100).apply {
             isEditable = false
             font = Font("Monospaced", Font.PLAIN, 12)
             caretPosition = 0
         }
         val panel = JPanel(BorderLayout(0, 6)).apply {
-            add(JLabel("Файл: $path"), BorderLayout.NORTH)
+            add(JLabel("Файл: $path  —  «Сохранить отчёт» создаёт один .txt, который можно приложить к сообщению"),
+                BorderLayout.NORTH)
             add(JScrollPane(area), BorderLayout.CENTER)
         }
-        val options = arrayOf<Any>("Открыть папку", "Копировать всё", "Закрыть")
+        val options = arrayOf<Any>("Сохранить отчёт...", "Копировать всё", "Открыть папку", "Закрыть")
         val choice = JOptionPane.showOptionDialog(
             this, panel, "FM Radio — лог", JOptionPane.DEFAULT_OPTION,
-            JOptionPane.PLAIN_MESSAGE, null, options, options[2]
+            JOptionPane.PLAIN_MESSAGE, null, options, options[0]
         )
         try {
             when (choice) {
-                0 -> DesktopLog.logFile?.parentFile?.let { Desktop.getDesktop().open(it) }
-                1 -> Toolkit.getDefaultToolkit().systemClipboard
-                        .setContents(java.awt.datatransfer.StringSelection(area.text), null)
+                0 -> saveReport(report)
+                1 -> {
+                    Toolkit.getDefaultToolkit().systemClipboard
+                        .setContents(java.awt.datatransfer.StringSelection(report), null)
+                    JOptionPane.showMessageDialog(this,
+                        "Отчёт скопирован (${report.length / 1024} КБ) — вставьте в сообщение.")
+                }
+                2 -> DesktopLog.logFile?.parentFile?.let { Desktop.getDesktop().open(it) }
             }
         } catch (e: Exception) {
             JOptionPane.showMessageDialog(this, "Не удалось: ${e.message}")
+        }
+    }
+
+    /** Write the report where the user chose, defaulting to the desktop. */
+    private fun saveReport(report: String) {
+        val stamp = java.text.SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", java.util.Locale.US)
+            .format(java.util.Date())
+        val chooser = javax.swing.JFileChooser().apply {
+            dialogTitle = "Сохранить отчёт"
+            // The desktop, not the install directory: under Program Files the
+            // write silently fails and the user is left with nothing.
+            val home = System.getProperty("user.home") ?: "."
+            val desktop = java.io.File(home, "Desktop").let { if (it.isDirectory) it else java.io.File(home) }
+            selectedFile = java.io.File(desktop, "fmradio-report-$stamp.txt")
+        }
+        if (chooser.showSaveDialog(this) != javax.swing.JFileChooser.APPROVE_OPTION) return
+        val target = chooser.selectedFile.let {
+            if (it.name.endsWith(".txt", true)) it else java.io.File(it.parentFile, it.name + ".txt")
+        }
+        try {
+            target.writeText(report, Charsets.UTF_8)
+            val open = JOptionPane.showConfirmDialog(this,
+                "Сохранено:\n${target.absolutePath}\n\nОткрыть папку?",
+                "Отчёт сохранён", JOptionPane.YES_NO_OPTION)
+            if (open == JOptionPane.YES_OPTION) {
+                try { Desktop.getDesktop().open(target.parentFile) } catch (_: Exception) {}
+            }
+        } catch (e: Exception) {
+            JOptionPane.showMessageDialog(this,
+                "Не удалось записать файл:\n${e.message}\n\nПопробуйте другую папку.")
         }
     }
 

@@ -571,6 +571,25 @@ class FmRadioService : Service() {
                 }
 
                 val now = System.currentTimeMillis()
+                if (demodCallCount % 8 == 0L) {
+                    // Always on — a problem is noticed after it happens, so the
+                    // report must not depend on logging having been switched on
+                    // beforehand. See StatusSnapshot.
+                    val snap = com.fmradio.util.StatusSnapshot
+                    snap.playing = true
+                    snap.frequencyHz = currentFrequency
+                    snap.signalDb = ndsp?.getSignalDb() ?: demodulator?.currentSignalStrengthDb ?: -100f
+                    snap.stereo = ndsp?.getIsStereo() ?: (demodulator?.isStereo == true)
+                    snap.iqQueueDepth = iqQueue.size
+                    snap.nativeDsp = ndsp != null
+                    ndsp?.let {
+                        snap.adcRms = it.getAdcRms()
+                        snap.adcClipPct = it.getAdcClipPct()
+                        snap.noiseLevel = it.getNoiseLevel()
+                        snap.stereoBlend = it.getStereoBlend()
+                        snap.hiCutHz = it.getHiCutHz()
+                    }
+                }
                 if (DebugLog.fileLoggingEnabled && (demodCallCount <= 3 || now - lastDemodLog > 1000)) {
                     val sigDb = ndsp?.getSignalDb() ?: demodulator?.currentSignalStrengthDb ?: -100f
                     val stereo = ndsp?.getIsStereo() ?: (demodulator?.isStereo == true)
@@ -641,6 +660,7 @@ class FmRadioService : Service() {
             // about nine seconds to reach a sane level — heard as loud noise
             // on tuning in that then clears up.
             var step = IF_GAIN_START_STEP
+            com.fmradio.util.StatusSnapshot.gainStep = step
             dev.setFc0013IfGainStep(step)
             var settleTicks = 0
             var settleAfterChange = 0
@@ -695,6 +715,7 @@ class FmRadioService : Service() {
 
                 if (newStep != step) {
                     step = newStep
+                    com.fmradio.util.StatusSnapshot.gainStep = step
                     dev.setFc0013IfGainStep(step)
                     settleTicks = 0
                     settleAfterChange = GAIN_SETTLE_CYCLES
@@ -721,6 +742,7 @@ class FmRadioService : Service() {
      */
     private fun stopPlayback(cancelSeekToo: Boolean) {
         isPlaying = false
+        com.fmradio.util.StatusSnapshot.playing = false
         gainJob?.cancel()
         gainJob = null
 

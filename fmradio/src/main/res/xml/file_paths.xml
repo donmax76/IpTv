@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <external-files-path name="logs" path="logs/" />
+    <!-- The report falls back to internal storage when external is unavailable;
+         without this entry FileProvider refuses the URI and sharing dies. -->
+    <files-path name="internal-logs" path="logs/" />
     <external-files-path name="backup" path="backup/" />
     <external-files-path name="updates" path="updates/" />
 </paths>

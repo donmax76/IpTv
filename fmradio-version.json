@@ -1,7 +1,7 @@
 {
-  "versionCode": 24,
-  "versionName": "1.22.0",
-  "releaseNotes": "Windows: замкнутая регулировка усиления тюнера по загрузке АЦП; скан и seek теперь на фиксированном усилении",
+  "versionCode": 25,
+  "versionName": "1.23.0",
+  "releaseNotes": "Отправка логов: один файл-отчёт с состоянием приёмника, сохранение и копирование одной кнопкой",
   "androidDownloadUrl": "https://github.com/donmax76/IpTv/releases/download/fmradio-latest/FmRadio-release.apk",
   "windowsDownloadUrl": "https://github.com/donmax76/IpTv/releases/download/fmradio-latest/FmRadio-Windows.zip"
 }

@@ -86,6 +86,46 @@ object DesktopLog {
         try { out?.flush() } catch (_: Exception) {}
     }
 
+    /**
+     * The whole report as one document: what machine it ran on, what the app
+     * is doing, and the log itself. This is what the user hands over — a tail
+     * of 300 lines routinely cut off the part that mattered, and the header
+     * had to be asked for by hand every time.
+     */
+    fun report(status: String = ""): String = buildString {
+        append("=== FMRADIO REPORT ===\n")
+        append("time  : ").append(
+            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())).append('\n')
+        append("app   : ").append(MainWindow.VERSION)
+            .append(" build ").append(MainWindow.BUILD).append('\n')
+        append("os    : ").append(System.getProperty("os.name"))
+            .append(' ').append(System.getProperty("os.version"))
+            .append(' ').append(System.getProperty("os.arch")).append('\n')
+        append("java  : ").append(System.getProperty("java.version"))
+            .append(" (").append(System.getProperty("java.vendor")).append(")\n")
+        append("log   : ").append(logFile?.absolutePath ?: "(не создан)").append('\n')
+        if (status.isNotBlank()) append("\n=== RADIO NOW ===\n").append(status).append('\n')
+        append("\n=== LOG ===\n")
+        append(fullText())
+        append("\n=== END ===\n")
+    }
+
+    /**
+     * The whole log file, newest part first if it has to be trimmed. Capped so
+     * a 2 MB log still fits in a message or the clipboard.
+     */
+    fun fullText(maxChars: Int = 600_000): String {
+        flush()
+        val f = logFile ?: return "Лог-файл не создан."
+        return try {
+            val text = f.readText()
+            if (text.length <= maxChars) text
+            else "…(обрезано, показаны последние $maxChars символов)…\n" + text.takeLast(maxChars)
+        } catch (e: Exception) {
+            "Не удалось прочитать лог: ${e.message}"
+        }
+    }
+
     /** Last [n] lines of the log, for showing inside the app. */
     fun tail(n: Int = 200): String {
         val f = logFile ?: return "Лог-файл не создан."

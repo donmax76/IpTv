@@ -1,8 +1,6 @@
 package com.fmradio.util
 
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -12,15 +10,23 @@ import com.fmradio.BuildConfig
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
-import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
- * Crash/log reporter — same approach as TVViewer project.
- * Primary: ntfy.sh (token-less, developer reads stream directly)
- * Fallback: opens browser with pre-filled GitHub issue
+ * Best-effort network delivery of a report.
+ *
+ * This is the developer's own inbox and nothing more. It is never the way a
+ * report reaches a person: both destinations can be unconfigured or blocked,
+ * and neither tells the user anything they can act on. LogReport does the part
+ * that has to work — one file, handed to the share sheet.
+ *
+ * The old fallback here was to open a browser at a GitHub "new issue" URL with
+ * the whole log percent-encoded into the query string. A real log is tens to
+ * hundreds of kilobytes; browsers cut URLs off around 8 KB and the server
+ * rejects what is left, so the user was sent to a broken page instead of being
+ * told the send had failed. That fallback is gone.
  */
 object CrashReporter {
 
@@ -39,42 +45,55 @@ object CrashReporter {
 
     fun send(context: Context, errorText: String, silent: Boolean = false) {
         val now = System.currentTimeMillis()
-        if (now - lastReport < 60_000L) return // rate limit: 1 per minute
+        if (now - lastReport < 60_000L) {
+            // Say so. Returning quietly here made the button look broken —
+            // the user pressed it and nothing whatsoever happened.
+            if (!silent) main.post {
+                Toast.makeText(context, "Уже отправлено, подождите минуту",
+                    Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
         lastReport = now
 
         val title = "FmRadio: " + errorText.lineSequence().firstOrNull()?.take(100).orEmpty()
-        val body = systemInfo() + "\n```\n$errorText\n```"
+        val body = systemInfo() + "\n```\n" + errorText.takeLast(60_000) + "\n```"
 
         Thread {
-            val ntfyOk = postToNtfy(title, body)
-            val ghOk = postToGitHub(title, body)
-
-            main.post {
-                if (ntfyOk || ghOk) {
-                    if (!silent) {
-                        Toast.makeText(context, "Лог отправлен", Toast.LENGTH_SHORT).show()
-                    }
-                } else {
-                    openInBrowser(context, title, body)
+            val delivered = postToNtfy(title, body) or postToGitHub(title, body)
+            if (!silent) {
+                main.post {
+                    Toast.makeText(context,
+                        if (delivered) "Лог отправлен"
+                        else "Отправить не удалось — используйте «Отправить лог» в настройках",
+                        Toast.LENGTH_LONG).show()
                 }
             }
         }.start()
     }
 
-    /** Send debug log (not just crash) */
-    fun sendLog(context: Context, logText: String) {
+    /**
+     * Post a report to whichever destination is configured.
+     *
+     * @param silent no toast either way — used when the caller has already
+     *   given the user a real way to send the report and this is only a copy
+     *   going to the developer's inbox. Announcing "Лог отправлен" for it would
+     *   be a claim about a delivery the user cannot check.
+     */
+    fun sendLog(context: Context, logText: String, silent: Boolean = false) {
         val title = "FmRadio Log: ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())}"
-        val body = systemInfo() + "\n```\n$logText\n```"
+        // Trackers reject oversized bodies outright; the tail is the part that
+        // matters and a rejected post delivers nothing at all.
+        val body = systemInfo() + "\n```\n" + logText.takeLast(60_000) + "\n```"
 
         Thread {
-            val ntfyOk = postToNtfy(title, body)
-            val ghOk = postToGitHub(title, body)
-
-            main.post {
-                if (ntfyOk || ghOk) {
-                    Toast.makeText(context, "Лог отправлен", Toast.LENGTH_SHORT).show()
-                } else {
-                    openInBrowser(context, title, body)
+            val delivered = postToNtfy(title, body) or postToGitHub(title, body)
+            if (!silent) {
+                main.post {
+                    Toast.makeText(context,
+                        if (delivered) "Лог отправлен"
+                        else "Отправить не удалось — сохраните файл и приложите к сообщению",
+                        Toast.LENGTH_LONG).show()
                 }
             }
         }.start()
@@ -94,10 +113,12 @@ object CrashReporter {
             conn.connectTimeout = 10000
             conn.readTimeout = 10000
             conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-            val ok = conn.responseCode in 200..299
+            // Read the code BEFORE disconnecting — afterwards the connection is
+            // torn down and the query can throw or reopen it.
+            val code = conn.responseCode
             conn.disconnect()
-            Log.d(TAG, "ntfy.sh: ${conn.responseCode}")
-            ok
+            Log.d(TAG, "ntfy.sh: $code")
+            code in 200..299
         } catch (e: Exception) {
             Log.e(TAG, "ntfy failed", e)
             false
@@ -128,14 +149,4 @@ object CrashReporter {
         } catch (_: Exception) { false }
     }
 
-    private fun openInBrowser(context: Context, title: String, body: String) {
-        try {
-            val url = "https://github.com/${BuildConfig.ISSUE_REPO}/issues/new" +
-                "?title=" + URLEncoder.encode(title, "UTF-8") +
-                "&body=" + URLEncoder.encode(body, "UTF-8")
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            })
-        } catch (_: Exception) {}
-    }
 }
