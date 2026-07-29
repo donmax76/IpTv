@@ -712,7 +712,14 @@ class FmRadioService : Service() {
         }
     }
 
-    fun stopPlayback() {
+    fun stopPlayback() = stopPlayback(cancelSeekToo = true)
+
+    /**
+     * @param cancelSeekToo false when called from INSIDE the seek coroutine —
+     *   otherwise cancelSeek() cancels the very job that is calling this, and
+     *   the seek aborts before it starts.
+     */
+    private fun stopPlayback(cancelSeekToo: Boolean) {
         isPlaying = false
         gainJob?.cancel()
         gainJob = null
@@ -720,7 +727,7 @@ class FmRadioService : Service() {
         // Release wake lock
         try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) {}
 
-        cancelSeek()
+        if (cancelSeekToo) cancelSeek()
 
         device?.stopStreaming()
 
@@ -748,8 +755,26 @@ class FmRadioService : Service() {
         val oldEq = equalizer
         equalizer = null
 
-        audioPlayer?.stop()
+        // Releasing the AudioTrack while the DSP thread is still writing to it
+        // is a use-after-free inside the audio framework — the process dies at
+        // once, with no Java exception to catch. The join above has a timeout,
+        // so it CAN return with that thread still running, and a log showed the
+        // DSP running ~255 ms behind the USB stream, which makes overrunning
+        // the timeout entirely possible. Never release under a live writer:
+        // hand it to a background thread that waits for the writer to leave.
+        val player = audioPlayer
         audioPlayer = null
+        if (player != null) {
+            if (t == null || !t.isAlive) {
+                player.stop()
+            } else {
+                com.fmradio.util.StartupLog.write("stopPlayback: DSP thread still alive, deferring audio release")
+                Thread({
+                    try { t.join(5000) } catch (_: InterruptedException) {}
+                    try { player.stop() } catch (_: Throwable) {}
+                }, "FmAudioRelease").apply { isDaemon = true }.start()
+            }
+        }
 
         abandonAudioFocus()
 
@@ -850,7 +875,7 @@ class FmRadioService : Service() {
             // past what Android tolerates, and the system kills the process —
             // which is exactly "press seek and the app disappears".
             com.fmradio.util.StartupLog.write("seek: stopping playback")
-            if (wasPlaying) stopPlayback()
+            if (wasPlaying) stopPlayback(cancelSeekToo = false)
             com.fmradio.util.StartupLog.write("seek: begin ${if (forward) "up" else "down"}")
             try {
                 val tempDemod = FmDemodulator()

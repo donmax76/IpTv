@@ -24,6 +24,14 @@ class FmScanner(private val device: RtlSdrDevice) {
 
         // Signal threshold for station detection (dB)
         private const val SIGNAL_THRESHOLD = -15f
+        // How far above the measured noise floor a frequency must sit to count
+        // as a station. 6 dB is the usual rule and is what the code always
+        // intended; it simply never got to apply it.
+        private const val SIGNAL_MARGIN_DB = 6f
+        // Sanity floor only. Nothing real is ever this quiet, so this exists
+        // purely so a nonsense noise-floor reading cannot make the scan accept
+        // every frequency.
+        private const val ABSOLUTE_FLOOR_DB = -55f
         private const val SETTLE_TIME_MS = 80L
         private const val MEASUREMENT_SAMPLES = 65536
         private const val MEASUREMENTS_PER_FREQ = 3
@@ -182,6 +190,7 @@ class FmScanner(private val device: RtlSdrDevice) {
 
         Log.i(TAG, "Starting scan: ${startFreq/1e6} - ${endFreq/1e6} MHz, step=${step/1e3} kHz")
 
+        var bestSeen = -200f
         try {
             // Stop any in-flight streaming UNCONDITIONALLY. The isStreaming flag may
             // already be false (cleared by stopPlayback) while the streaming coroutine
@@ -234,8 +243,21 @@ class FmScanner(private val device: RtlSdrDevice) {
                 noiseFloor = demodulator.measureSignalStrength(noiseSamples)
             }
 
-            val adaptiveThreshold = maxOf(threshold, noiseFloor + 6f)
+            // Relative to the measured noise floor, NOT to an absolute number.
+            //
+            // This used to be maxOf(threshold, noiseFloor + 6), with threshold
+            // fixed at -15 dB. But the scanner deliberately runs the tuner at
+            // minimum LNA gain, so everything it measures sits far below what
+            // the same station reads during playback: stations that show -8 to
+            // -13 dB on air measure around -25 to -33 dB here. maxOf() then
+            // discarded the adaptive value every time and left the bar at
+            // -15 dB, which nothing could clear — the sweep completed and
+            // reported an empty band. The absolute value survives only as a
+            // sanity floor far below anything real.
+            val adaptiveThreshold = maxOf(ABSOLUTE_FLOOR_DB, noiseFloor + SIGNAL_MARGIN_DB)
             Log.i(TAG, "Noise floor: $noiseFloor dB, threshold: $adaptiveThreshold dB")
+            com.fmradio.util.StartupLog.write(
+                "scan: noise floor %.1f dB, threshold %.1f dB".format(noiseFloor, adaptiveThreshold))
 
             com.fmradio.util.StartupLog.write("scan: sweep begin ${startFreq/1000}kHz..${endFreq/1000}kHz")
             var freq = startFreq
@@ -257,6 +279,7 @@ class FmScanner(private val device: RtlSdrDevice) {
 
                 if (validMeasurements > 0) {
                     val avgSignal = signalSum / validMeasurements
+                    if (avgSignal > bestSeen) bestSeen = avgSignal
                     if (avgSignal > adaptiveThreshold) {
                         val result = ScanResult(freq, avgSignal)
                         stations.add(result)
@@ -286,7 +309,8 @@ class FmScanner(private val device: RtlSdrDevice) {
             Log.w(TAG, "Full reset after scan failed", e)
         }
 
-        com.fmradio.util.StartupLog.write("scan: sweep done, merging ${stations.size}")
+        com.fmradio.util.StartupLog.write(
+            "scan: sweep done, ${stations.size} found, strongest seen %.1f dB".format(bestSeen))
         val mergedStations = mergeCloseStations(stations, step * 2)
 
         Log.i(TAG, "Scan complete. Found ${mergedStations.size} signals")
