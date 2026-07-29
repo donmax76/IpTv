@@ -840,9 +840,18 @@ class FmRadioService : Service() {
         cancelSeek()
 
         val wasPlaying = isPlaying
-        if (wasPlaying) stopPlayback()
 
         seekJob = serviceScope.launch {
+            // stopPlayback() used to run HERE, before the coroutine — i.e. on
+            // whichever thread pressed the button, which is the UI thread.
+            // It waits for the USB read loop to finish (up to 2 s), for the
+            // reader to leave its last transfer (2 s) and for the DSP thread to
+            // join (1.5 s). Five and a half seconds of a blocked UI thread is
+            // past what Android tolerates, and the system kills the process —
+            // which is exactly "press seek and the app disappears".
+            com.fmradio.util.StartupLog.write("seek: stopping playback")
+            if (wasPlaying) stopPlayback()
+            com.fmradio.util.StartupLog.write("seek: begin ${if (forward) "up" else "down"}")
             try {
                 val tempDemod = FmDemodulator()
                 dev.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
@@ -879,6 +888,7 @@ class FmRadioService : Service() {
                     freq += if (forward) step else -step
                 }
 
+                com.fmradio.util.StartupLog.write("seek: sweep done, found=$found")
                 if (isActive) dev.fullReset()
 
                 withContext(Dispatchers.Main) {

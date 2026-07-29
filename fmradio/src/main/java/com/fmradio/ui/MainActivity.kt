@@ -718,8 +718,6 @@ class MainActivity : Activity() {
 
     private fun startScan() {
         val dev = rtlSdrDevice ?: run { showToast(getString(R.string.msg_connect_first)); return }
-        com.fmradio.util.StartupLog.write("startScan: stopping playback")
-        stopPlayback()
         com.fmradio.util.StartupLog.write("startScan: creating scanner")
         scanner = FmScanner(dev)
         layoutScanning.visibility = View.VISIBLE
@@ -727,6 +725,12 @@ class MainActivity : Activity() {
         progressScan.progress = 0
 
         activityScope.launch {
+            // Off the UI thread: stopPlayback() waits several seconds for the
+            // USB reader and the DSP thread to finish, and doing that on the
+            // thread that handled the button press is long enough for Android
+            // to kill the process.
+            com.fmradio.util.StartupLog.write("startScan: stopping playback")
+            withContext(Dispatchers.IO) { stopPlayback() }
             scanner?.scanBand(currentBand, object : FmScanner.ScanListener {
                 override fun onScanProgress(currentFreqHz: Long, progress: Float) {
                     progressScan.progress = (progress * 100).toInt()

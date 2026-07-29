@@ -87,6 +87,10 @@ class RtlSdrDevice(private val context: Context) {
         // 5 ms, so the worst case adds 50 ms to a read that was going to fail
         // anyway — cheap next to a scan that reports an empty band.
         private const val SYNC_READ_RETRIES = 10
+        // How long stopStreaming may block its caller. Short, because the
+        // caller is usually the UI thread; the rest of the teardown continues
+        // on a background thread.
+        private const val STOP_INLINE_WAIT_MS = 250
         private const val CTRL_TIMEOUT = 300
         private const val I2C_TIMEOUT = 1000  // I2C needs longer timeout on some devices
 
@@ -1590,37 +1594,40 @@ class RtlSdrDevice(private val context: Context) {
         // Poll-wait (no runBlocking — safe from any thread, can't deadlock)
         // up to 500 ms for the read loop to actually exit. Combined with the
         // 200 ms read timeout above, this almost always returns within 250 ms.
-        var loopExited = true
-        if (job != null) {
-            var waited = 0
-            // Was 500 ms. Closing a UsbRequest while another thread sits in
-            // requestWait() on it is a use-after-free in the USB stack, and a
-            // leaked URB is a far cheaper mistake than a killed process, so
-            // wait properly and give up rather than tear down underneath it.
-            while (job.isActive && waited < 2000) {
-                try { Thread.sleep(20) } catch (_: InterruptedException) { break }
-                waited += 20
-            }
-            loopExited = !job.isActive
+        // Wait only briefly HERE. This method is reached from the play/stop
+        // button, from seek and from scan — all on the UI thread — and a wait
+        // of several seconds there is long enough for Android to kill the
+        // process. That is what "press seek and the app disappears" was.
+        //
+        // Closing a UsbRequest while a thread is still inside requestWait() on
+        // it is a use-after-free, so the teardown itself must still wait; it
+        // just does not have to make the caller wait with it. Anything not
+        // finished within the short window is handed to a background thread.
+        fun exited() = (job == null || !job.isActive) && !readerActive
+        var waited = 0
+        while (!exited() && waited < STOP_INLINE_WAIT_MS) {
+            try { Thread.sleep(10) } catch (_: InterruptedException) { break }
+            waited += 10
         }
-        // The job being complete is not the same as the reader having returned
-        // from its last requestWait(); wait for the flag the loop itself clears.
-        var spun = 0
-        while (readerActive && spun < 2000) {
-            try { Thread.sleep(20) } catch (_: InterruptedException) { break }
-            spun += 20
-        }
-        if (readerActive) {
-            loopExited = false
-            com.fmradio.util.StartupLog.write("stopStreaming: reader still inside USB wait")
-        }
-        if (loopExited) {
-            // Safe to tear down now: the loop no longer touches the pipeline.
+        if (exited()) {
             pipe?.closeAll()
         } else {
-            com.fmradio.util.StartupLog.write(
-                "stopStreaming: read loop still active, leaving URBs alone")
-            DebugLog.log("USB", "stopStreaming: read loop did not exit, skipping closeAll")
+            // Still running: finish the teardown off the caller's thread. A
+            // leaked URB is a far cheaper mistake than a killed process.
+            Thread({
+                var spun = 0
+                while (!exited() && spun < 5000) {
+                    try { Thread.sleep(20) } catch (_: InterruptedException) { break }
+                    spun += 20
+                }
+                if (exited()) {
+                    pipe?.closeAll()
+                } else {
+                    com.fmradio.util.StartupLog.write(
+                        "stopStreaming: reader never exited, URBs left alone")
+                    DebugLog.log("USB", "stopStreaming: reader never exited, skipping closeAll")
+                }
+            }, "FmUsbTeardown").apply { isDaemon = true }.start()
         }
     }
 
