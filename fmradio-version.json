@@ -1,7 +1,7 @@
 {
-  "versionCode": 22,
-  "versionName": "1.20.0",
-  "releaseNotes": "Сканирование: порог считался от фиксированного числа и перебивал адаптивный расчёт от шумовой полки — слабые станции пропускались. Убран мёртвый дублирующий код обновления",
+  "versionCode": 23,
+  "versionName": "1.21.0",
+  "releaseNotes": "RadioText: на экране остаётся последнее полностью собранное сообщение, пока следующее ещё собирается",
   "androidDownloadUrl": "https://github.com/donmax76/IpTv/releases/download/fmradio-latest/FmRadio-release.apk",
   "windowsDownloadUrl": "https://github.com/donmax76/IpTv/releases/download/fmradio-latest/FmRadio-Windows.zip"
 }

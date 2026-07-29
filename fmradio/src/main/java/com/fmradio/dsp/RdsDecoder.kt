@@ -24,6 +24,10 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         // RDS bit rate
         private const val RDS_BITRATE = 1187.5
 
+        // Groups to wait before giving up on assembling a complete RadioText
+        // message and showing the fragment gathered so far (~30 s at 11.4 groups/s).
+        private const val RT_PARTIAL_AFTER = 350
+
         // RDS sync word (offset words for blocks A, B, C, D)
         private const val OFFSET_A = 0x0FC
         private const val OFFSET_B = 0x198
@@ -149,6 +153,24 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private var rtAbFlag = -1  // RT A/B flag: toggles when station changes text → clear buffer
     private var rtAbPendingFlag = -1   // candidate new A/B value awaiting confirmation
     private var rtAbPendingCount = 0
+    // RadioText display buffer. Stations that put the current track in the
+    // RadioText change the message every few minutes, and on a weak signal a
+    // message takes longer than that to assemble — so the screen used to show
+    // fragments of one message being replaced by fragments of the next, and you
+    // never got to read either. Keep the last message that arrived COMPLETE on
+    // screen while the next one is still being built, and swap only when the new
+    // one has no gaps. If nothing ever completes, fall back to whatever has been
+    // gathered after RT_PARTIAL_AFTER groups so the display can't get stuck.
+    private val rtFilled = BooleanArray(64)
+    private var rtDisplay = ""
+    private var rtGroupsSinceClear = 0
+    private var rtEverComplete = false
+    private var rtEndSeen = false
+    private var rtEndExplicit = false
+    private var rtMinLength = 0
+    private var rtMaxSeg = -1
+    private var rtLastSeg = -1
+    private var rtWrapsAtMax = 0
     // Per-character confirmation for RadioText, mirroring what PS already does.
     // A character is only shown once the SAME code arrives twice at the same
     // position (or once from a CRC-clean block). Garbage from a mis-corrected
@@ -679,6 +701,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         }
 
         totalGroupsDecoded++
+        rtGroupsSinceClear++
 
         // Log decoded group details
         val versionStr = if (versionB) "B" else "A"
@@ -811,13 +834,36 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 // a further confirmation delay would itself cause mixing.
                 for (i in rtChars.indices) { rtChars[i] = ' '; rtPending[i] = '\u0000' }
                 for (i in rtHitCount.indices) rtHitCount[i] = 0
+                for (i in rtFilled.indices) rtFilled[i] = false
                 rtLength = 0
+                rtEndSeen = false; rtEndExplicit = false; rtMinLength = 0
+                rtMaxSeg = -1; rtLastSeg = -1; rtWrapsAtMax = 0
+                rtGroupsSinceClear = 0
                 dataChanged = true
             }
             rtAbFlag = abFlag
         }
 
         val segmentAddr = blockB and 0x0F
+
+        // Where the message ends, for stations that never send the 0x0D
+        // terminator. The segment address cycles 0..N over and over, so once N
+        // has stayed the highest across two complete cycles the length is known.
+        val perSegment = if (versionB) 2 else 4
+        if (segmentAddr > rtMaxSeg) {
+            rtMaxSeg = segmentAddr
+            rtWrapsAtMax = 0
+        } else if (segmentAddr < rtLastSeg && rtWrapsAtMax < 4) {
+            rtWrapsAtMax++
+        }
+        rtLastSeg = segmentAddr
+        if (rtWrapsAtMax >= 2) {
+            rtEndSeen = true
+            // Only a guess from the segment count — a 0x0D terminator is
+            // authoritative and must not be overwritten by it, or a message
+            // that ends mid-segment can never be counted as complete.
+            if (!rtEndExplicit) rtMinLength = (rtMaxSeg + 1) * perSegment
+        }
 
         if (!versionB) {
             // RT has no consistency checking like PS, so corrupt blocks write
@@ -838,6 +884,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                 for (j in 0..3) {
                     if (chars[j] < 0) continue  // block not CRC-valid, skip this char
                     if (commitRtChar(pos + j, chars[j], clean[j])) anyValid = true
+                    if (chars[j] == RDS_END_OF_TEXT && clean[j]) break
                 }
                 if (anyValid) dataChanged = true
             }
@@ -870,9 +917,19 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             // A stray 0x0D from a mis-corrected block used to truncate the whole
             // message — only honour it from a clean block.
             if (!clean) return false
-            if (rtLength != pos) {
+            // Only the FIRST marker of a run is the real end: a message that
+            // stops mid-segment is padded with more 0x0D, and taking the last
+            // one would place the end past the last character actually sent —
+            // leaving positions that never get filled and a message that can
+            // never count as complete.
+            rtEndSeen = true
+            rtMinLength = if (rtEndExplicit) minOf(rtMinLength, pos) else pos
+            rtEndExplicit = true
+            if (pos < rtLength) {
                 rtLength = pos
-                for (k in pos until rtChars.size) { rtChars[k] = ' '; rtHitCount[k] = 0 }
+                for (k in pos until rtChars.size) {
+                    rtChars[k] = ' '; rtHitCount[k] = 0; rtFilled[k] = false
+                }
                 return true
             }
             return false
@@ -898,6 +955,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         rtPending[pos] = c
         val changed = rtChars[pos] != c || rtLength <= pos
         rtChars[pos] = c
+        rtFilled[pos] = true
         if (pos >= rtLength) rtLength = pos + 1
         return changed
     }
@@ -916,9 +974,34 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             .trim()
     }
 
+    /**
+     * True when the whole message has arrived: its end is known — a clean 0x0D
+     * terminator, a segment cycle that has settled, or all 64 characters — and
+     * no position in between is still missing.
+     *
+     * The end marker is what makes this meaningful. rtLength on its own only
+     * records the highest position seen so far, so without it the first segment
+     * to arrive looks like a complete four-character message.
+     */
+    private fun rtIsComplete(): Boolean {
+        if (rtLength <= 0) return false
+        if (!rtEndSeen && rtLength < rtChars.size) return false
+        if (rtLength < rtMinLength) return false
+        for (i in 0 until rtLength) if (!rtFilled[i]) return false
+        return true
+    }
+
     private fun buildRdsData(): RdsData {
         val ps = sanitize(String(psChars))
-        val rt = sanitize(String(rtChars, 0, rtLength))
+        val building = sanitize(String(rtChars, 0, rtLength))
+        if (rtIsComplete()) {
+            rtDisplay = building
+            rtEverComplete = true
+        } else if (!rtEverComplete || rtGroupsSinceClear > RT_PARTIAL_AFTER) {
+            // Nothing complete to fall back on, or this one is taking too long.
+            rtDisplay = building
+        }
+        val rt = rtDisplay
         val ptyName = if (ptyCode in PTY_NAMES.indices) PTY_NAMES[ptyCode] else ""
         return RdsData(
             ps = ps,
@@ -966,6 +1049,10 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         for (i in rtPending.indices) rtPending[i] = ' '
         rtLength = 0
         rtConfirmedLength = 0
+        for (i in rtFilled.indices) rtFilled[i] = false
+        rtDisplay = ""; rtGroupsSinceClear = 0; rtEverComplete = false
+        rtEndSeen = false; rtEndExplicit = false; rtMinLength = 0
+        rtMaxSeg = -1; rtLastSeg = -1; rtWrapsAtMax = 0
         rtAbFlag = -1
         rtAbPendingFlag = -1; rtAbPendingCount = 0
         for (i in rtHitCount.indices) rtHitCount[i] = 0
