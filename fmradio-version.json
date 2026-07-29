@@ -1,7 +1,7 @@
 {
-  "versionCode": 23,
-  "versionName": "1.21.0",
-  "releaseNotes": "RadioText: на экране остаётся последнее полностью собранное сообщение, пока следующее ещё собирается",
+  "versionCode": 24,
+  "versionName": "1.22.0",
+  "releaseNotes": "Windows: замкнутая регулировка усиления тюнера по загрузке АЦП; скан и seek теперь на фиксированном усилении",
   "androidDownloadUrl": "https://github.com/donmax76/IpTv/releases/download/fmradio-latest/FmRadio-release.apk",
   "windowsDownloadUrl": "https://github.com/donmax76/IpTv/releases/download/fmradio-latest/FmRadio-Windows.zip"
 }

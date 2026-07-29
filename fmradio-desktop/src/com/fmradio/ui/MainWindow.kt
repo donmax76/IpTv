@@ -4,6 +4,7 @@ import com.fmradio.dsp.AmDemodulator
 import com.fmradio.dsp.AudioEqualizer
 import com.fmradio.dsp.FmDemodulator
 import com.fmradio.dsp.RdsDecoder
+import com.fmradio.dsp.TunerAgc
 import com.fmradio.rtlsdr.RtlSdrNative
 import java.awt.*
 import java.awt.event.*
@@ -26,9 +27,9 @@ import org.json.JSONObject
 class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     companion object {
-        const val VERSION = "1.21.0"
+        const val VERSION = "1.22.0"
         const val BUILD = "20260729-1"
-        const val VERSION_CODE = 23
+        const val VERSION_CODE = 24
 
         // FM band range (extended: OIRT 65.8-74 + CCIR 87.5-108)
         const val FM_MIN_HZ = 76_000_000L
@@ -72,6 +73,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     private var demodulator: FmDemodulator? = null
     private var rdsDecoder: RdsDecoder? = null
     private var equalizer: AudioEqualizer? = null
+    @Volatile private var agc: TunerAgc? = null
     private var audioPlayer: DesktopAudioPlayer? = null
 
     // State
@@ -1351,7 +1353,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             val tempFmDemod = if (band.modulation == "FM") FmDemodulator() else null
             val tempAmDemod = if (band.modulation == "AM") AmDemodulator() else null
             sdr.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
-            applyOptimalGain()
+            applyScanGain()
             sdr.setDirectSampling(band.directSampling)
             sdr.resetBuffer()
 
@@ -1736,7 +1738,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             if (ok) {
                 sdr.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
                 sdr.setOffsetTuning(true)  // Eliminate DC spike noise (like SDR# Offset Tuning)
-                applyOptimalGain()
+                applyScanGain()
                 sdr.setFrequency(currentFrequency)
 
                 SwingUtilities.invokeLater {
@@ -1794,17 +1796,40 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     }
 
     /**
-     * Tuner-appropriate gain policy. R820T/R828D lack a usable hardware AGC
-     * loop through librtlsdr, so manual maximum gain works best for them.
-     * The zero-IF tuners (FC0013/FC0012/E4000/FC2580) have effective AGC —
-     * forcing them to max (70.3 dB on FC0013!) overloads the front end on
-     * strong stations, heard as distortion/noise.
+     * Fixed gain for scanning and seeking.
+     *
+     * A scan compares the power of one frequency against another, so the gain
+     * has to be the same at every one of them. Letting the tuner's own
+     * hardware AGC run — which is what this code used to do for every tuner
+     * except the R820T — equalises the readings and leaves the scan comparing
+     * nothing. The playback loop is stopped for the same reason.
+     *
+     * Maximum, so the weakest station in the band still stands clear of the
+     * noise floor; a strong one merely reads strong.
      */
-    private fun applyOptimalGain() {
-        when (sdr.tunerName) {
-            "R820T", "R828D" -> sdr.setMaxGain()
-            else -> sdr.setAutoGain(true)
+    private fun applyScanGain() {
+        agc = null
+        sdr.setAutoGain(false)   // manual mode, RTL2832 digital AGC off
+        if (sdr.setMaxGain() < 0) sdr.setAutoGain(true)
+    }
+
+    /**
+     * Start the closed gain loop for playback. See TunerAgc for why neither
+     * "pin it at maximum" nor "let the tuner's own AGC do it" is a gain
+     * control for FM. Falls back to the hardware AGC only if the tuner cannot
+     * report a gain table at all.
+     */
+    private fun startAgc() {
+        agc = null
+        val loop = TunerAgc(sdr.getSupportedGains()) { tenths -> sdr.setGain(tenths) }
+        if (!loop.isUsable) {
+            DesktopLog.log("AGC: tuner reports no gain table, falling back to hardware AGC")
+            sdr.setAutoGain(true)
+            return
         }
+        sdr.setAutoGain(false)   // manual mode, RTL2832 digital AGC off
+        loop.start()
+        agc = loop
     }
 
     private fun startPlayback() {
@@ -1822,7 +1847,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         sdr.setSampleRate(sampleRate)
         sdr.setOffsetTuning(true)  // DC spike elimination
         sdr.setDirectSampling(band.directSampling)
-        applyOptimalGain()
+        startAgc()
 
         if (isAm) {
             amDemodulator = AmDemodulator(inputSampleRate = sampleRate, audioSampleRate = 48000)
@@ -1870,6 +1895,9 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         // async reader the limit is no longer per-call overhead, and shorter
         // chunks keep the audio buffer topped up more evenly.
         streamingThread = sdr.startStreaming(65536) { iqData ->
+            // Gain first: the loop meters the raw converter output, and it must
+            // see the block whether or not the DSP produces audio from it.
+            agc?.feed(iqData)
             var audioSamples = if (isAm) {
                 amDemodulator?.demodulate(iqData)
             } else {
@@ -1897,6 +1925,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                 DesktopLog.log(
                     "USB ${sdr.throughputReport()} | ring=${ap?.bufferedFrames() ?: -1} " +
                     "line=${ap?.lineQueuedFrames() ?: -1} underruns=${ap?.underrunCount() ?: -1} | sig=${"%.1f".format(power)}dB " +
+                    "gain=${agc?.report() ?: "off"} " +
                     "stereo=$stereoNow freq=${formatFreq(currentFrequency)}MHz" +
                     (demodulator?.let { d ->
                         // Reception quality, so a muted or mono-blended station
@@ -1922,6 +1951,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     private fun stopPlayback() {
         isPlaying = false
+        agc = null
         sdr.stopStreaming()
         try { streamingThread?.join(500) } catch (_: Exception) {}
         streamingThread = null
@@ -2003,7 +2033,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
             val tempFmDemod = if (!isAm) FmDemodulator() else null
             val tempAmDemod = if (isAm) AmDemodulator() else null
             sdr.setSampleRate(FmDemodulator.RECOMMENDED_SAMPLE_RATE)
-            applyOptimalGain()
+            applyScanGain()
             sdr.setDirectSampling(band.directSampling)
             sdr.resetBuffer()
             val step = if (isAm) band.stepHz else 100_000L
