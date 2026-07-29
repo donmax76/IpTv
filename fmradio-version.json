@@ -1,7 +1,7 @@
 {
-  "versionCode": 21,
-  "versionName": "1.19.0",
-  "releaseNotes": "RDS: на моно-станциях частота поднесущей строилась из свободно гуляющего контура пилот-тона, которого там нет. Теперь при отсутствии пилота берётся точное номинальное значение 57 кГц",
+  "versionCode": 22,
+  "versionName": "1.20.0",
+  "releaseNotes": "Сканирование: порог считался от фиксированного числа и перебивал адаптивный расчёт от шумовой полки — слабые станции пропускались. Убран мёртвый дублирующий код обновления",
   "androidDownloadUrl": "https://github.com/donmax76/IpTv/releases/download/fmradio-latest/FmRadio-release.apk",
   "windowsDownloadUrl": "https://github.com/donmax76/IpTv/releases/download/fmradio-latest/FmRadio-Windows.zip"
 }

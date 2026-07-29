@@ -26,9 +26,9 @@ import org.json.JSONObject
 class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     companion object {
-        const val VERSION = "1.19.0"
-        const val BUILD = "20260728-1"
-        const val VERSION_CODE = 21
+        const val VERSION = "1.20.0"
+        const val BUILD = "20260729-1"
+        const val VERSION_CODE = 22
 
         // FM band range (extended: OIRT 65.8-74 + CCIR 87.5-108)
         const val FM_MIN_HZ = 76_000_000L
@@ -1368,7 +1368,15 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                 (tempAmDemod?.measureSignalStrength(noiseSample)
                     ?: tempFmDemod?.measureSignalStrength(noiseSample) ?: -30f)
             } else -30f
-            val powerThreshold = (noiseFloor + 6f).coerceAtLeast(-18f)  // 6 dB above noise
+            // Relative to the measured noise floor. coerceAtLeast(-18f) is a
+            // maxOf in disguise and it discarded the adaptive value whenever
+            // the band was quiet: with a noise floor of -27 dB the intended
+            // bar is -21, but the constant pinned it at -18 and any station
+            // between those was missed. The same shape, with a much worse
+            // constant, made the Android scanner report an empty band
+            // outright. The absolute value stays only as a sanity floor far
+            // below anything real.
+            val powerThreshold = maxOf(-55f, noiseFloor + 6f)
 
             while (freq <= endHz) {
                 sdr.setFrequency(freq)

@@ -676,6 +676,7 @@ class FmDemodulator(
 
     fun reset() {
         prevI = 0f; prevQ = 0f; deEmphasisStateL = 0f; deEmphasisStateR = 0f
+        modulationLevel = 0f; squelchIsOpen = false
         nzX1 = 0.0; nzX2 = 0.0; nzY1 = 0.0; nzY2 = 0.0
         nzAcc = 0.0; nzCount = 0
         sigPowerAcc = 0.0; sigPowerCount = 0; signalDb = -100f
