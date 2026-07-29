@@ -234,6 +234,7 @@ struct DspState {
     // near a transmitter the converter clips and the audio turns harsh, while
     // any fixed lower setting costs sensitivity everywhere else. Reporting the
     // real loading lets the Kotlin side close the loop instead of guessing.
+    unsigned adcSubsample = 0;  // only every 4th sample is metered
     double adcAcc = 0;          // sum of squares of |sample| in full-scale units
     long   adcCount = 0;
     long   adcClipCount = 0;    // samples at the very ends of the range
@@ -278,8 +279,19 @@ struct DspState {
     static constexpr int TEST_NOTCH = 0x02;
     static constexpr int TEST_PLL = 0x04;
     static constexpr int TEST_DC = 0x08;
-    // Bit 4 = TEST_NB_OFF — disable the impulse blanker, for A/B comparison
+    // Bit 4 = TEST_NB_OFF — legacy, kept so an existing setting still parses
     static constexpr int TEST_NB_OFF = 0x10;
+    // Bit 5 = TEST_NB_ON  — the impulse blanker must now be asked for.
+    //
+    // It is OFF by default. Its benefit against real ignition noise was never
+    // demonstrated — I could not reproduce spark interference faithfully enough
+    // to measure it — while its cost is real: a magnitude, a compare and an
+    // average update on every sample at 960 kHz. A field log then showed the
+    // DSP running 15 buffers (~255 ms) behind the USB stream on a head unit
+    // where it used to keep up exactly, with RDS unable to acquire block sync
+    // at all on a strong, stereo-locked signal. Unproven work that costs
+    // real-time budget on the target device does not stay switched on.
+    static constexpr int TEST_NB_ON = 0x20;
 
     // Two pre-computed gain values, selected by TEST_GAIN flag at runtime.
     float fmGainDefault;
@@ -465,7 +477,7 @@ struct DspState {
         sigPowerAcc = 0;
         sigPowerCount = 0;
         signalDb = -100.0f;
-        adcAcc = 0; adcCount = 0; adcClipCount = 0;
+        adcAcc = 0; adcCount = 0; adcClipCount = 0; adcSubsample = 0;
         adcRms = 0.0f; adcClipPct = 0.0f;
         sqQualityAcc = 0; sqQualityCount = 0;
         squelchOpen = true; squelchLevel = 1.0f;
@@ -685,9 +697,10 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
         // interference by definition. Hold the previous sample through it. The
         // run limit means a real signal can never be gated away for long: after
         // NB_MAX_RUN samples the input is trusted again regardless.
+        float mag2Raw = iSample * iSample + qSample * qSample;
         {
-            float mag2 = iSample * iSample + qSample * qSample;
-            if (!(d.testFlags & DspState::TEST_NB_OFF) &&
+            const float mag2 = mag2Raw;
+            if ((d.testFlags & DspState::TEST_NB_ON) != 0 &&
                 mag2 > d.nbAvg * DspState::NB_THRESHOLD && d.nbRun < DspState::NB_MAX_RUN) {
                 // Zero, not hold. Holding freezes the phase, which the
                 // discriminator reads as an abrupt jump to zero frequency —
@@ -706,10 +719,22 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
             }
         }
 
-        // ADC loading for the gain loop (raw bytes, pre-DC-removal)
-        d.adcAcc += (double)iSample * iSample + (double)qSample * qSample;
-        d.adcCount++;
-        if (rawI <= 1 || rawI >= 254 || rawQ <= 1 || rawQ >= 254) d.adcClipCount++;
+        // ADC loading for the gain loop. Reuses mag2 from the blanker above
+        // instead of squaring the same two samples a second time, and samples
+        // every 4th point rather than every one.
+        //
+        // This runs at 960 kHz, where every operation costs. A field log showed
+        // the DSP falling 15 buffers (~255 ms) behind the USB stream where it
+        // had been keeping up exactly, with the bus itself at 100% and no
+        // dropped packets — the work added here is what pushed it over on this
+        // head unit, and a DSP that cannot keep up destroys RDS block sync.
+        // A quarter of the samples is a statistically identical measurement of
+        // a level that is averaged over 200 ms anyway.
+        if ((d.adcSubsample++ & 3) == 0) {
+            d.adcAcc += (double)mag2Raw;
+            d.adcCount++;
+            if (rawI <= 1 || rawI >= 254 || rawQ <= 1 || rawQ >= 254) d.adcClipCount++;
+        }
 
         // DC removal (IIR high-pass) — alpha controlled by TEST_DC
         d.dcI = dcA * d.dcI + (1.0f - dcA) * iSample;
