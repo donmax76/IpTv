@@ -613,6 +613,7 @@ class RtlSdrDevice(private val context: Context) {
             enableI2CRepeater(false)
             false
         } finally {
+            forceI2CRepeaterOff()   // never leave it on, whatever went wrong
             usbLock.unlock()
         }
     }
@@ -719,6 +720,7 @@ class RtlSdrDevice(private val context: Context) {
             Log.e(TAG, "Error setting sample rate", e)
             false
         } finally {
+            forceI2CRepeaterOff()   // never leave it on, whatever went wrong
             usbLock.unlock()
         }
     }
@@ -746,6 +748,27 @@ class RtlSdrDevice(private val context: Context) {
     private val fc0013Regs = IntArray(0x20)
 
     /** Lightweight I2C repeater re-enable (no readback/logging, minimal delay). */
+    /**
+     * Turn the tuner's I2C repeater off, ignoring any error.
+     *
+     * Called from the finally of every function that drives the tuner, because
+     * while the repeater is on, control transfers meant for the RTL2832's own
+     * registers are forwarded to the tuner's I2C bus instead. Each of those
+     * functions turned it off on the success path only, so a single failed
+     * transfer left it on for good — and from then on retuning silently did
+     * nothing, because setFrequency's register writes were going to the wrong
+     * place. Only a device reset clears it.
+     *
+     * That is exactly the reported symptom: after a scan the radio kept playing
+     * one station whichever preset was chosen, and switching the car off — i.e.
+     * power-cycling the USB device — fixed it.
+     *
+     * Calling it when the repeater is already off is harmless.
+     */
+    private fun forceI2CRepeaterOff() {
+        try { enableI2CRepeater(false) } catch (_: Throwable) {}
+    }
+
     private fun ensureI2CRepeater() {
         writeDemodReg(1, 0x01, 0x18, 1)
         Thread.sleep(2)
@@ -1017,6 +1040,7 @@ class RtlSdrDevice(private val context: Context) {
             Log.e(TAG, "Error setting FC0013 IF gain", e)
             -1
         } finally {
+            forceI2CRepeaterOff()   // never leave it on, whatever went wrong
             usbLock.unlock()
         }
     }
@@ -1049,6 +1073,7 @@ class RtlSdrDevice(private val context: Context) {
             Log.e(TAG, "Error setting gain", e)
             false
         } finally {
+            forceI2CRepeaterOff()   // never leave it on, whatever went wrong
             usbLock.unlock()
         }
     }
@@ -1108,6 +1133,7 @@ class RtlSdrDevice(private val context: Context) {
             Log.e(TAG, "Error setting auto gain", e)
             false
         } finally {
+            forceI2CRepeaterOff()   // never leave it on, whatever went wrong
             usbLock.unlock()
         }
     }
