@@ -547,8 +547,8 @@ class MainActivity : Activity() {
     private fun applyBand(band: FmScanner.Band) {
         tvBandIndicator.text = band.shortName
         seekFrequency.max = band.totalSteps
-        tvBandStart.text = String.format("%.0f", band.startHz / 1e6)
-        tvBandEnd.text = String.format("%.0f", band.endHz / 1e6)
+        tvBandStart.text = com.fmradio.util.Freq.mhzWhole(band.startHz)
+        tvBandEnd.text = com.fmradio.util.Freq.mhzWhole(band.endHz)
         btnBand.text = getString(R.string.band_label_format,
             band.displayName, band.startHz / 1e6, band.endHz / 1e6)
     }
@@ -872,7 +872,7 @@ class MainActivity : Activity() {
         val etFreq = EditText(this).apply {
             hint = getString(R.string.hint_frequency_mhz)
             inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
-            setText(String.format("%.1f", currentFrequency / 1e6))
+            setText(com.fmradio.util.Freq.mhz(currentFrequency))
             selectAll()
         }
         val etName = EditText(this).apply {
@@ -885,9 +885,8 @@ class MainActivity : Activity() {
             .setTitle(getString(R.string.dialog_add_station_title))
             .setView(layout)
             .setPositiveButton(getString(R.string.btn_save)) { _, _ ->
-                val freqStr = etFreq.text.toString().trim().replace(',', '.')
                 val name = etName.text.toString().trim()
-                val freqMHz = freqStr.toDoubleOrNull()
+                val freqMHz = com.fmradio.util.Freq.parseMhz(etFreq.text.toString())
                 val bandStart = currentBand.startHz / 1e6
                 val bandEnd = currentBand.endHz / 1e6
                 if (freqMHz != null && freqMHz >= bandStart && freqMHz <= bandEnd) {
@@ -896,9 +895,9 @@ class MainActivity : Activity() {
                     loadSavedStations()
                     setFrequency(freqHz)
                     if (radioService?.isPlaying != true) startPlayback()
-                    showToast(getString(R.string.msg_station_added, String.format("%.1f MHz", freqMHz)))
+                    showToast(getString(R.string.msg_station_added, com.fmradio.util.Freq.mhz(freqMHz) + " MHz"))
                 } else {
-                    showToast("${getString(R.string.msg_invalid_frequency)}: ${String.format("%.1f", bandStart)}-${String.format("%.1f", bandEnd)} MHz")
+                    showToast("${getString(R.string.msg_invalid_frequency)}: ${com.fmradio.util.Freq.mhz(bandStart)}-${com.fmradio.util.Freq.mhz(bandEnd)} MHz")
                 }
             }
             .setNegativeButton(getString(R.string.btn_cancel), null)
@@ -995,10 +994,12 @@ class MainActivity : Activity() {
     }
 
     private fun updateFrequencyDisplay(frequencyHz: Long) {
-        tvFrequency.text = if (frequencyHz >= 1000000000L)
-            String.format("%.3f", frequencyHz / 1_000_000.0)
-        else
-            String.format("%.1f", frequencyHz / 1_000_000.0)
+        val text = com.fmradio.util.Freq.mhz(frequencyHz)
+        tvFrequency.text = text
+        // Into the report, so a display that comes out wrong on a head unit
+        // can be diagnosed from what the app actually asked for rather than
+        // from a photograph of the screen.
+        com.fmradio.util.StatusSnapshot.freqText = text
     }
 
     private fun frequencyToProgress(freq: Long): Int {
@@ -1103,6 +1104,11 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+
+        // Coming back from the "install unknown apps" screen: if the permission
+        // is now there, finish the update that was waiting on it instead of
+        // making the user download it a second time.
+        com.fmradio.util.UpdateInstaller.resumePendingInstall(this)
 
         // Show debug panel if requested from Settings
         if (intent?.getBooleanExtra("show_debug", false) == true) {

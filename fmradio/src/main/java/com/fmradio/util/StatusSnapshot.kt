@@ -30,22 +30,28 @@ object StatusSnapshot {
 
     /** RDS health — the numbers that say whether text can arrive at all. */
     @Volatile var rdsSynced = false
+    /** Blocks failing CRC right now, averaged over ~2 s. Reception quality. */
     @Volatile var rdsBerPct = 0f
+    /** Same since the decoder started, acquisition search included. Not a quality measure. */
+    @Volatile var rdsBerLifetimePct = 0f
     @Volatile var rdsGroups = 0L
     @Volatile var rdsPs = ""
     @Volatile var rdsRt = ""
 
+    /** Exactly what was written to the dial, for diagnosing the display itself. */
+    @Volatile var freqText = ""
+
     @Volatile var lastError = ""
 
     fun radio(): String =
-        if (!playing) "playback stopped"
+        if (!playing) "playback stopped (dial shows '" + freqText + "')"
         else ("freq=%.2fMHz sig=%.1fdB %s | gain=step %d rms=%.3f clip=%.3f%% | " +
               "noise=%.4f blend=%.2f hicut=%.0fHz | iq=%d dsp=%s")
             .format(frequencyHz / 1e6, signalDb, if (stereo) "STEREO" else "MONO",
                     gainStep, adcRms, adcClipPct, noiseLevel, stereoBlend, hiCutHz,
-                    iqQueueDepth, if (nativeDsp) "native" else "kotlin")
+                    iqQueueDepth, if (nativeDsp) "native" else "kotlin") + " | dial='" + freqText + "'"
 
     fun rds(): String =
-        "synced=%s BER=%.1f%% groups=%d PS='%s' RT='%s'"
-            .format(rdsSynced, rdsBerPct, rdsGroups, rdsPs, rdsRt)
+        "synced=%s BERnow=%.1f%% BERlife=%.1f%% groups=%d PS='%s' RT='%s'"
+            .format(rdsSynced, rdsBerPct, rdsBerLifetimePct, rdsGroups, rdsPs, rdsRt)
 }

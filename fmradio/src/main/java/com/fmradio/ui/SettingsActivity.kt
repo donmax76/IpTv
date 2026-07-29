@@ -521,6 +521,13 @@ class SettingsActivity : Activity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Same as MainActivity: the update is usually started from this screen,
+        // so this is where the user lands after granting the permission.
+        com.fmradio.util.UpdateInstaller.resumePendingInstall(this)
+    }
+
     override fun onDestroy() {
         scope.cancel()
         super.onDestroy()

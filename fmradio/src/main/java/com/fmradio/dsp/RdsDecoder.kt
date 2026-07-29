@@ -28,6 +28,9 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         // message and showing the fragment gathered so far (~30 s at 11.4 groups/s).
         private const val RT_PARTIAL_AFTER = 350
 
+        // ~100 blocks of memory, about two seconds of reception.
+        private const val BER_EMA_ALPHA = 0.01f
+
         // RDS sync word (offset words for blocks A, B, C, D)
         private const val OFFSET_A = 0x0FC
         private const val OFFSET_B = 0x198
@@ -197,6 +200,17 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private var totalBitsProcessed = 0L
     private var totalGoodBlocks = 0L
     private var totalBadBlocks = 0L
+    /**
+     * Share of blocks currently failing their CRC, as a running average over
+     * roughly the last hundred blocks (~2 s).
+     *
+     * The lifetime good/bad ratio that used to be reported is not a measure of
+     * reception: it counts every block tried during the initial sync search,
+     * when the decoder is deliberately testing bit positions that are not block
+     * boundaries at all. On a bench signal that decodes perfectly it reads 86%,
+     * which is worse than useless — it was read as evidence of a bad aerial.
+     */
+    private var berEma = -1f
     private var totalGroupsDecoded = 0L
     private var lastStatsLogTime = 0L
 
@@ -478,6 +492,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                     groupClean[blockIndex] = lastBlockWasClean
                     goodBlocks++
                     totalGoodBlocks++
+                    berEma = if (berEma < 0f) 0f else berEma + BER_EMA_ALPHA * (0f - berEma)
                     badBlocks = 0  // reset: truly consecutive bad counter
                     if (!syncConfirmed) {
                         syncConfirmGood++
@@ -490,6 +505,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
                     groupClean[blockIndex] = false
                     badBlocks++
                     totalBadBlocks++
+                    berEma = if (berEma < 0f) 1f else berEma + BER_EMA_ALPHA * (1f - berEma)
                     if (!syncConfirmed) syncConfirmBad++
                 }
 
@@ -723,6 +739,8 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             val total = totalGoodBlocks + totalBadBlocks
             com.fmradio.util.StatusSnapshot.rdsSynced = synced
             com.fmradio.util.StatusSnapshot.rdsBerPct =
+                if (berEma >= 0f) berEma * 100f else 0f
+            com.fmradio.util.StatusSnapshot.rdsBerLifetimePct =
                 if (total > 0) totalBadBlocks.toFloat() / total * 100f else 0f
             com.fmradio.util.StatusSnapshot.rdsGroups = totalGroupsDecoded
             com.fmradio.util.StatusSnapshot.rdsPs = psStr
@@ -732,8 +750,11 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             lastStatsLogTime = now
             val total = totalGoodBlocks + totalBadBlocks
             val errorRate = if (total > 0) totalBadBlocks.toFloat() / total * 100f else 0f
-            Log.d(TAG, "RDS stats: bits=$totalBitsProcessed groups=$totalGroupsDecoded good=$totalGoodBlocks bad=$totalBadBlocks BER=%.1f%% synced=$synced".format(errorRate))
-            DebugLog.log(TAG, "RDS stats: bits=$totalBitsProcessed groups=$totalGroupsDecoded good=$totalGoodBlocks bad=$totalBadBlocks BER=%.1f%% synced=$synced".format(errorRate))
+            val line = ("RDS stats: bits=$totalBitsProcessed groups=$totalGroupsDecoded " +
+                "good=$totalGoodBlocks bad=$totalBadBlocks BERnow=%.1f%% BERlife=%.1f%% synced=$synced")
+                .format(if (berEma >= 0f) berEma * 100f else 0f, errorRate)
+            Log.d(TAG, line)
+            DebugLog.log(TAG, line)
         }
 
         // TP (Traffic Programme) flag — bit 10 of block B
@@ -1091,6 +1112,7 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         totalGoodBlocks = 0L
         totalBadBlocks = 0L
         totalGroupsDecoded = 0L
+        berEma = -1f
         lastStatsLogTime = 0L
     }
 }

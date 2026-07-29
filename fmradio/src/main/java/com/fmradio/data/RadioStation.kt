@@ -16,7 +16,7 @@ data class RadioStation(
     val frequencyMHz: Double get() = frequencyHz / 1_000_000.0
 
     val displayFrequency: String
-        get() = String.format("%.1f FM", frequencyMHz)
+        get() = com.fmradio.util.Freq.mhz(frequencyMHz) + " FM"
 
     val displayName: String
         get() = when {

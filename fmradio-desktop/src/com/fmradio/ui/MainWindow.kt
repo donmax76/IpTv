@@ -27,9 +27,9 @@ import org.json.JSONObject
 class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
 
     companion object {
-        const val VERSION = "1.23.0"
+        const val VERSION = "1.24.0"
         const val BUILD = "20260729-1"
-        const val VERSION_CODE = 25
+        const val VERSION_CODE = 26
 
         // FM band range (extended: OIRT 65.8-74 + CCIR 87.5-108)
         const val FM_MIN_HZ = 76_000_000L
@@ -161,12 +161,12 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
     data class PresetEntry(val frequencyHz: Long, val name: String = "") {
         override fun toString() = if (name.isNotEmpty()) "$name (${formatFreq(frequencyHz)})" else "${formatFreq(frequencyHz)} MHz"
         companion object {
-            fun formatFreq(hz: Long) = String.format("%.1f", hz / 1_000_000.0)
+            fun formatFreq(hz: Long) = String.format(java.util.Locale.US, "%.1f", hz / 1_000_000.0)
         }
     }
 
     data class StationEntry(val frequencyHz: Long, val name: String = "", val signalStrength: Float = 0f) {
-        override fun toString() = if (name.isNotEmpty()) "$name (${String.format("%.1f", frequencyHz / 1e6)})" else "${String.format("%.1f", frequencyHz / 1e6)} MHz"
+        override fun toString() = if (name.isNotEmpty()) "$name (${String.format(java.util.Locale.US, "%.1f", frequencyHz / 1e6)})" else "${String.format(java.util.Locale.US, "%.1f", frequencyHz / 1e6)} MHz"
     }
 
     init {
@@ -1012,7 +1012,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
                     }
                 }
             }.apply {
-                val freqLabel = JLabel("${String.format("%.1f", value.frequencyHz / 1e6)} MHz").apply {
+                val freqLabel = JLabel("${String.format(java.util.Locale.US, "%.1f", value.frequencyHz / 1e6)} MHz").apply {
                     font = Font("Monospaced", Font.BOLD, 14)
                     foreground = if (value.frequencyHz == currentFrequency) FREQ_GREEN else TEXT_LIGHT
                 }
@@ -1701,7 +1701,7 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         val band = currentBandDef
         if (band.modulation == "AM" && currentFrequency < 50_000_000L) {
             // Show kHz for shortwave bands
-            freqLabel.text = String.format("%.1f", currentFrequency / 1_000.0)
+            freqLabel.text = String.format(java.util.Locale.US, "%.1f", currentFrequency / 1_000.0)
             mhzLabel.text = "kHz"
         } else {
             freqLabel.text = formatFreq(currentFrequency)
@@ -1709,7 +1709,12 @@ class MainWindow : JFrame("FM Radio RTL-SDR v$VERSION (build $BUILD)") {
         }
     }
 
-    private fun formatFreq(hz: Long): String = String.format("%.1f", hz / 1_000_000.0)
+    /**
+     * Locale.US on purpose: without it a machine set to a comma-decimal
+     * language renders the dial as "106,0". A frequency is a reading on an
+     * instrument, not prose — it is written the same way in every language.
+     */
+    private fun formatFreq(hz: Long): String = String.format(java.util.Locale.US, "%.1f", hz / 1_000_000.0)
 
     private fun updateRds(data: RdsDecoder.RdsData) {
         lastRdsData = data
