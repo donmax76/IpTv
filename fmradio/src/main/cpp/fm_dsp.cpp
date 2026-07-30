@@ -199,6 +199,14 @@ struct DspState {
     // Progressive treble roll-off. FM noise is worst at the top of the audio
     // band, so trading high frequencies for quiet is a good deal once the
     // signal degrades — again, standard car-radio behaviour.
+    // Above SIG_CLEAN_DB the carrier is strong enough that the audio cannot be
+    // noisy, whatever the ultrasonic measure says; below SIG_DEGRADE_DB the
+    // measure is on its own. In between the two are mixed. This exists because
+    // the ultrasonic measure cannot be fully separated from programme content
+    // in the 96 kHz the intermediate rate leaves us, so it must not be the only
+    // vote.
+    static constexpr float SIG_CLEAN_DB   = -25.0f;
+    static constexpr float SIG_DEGRADE_DB = -45.0f;
     static constexpr float NOISE_HICUT_START = 0.018f;   // still full bandwidth
     static constexpr float NOISE_HICUT_FULL  = 0.052f;   // hardest roll-off
     static constexpr float HICUT_MAX_HZ = 15000.0f;
@@ -348,7 +356,16 @@ struct DspState {
             // an artefact that follows programme loudness), so 84 kHz it is.
             double w0n = 2.0 * PI_D * 84000.0 / INTERMEDIATE_RATE;
             double cw = cos(w0n), sw = sin(w0n);
-            double q = 84.0 / 6.0;
+            // Q was 84/6 = 14, which is a 6 kHz-wide filter: the 76 kHz second
+            // harmonic of the stereo subcarrier sits only 8 kHz away and was
+            // attenuated by just 9 dB. That harmonic follows programme
+            // loudness, so the "noise" reading followed loudness too — a field
+            // report from a -12.9 dB station (very strong) read 0.034, which
+            // collapsed stereo to 21% and rolled the treble off at 9.4 kHz on a
+            // signal with nothing wrong with it. Q=48 puts the harmonic ~19 dB
+            // down. The coefficients are computed and applied in double, so the
+            // narrower band costs nothing in numerical accuracy.
+            double q = 48.0;
             double al = sw / (2.0 * q);
             double a0n = 1.0 + al;
             nzHpB0 = al / a0n;
@@ -786,17 +803,29 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
                 d.noiseLevel = d.noiseEma;
 
                 // Separation the signal can support
+                // How much the carrier alone vouches for the signal: 1 when it
+                // is strong enough that the audio cannot be noisy, 0 when it is
+                // weak enough to tell us nothing.
+                float strong = (d.signalDb - DspState::SIG_DEGRADE_DB) /
+                               (DspState::SIG_CLEAN_DB - DspState::SIG_DEGRADE_DB);
+                if (strong < 0) strong = 0; else if (strong > 1) strong = 1;
+
                 float t = (d.noiseLevel - DspState::NOISE_STEREO_FULL) /
                           (DspState::NOISE_STEREO_NONE - DspState::NOISE_STEREO_FULL);
                 if (t < 0) t = 0; else if (t > 1) t = 1;
-                d.snrBlend = 1.0f - t;
+                // Both have to agree the signal is poor before separation is
+                // given up: whichever is more generous wins.
+                d.snrBlend = fmaxf(1.0f - t, strong);
 
                 // Audio bandwidth the signal can support
                 float h = (d.noiseLevel - DspState::NOISE_HICUT_START) /
                           (DspState::NOISE_HICUT_FULL - DspState::NOISE_HICUT_START);
                 if (h < 0) h = 0; else if (h > 1) h = 1;
-                d.hiCutHz = DspState::HICUT_MAX_HZ +
+                float hiCutFromNoise = DspState::HICUT_MAX_HZ +
                             h * (DspState::HICUT_MIN_HZ - DspState::HICUT_MAX_HZ);
+                float hiCutFromSignal = DspState::HICUT_MIN_HZ +
+                            strong * (DspState::HICUT_MAX_HZ - DspState::HICUT_MIN_HZ);
+                d.hiCutHz = fmaxf(hiCutFromNoise, hiCutFromSignal);
                 float a = 1.0f - expf(-2.0f * PI_F * d.hiCutHz / (float)AUDIO_RATE);
                 if (a > 1.0f) a = 1.0f;
                 d.hiCutAlpha = a;

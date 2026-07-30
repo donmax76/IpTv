@@ -71,6 +71,11 @@ class FmRadioService : Service() {
         private const val CLIP_LIMIT_PCT = 0.02f
         // Log a steady-state line every ~10 s so field logs show the level.
         private const val GAIN_LOG_TICKS = 50
+
+        // More buffers than the channel can hold, so the producer can never
+        // wrap onto one the consumer is still reading.
+        private const val RDS_POOL = 16
+        private const val RDS_QUEUE = 12
     }
 
     // Dedicated single-thread dispatcher for USB streaming.
@@ -170,6 +175,8 @@ class FmRadioService : Service() {
 
     @Volatile
     private var rdsGeneration = 0  // increments on freq change, RDS thread checks this
+    /** Wideband packets the RDS thread could not keep up with. Any at all is a fault. */
+    @Volatile private var rdsDropped = 0L
 
     var currentBand: FmScanner.Band = FmScanner.Band.FM_BROADCAST
 
@@ -438,19 +445,42 @@ class FmRadioService : Service() {
         // 4 packet objects — one per channel slot. Previous bug: 2 objects
         // with capacity 4 → when RDS thread was slow, same packet was in
         // the channel AND being overwritten → corrupted wideband data → 95% BER!
-        val rdsPackets = Array(4) { RdsPacket(FloatArray(6000)) }
+        // RDS needs an unbroken sample stream: the bit clock and the
+        // differential detector both carry state across packet boundaries, so a
+        // single lost packet is a discontinuity that costs block sync.
+        //
+        // The pool used to hold four buffers behind a channel of capacity four.
+        // Two things went wrong with that. The producer wrapped onto a buffer
+        // the consumer might still be reading, and when the channel was full
+        // trySend simply dropped the packet — silently, after the buffer had
+        // already been overwritten. A field log showed the result exactly: the
+        // decoder never confirmed sync at all, rejecting one candidate after
+        // another at "good=1 bad=6", which is the false-alarm rate of the
+        // syndrome search on random bits and not what a real signal looks like.
+        //
+        // So: more buffers than the channel can hold, so an in-flight one is
+        // never reused; and a drop is counted and reported instead of being
+        // invisible.
+        val rdsPackets = Array(RDS_POOL) { RdsPacket(FloatArray(6000)) }
         var rdsPacketIdx = 0
-        val rdsChannel = Channel<RdsPacket>(4)
+        val rdsChannel = Channel<RdsPacket>(RDS_QUEUE)
 
         demodulator?.widebandListener = { widebandSamples, count, pilotPhase ->
             if (count > 0 && count <= 6000) {
                 val pkt = rdsPackets[rdsPacketIdx]
-                rdsPacketIdx = (rdsPacketIdx + 1) % 4
                 System.arraycopy(widebandSamples, 0, pkt.samples, 0, count)
                 pkt.count = count
                 pkt.phase = pilotPhase
                 pkt.gen = rdsGeneration
-                rdsChannel.trySend(pkt)
+                if (rdsChannel.trySend(pkt).isSuccess) {
+                    // Only advance on success: a dropped packet leaves the
+                    // buffer free to be refilled next time, and never lets the
+                    // index run ahead of what the consumer has taken.
+                    rdsPacketIdx = (rdsPacketIdx + 1) % RDS_POOL
+                } else {
+                    rdsDropped++
+                    com.fmradio.util.StatusSnapshot.rdsDropped = rdsDropped
+                }
             }
         }
 
@@ -919,6 +949,14 @@ class FmRadioService : Service() {
                     if (freq > currentBand.endHz) freq = currentBand.startHz
                     if (freq < currentBand.startHz) freq = currentBand.endHz
 
+                    // A breadcrumb every few steps. Seek closes the app with no
+                    // crash screen at all on the head unit, which means the
+                    // process is dying below the Java handler — so the only
+                    // evidence available is how far it got, and that has to be
+                    // on disk before it dies. StartupLog flushes every line.
+                    if (i % 4 == 0) {
+                        com.fmradio.util.StartupLog.write("seek: step $i at ${freq / 1000} kHz")
+                    }
                     dev.setFrequency(freq)
                     delay(30)
                     dev.resetBuffer()
