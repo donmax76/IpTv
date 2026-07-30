@@ -766,6 +766,7 @@ class RtlSdrDevice(private val context: Context) {
      * Calling it when the repeater is already off is harmless.
      */
     private fun forceI2CRepeaterOff() {
+        if (!i2cRepeaterOn) return          // already off; do not touch the bus
         try { enableI2CRepeater(false) } catch (_: Throwable) {}
     }
 
@@ -1977,9 +1978,25 @@ class RtlSdrDevice(private val context: Context) {
      * Page 1, register 0x01: 0x18 = enable, 0x10 = disable.
      * From librtlsdr: rtlsdr_set_i2c_repeater → rtlsdr_demod_write_reg(dev, 1, 0x01, ...)
      */
+    /**
+     * What the repeater is believed to be doing, so the safety disable in each
+     * finally can skip the bus when the operation already turned it off.
+     *
+     * Without this every tuner access issued the same control transfer twice —
+     * once on the normal path and once again in the finally added to stop a
+     * failed transfer leaving the repeater stuck on. With the gain loop
+     * stepping five times a second, that is pure contention with the IQ stream
+     * on a bus that has none to spare.
+     */
+    @Volatile private var i2cRepeaterOn = false
+
     private fun enableI2CRepeater(enable: Boolean) {
         val value = if (enable) 0x18 else 0x10
+        // Mark it on BEFORE the write: if that transfer throws, the hardware
+        // state is unknown and the finally must still try to turn it off.
+        if (enable) i2cRepeaterOn = true
         writeDemodReg(1, 0x01, value, 1)
+        if (!enable) i2cRepeaterOn = false
         if (enable) {
             // Give I2C repeater time to activate — some devices need 20ms+
             Thread.sleep(20)
