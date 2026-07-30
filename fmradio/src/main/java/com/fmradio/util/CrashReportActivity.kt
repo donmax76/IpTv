@@ -1,12 +1,7 @@
 package com.fmradio.util
 
 import android.app.Activity
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.content.Intent
-import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.view.ViewGroup
 import android.widget.Button
@@ -61,75 +56,64 @@ class CrashReportActivity : Activity() {
             setPadding(0, 8, 0, 0)
         }
 
+        // The buttons the user actually reaches for. What they did instead was
+        // photograph the screen, which is a fair verdict on "Copy & Close",
+        // "Share" and "Report on GitHub" — the first copied only the stack
+        // trace with none of the state around it, and the last built a GitHub
+        // issue URL with the whole report percent-encoded into the query
+        // string, which browsers cut off at a few kilobytes.
         val copyBtn = Button(this).apply {
-            text = "Copy & Close"
+            text = "Копировать"
             setOnClickListener {
-                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("FmRadio Error", errorText))
-                Toast.makeText(this@CrashReportActivity, "Copied to clipboard", Toast.LENGTH_LONG).show()
-                finish()
+                val full = fullReport(errorText)
+                val ok = LogReport.copyToClipboard(this@CrashReportActivity, full)
+                Toast.makeText(this@CrashReportActivity,
+                    if (ok) "Скопировано (${full.length / 1024} КБ) — вставьте в сообщение"
+                    else "Буфер обмена недоступен",
+                    Toast.LENGTH_LONG).show()
             }
         }
         btnRow.addView(copyBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
         val shareBtn = Button(this).apply {
-            text = "Share"
+            text = "Отправить"
             setOnClickListener {
-                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, "FM Radio Crash Report")
-                    putExtra(Intent.EXTRA_TEXT, errorText)
+                val full = fullReport(errorText)
+                val file = LogReport.save(this@CrashReportActivity, full)
+                try {
+                    if (file != null) {
+                        startActivity(LogReport.shareIntent(this@CrashReportActivity, file, full))
+                    } else {
+                        LogReport.copyToClipboard(this@CrashReportActivity, full)
+                        Toast.makeText(this@CrashReportActivity,
+                            "Файл не сохранён — текст скопирован", Toast.LENGTH_LONG).show()
+                    }
+                } catch (_: Throwable) {
+                    LogReport.copyToClipboard(this@CrashReportActivity, full)
+                    Toast.makeText(this@CrashReportActivity,
+                        "Нет приложения для отправки — текст скопирован", Toast.LENGTH_LONG).show()
                 }
-                startActivity(Intent.createChooser(shareIntent, "Share crash report"))
             }
         }
         btnRow.addView(shareBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
-        val githubBtn = Button(this).apply {
-            text = "Report on GitHub"
-            setOnClickListener { openGitHubIssue(errorText) }
+        val closeBtn = Button(this).apply {
+            text = "Закрыть"
+            setOnClickListener { finish() }
         }
-        btnRow.addView(githubBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        btnRow.addView(closeBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
 
         layout.addView(btnRow)
         return layout
     }
 
-    private fun openGitHubIssue(errorText: String) {
-        val firstLine = errorText.lineSequence().firstOrNull { it.isNotBlank() } ?: "Unknown crash"
-        val title = "Crash: ${firstLine.take(100)}"
-
-        val versionName = try {
-            packageManager.getPackageInfo(packageName, 0).versionName
-        } catch (_: Exception) { "unknown" }
-        val versionCode = try {
-            packageManager.getPackageInfo(packageName, 0).versionCode
-        } catch (_: Exception) { 0 }
-
-        val body = buildString {
-            appendLine("## Crash Report")
-            appendLine()
-            appendLine("**App:** FM Radio v$versionName (build $versionCode)")
-            appendLine("**Device:** ${Build.MANUFACTURER} ${Build.MODEL}")
-            appendLine("**Android:** ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
-            appendLine("**Arch:** ${Build.SUPPORTED_ABIS.joinToString(", ")}")
-            appendLine()
-            appendLine("## Stack Trace")
-            appendLine("```")
-            appendLine(errorText.take(4000))
-            appendLine("```")
-        }
-
-        val encodedTitle = Uri.encode(title)
-        val encodedBody = Uri.encode(body)
-        val url = "https://github.com/donmax76/IpTv/issues/new?title=$encodedTitle&body=$encodedBody&labels=crash-report,fm-radio"
-
-        try {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        } catch (_: Exception) {
-            Toast.makeText(this, "Cannot open browser", Toast.LENGTH_SHORT).show()
-        }
-    }
+    /**
+     * The crash plus everything around it. A stack trace on its own says what
+     * broke but never the state it broke in — the frequency, the gain, whether
+     * RDS was locked — and that is usually the half that identifies the cause.
+     */
+    private fun fullReport(errorText: String): String =
+        "=== CRASH ===\n" + errorText + "\n\n" + LogReport.build(this)
 
     companion object {
         const val EXTRA_ERROR = "error_text"

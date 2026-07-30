@@ -643,6 +643,19 @@ class MainActivity : Activity() {
 
     private fun stopPlayback() {
         radioService?.stopPlayback()
+        showStoppedState()
+    }
+
+    /**
+     * The screen half of stopping. Split out from stopPlayback because the
+     * service half blocks for seconds waiting on the USB reader and the DSP
+     * thread, so the scan has to run it off the UI thread — and running THIS
+     * half off the UI thread is an instant CalledFromWrongThreadException,
+     * which is what killed the app the moment scan was pressed.
+     *
+     * Only ever call it from the thread that owns the views.
+     */
+    private fun showStoppedState() {
         btnPlayStop.setImageResource(R.drawable.ic_play)
         tvStatus.text = getString(R.string.status_stopped)
         clearRdsDisplay()
@@ -725,12 +738,14 @@ class MainActivity : Activity() {
         progressScan.progress = 0
 
         activityScope.launch {
-            // Off the UI thread: stopPlayback() waits several seconds for the
-            // USB reader and the DSP thread to finish, and doing that on the
-            // thread that handled the button press is long enough for Android
-            // to kill the process.
             com.fmradio.util.StartupLog.write("startScan: stopping playback")
-            withContext(Dispatchers.IO) { stopPlayback() }
+            // Only the service call goes off the UI thread; it waits several
+            // seconds for the USB reader and the DSP thread to finish, which on
+            // the thread that handled the button press is long enough for
+            // Android to kill the process. The view updates stay here, back on
+            // the main thread, where touching them is legal.
+            withContext(Dispatchers.IO) { radioService?.stopPlayback() }
+            showStoppedState()
             scanner?.scanBand(currentBand, object : FmScanner.ScanListener {
                 override fun onScanProgress(currentFreqHz: Long, progress: Float) {
                     progressScan.progress = (progress * 100).toInt()

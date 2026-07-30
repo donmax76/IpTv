@@ -28,6 +28,15 @@ class FmRadioApp : Application() {
                 // app would not start there was previously nothing recorded.
                 try { StartupLog.writeCrash(thread.name, throwable) } catch (_: Throwable) {}
 
+                // Lead the next log report with it. A crash is the single most
+                // useful thing a report can say, and it used to be buried in
+                // whichever of the four log files happened to catch it.
+                try {
+                    com.fmradio.util.StatusSnapshot.lastError =
+                        "${throwable.javaClass.simpleName} in ${thread.name}: ${throwable.message}\n  at " +
+                        throwable.stackTrace.take(6).joinToString("\n  at ") { it.toString() }
+                } catch (_: Throwable) {}
+
                 // Log to DebugLog file
                 try {
                     DebugLog.log("CRASH", "Uncaught ${throwable.javaClass.simpleName} in ${thread.name}: ${throwable.message}")
