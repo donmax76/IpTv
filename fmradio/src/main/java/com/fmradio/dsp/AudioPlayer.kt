@@ -26,6 +26,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
     @Volatile
     private var isPlaying = false
     private var framesWritten = 0L
+    private var bufferBytes = 0
 
     @Volatile
     private var targetVolume = 1f
@@ -65,8 +66,22 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         framesWritten = 0L
         isPlaying = true
 
+        bufferBytes = bufferSize
         Log.i(TAG, "Started: ${sampleRate}Hz buf=$bufferSize")
     }
+
+    /**
+     * How many times the audio device has run dry, and the buffer it has to
+     * work with. Stuttering — "choking" in the field reports — is this and
+     * nothing else, and until now the report had no way to show it: every
+     * diagnostic in the app measured the radio and none measured the output.
+     */
+    fun underrunCount(): Int =
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N)
+            try { audioTrack?.underrunCount ?: -1 } catch (_: Throwable) { -1 }
+        else -1
+
+    fun bufferBytes(): Int = bufferBytes
 
     fun writeSamples(samples: ShortArray, count: Int = samples.size) {
         if (!isPlaying || count <= 0) return

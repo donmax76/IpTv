@@ -27,6 +27,9 @@ object StatusSnapshot {
     @Volatile var hiCutHz = 0f
     @Volatile var iqQueueDepth = 0
     @Volatile var nativeDsp = false
+    /** Times the audio device ran dry — this is what "stuttering" means. */
+    @Volatile var audioUnderruns = 0
+    @Volatile var audioBufferBytes = 0
 
     /** RDS health — the numbers that say whether text can arrive at all. */
     @Volatile var rdsSynced = false
@@ -53,7 +56,9 @@ object StatusSnapshot {
               "noise=%.4f blend=%.2f hicut=%.0fHz | iq=%d dsp=%s")
             .format(frequencyHz / 1e6, signalDb, if (stereo) "STEREO" else "MONO",
                     gainStep, adcRms, adcClipPct, noiseLevel, stereoBlend, hiCutHz,
-                    iqQueueDepth, if (nativeDsp) "native" else "kotlin") + " | dial='" + freqText + "'"
+                    iqQueueDepth, if (nativeDsp) "native" else "kotlin") +
+              " | audio: underruns=%d buf=%dB".format(audioUnderruns, audioBufferBytes) +
+              " | dial='" + freqText + "'"
 
     fun rds(): String =
         "synced=%s BERnow=%.1f%% BERlife=%.1f%% groups=%d dropped=%d PS='%s' RT='%s'"

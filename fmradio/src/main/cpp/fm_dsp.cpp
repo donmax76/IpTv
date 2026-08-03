@@ -192,8 +192,16 @@ struct DspState {
     // field log rather than guessed at:
     //   C/N 40 dB -> 0.0074   C/N 20 dB -> 0.0119   C/N 11 dB -> 0.0278
     //   C/N 25 dB -> 0.0090   C/N 17 dB -> 0.0152   C/N  8 dB -> 0.0388
-    static constexpr float NOISE_STEREO_FULL = 0.012f;
-    static constexpr float NOISE_STEREO_NONE = 0.040f;
+    // Calibrated to what this receiver actually reports, with the sharpened
+    // 84 kHz filter. Eleven readings from the field across strong and weak
+    // stations ran 0.028 to 0.118 — so the old 0.012 "clean" and 0.040
+    // "hopeless" were both below the BEST reception this hardware ever sees,
+    // which is why every station was being treated as hopeless and why the
+    // signal-strength override then had to switch the protection off wholesale
+    // to get the sound back. With the scale right, the measure can do its job
+    // and the override can go back to being a floor rather than a veto.
+    static constexpr float NOISE_STEREO_FULL = 0.030f;
+    static constexpr float NOISE_STEREO_NONE = 0.110f;
     float snrBlend = 1.0f;
 
     // Progressive treble roll-off. FM noise is worst at the top of the audio
@@ -207,8 +215,8 @@ struct DspState {
     // vote.
     static constexpr float SIG_CLEAN_DB   = -25.0f;
     static constexpr float SIG_DEGRADE_DB = -45.0f;
-    static constexpr float NOISE_HICUT_START = 0.018f;   // still full bandwidth
-    static constexpr float NOISE_HICUT_FULL  = 0.052f;   // hardest roll-off
+    static constexpr float NOISE_HICUT_START = 0.045f;   // still full bandwidth
+    static constexpr float NOISE_HICUT_FULL  = 0.130f;   // hardest roll-off
     static constexpr float HICUT_MAX_HZ = 15000.0f;
     static constexpr float HICUT_MIN_HZ = 3200.0f;
     float hiCutHz = HICUT_MAX_HZ;
@@ -815,7 +823,14 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
                 if (t < 0) t = 0; else if (t > 1) t = 1;
                 // Both have to agree the signal is poor before separation is
                 // given up: whichever is more generous wins.
-                d.snrBlend = fmaxf(1.0f - t, strong);
+                // A floor, not a veto: a strong carrier guarantees at least
+                // half separation, but no longer forces full stereo over a
+                // measurement that says the signal cannot carry it. Full stereo
+                // is about 20 dB noisier than mono, so overriding all the way to
+                // 1.0 on a station reading 0.068 put that noise straight into
+                // the audio — which is what came back from the field as "still
+                // hissing".
+                d.snrBlend = fmaxf(1.0f - t, strong * 0.5f);
 
                 // Audio bandwidth the signal can support
                 float h = (d.noiseLevel - DspState::NOISE_HICUT_START) /
@@ -823,8 +838,10 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
                 if (h < 0) h = 0; else if (h > 1) h = 1;
                 float hiCutFromNoise = DspState::HICUT_MAX_HZ +
                             h * (DspState::HICUT_MIN_HZ - DspState::HICUT_MAX_HZ);
+                // Same idea: a strong carrier is worth at least 10 kHz of
+                // audio, not automatically the full 15.
                 float hiCutFromSignal = DspState::HICUT_MIN_HZ +
-                            strong * (DspState::HICUT_MAX_HZ - DspState::HICUT_MIN_HZ);
+                            strong * (10000.0f - DspState::HICUT_MIN_HZ);
                 d.hiCutHz = fmaxf(hiCutFromNoise, hiCutFromSignal);
                 float a = 1.0f - expf(-2.0f * PI_F * d.hiCutHz / (float)AUDIO_RATE);
                 if (a > 1.0f) a = 1.0f;

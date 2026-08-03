@@ -681,6 +681,10 @@ class FmRadioService : Service() {
                     snap.stereo = ndsp?.getIsStereo() ?: (demodulator?.isStereo == true)
                     snap.iqQueueDepth = iqQueue.size
                     snap.nativeDsp = ndsp != null
+                    audioPlayer?.let {
+                        snap.audioUnderruns = it.underrunCount()
+                        snap.audioBufferBytes = it.bufferBytes()
+                    }
                     ndsp?.let {
                         snap.adcRms = it.getAdcRms()
                         snap.adcClipPct = it.getAdcClipPct()
