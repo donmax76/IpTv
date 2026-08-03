@@ -586,6 +586,17 @@ class RtlSdrDevice(private val context: Context) {
         if (!isOpen) return false
         centerFrequency = frequencyHz
 
+        // Park the reader first — see tunePause. Only worth it while streaming;
+        // otherwise there is nothing to collide with.
+        val parking = isStreaming
+        if (parking) {
+            tunePause = true
+            var waited = 0
+            while (!readerParked && waited < 60) {
+                try { Thread.sleep(2) } catch (_: InterruptedException) {}
+                waited += 2
+            }
+        }
         usbLock.lock()
         return try {
             enableI2CRepeater(true)
@@ -615,6 +626,7 @@ class RtlSdrDevice(private val context: Context) {
         } finally {
             forceI2CRepeaterOff()   // never leave it on, whatever went wrong
             usbLock.unlock()
+            if (parking) tunePause = false
         }
     }
 
@@ -1524,6 +1536,15 @@ class RtlSdrDevice(private val context: Context) {
                     // within ~500 ms. Shorter values caused intermittent early
                     // timeouts that dropped audio; the default 5 s was too slow
                     // for scanner handoff after stopPlayback().
+                    // Stand aside while the tuner is being reprogrammed.
+                    if (tunePause) {
+                        readerParked = true
+                        var waited = 0
+                        while (tunePause && isStreaming && waited < 400) {
+                            delay(2); waited += 2
+                        }
+                        readerParked = false
+                    }
                     val pipe = readPipeline
                     val data = if (pipe != null && pipe.isValid) pipe.read(500)
                                else readSamples(bufferSize, 500)
@@ -1989,6 +2010,25 @@ class RtlSdrDevice(private val context: Context) {
      * on a bus that has none to spare.
      */
     @Volatile private var i2cRepeaterOn = false
+
+    /**
+     * Set while the tuner is being retuned, so the bulk read loop steps aside.
+     *
+     * Retuning issues I2C control transfers — with a 20 ms sleep in the middle
+     * of them — on the same device the pipelined bulk reads are running on. On
+     * this head unit that stalls the bulk endpoint: a field log shows three
+     * failed reads, a clearHalt and a FIFO reset after EVERY frequency change,
+     * with the cumulative null count climbing 22, 23, 47, 41, 39 and throughput
+     * sagging from 99.9% to 99.6% across a session of preset changes. Each of
+     * those gaps is a click in the audio and a break in RDS, which carries bit
+     * timing across buffers and cannot survive one.
+     *
+     * Parking the reader for the few milliseconds a retune takes costs a gap
+     * that was being taken anyway — and taken worse, since a stalled endpoint
+     * also throws away whatever the FIFO held.
+     */
+    @Volatile private var tunePause = false
+    @Volatile private var readerParked = false
 
     private fun enableI2CRepeater(enable: Boolean) {
         val value = if (enable) 0x18 else 0x10
