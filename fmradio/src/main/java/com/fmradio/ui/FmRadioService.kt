@@ -427,6 +427,32 @@ class FmRadioService : Service() {
 
         cancelSeek()
 
+        // The previous session's DSP thread must be GONE before this one
+        // touches the native state. stopPlayback joins it with a 1.5 s timeout
+        // and its own comment admits that can return with the thread still
+        // running — and the native DSP is one global object, so two threads in
+        // it at once corrupt its filter buffers and its 6000-sample wideband
+        // buffer. A field log shows the process dying two seconds after
+        // playback restarted following a scan, with no Java exception, which is
+        // what that corruption looks like from outside.
+        //
+        // So wait here as well, and for longer. If it still will not go, do not
+        // start: a session that refuses to begin is recoverable, a corrupted
+        // native heap is not.
+        val stale = dspThread
+        if (stale != null && stale.isAlive && stale != Thread.currentThread()) {
+            com.fmradio.util.StartupLog.write("startPlayback: waiting for previous DSP thread")
+            try { stale.join(4000) } catch (_: InterruptedException) {}
+            if (stale.isAlive) {
+                com.fmradio.util.StartupLog.write(
+                    "startPlayback: ABORTED — previous DSP thread will not exit")
+                Log.e(TAG, "Previous DSP thread still alive; refusing to start")
+                return
+            }
+            com.fmradio.util.StartupLog.write("startPlayback: previous DSP thread gone")
+        }
+        dspThread = null
+
         val sampleRate = FmDemodulator.RECOMMENDED_SAMPLE_RATE
 
         // Try native C++ DSP first (zero jitter), fall back to Kotlin.
@@ -568,6 +594,9 @@ class FmRadioService : Service() {
             com.fmradio.util.StartupLog.write("stream setup: frequency")
             dev.setFrequency(currentFrequency)
             Thread.sleep(50)
+            // The last breadcrumb before the process died in a field log was
+            // the one above, so the next few steps get their own.
+            com.fmradio.util.StartupLog.write("stream setup: done, starting reader")
 
             Log.i(TAG, "USB setup done, starting streaming...")
             DebugLog.log("SVC", "USB setup done: rate=$sampleRate freq=${currentFrequency/1e6}MHz buf=$USB_BUFFER_SIZE")
