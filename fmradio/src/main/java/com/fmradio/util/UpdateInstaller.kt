@@ -114,58 +114,76 @@ object UpdateInstaller {
         }
     }
 
+    /**
+     * Hand the APK to the system installer, and do it FIRST.
+     *
+     * This used to test canRequestPackageInstalls() up front and, when it said
+     * no, refuse to try — showing a toast and opening the "install unknown
+     * apps" screen instead. On the BYD head unit that screen does not offer the
+     * switch at all, so the update went from working to a dead end that could
+     * never be got out of. The check was mine and it was wrong twice over: the
+     * head unit installs happily without it, and even where the permission is
+     * genuinely missing Android's own package installer puts up a far better
+     * prompt than a second-guess from here.
+     *
+     * So: launch the install. If the system needs a permission it will say so
+     * itself, in its own words, with its own button. The APK is kept either way
+     * so that coming back finishes the job without downloading it again.
+     */
     private fun installApk(context: Context, apk: File) {
-        try {
-            // Android 8 and later refuse an install from an app that has not
-            // been granted "install unknown apps". Without this check the
-            // install intent simply does nothing and the user is left with a
-            // downloaded file and no explanation.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-                !context.packageManager.canRequestPackageInstalls()) {
-                StartupLog.write("update: install permission not granted, opening settings")
-                // Hold on to the download so returning from the permission
-                // screen finishes the job instead of starting it again.
-                pendingApk = apk
-                Toast.makeText(context,
-                    "Включите «Разрешить установку из этого источника», " +
-                    "затем вернитесь назад — установка продолжится сама",
-                    Toast.LENGTH_LONG).show()
-                val perm = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                    Uri.parse("package:${context.packageName}"))
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                try {
-                    context.startActivity(perm)
-                } catch (_: Exception) {
-                    // Some head units ship without that settings screen. Send
-                    // the user to the app's own settings page, where the same
-                    // switch lives, rather than leaving them with a dead end.
-                    try {
-                        context.startActivity(Intent(
-                            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                            Uri.parse("package:${context.packageName}"))
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    } catch (_: Exception) {
-                        Toast.makeText(context,
-                            "Разрешите установку приложений из этого источника в настройках Android",
-                            Toast.LENGTH_LONG).show()
-                    }
-                }
-                return
-            }
-            pendingApk = null
-            val uri: Uri = FileProvider.getUriForFile(
-                context, "${context.packageName}.fileprovider", apk
-            )
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "application/vnd.android.package-archive")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(intent)
+        val uri: Uri = try {
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apk)
         } catch (e: Exception) {
-            StartupLog.write("update: install failed ${e.javaClass.simpleName}: ${e.message}")
-            Log.e(TAG, "Install failed", e)
-            Toast.makeText(context, "Ошибка установки", Toast.LENGTH_LONG).show()
+            StartupLog.write("update: FileProvider failed (${e.javaClass.simpleName}), using file URI")
+            Uri.fromFile(apk)
+        }
+
+        // The modern route first, then the pre-Oreo one. Some head-unit ROMs
+        // only register a handler for one of them.
+        val attempts = listOf(
+            Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+            },
+            @Suppress("DEPRECATION")
+            Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                data = uri
+                putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+                putExtra(Intent.EXTRA_RETURN_RESULT, false)
+            }
+        )
+        for (intent in attempts) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            try {
+                context.startActivity(intent)
+                StartupLog.write("update: install launched (${intent.action})")
+                // Launched: nothing left pending. Keeping it would relaunch the
+                // installer every time the user came back to the app, including
+                // after the update had already been installed.
+                pendingApk = null
+                return
+            } catch (e: Exception) {
+                StartupLog.write("update: ${intent.action} refused: ${e.javaClass.simpleName}")
+            }
+        }
+
+        // Nothing on this device would take the APK at all. Keep it so a later
+        // return to the app can try once more, and only now is the permission
+        // screen worth offering — as a suggestion, not a demand.
+        pendingApk = apk
+        StartupLog.write("update: no installer accepted the APK")
+        Toast.makeText(context,
+            "Система не открыла установщик. Файл скачан: ${apk.absolutePath}",
+            Toast.LENGTH_LONG).show()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !context.packageManager.canRequestPackageInstalls()) {
+            try {
+                context.startActivity(
+                    Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                           Uri.parse("package:${context.packageName}"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -191,14 +209,12 @@ object UpdateInstaller {
             pendingApk = null
             return false
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            !context.packageManager.canRequestPackageInstalls()) {
-            return false          // still not granted; leave it pending
-        }
-        StartupLog.write("update: permission granted, resuming install")
+        // No permission test here. On this head unit canRequestPackageInstalls()
+        // answers no for ever, so gating on it meant a download that had been
+        // refused once could never be retried. Clear it BEFORE retrying so a
+        // failure cannot turn into a loop of installer launches.
         pendingApk = null
-        Toast.makeText(context, "Разрешение получено — устанавливаю обновление",
-            Toast.LENGTH_SHORT).show()
+        StartupLog.write("update: retrying pending install")
         installApk(context, apk)
         return true
     }
