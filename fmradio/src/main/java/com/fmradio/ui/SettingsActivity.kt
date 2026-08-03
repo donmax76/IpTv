@@ -274,6 +274,47 @@ class SettingsActivity : Activity() {
             setPadding(16, 12, 16, 12)
 
             // LOG ON/OFF toggle row
+            // Force mono. Stereo buys separation at about 20 dB of noise, and
+            // on a marginal station only the person listening can say whether
+            // that is worth it. Every automatic rule tried here has been wrong
+            // for someone — too eager and clean stations were flattened, too
+            // shy and noisy ones hissed — so the choice is offered directly.
+            val monoRow = LinearLayout(this@SettingsActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, 4, 0, 4)
+            }
+            val monoLabel = TextView(this@SettingsActivity).apply {
+                text = "Только моно (тише шипение)"
+                setTextColor(0xFFCCCCCC.toInt())
+                textSize = 14f
+                typeface = android.graphics.Typeface.MONOSPACE
+            }
+            monoRow.addView(monoLabel, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            val monoPrefs = getSharedPreferences("fm_radio_stations", MODE_PRIVATE)
+            val monoToggle = Switch(this@SettingsActivity).apply {
+                isChecked = (monoPrefs.getInt("dsp_test_flags", 0) and
+                             FmRadioService.TEST_FORCE_MONO) != 0
+                thumbTintList = android.content.res.ColorStateList(
+                    arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                    intArrayOf(greenColor, 0xFF888888.toInt())
+                )
+                trackTintList = android.content.res.ColorStateList(
+                    arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                    intArrayOf(0xFF005533.toInt(), 0xFF444444.toInt())
+                )
+                setOnCheckedChangeListener { _, checked ->
+                    // The service may not be bound from this screen, so write the
+                    // preference here and let it be picked up either way.
+                    val cur = monoPrefs.getInt("dsp_test_flags", 0)
+                    val next = if (checked) cur or FmRadioService.TEST_FORCE_MONO
+                               else cur and FmRadioService.TEST_FORCE_MONO.inv()
+                    monoPrefs.edit().putInt("dsp_test_flags", next).apply()
+                }
+            }
+            monoRow.addView(monoToggle)
+            addView(monoRow)
+
             val logRow = LinearLayout(this@SettingsActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL

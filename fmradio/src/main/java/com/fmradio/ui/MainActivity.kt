@@ -1133,6 +1133,14 @@ class MainActivity : Activity() {
             }
         }
 
+        // The mono switch writes a preference from a screen that may not be
+        // bound to the service; apply it here, where we always are.
+        radioService?.let { svc ->
+            val flags = getSharedPreferences("fm_radio_stations", Context.MODE_PRIVATE)
+                .getInt("dsp_test_flags", svc.testFlags)
+            if (flags != svc.testFlags) svc.setTestFlags(flags)
+        }
+
         // Apply volume/bass/treble from storage (may have been changed in SettingsActivity)
         radioService?.setVolume(stationStorage.lastVolume)
         radioService?.setBass(stationStorage.bassLevel)

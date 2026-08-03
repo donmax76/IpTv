@@ -308,6 +308,13 @@ struct DspState {
     // at all on a strong, stereo-locked signal. Unproven work that costs
     // real-time budget on the target device does not stay switched on.
     static constexpr int TEST_NB_ON = 0x20;
+    // Bit 6 = force mono, whatever the signal looks like. Stereo costs about
+    // 20 dB of noise for the separation it buys, and on a marginal station
+    // that is a trade only the person listening can judge. Every automatic
+    // rule tried here has been wrong for someone: too eager and clean
+    // stations were flattened, too shy and noisy ones hissed. This hands the
+    // decision over.
+    static constexpr int TEST_FORCE_MONO = 0x40;
 
     // Two pre-computed gain values, selected by TEST_GAIN flag at runtime.
     float fmGainDefault;
@@ -831,6 +838,7 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
                 // the audio — which is what came back from the field as "still
                 // hissing".
                 d.snrBlend = fmaxf(1.0f - t, strong * 0.5f);
+                if (d.testFlags & DspState::TEST_FORCE_MONO) d.snrBlend = 0.0f;
 
                 // Audio bandwidth the signal can support
                 float h = (d.noiseLevel - DspState::NOISE_HICUT_START) /

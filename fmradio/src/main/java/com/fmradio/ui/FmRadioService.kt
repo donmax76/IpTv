@@ -100,6 +100,9 @@ class FmRadioService : Service() {
         // Log a steady-state line every ~10 s so field logs show the level.
         private const val GAIN_LOG_TICKS = 50
 
+        /** Mirrors TEST_FORCE_MONO in fm_dsp.cpp. */
+        const val TEST_FORCE_MONO = 0x40
+
         // More buffers than the channel can hold, so the producer can never
         // wrap onto one the consumer is still reading.
         private const val RDS_POOL = 16
@@ -231,6 +234,12 @@ class FmRadioService : Service() {
         com.fmradio.util.StartupLog.write("FmRadioService.onCreate")
         super.onCreate()
         stationStorage = StationStorage(this)
+        // Restore the DSP preferences (the mono choice lives here) before
+        // anything can start playing.
+        testFlags = try {
+            getSharedPreferences("fm_radio_stations", MODE_PRIVATE)
+                .getInt("dsp_test_flags", 0)
+        } catch (_: Throwable) { 0 }
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         // Keep CPU running when app is in background — critical for audio playback
         val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
@@ -971,7 +980,20 @@ class FmRadioService : Service() {
     fun setTestFlags(flags: Int) {
         testFlags = flags
         try { nativeDsp?.setTestFlags(flags) } catch (_: Throwable) {}
+        // Survive a restart: the mono choice in particular is a preference, not
+        // a debug toggle, and having to set it again every time the app came
+        // back would make it useless.
+        try {
+            getSharedPreferences("fm_radio_stations", MODE_PRIVATE)
+                .edit().putInt("dsp_test_flags", flags).apply()
+        } catch (_: Throwable) {}
     }
+
+    /** Force mono regardless of signal — see TEST_FORCE_MONO in fm_dsp.cpp. */
+    var forceMono: Boolean
+        get() = (testFlags and TEST_FORCE_MONO) != 0
+        set(on) = setTestFlags(
+            if (on) testFlags or TEST_FORCE_MONO else testFlags and TEST_FORCE_MONO.inv())
 
     fun toggleTestFlag(bit: Int) {
         setTestFlags(testFlags xor bit)
