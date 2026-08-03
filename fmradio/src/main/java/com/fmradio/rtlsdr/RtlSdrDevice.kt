@@ -1536,37 +1536,31 @@ class RtlSdrDevice(private val context: Context) {
                     // within ~500 ms. Shorter values caused intermittent early
                     // timeouts that dropped audio; the default 5 s was too slow
                     // for scanner handoff after stopPlayback().
-                    // Stand aside while the tuner is being reprogrammed — and
-                    // take the pipeline down with us.
+                    // Stand aside while the tuner is being reprogrammed.
                     //
-                    // Merely pausing this loop was not enough: the pipeline
-                    // keeps eight requests outstanding in the kernel's queue,
-                    // and THOSE are what the retune's control transfers collide
-                    // with. A field log after that change still showed three
-                    // failed reads, a clearHalt and a FIFO reset after every
-                    // frequency change, with the stream running at 96.3% of the
-                    // rate the DSP consumes — a 3.7% shortfall that shows up as
-                    // 39 audio underruns and as RDS never holding sync.
+                    // The previous release also tore the read pipeline down
+                    // here and rebuilt it afterwards, to stop its eight
+                    // outstanding requests colliding with the retune's control
+                    // transfers. That crashed the app on every channel change
+                    // and has been taken out: setFrequency only waits 60 ms for
+                    // this loop to park, and closeAll() on eight in-flight
+                    // UsbRequests can take longer than that, so the teardown
+                    // could still be running when the control transfers began —
+                    // two threads on one connection's request queue, which is
+                    // the use-after-free this driver has been bitten by before.
                     //
-                    // Tearing the pipeline down here and rebuilding it after
-                    // leaves nothing in flight for the retune to disturb. Both
-                    // happen on this thread, which is the only one that may
-                    // touch the pipeline.
+                    // The 3.7% stream shortfall it was meant to fix is real but
+                    // it is a degradation; this was a crash. Parking alone is
+                    // kept because it is harmless, and the collision needs
+                    // solving without touching the pipeline from a thread that
+                    // can be racing a retune.
                     if (tunePause) {
-                        readPipeline?.closeAll()
-                        readPipeline = null
                         readerParked = true
                         var waited = 0
                         while (tunePause && isStreaming && waited < 400) {
                             delay(2); waited += 2
                         }
                         readerParked = false
-                        val connR = usbConnection
-                        val epR = bulkEndpoint
-                        if (isStreaming && connR != null && epR != null) {
-                            val np = BulkReadPipeline(connR, epR, bufferSize, USB_PIPELINE_DEPTH)
-                            readPipeline = if (np.isValid) np else null
-                        }
                     }
                     val pipe = readPipeline
                     val data = if (pipe != null && pipe.isValid) pipe.read(500)
