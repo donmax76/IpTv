@@ -62,10 +62,21 @@ class FmRadioService : Service() {
         // near a quarter of full scale: enough signal to keep quantisation
         // noise irrelevant, enough headroom for FM's peaks and for a passing
         // strong neighbour channel.
-        private const val ADC_RMS_HIGH = 0.34f
-        private const val ADC_RMS_LOW = 0.20f
+        // Lowered from 0.34/0.20/0.27. At the old target the field log showed
+        // the converter clipping on EVERY steady-state line — 0.22%, 0.42%,
+        // 0.68%, 1.76% of samples pinned at the rails. In an 8-bit converter
+        // that is not a harmless statistic: each clipped sample is a step
+        // discontinuity, and the splatter it makes lands right across the
+        // demodulated audio as a hiss that no filter downstream can remove.
+        //
+        // 0.18 buys about 3.5 dB more headroom, which takes the clipping to
+        // essentially nothing. It costs 3.5 dB of quantisation noise, and at
+        // this bandwidth that sits some 45 dB below the audio — far under the
+        // station's own noise floor, so it is not a trade at all in practice.
+        private const val ADC_RMS_HIGH = 0.24f
+        private const val ADC_RMS_LOW = 0.13f
         // Middle of the dead zone — what the proportional correction aims at.
-        private const val ADC_RMS_TARGET = 0.27f
+        private const val ADC_RMS_TARGET = 0.18f
         // Where the loop starts. Mid-scale rather than maximum so a strong
         // station is not grossly overloaded for the first seconds.
         private const val IF_GAIN_START_STEP = 20

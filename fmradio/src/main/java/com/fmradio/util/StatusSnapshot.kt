@@ -37,6 +37,8 @@ object StatusSnapshot {
     @Volatile var rdsGroups = 0L
     /** Wideband packets the RDS thread could not keep up with; any at all breaks sync. */
     @Volatile var rdsDropped = 0L
+    /** Syndrome-match rates while searching — see RdsDecoder.processBit. */
+    @Volatile var rdsSearch = ""
     @Volatile var rdsPs = ""
     @Volatile var rdsRt = ""
 
@@ -55,5 +57,6 @@ object StatusSnapshot {
 
     fun rds(): String =
         "synced=%s BERnow=%.1f%% BERlife=%.1f%% groups=%d dropped=%d PS='%s' RT='%s'"
-            .format(rdsSynced, rdsBerPct, rdsBerLifetimePct, rdsGroups, rdsDropped, rdsPs, rdsRt)
+            .format(rdsSynced, rdsBerPct, rdsBerLifetimePct, rdsGroups, rdsDropped, rdsPs, rdsRt) +
+            (if (rdsSearch.isNotBlank()) "\n     search: $rdsSearch" else "")
 }

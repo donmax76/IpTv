@@ -211,6 +211,9 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
      * which is worse than useless — it was read as evidence of a bad aerial.
      */
     private var berEma = -1f
+    // Syndrome matches seen while searching, per offset — see processBit.
+    private var searchHitA = 0; private var searchHitB = 0; private var searchHitC = 0
+    private var searchHitCp = 0; private var searchHitD = 0; private var searchBits = 0
     private var totalGroupsDecoded = 0L
     private var lastStatsLogTime = 0L
 
@@ -455,6 +458,40 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
             // Search: check syndrome on every incoming bit
             if (bitCount >= 26) {
                 val syndrome = calcSyndrome(bitBuffer, 26)
+
+                // Diagnostic, and the one that settles what is actually wrong.
+                // A real RDS stream puts one of each offset word on the air
+                // 11.4 times a second, so a receiver that is demodulating it
+                // sees roughly that many syndrome matches per second for EVERY
+                // offset. Random bits give one match per 1024 positions, which
+                // at 1187.5 bit/s is about 1.2 a second — and it is the same
+                // 1.2 for all five, because it is pure chance.
+                //
+                // Whichever of those two the field shows decides where the
+                // fault is: below the decoder, or inside it. Nothing else in
+                // the log distinguishes them, which is why this has been guessed
+                // at twice.
+                when (syndrome) {
+                    OFFSET_A  -> searchHitA++
+                    OFFSET_B  -> searchHitB++
+                    OFFSET_C  -> searchHitC++
+                    OFFSET_CP -> searchHitCp++
+                    OFFSET_D  -> searchHitD++
+                }
+                searchBits++
+                if (searchBits >= (RDS_BITRATE * 5).toInt()) {
+                    val secs = searchBits / RDS_BITRATE
+                    val line = ("RDS search: A=%.1f B=%.1f C=%.1f C'=%.1f D=%.1f matches/s " +
+                        "(real signal ~11 each, random bits ~1.2 each)")
+                        .format(searchHitA / secs, searchHitB / secs, searchHitC / secs,
+                                searchHitCp / secs, searchHitD / secs)
+                    Log.d(TAG, line)
+                    DebugLog.log(TAG, line)
+                    com.fmradio.util.StatusSnapshot.rdsSearch = line.removePrefix("RDS search: ")
+                    searchHitA = 0; searchHitB = 0; searchHitC = 0
+                    searchHitCp = 0; searchHitD = 0; searchBits = 0
+                }
+
                 if (syndrome == OFFSET_A) {
                     // Candidate sync — enter confirmation phase
                     synced = true
@@ -1113,6 +1150,8 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
         totalBadBlocks = 0L
         totalGroupsDecoded = 0L
         berEma = -1f
+        searchHitA = 0; searchHitB = 0; searchHitC = 0
+        searchHitCp = 0; searchHitD = 0; searchBits = 0
         lastStatsLogTime = 0L
     }
 }
