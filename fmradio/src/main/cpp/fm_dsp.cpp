@@ -109,8 +109,20 @@ struct DspState {
     int stage1Counter = 0;
 
     // Audio LPF (32 taps, double-buffer)
-    static constexpr int AUDIO_LPF_ORDER = 32;
+    // 32 taps was far too short for a 15 kHz cut at 192 kHz: measured, it
+    // left the 19 kHz pilot only 10.8 dB down and the bottom of the stereo
+    // band 18.3 dB down. Both land in the audio — the pilot as a constant
+    // tone, present in MONO too, since it rides on the composite and the
+    // stereo decoder has nothing to do with it. 48 taps takes 30 kHz from
+    // -39 dB to -92 dB, which is what kills the aliasing; the pilot itself
+    // needs the notch below, because no filter of a sane length can put a
+    // 15 kHz passband edge and a deep stop 4 kHz apart.
+    static constexpr int AUDIO_LPF_ORDER = 48;
     float audioCoeffs[AUDIO_LPF_ORDER];
+    // 19 kHz notch on the mono path. Five multiplies a sample against a tone
+    // that no FM receiver should ever pass to its output.
+    double pnB0 = 1, pnB1 = 0, pnB2 = 0, pnA1 = 0, pnA2 = 0;
+    float pnX1 = 0, pnX2 = 0, pnY1 = 0, pnY2 = 0;
     float monoLpfBuf[AUDIO_LPF_ORDER * 2] = {};
     float diffLpfBuf[AUDIO_LPF_ORDER * 2] = {};
     int monoLpfIdx = 0, diffLpfIdx = 0;
@@ -355,6 +367,18 @@ struct DspState {
         designLpf(ifCoeffs, IF_LPF_ORDER, 90000.0f / SAMPLE_RATE);
         // Audio filter: 15 kHz cutoff
         designLpf(audioCoeffs, AUDIO_LPF_ORDER, 15000.0f / INTERMEDIATE_RATE);
+        {
+            // Q=40: 19 kHz annihilated, and only about 0.4 dB of ripple by
+            // 15 kHz, so nothing audible is touched.
+            const double w0 = 2.0 * PI_D * 19000.0 / INTERMEDIATE_RATE;
+            const double al = sin(w0) / (2.0 * 40.0);
+            const double a0 = 1.0 + al;
+            pnB0 = 1.0 / a0;
+            pnB1 = (-2.0 * cos(w0)) / a0;
+            pnB2 = 1.0 / a0;
+            pnA1 = (-2.0 * cos(w0)) / a0;
+            pnA2 = (1.0 - al) / a0;
+        }
 
         // Noise-measuring bandpass: 84 kHz centre, ~6 kHz wide (RBJ constant
         // skirt gain), running on the discriminator output.
@@ -476,6 +500,7 @@ struct DspState {
     void reset() {
         dcI = dcQ = 0;
         prevI = prevQ = 0;
+        pnX1 = 0; pnX2 = 0; pnY1 = 0; pnY2 = 0;   // pilot notch state
         memset(ifBufI, 0, sizeof(ifBufI));
         memset(ifBufQ, 0, sizeof(ifBufQ));
         ifBufIdx = 0;
@@ -961,9 +986,22 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
         float stereoCarrier = (float)sin(2.0 * pilotPhaseThisSample);
         float diff = baseband * stereoCarrier * 2.0f;
 
+        // Take the pilot out of the audio. It is sampled for the PLL from the
+        // composite well before this point, so removing it here costs the
+        // stereo decoder nothing.
+        float monoIn;
+        {
+            const float x = baseband;
+            const double y = d.pnB0 * x + d.pnB1 * d.pnX1 + d.pnB2 * d.pnX2
+                             - d.pnA1 * d.pnY1 - d.pnA2 * d.pnY2;
+            d.pnX2 = d.pnX1; d.pnX1 = x;
+            d.pnY2 = d.pnY1; d.pnY1 = (float)y;
+            monoIn = (float)y;
+        }
+
         // Audio LPF double-buffer write
-        d.monoLpfBuf[d.monoLpfIdx] = baseband;
-        d.monoLpfBuf[d.monoLpfIdx + DspState::AUDIO_LPF_ORDER] = baseband;
+        d.monoLpfBuf[d.monoLpfIdx] = monoIn;
+        d.monoLpfBuf[d.monoLpfIdx + DspState::AUDIO_LPF_ORDER] = monoIn;
         d.diffLpfBuf[d.diffLpfIdx] = diff;
         d.diffLpfBuf[d.diffLpfIdx + DspState::AUDIO_LPF_ORDER] = diff;
         d.monoLpfIdx = (d.monoLpfIdx + 1) % DspState::AUDIO_LPF_ORDER;
