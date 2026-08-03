@@ -693,6 +693,7 @@ class FmRadioService : Service() {
                     audioPlayer?.let {
                         snap.audioUnderruns = it.underrunCount()
                         snap.audioBufferBytes = it.bufferBytes()
+                        snap.audioBufferFrames = it.bufferFrames()
                     }
                     ndsp?.let {
                         snap.adcRms = it.getAdcRms()

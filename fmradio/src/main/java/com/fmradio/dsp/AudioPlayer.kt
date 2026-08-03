@@ -96,6 +96,23 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             try { audioTrack?.underrunCount ?: -1 } catch (_: Throwable) { -1 }
         else -1
 
+    /**
+     * The buffer the device ACTUALLY gave us, in frames — not the size that
+     * was asked for.
+     *
+     * A field log shows the queue cycling between 2060 and 3520 frames and
+     * never filling, which with blocking writes is impossible if the buffer
+     * really were the 24000 frames requested: write() would return at once
+     * until it was full. So the HAL is handing back something far smaller, the
+     * "500 ms of headroom" in the code comment is fiction, and the priming
+     * added last release can only ever fill whatever is really there. Report
+     * the real number so the next log settles it instead of another guess.
+     */
+    fun bufferFrames(): Int =
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M)
+            try { audioTrack?.bufferSizeInFrames ?: -1 } catch (_: Throwable) { -1 }
+        else -1
+
     fun bufferBytes(): Int = bufferBytes
 
     fun writeSamples(samples: ShortArray, count: Int = samples.size) {
