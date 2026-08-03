@@ -1536,14 +1536,37 @@ class RtlSdrDevice(private val context: Context) {
                     // within ~500 ms. Shorter values caused intermittent early
                     // timeouts that dropped audio; the default 5 s was too slow
                     // for scanner handoff after stopPlayback().
-                    // Stand aside while the tuner is being reprogrammed.
+                    // Stand aside while the tuner is being reprogrammed — and
+                    // take the pipeline down with us.
+                    //
+                    // Merely pausing this loop was not enough: the pipeline
+                    // keeps eight requests outstanding in the kernel's queue,
+                    // and THOSE are what the retune's control transfers collide
+                    // with. A field log after that change still showed three
+                    // failed reads, a clearHalt and a FIFO reset after every
+                    // frequency change, with the stream running at 96.3% of the
+                    // rate the DSP consumes — a 3.7% shortfall that shows up as
+                    // 39 audio underruns and as RDS never holding sync.
+                    //
+                    // Tearing the pipeline down here and rebuilding it after
+                    // leaves nothing in flight for the retune to disturb. Both
+                    // happen on this thread, which is the only one that may
+                    // touch the pipeline.
                     if (tunePause) {
+                        readPipeline?.closeAll()
+                        readPipeline = null
                         readerParked = true
                         var waited = 0
                         while (tunePause && isStreaming && waited < 400) {
                             delay(2); waited += 2
                         }
                         readerParked = false
+                        val connR = usbConnection
+                        val epR = bulkEndpoint
+                        if (isStreaming && connR != null && epR != null) {
+                            val np = BulkReadPipeline(connR, epR, bufferSize, USB_PIPELINE_DEPTH)
+                            readPipeline = if (np.isValid) np else null
+                        }
                     }
                     val pipe = readPipeline
                     val data = if (pipe != null && pipe.isValid) pipe.read(500)
