@@ -35,6 +35,8 @@ class FmRadioService : Service() {
         private const val CHANNEL_ID = "fm_radio_playback"
         private const val NOTIFICATION_ID = 1001
         private const val SEEK_THRESHOLD = -15f
+        /** See FmScanner.CHANNEL_RATIO_DB — the same test, same reasoning. */
+        private const val SEEK_RATIO_DB = -20.0f
         // Smaller USB buffer = more frequent callbacks = lower latency
         private const val USB_BUFFER_SIZE = 32768
         // IQ data queue depth. Each buffer is 32 KB = ~14 ms of IQ at 1.152 Msps.
@@ -523,6 +525,18 @@ class FmRadioService : Service() {
             dev.setSampleRate(sampleRate)
             com.fmradio.util.StartupLog.write("stream setup: gain")
             dev.setAutoGain(true)
+            // Set the front-end gain explicitly instead of inheriting whatever
+            // the last operation left behind. The scan drops the LNA to its
+            // minimum, and nothing here ever put it back: after one scan the
+            // receiver ran with minimum RF gain for the rest of the session, so
+            // every station lost sensitivity and gained noise, and the loop
+            // below compensated by winding the IF trim up — which amplifies the
+            // noise along with the signal. That is the reported "signal got
+            // weaker and everything hisses, even strong stations".
+            //
+            // LNA high and fixed, IF trimmed by the gain loop, is what that loop
+            // was designed around: it only ever moves the IF step.
+            if (dev.supportsIfGainTrim) dev.setGain(15)     // FC0013 LNA maximum
             com.fmradio.util.StartupLog.write("stream setup: fullReset")
             dev.fullReset()
             com.fmradio.util.StartupLog.write("stream setup: frequency")
@@ -964,7 +978,13 @@ class FmRadioService : Service() {
                     val samples = dev.readSamples(32768, 500)
                     if (samples != null) {
                         val signalDb = tempDemod.measureSignalStrength(samples)
-                        if (signalDb > SEEK_THRESHOLD) {
+                        // The level alone cannot say whether the station is
+                        // HERE or is a neighbour inside the same 960 kHz window,
+                        // and it moves with the tuner gain, so a fixed bar on it
+                        // was never meaningful. The channel ratio is
+                        // gain-independent and answers exactly that question.
+                        val ratio = tempDemod.measureChannelRatioDb(samples)
+                        if (signalDb > SEEK_THRESHOLD && ratio > SEEK_RATIO_DB) {
                             found = freq
                             break
                         }

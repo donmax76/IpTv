@@ -28,6 +28,16 @@ class FmScanner(private val device: RtlSdrDevice) {
         // as a station. 6 dB is the usual rule and is what the code always
         // intended; it simply never got to apply it.
         private const val SIGNAL_MARGIN_DB = 6f
+        // Modelled against a synthetic FM band with neighbours at +/-200 and
+        // +/-400 kHz, quantised to 8 bits as the ADC delivers:
+        //
+        //   station strong .. very weak   -4 .. -18 dB
+        //   empty, neighbours present          -33 dB
+        //
+        // -20 dB sits below the weakest station and 14 dB above an empty
+        // channel. Pure noise reads about -8 dB here — it is the absolute level
+        // test, ANDed with this one, that rejects that case.
+        private const val CHANNEL_RATIO_DB = -20.0f
         // Sanity floor only. Nothing real is ever this quiet, so this exists
         // purely so a nonsense noise-floor reading cannot make the scan accept
         // every frequency.
@@ -217,12 +227,23 @@ class FmScanner(private val device: RtlSdrDevice) {
             //   setAutoGain(true)  = hardware AGC (equalises everything)   ← BAD for scan
             when (device.getTunerType()) {
                 RtlSdrDevice.TunerType.FC0013, RtlSdrDevice.TunerType.FC0012 -> {
-                    // FC0013: manual mode (setAutoGain(true) = manual on FC),
-                    // then reduce LNA to minimum for better scan contrast.
-                    // High IF/mixer gain + low LNA = good SNR difference
-                    // between stations and noise.
+                    // FC0013: manual mode (setAutoGain(true) = manual on FC).
+                    //
+                    // The LNA used to be dropped to its minimum here, on the
+                    // theory that it gave better contrast between stations and
+                    // noise. It does the opposite: with no RF gain ahead of the
+                    // mixer the receiver's own noise dominates, every station
+                    // sinks towards the floor, and the sweep finds nothing at
+                    // all — which is exactly what the field reported, a scan
+                    // returning zero stations.
+                    //
+                    // Sensitivity is what a sweep needs. LNA high, and the IF
+                    // trim pinned to the same value the playback loop starts
+                    // from, so one frequency is comparable with the next and
+                    // with what playback will hear.
                     device.setAutoGain(true)
-                    device.setGain(0)  // LNA minimum (0x02)
+                    device.setGain(15)                  // LNA maximum
+                    device.setFc0013IfGainStep(20)      // 40 dB, the loop's start
                 }
                 else -> {
                     device.setAutoGain(false) // R820T: manual mode
@@ -267,20 +288,29 @@ class FmScanner(private val device: RtlSdrDevice) {
                 device.resetBuffer()
 
                 var signalSum = 0f
+                var ratioSum = 0f
                 var validMeasurements = 0
 
                 for (m in 0 until MEASUREMENTS_PER_FREQ) {
                     val samples = device.readSamples(MEASUREMENT_SAMPLES)
                     if (samples != null && samples.isNotEmpty()) {
                         signalSum += demodulator.measureSignalStrength(samples)
+                        ratioSum += demodulator.measureChannelRatioDb(samples)
                         validMeasurements++
                     }
                 }
 
                 if (validMeasurements > 0) {
                     val avgSignal = signalSum / validMeasurements
+                    val avgRatio = ratioSum / validMeasurements
                     if (avgSignal > bestSeen) bestSeen = avgSignal
-                    if (avgSignal > adaptiveThreshold) {
+                    // Both have to agree. The level says something is being
+                    // received at all; the ratio says it is centred HERE rather
+                    // than a neighbour bleeding into the same 960 kHz window,
+                    // which is the part the level alone can never tell — and
+                    // the reason a level-only sweep returns everything or
+                    // nothing depending on where its bar happens to sit.
+                    if (avgSignal > adaptiveThreshold && avgRatio > CHANNEL_RATIO_DB) {
                         val result = ScanResult(freq, avgSignal)
                         stations.add(result)
                         Log.i(TAG, "Signal found: ${result.displayFrequency} MHz ($avgSignal dB)")

@@ -25,6 +25,84 @@ class FmDemodulator(
         // and lost ~1.8% of samples — clicks in audio, broken RDS sync.
         // 960 kHz = 1.92 MB/s with headroom; intermediate stays 192 kHz.
         const val RECOMMENDED_SAMPLE_RATE = 960000
+
+        // Channel filter for measureChannelRatioDb: +/-80 kHz at 960 kHz.
+        private const val CHAN_TAPS = 33
+        private val chanCoeffs: FloatArray = FloatArray(CHAN_TAPS).also { c ->
+            val fc = 80_000.0 / RECOMMENDED_SAMPLE_RATE
+            val mid = CHAN_TAPS / 2
+            var sum = 0.0
+            for (n in 0 until CHAN_TAPS) {
+                val k = n - mid
+                val sinc = if (k == 0) 2.0 * fc
+                           else kotlin.math.sin(2.0 * Math.PI * fc * k) / (Math.PI * k)
+                val w = 0.54 - 0.46 * kotlin.math.cos(2.0 * Math.PI * n / (CHAN_TAPS - 1))
+                val v = sinc * w
+                c[n] = v.toFloat()
+                sum += v
+            }
+            if (sum != 0.0) for (n in 0 until CHAN_TAPS) c[n] = (c[n] / sum).toFloat()
+        }
+    }
+
+    /**
+     * How much of the tuner's window is the station at its centre, in dB.
+     *
+     * measureSignalStrength below totals the power of the WHOLE 960 kHz window,
+     * and that is what the scan and the seek were both deciding on. It cannot
+     * tell one frequency from another: the window spans nine channels of the
+     * 100 kHz grid, so nearly the same stations are inside it wherever you tune
+     * and the total barely moves. It is also proportional to the tuner gain, so
+     * a fixed threshold on it means something different at every gain setting.
+     *
+     * This measures the power inside +/-80 kHz of the tuned frequency — where a
+     * zero-IF tuner puts the wanted station — as a share of the whole window.
+     * Being a ratio it does not depend on the gain at all:
+     *
+     *   empty channel   ~ -7.8 dB   (the band's share of the window, noise only)
+     *   station present ~ -2 dB     (the carrier fills its own channel)
+     */
+    fun measureChannelRatioDb(iqData: ByteArray, decimation: Int = 8): Float {
+        val numSamples = iqData.size / 2
+        if (numSamples < CHAN_TAPS * 4) return -100f
+
+        var totalPower = 0.0
+        var bandPower = 0.0
+        var bandCount = 0
+        val histI = FloatArray(CHAN_TAPS)
+        val histQ = FloatArray(CHAN_TAPS)
+        var hist = 0
+        var phase = 0
+
+        for (n in 0 until numSamples) {
+            val i = (iqData[n * 2].toInt() and 0xFF) / 127.5f - 1f
+            val q = (iqData[n * 2 + 1].toInt() and 0xFF) / 127.5f - 1f
+            totalPower += (i * i + q * q).toDouble()
+
+            histI[hist] = i
+            histQ[hist] = q
+            hist = if (hist + 1 >= CHAN_TAPS) 0 else hist + 1
+
+            if (++phase >= decimation) {
+                phase = 0
+                if (n >= CHAN_TAPS) {
+                    var accI = 0f
+                    var accQ = 0f
+                    var h = hist
+                    for (t in 0 until CHAN_TAPS) {
+                        accI += histI[h] * chanCoeffs[t]
+                        accQ += histQ[h] * chanCoeffs[t]
+                        h = if (h + 1 >= CHAN_TAPS) 0 else h + 1
+                    }
+                    bandPower += (accI * accI + accQ * accQ).toDouble()
+                    bandCount++
+                }
+            }
+        }
+        if (bandCount == 0 || totalPower <= 0.0) return -100f
+        val band = bandPower / bandCount
+        val total = totalPower / numSamples
+        return (10.0 * log10(band / total + 1e-12)).toFloat()
     }
 
     private val intermediateRate: Int = 192000
