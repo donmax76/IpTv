@@ -26,6 +26,8 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
     @Volatile
     private var isPlaying = false
     private var framesWritten = 0L
+    /** Silence queued by primeSilence, counted so the buffer-level log stays honest. */
+    private var primedFrames = 0L
     private var bufferBytes = 0
 
     @Volatile
@@ -62,6 +64,19 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
 
+        // Fill a reservoir before the device starts consuming.
+        //
+        // A field log with file logging on shows the queue sitting at 2700 to
+        // 3500 frames out of the 24000 this buffer holds — about 60 ms of
+        // audio, 12% of capacity. The DSP produces in real time from the USB
+        // stream, so without priming there is no reservoir at all: the writer
+        // only ever stays one callback ahead of the reader, and any scheduling
+        // hiccup on a head unit empties the device. That is the 31 underruns
+        // in the same report, and what is heard as choking.
+        //
+        // Quarter of a second of silence up front costs a latency nobody can
+        // perceive on a radio and gives the pipeline something to spend.
+        primeSilence(sampleRate / 4)
         audioTrack?.play()
         framesWritten = 0L
         isPlaying = true
@@ -124,7 +139,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         if (DebugLog.fileLoggingEnabled && framesWritten % 140 == 0L) {
             val track = audioTrack
             val headPos = track?.playbackHeadPosition ?: 0
-            val bufLevel = framesWritten - headPos
+            val bufLevel = framesWritten + primedFrames - headPos
             DebugLog.log(TAG, "aud: w=$written/$count buf=$bufLevel")
         }
     }
@@ -136,8 +151,36 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
     fun flush() {
         audioTrack?.pause()
         audioTrack?.flush()
+        // Rebuild the reservoir; a flush throws it away with everything else.
+        primeSilence(sampleRate / 4)
         audioTrack?.play()
         framesWritten = 0L
+    }
+
+    /**
+     * Queue [frames] of silence so the device has something in hand.
+     *
+     * NON_BLOCKING deliberately: this runs before play(), when nothing is
+     * consuming, so a blocking write would fill the buffer and then wait for
+     * a reader that does not exist yet — hanging the thread that starts
+     * playback. A short write just means the buffer is full, which is the
+     * point at which we want to stop anyway.
+     */
+    private fun primeSilence(frames: Int) {
+        val track = audioTrack ?: return
+        primedFrames = 0
+        try {
+            val chunk = ShortArray(2048)          // stereo pairs, all zero
+            var left = frames * 2                 // two samples per frame
+            while (left > 0) {
+                val n = minOf(chunk.size, left)
+                val w = track.write(chunk, 0, n, AudioTrack.WRITE_NON_BLOCKING)
+                if (w <= 0) break                 // buffer full, or refused
+                left -= w
+                primedFrames += w / 2
+            }
+        } catch (_: Throwable) {
+        }
     }
 
     fun stop() {
