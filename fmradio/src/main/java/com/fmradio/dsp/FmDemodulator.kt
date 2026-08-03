@@ -62,9 +62,15 @@ class FmDemodulator(
      *   empty channel   ~ -7.8 dB   (the band's share of the window, noise only)
      *   station present ~ -2 dB     (the carrier fills its own channel)
      */
-    fun measureChannelRatioDb(iqData: ByteArray, decimation: Int = 8): Float {
+    /**
+     * [0] = power inside +/-80 kHz of the tuned frequency, in dB.
+     * [1] = that power as a share of the whole window, in dB.
+     *
+     * Both come from one pass because a sweep runs this at every step.
+     */
+    fun measureChannel(iqData: ByteArray, decimation: Int = 8): FloatArray {
         val numSamples = iqData.size / 2
-        if (numSamples < CHAN_TAPS * 4) return -100f
+        if (numSamples < CHAN_TAPS * 4) return floatArrayOf(-100f, -100f)
 
         var totalPower = 0.0
         var bandPower = 0.0
@@ -99,11 +105,17 @@ class FmDemodulator(
                 }
             }
         }
-        if (bandCount == 0 || totalPower <= 0.0) return -100f
+        if (bandCount == 0 || totalPower <= 0.0) return floatArrayOf(-100f, -100f)
         val band = bandPower / bandCount
         val total = totalPower / numSamples
-        return (10.0 * log10(band / total + 1e-12)).toFloat()
+        return floatArrayOf(
+            (10.0 * log10(band + 1e-12)).toFloat(),
+            (10.0 * log10(band / total + 1e-12)).toFloat())
     }
+
+    /** Just the share — kept for the seek, which only needs that test. */
+    fun measureChannelRatioDb(iqData: ByteArray, decimation: Int = 8): Float =
+        measureChannel(iqData, decimation)[1]
 
     private val intermediateRate: Int = 192000
     private val stage1Decimation = inputSampleRate / intermediateRate  // 5 at 960 kHz

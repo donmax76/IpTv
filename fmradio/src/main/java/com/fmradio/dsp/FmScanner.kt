@@ -261,7 +261,15 @@ class FmScanner(private val device: RtlSdrDevice) {
             device.resetBuffer()
             val noiseSamples = device.readSamples(MEASUREMENT_SAMPLES)
             if (noiseSamples != null) {
-                noiseFloor = demodulator.measureSignalStrength(noiseSamples)
+                // Measured the same way as every step of the sweep: the power
+                // in the tuned channel, not in the whole window. The window
+                // figure was never a noise floor — at 87.4 MHz the 960 kHz it
+                // spans still holds the bottom of the band, so it read -13.9 dB
+                // in the field and put the bar at -7.9 while the strongest
+                // station in the city measured -6.8. One station found out of a
+                // full band, and no threshold on that number could have done
+                // better, because the number barely changes as you tune.
+                noiseFloor = demodulator.measureChannel(noiseSamples)[0]
             }
 
             // Relative to the measured noise floor, NOT to an absolute number.
@@ -281,6 +289,7 @@ class FmScanner(private val device: RtlSdrDevice) {
                 "scan: noise floor %.1f dB, threshold %.1f dB".format(noiseFloor, adaptiveThreshold))
 
             com.fmradio.util.StartupLog.write("scan: sweep begin ${startFreq/1000}kHz..${endFreq/1000}kHz")
+            val sweep = ArrayList<Triple<Long, Float, Float>>()
             var freq = startFreq
             while (freq <= endFreq && scanning) {
                 device.setFrequency(freq)
@@ -294,8 +303,9 @@ class FmScanner(private val device: RtlSdrDevice) {
                 for (m in 0 until MEASUREMENTS_PER_FREQ) {
                     val samples = device.readSamples(MEASUREMENT_SAMPLES)
                     if (samples != null && samples.isNotEmpty()) {
-                        signalSum += demodulator.measureSignalStrength(samples)
-                        ratioSum += demodulator.measureChannelRatioDb(samples)
+                        val ch = demodulator.measureChannel(samples)
+                        signalSum += ch[0]
+                        ratioSum += ch[1]
                         validMeasurements++
                     }
                 }
@@ -304,18 +314,8 @@ class FmScanner(private val device: RtlSdrDevice) {
                     val avgSignal = signalSum / validMeasurements
                     val avgRatio = ratioSum / validMeasurements
                     if (avgSignal > bestSeen) bestSeen = avgSignal
-                    // Both have to agree. The level says something is being
-                    // received at all; the ratio says it is centred HERE rather
-                    // than a neighbour bleeding into the same 960 kHz window,
-                    // which is the part the level alone can never tell — and
-                    // the reason a level-only sweep returns everything or
-                    // nothing depending on where its bar happens to sit.
-                    if (avgSignal > adaptiveThreshold && avgRatio > CHANNEL_RATIO_DB) {
-                        val result = ScanResult(freq, avgSignal)
-                        stations.add(result)
-                        Log.i(TAG, "Signal found: ${result.displayFrequency} MHz ($avgSignal dB)")
-                        withContext(Dispatchers.Main) { listener.onStationFound(result) }
-                    }
+                    // Decided after the sweep, not here: see below.
+                    sweep.add(Triple(freq, avgSignal, avgRatio))
                 }
 
                 currentStep++
@@ -323,6 +323,33 @@ class FmScanner(private val device: RtlSdrDevice) {
                 withContext(Dispatchers.Main) { listener.onScanProgress(freq, progress) }
 
                 freq += step
+            }
+
+            // The floor comes from the band itself, taken as the median of
+            // every step. A single reading at one "quiet" frequency is not a
+            // floor: the field log measured -13.9 dB that way, put the bar at
+            // -7.9, and the strongest station in the city came in at -6.8 — one
+            // station found in a whole band. Most of the FM grid is empty even
+            // in a city, so the middle of the sweep IS the noise floor, and it
+            // cannot be fooled by whatever happens to sit at the edge.
+            if (sweep.isNotEmpty()) {
+                val median = sweep.map { it.second }.sorted()[sweep.size / 2]
+                val bar = maxOf(ABSOLUTE_FLOOR_DB, median + SIGNAL_MARGIN_DB)
+                com.fmradio.util.StartupLog.write(
+                    ("scan: median %.1f dB, bar %.1f dB (edge sample was %.1f), " +
+                     "%d steps measured").format(median, bar, noiseFloor, sweep.size))
+                for ((f, lvl, ratio) in sweep) {
+                    // Both have to agree. The level says something is being
+                    // received at all; the ratio says it is centred HERE rather
+                    // than a neighbour bleeding into the same 960 kHz window,
+                    // which is the part the level alone can never tell.
+                    if (lvl > bar && ratio > CHANNEL_RATIO_DB) {
+                        val result = ScanResult(f, lvl)
+                        stations.add(result)
+                        Log.i(TAG, "Signal found: ${result.displayFrequency} MHz ($lvl dB, ratio $ratio)")
+                        withContext(Dispatchers.Main) { listener.onStationFound(result) }
+                    }
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Scan error", e)
