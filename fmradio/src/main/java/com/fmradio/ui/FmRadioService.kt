@@ -70,7 +70,22 @@ class FmRadioService : Service() {
         // station is not grossly overloaded for the first seconds.
         private const val IF_GAIN_START_STEP = 20
         // Any sustained clipping at all is already audible on FM.
-        private const val CLIP_LIMIT_PCT = 0.02f
+        // What counts as overload, as a PERCENTAGE of samples pinned at the
+        // rails. This was 0.02 — two hundredths of one per cent — which a
+        // healthy signal exceeds all the time: a field log at the correct level
+        // (rms 0.27, dead on target) read 0.10 to 0.37 every single decision.
+        // So the clip branch fired continuously, slammed the gain down 12 dB,
+        // the level collapsed to 0.07, the loop wound it back up, and it
+        // clipped again — a permanent 12 dB oscillation twice a second. That is
+        // audible as the constant hiss and roughness, and it moves the RDS
+        // carrier so far that block sync cannot hold.
+        //
+        // In the same log a genuine burst read 7.3%, so 1% separates the two
+        // cleanly with room on both sides.
+        private const val CLIP_LIMIT_PCT = 1.0f
+        // Clipping has to be there on two decisions running before the loop
+        // acts on it. One noisy 200 ms window is not overload.
+        private const val CLIP_CONFIRM = 2
         // Log a steady-state line every ~10 s so field logs show the level.
         private const val GAIN_LOG_TICKS = 50
 
@@ -708,6 +723,7 @@ class FmRadioService : Service() {
             dev.setFc0013IfGainStep(step)
             var settleTicks = 0
             var settleAfterChange = 0
+            var clipRun = 0
             while (isActive && isPlaying) {
                 // Average the meters over the whole interval instead of taking
                 // one reading. Each reading covers a single 17 ms USB block,
@@ -734,6 +750,9 @@ class FmRadioService : Service() {
 
                 // After a change, let the tuner and the meters settle before
                 // judging the result, or the loop reacts to its own move.
+                // Count consecutive decisions that saw clipping.
+                clipRun = if (clip > CLIP_LIMIT_PCT) clipRun + 1 else 0
+
                 if (settleAfterChange > 0) {
                     settleAfterChange--
                     continue
@@ -744,10 +763,11 @@ class FmRadioService : Service() {
                 // at a time is fine once settled but hopeless from a cold
                 // start, which is where the audible problem was.
                 val newStep = when {
-                    clip > CLIP_LIMIT_PCT -> {
+                    clipRun >= CLIP_CONFIRM -> {
                         // Clipping compresses the reading, so rms understates
-                        // how far out we are. Move decisively.
-                        step - maxOf(2, ((clip / CLIP_LIMIT_PCT).toInt()).coerceAtMost(6))
+                        // how far out we are — but not by 12 dB. One to three
+                        // steps, 2 to 6 dB, and then look again.
+                        step - (clip / CLIP_LIMIT_PCT).toInt().coerceIn(1, 3)
                     }
                     rms > ADC_RMS_HIGH || rms < ADC_RMS_LOW -> {
                         val errDb = 20.0 * kotlin.math.log10((rms / ADC_RMS_TARGET).toDouble())
@@ -759,6 +779,7 @@ class FmRadioService : Service() {
 
                 if (newStep != step) {
                     step = newStep
+                    clipRun = 0
                     com.fmradio.util.StatusSnapshot.gainStep = step
                     dev.setFc0013IfGainStep(step)
                     settleTicks = 0
