@@ -73,10 +73,25 @@ class FmRadioService : Service() {
         // essentially nothing. It costs 3.5 dB of quantisation noise, and at
         // this bandwidth that sits some 45 dB below the audio — far under the
         // station's own noise floor, so it is not a trade at all in practice.
-        private const val ADC_RMS_HIGH = 0.24f
-        private const val ADC_RMS_LOW = 0.13f
+        // The dead zone must be at least one gain step wide or the loop hunts:
+        // a 2 dB step would carry it straight across a narrower one. But it was
+        // 0.13 to 0.24, which is 5.3 dB — more than twice a step — and the loop
+        // duly settled wherever it first landed inside it. On the reported
+        // station that was 0.133 to 0.146 every time, against a target of 0.18.
+        //
+        // Sitting at the bottom of the zone throws away ADC range, and in an
+        // 8-bit converter that is quantisation noise straight into the audio:
+        // 0.14 gives 53.9 dB in the audio band where 0.21 gives 57.4 dB. So the
+        // clipping fix cost 5.7 dB against the 0.27 it replaced, and more than
+        // half of that was the zone being loose rather than the target being
+        // low. The field data bounds the top: clipping is 0.000% at 0.218,
+        // 0.02-0.22% at 0.24, and only becomes real at 0.257.
+        //
+        // 0.185 to 0.240 is 2.26 dB — just over one step, so still no hunting.
+        private const val ADC_RMS_HIGH = 0.240f
+        private const val ADC_RMS_LOW = 0.185f
         // Middle of the dead zone — what the proportional correction aims at.
-        private const val ADC_RMS_TARGET = 0.18f
+        private const val ADC_RMS_TARGET = 0.21f
         // Where the loop starts. Mid-scale rather than maximum so a strong
         // station is not grossly overloaded for the first seconds.
         private const val IF_GAIN_START_STEP = 20
