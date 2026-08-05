@@ -131,8 +131,25 @@ class FmRadioService : Service() {
 
         // More buffers than the channel can hold, so the producer can never
         // wrap onto one the consumer is still reading.
-        private const val RDS_POOL = 16
-        private const val RDS_QUEUE = 12
+        // The queue was 12 packets — 205 ms. A field report on a station with
+        // the cleanest signal this receiver has ever produced (noise 0.027, USB
+        // at 100.0% with no lost reads, DSP not behind) still showed
+        // "dropped=13(+0 at start)": thirteen wideband packets lost in thirty
+        // seconds, none of them during startup. One every two seconds, 0.7% of
+        // the total, spread evenly — which is a consumer that stalls now and
+        // then for longer than 205 ms, not one that is too slow on average. A
+        // deficit would have emptied the queue and kept dropping.
+        //
+        // Every one of those is a discontinuity, and RDS carries its bit clock
+        // and its differential phase across packet boundaries — it cannot bridge
+        // even one. That is why sync never held on a signal that should carry
+        // RDS easily, and it is why the conclusion that RDS was signal-limited
+        // was wrong.
+        //
+        // Text tolerates latency; it does not tolerate gaps. 48 packets is
+        // 819 ms of slack for a stall to hide in, and the pool costs 1.5 MB.
+        private const val RDS_POOL = 64
+        private const val RDS_QUEUE = 48
     }
 
     // Dedicated single-thread dispatcher for USB streaming.
