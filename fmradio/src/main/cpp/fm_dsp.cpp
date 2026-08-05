@@ -4,9 +4,10 @@
  * Mirrors the Kotlin FmDemodulator pipeline but runs ~3-5× faster on
  * mid-range phones thanks to native compilation and aggressive opts.
  *
- * Pipeline: IQ bytes → DC removal → IF LPF (64 taps) → Decimate /6 →
- *   FM discriminator → Pilot PLL → Stereo decode → Audio LPF (32 taps) →
- *   Decimate /4 → De-emphasis → Soft-clip → PCM 16-bit
+ * Pipeline: IQ bytes (960 kHz) → DC removal → IF LPF (96 taps, 110 kHz) →
+ *   Decimate /4 → FM discriminator (240 kHz) → Pilot PLL → Stereo decode →
+ *   Audio LPF (96 taps, 15 kHz) → Decimate /5 → De-emphasis → Soft-clip →
+ *   PCM 16-bit (48 kHz)
  *
  * RDS path: wideband baseband + pilot phase at buf[0] → JNI getter
  */
@@ -22,15 +23,58 @@
 // 960 kHz instead of 1.152 MHz: the BYD DiLink USB host sustains only
 // ~2.26 MB/s, so at 1.152 MHz (2.304 MB/s) ~1.8% of IQ samples were lost
 // (measured from field logs) — heard as clicks and killing RDS sync with
-// phase discontinuities. 1.92 MB/s leaves ~15% bus headroom; the
-// intermediate rate stays 192 kHz so the whole DSP chain is unchanged.
+// phase discontinuities. 1.92 MB/s leaves ~15% bus headroom.
+//
+// The intermediate rate is 240 kHz, not the 192 kHz used until now.
+//
+// "There is no noise in silence, only when there is sound" is the description
+// of distortion, not of noise, and it points straight at bandwidth. Carson's
+// rule for broadcast FM is 2*(dev + max modulating freq):
+//     mono, quiet   2*(75+15) = 180 kHz -> +/- 90 kHz
+//     stereo        2*(75+53) = 256 kHz -> +/-128 kHz
+//     stereo + RDS  2*(75+57) = 264 kHz -> +/-132 kHz
+// At 192 kHz the Nyquist limit after stage 1 is +/-96 kHz and the anti-alias
+// filter cut at 90 kHz, so the sidebands a loud stereo programme generates
+// were being truncated. Silence makes the spectrum narrow and nothing is cut;
+// programme makes it wide and the tails are lost, which is exactly when it was
+// heard. Simulated with a full 75 kHz-deviation stereo composite carrying
+// pilot, 38 kHz subcarrier and RDS, measuring SINAD of the recovered L-R:
+//     programme level   192 kHz/90 kHz    240 kHz/110 kHz
+//     near silence        63.0 dB            89.6 dB
+//     quiet               62.9 dB            88.6 dB
+//     medium              56.7 dB            79.4 dB
+//     loud                45.8 dB            60.9 dB
+// The distortion tracks loudness on the old chain and largely stops doing so
+// on the new one. Both the rate and the filter have to move together: 240 kHz
+// with the cutoff left at 90 kHz measured 45.9 dB, i.e. no better than before.
+//
+// 4 keeps every rate exact — 960/4 = 240 kHz, and 240/48 = 5 for the audio
+// stage — so no resampling is introduced anywhere.
 static constexpr int SAMPLE_RATE = 960000;
-static constexpr int STAGE1_DEC = 5;
-static constexpr int INTERMEDIATE_RATE = SAMPLE_RATE / STAGE1_DEC; // 192000
+static constexpr int STAGE1_DEC = 4;
+static constexpr int INTERMEDIATE_RATE = SAMPLE_RATE / STAGE1_DEC; // 240000
 static constexpr int AUDIO_RATE = 48000;
-static constexpr int STAGE2_DEC = INTERMEDIATE_RATE / AUDIO_RATE;  // 4
+static constexpr int STAGE2_DEC = INTERMEDIATE_RATE / AUDIO_RATE;  // 5
 static constexpr float PI_F = 3.14159265358979323846f;
 static constexpr double PI_D = 3.14159265358979323846;
+
+// Keeps the "noise" reading meaning what it meant before the IF filter moved.
+//
+// The reading is the RMS of the demodulated composite in a narrow band at
+// 84 kHz — above anything a station transmits, so it is demodulation noise.
+// Widening the IF filter lets more of that band through, so the same reception
+// reads higher through no change in reception. Simulated across 10-35 dB SNR,
+// the identical signal through both chains gave a ratio of 2.049 (6.23 dB),
+// stable to within 3% over the whole range.
+//
+// This matters more than it looks. Every threshold below it — NOISE_STEREO_FULL
+// at 0.030, NOISE_HICUT_START at 0.045 — was calibrated against field readings
+// from the car. Uncompensated, readings of 0.017-0.027 (the best ever recorded
+// there, after the antenna went on the roof) would come back as 0.035-0.055:
+// past the stereo threshold and past the treble roll-off threshold, collapsing
+// a perfect signal to mono with the highs cut. The audio would have got worse
+// while every measurement said it got better.
+static constexpr float NOISE_PROBE_CAL = 1.0f / 2.049f;
 
 // ========== Byte→Float LUT ==========
 static float byteLut[256];
@@ -44,22 +88,46 @@ static void initLut() {
 }
 
 // ========== Filter design ==========
+/**
+ * Windowed-sinc low-pass, symmetric about the true centre of the kernel.
+ *
+ * The centre used to be order/2 while the window was centred on (order-1)/2 —
+ * half a sample apart. The response was near enough, but the kernel came out
+ * very slightly asymmetric, and an asymmetric kernel cannot be folded. Both
+ * FIRs here are long and run on every sample, so folding is worth having:
+ * c[i] == c[order-1-i] lets one multiply serve two taps, which is what pays
+ * for the longer filters this chain needs.
+ *
+ * Only the first half is computed; the second half is copied from it. Working
+ * it out twice from sinf() and cosf() gives answers that differ in the last
+ * bit or two, and "symmetric to within 1.5e-8" is not the same claim as
+ * "symmetric", which is the one the folded convolution below relies on.
+ */
 static void designLpf(float* coeffs, int order, float normCutoff) {
-    int mid = order / 2;
-    float sum = 0;
-    for (int i = 0; i < order; i++) {
-        int n = i - mid;
-        if (n == 0)
-            coeffs[i] = 2.0f * normCutoff;
+    const double mid = (order - 1) * 0.5;
+    const int half = (order + 1) / 2;
+    double sum = 0;
+    for (int i = 0; i < half; i++) {
+        double n = (double)i - mid;
+        double v;
+        if (fabs(n) < 1e-9)
+            v = 2.0 * normCutoff;
         else
-            coeffs[i] = sinf(2.0f * PI_F * normCutoff * n) / (PI_F * n);
+            v = sin(2.0 * PI_D * normCutoff * n) / (PI_D * n);
         // Blackman-Harris window — ~92 dB stopband
-        float w = (float)i / (float)(order - 1);
-        coeffs[i] *= 0.35875f - 0.48829f * cosf(2*PI_F*w)
-                    + 0.14128f * cosf(4*PI_F*w) - 0.01168f * cosf(6*PI_F*w);
-        sum += coeffs[i];
+        double w = (double)i / (double)(order - 1);
+        v *= 0.35875 - 0.48829 * cos(2*PI_D*w)
+           + 0.14128 * cos(4*PI_D*w) - 0.01168 * cos(6*PI_D*w);
+        coeffs[i] = (float)v;
+        coeffs[order - 1 - i] = (float)v;
+        sum += (i == order - 1 - i) ? v : 2.0 * v;
     }
-    for (int i = 0; i < order; i++) coeffs[i] /= sum;
+    const float inv = (float)(1.0 / sum);
+    for (int i = 0; i < half; i++) {
+        const float g = coeffs[i] * inv;
+        coeffs[i] = g;
+        coeffs[order - 1 - i] = g;
+    }
 }
 
 // ========== Fast atan2 (from rtl_fm) ==========
@@ -100,24 +168,55 @@ struct DspState {
     float prevI = 0, prevQ = 0;
     float fmGain;
 
-    // IF LPF (64 taps, double-buffer to eliminate modulo)
-    static constexpr int IF_LPF_ORDER = 64;
+    // IF LPF (double-buffer to eliminate modulo)
+    //
+    // 96 taps, not 64. The cutoff moved out to 110 kHz and a window-designed
+    // FIR has a transition width of roughly 4*fs/order, so at 64 taps that
+    // cutoff would leave the first adjacent channel only 45 dB down at
+    // 150 kHz instead of the 110 dB the old narrow filter gave — trading
+    // distortion for interference, which is not a trade. Measured stopband
+    // at 150 kHz: 64 taps -45.1 dB, 80 taps -69.4 dB, 88 taps -88.5 dB,
+    // 96 taps -110.8 dB. 96 is where it comes back to where it was.
+    static constexpr int IF_LPF_ORDER = 96;
     float ifCoeffs[IF_LPF_ORDER];
     float ifBufI[IF_LPF_ORDER * 2] = {};
     float ifBufQ[IF_LPF_ORDER * 2] = {};
     int ifBufIdx = 0;
     int stage1Counter = 0;
 
-    // Audio LPF (32 taps, double-buffer)
+    // Audio LPF (double-buffer)
     // 32 taps was far too short for a 15 kHz cut at 192 kHz: measured, it
     // left the 19 kHz pilot only 10.8 dB down and the bottom of the stereo
     // band 18.3 dB down. Both land in the audio — the pilot as a constant
     // tone, present in MONO too, since it rides on the composite and the
-    // stereo decoder has nothing to do with it. 48 taps takes 30 kHz from
-    // -39 dB to -92 dB, which is what kills the aliasing; the pilot itself
-    // needs the notch below, because no filter of a sane length can put a
-    // 15 kHz passband edge and a deep stop 4 kHz apart.
-    static constexpr int AUDIO_LPF_ORDER = 48;
+    // stereo decoder has nothing to do with it. The pilot itself needs the
+    // notch below, because no filter of a sane length can put a 15 kHz
+    // passband edge and a deep stop 4 kHz apart.
+    //
+    // 96 taps, not 48, because a window-designed FIR has a transition width of
+    // roughly 4*fs/order and this filter now runs at 240 kHz rather than
+    // 192 kHz: keeping 48 would have made it materially worse than the version
+    // it replaced.
+    //
+    // This is the anti-alias filter for the drop to 48 kHz, so a component at
+    // f in the composite lands at |f mod 48k| folded into 0-24 kHz. Attenuation
+    // where it matters, measured:
+    //     MPX     lands at   48t@192k   48t@240k   96t@240k
+    //                       (shipped)    (naive)   (chosen)
+    //      19k       19.0k     -14.5      -12.4      -22.8
+    //      23k       23.0k     -29.4      -22.5      -63.8
+    //      30k       18.0k     -92.1      -54.9     -112.8
+    //      38k       10.0k    -115.9     -112.5     -114.9
+    //      47k        1.0k    -112.5     -119.1     -129.9
+    // Note what this does NOT say: the shipped filter was already better than
+    // 110 dB everywhere that folds into the audible range, so stage 2 was not
+    // a source of audible noise and this change does not fix one. The weak
+    // points at 19-25 kHz fold to 19-23 kHz, above hearing. The point of 96
+    // taps is only to keep that true at the higher rate — at 48 taps the
+    // 30 kHz component, which folds to an audible 18 kHz, would have gone from
+    // 92 dB down to 55 dB down. The real fix for the noise is the IF filter
+    // above; this is here so that fix does not cost something elsewhere.
+    static constexpr int AUDIO_LPF_ORDER = 96;
     float audioCoeffs[AUDIO_LPF_ORDER];
     // 19 kHz notch on the mono path. Five multiplies a sample against a tone
     // that no FM receiver should ever pass to its output.
@@ -339,7 +438,7 @@ struct DspState {
     double pilotAlphaFast, pilotBetaFast;
     // false = acquiring (wide loop), true = tracking (narrow loop)
     bool pllTrackGear = false;
-    // How long the pilot has been continuously present, in 192 kHz samples.
+    // How long the pilot has been continuously present, in intermediate-rate samples.
     int pllLockSamples = 0;
     // Hold the pilot for this long before narrowing the loop. 0.4 s is well
     // past the wide loop's settling time and short enough that a listener
@@ -363,10 +462,14 @@ struct DspState {
         fmGainLow     = fmGainBase * 0.65f;  // TEST 1: more headroom
         fmGain = fmGainDefault;
 
-        // IF filter: 90 kHz cutoff — must stay below the post-decimation
-        // Nyquist (192 kHz / 2 = 96 kHz); a 120 kHz cutoff aliased the
-        // 96-120 kHz band (noise + adjacent channels) into the signal.
-        designLpf(ifCoeffs, IF_LPF_ORDER, 90000.0f / SAMPLE_RATE);
+        // IF filter: 110 kHz cutoff — must stay below the post-decimation
+        // Nyquist, which is now 240/2 = 120 kHz. (At the old 192 kHz that
+        // ceiling was 96 kHz, which is why the cutoff had to be 90 kHz and why
+        // a 120 kHz cutoff aliased the 96-120 kHz band into the signal back
+        // then.) 110 kHz leaves 10 kHz of margin below Nyquist and passes the
+        // stereo+RDS sidebands that were being truncated — see the note on
+        // STAGE1_DEC.
+        designLpf(ifCoeffs, IF_LPF_ORDER, 110000.0f / SAMPLE_RATE);
         // Audio filter: 15 kHz cutoff
         designLpf(audioCoeffs, AUDIO_LPF_ORDER, 15000.0f / INTERMEDIATE_RATE);
         {
@@ -824,10 +927,13 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
         const float* bI = &d.ifBufI[d.ifBufIdx];
         const float* bQ = &d.ifBufQ[d.ifBufIdx];
         const float* coeffs = d.ifCoeffs;
-        for (int j = 0; j < DspState::IF_LPF_ORDER; j++) {
+        // Folded: the kernel is symmetric, so one multiply serves both taps of
+        // each mirror pair. Half the multiplies for an identical result — this
+        // is what makes 96 taps affordable on a head unit.
+        for (int j = 0; j < DspState::IF_LPF_ORDER / 2; j++) {
             int p = DspState::IF_LPF_ORDER - 1 - j;
-            filtI += bI[p] * coeffs[j];
-            filtQ += bQ[p] * coeffs[j];
+            filtI += (bI[p] + bI[j]) * coeffs[j];
+            filtQ += (bQ[p] + bQ[j]) * coeffs[j];
         }
 
         // FM discriminator: conjugate multiply + atan2
@@ -846,7 +952,7 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
             d.nzY2 = d.nzY1; d.nzY1 = y;
             d.nzAcc += y * y;
             if (++d.nzCount >= d.nzWindow) {
-                float rms = (float)sqrt(d.nzAcc / d.nzCount);
+                float rms = (float)sqrt(d.nzAcc / d.nzCount) * NOISE_PROBE_CAL;
                 d.nzAcc = 0; d.nzCount = 0;
                 d.noiseEma += DspState::NOISE_EMA_A * (rms - d.noiseEma);
                 d.noiseLevel = d.noiseEma;
@@ -1025,10 +1131,12 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
         const float* mB = &d.monoLpfBuf[d.monoLpfIdx];
         const float* dB = &d.diffLpfBuf[d.diffLpfIdx];
         const float* aC = d.audioCoeffs;
-        for (int j = 0; j < DspState::AUDIO_LPF_ORDER; j++) {
+        // Folded, same as the IF filter above — symmetric kernel, half the
+        // multiplies, identical output.
+        for (int j = 0; j < DspState::AUDIO_LPF_ORDER / 2; j++) {
             int p = DspState::AUDIO_LPF_ORDER - 1 - j;
-            filtMono += mB[p] * aC[j];
-            filtDiff += dB[p] * aC[j];
+            filtMono += (mB[p] + mB[j]) * aC[j];
+            filtDiff += (dB[p] + dB[j]) * aC[j];
         }
 
         // Stereo matrix — blend factor ramps smoothly based on pilot detection.

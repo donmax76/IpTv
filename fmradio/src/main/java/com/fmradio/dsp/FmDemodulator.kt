@@ -5,9 +5,9 @@ import kotlin.math.*
 /**
  * High-quality FM demodulation pipeline based on SDR++/rtl_fm/librtlsdr.
  *
- * IQ (960 kHz) → DC removal → IF LPF → Decimate /5 → FM discriminator (192 kHz)
+ * IQ (960 kHz) → DC removal → IF LPF → Decimate /4 → FM discriminator (240 kHz)
  *   → Pilot PLL (locks 19 kHz) → pilotPhase×2 = 38 kHz for stereo L-R
- *   → Wideband baseband output + pilotPhase (for RDS decoder at 192 kHz)
+ *   → Wideband baseband output + pilotPhase (for RDS decoder at 240 kHz)
  *   → Stereo decode: L+R (mono LPF) and L-R (38 kHz demod + LPF)
  *   → Decimate /4 → De-emphasis (50µs) → Squelch → Stereo PCM (48 kHz)
  *
@@ -23,8 +23,24 @@ class FmDemodulator(
     companion object {
         // 960 kHz: the BYD DiLink USB host can't sustain 1.152 MHz (2.304 MB/s)
         // and lost ~1.8% of samples — clicks in audio, broken RDS sync.
-        // 960 kHz = 1.92 MB/s with headroom; intermediate stays 192 kHz.
+        // 960 kHz = 1.92 MB/s with headroom.
         const val RECOMMENDED_SAMPLE_RATE = 960000
+
+        /**
+         * The composite (MPX) rate between the two decimation stages, and the
+         * rate the RDS decoder is fed at.
+         *
+         * 240 kHz, raised from 192 kHz: at 192 kHz the Nyquist ceiling after
+         * stage 1 is +/-96 kHz, and a loud stereo programme with RDS needs
+         * +/-132 kHz by Carson's rule, so its sidebands were truncated. That is
+         * why distortion appeared only when a station was actually playing.
+         * See the note above STAGE1_DEC in fm_dsp.cpp for the measurements.
+         *
+         * It lives here because the native DSP, the Kotlin fallback and the RDS
+         * decoder all have to agree on it, and they previously agreed only by
+         * three separate copies of the number 192000.
+         */
+        const val INTERMEDIATE_RATE = 240000
 
         // Channel filter for measureChannelRatioDb: +/-80 kHz at 960 kHz.
         private const val CHAN_TAPS = 33
@@ -117,9 +133,9 @@ class FmDemodulator(
     fun measureChannelRatioDb(iqData: ByteArray, decimation: Int = 8): Float =
         measureChannel(iqData, decimation)[1]
 
-    private val intermediateRate: Int = 192000
-    private val stage1Decimation = inputSampleRate / intermediateRate  // 5 at 960 kHz
-    private val stage2Decimation: Int = intermediateRate / audioSampleRate  // 4
+    private val intermediateRate: Int = INTERMEDIATE_RATE
+    private val stage1Decimation = inputSampleRate / intermediateRate  // 4 at 960 kHz
+    private val stage2Decimation: Int = intermediateRate / audioSampleRate  // 5
 
     // DC removal (IIR high-pass)
     // Use faster alpha for quicker convergence on frequency change
@@ -143,11 +159,11 @@ class FmDemodulator(
     private val deEmphasisAlpha: Float
 
     // IF low-pass filter (before stage 1 decimation).
-    // 64 taps with Blackman-Harris: ~95 dB stopband, ~45 kHz transition band at
-    // 1.152 MHz fs. Cutoff 120 kHz so the full ±100 kHz FM-broadcast spectrum
-    // (Carson) passes flat — no peak clipping → no demodulation distortion.
-    // Modest CPU bump over the historical 48 taps; safe on mid-range phones.
-    private val ifLpfOrder = 64
+    // 96 taps with Blackman-Harris, cutoff 110 kHz — the same geometry as the
+    // native DSP, so the fallback does not sound different from the real path.
+    // 64 taps at a 110 kHz cutoff would leave the first adjacent channel only
+    // 45 dB down at 150 kHz; 96 taps puts it back at 111 dB.
+    private val ifLpfOrder = 96
     private val ifLpfCoeffs: FloatArray
     // Double-buffer trick: size 2×N, write to both halves, filter without modulo
     private var ifBufI = FloatArray(ifLpfOrder * 2)
@@ -155,10 +171,11 @@ class FmDemodulator(
     private var ifBufIdx = 0
 
     // Audio low-pass filters — separate for L+R (mono) and L-R (stereo difference).
-    // 32 taps: 15 kHz cutoff at 192 kHz with ~90 dB stopband — clean anti-alias
-    // before /4 decimation to 48 kHz. Lower CPU than longer filters; the 19 kHz
-    // pilot residue is well below the noise floor of broadcast FM at this length.
-    private val audioLpfOrder = 32
+    // 96 taps, 15 kHz cutoff at 240 kHz — matching the native DSP. The claim
+    // that 32 taps left "pilot residue below the noise floor" was wrong:
+    // measured, 32 taps left the 19 kHz pilot only 10.8 dB down. See the note
+    // on AUDIO_LPF_ORDER in fm_dsp.cpp for what folds where.
+    private val audioLpfOrder = 96
     private val audioLpfCoeffs: FloatArray
     // Double-buffer trick: eliminates modulo in filter inner loop
     private var monoLpfBuf = FloatArray(audioLpfOrder * 2)    // L+R channel
@@ -223,7 +240,7 @@ class FmDemodulator(
     private var signalQualityCount = 0
     private var squelchOpen = true  // Start OPEN so user hears audio immediately
     private var squelchLevel = 1f   // Start at full level — squelch closes if no signal
-    // Squelch ramp rates (per intermediate sample at 192 kHz)
+    // Squelch ramp rates (per intermediate sample at the intermediate rate)
     private val squelchAttack = 1f / (0.1f * intermediateRate)   // 100ms to open (smooth fade-in)
     private val squelchRelease = 1f / (0.3f * intermediateRate)  // 300ms to close (gradual for driving)
     private val squelchOpenThreshold = 0.03f   // Modulation level to OPEN squelch
@@ -255,9 +272,11 @@ class FmDemodulator(
         val dt = 1f / audioSampleRate
         deEmphasisAlpha = dt / (tau + dt)
 
-        // IF filter: 120 kHz cutoff. Wide enough to pass full FM broadcast spectrum
-        // (Carson ≈ ±90 kHz incl. RDS at ±57 kHz) flat — no edge clipping.
-        ifLpfCoeffs = designLowPassFilter(ifLpfOrder, 90000f / inputSampleRate)
+        // IF filter: 110 kHz cutoff, under the 120 kHz Nyquist that the 240 kHz
+        // intermediate rate allows. The comment here used to say "120 kHz" while
+        // the code said 90 kHz; both the number and the reasoning are now in one
+        // place — see STAGE1_DEC in fm_dsp.cpp.
+        ifLpfCoeffs = designLowPassFilter(ifLpfOrder, 110000f / inputSampleRate)
         // Audio filter: 15 kHz cutoff — standard FM mono audio
         audioLpfCoeffs = designLowPassFilter(audioLpfOrder, 15000f / intermediateRate)
 
@@ -383,7 +402,7 @@ class FmDemodulator(
             ifBufQ[ifBufIdx + ifLpfOrder] = qSample
             ifBufIdx = (ifBufIdx + 1) % ifLpfOrder
 
-            // Stage 1 decimation: input rate → 192 kHz
+            // Stage 1 decimation: input rate → 240 kHz
             stage1Counter++
             if (stage1Counter < stage1Decimation) continue
             stage1Counter = 0
@@ -524,7 +543,7 @@ class FmDemodulator(
             monoLpfIdx = (monoLpfIdx + 1) % audioLpfOrder
             diffLpfIdx = (diffLpfIdx + 1) % audioLpfOrder
 
-            // Stage 2 decimation: 192 kHz → 48 kHz
+            // Stage 2 decimation: 240 kHz → 48 kHz
             stage2Counter++
             if (stage2Counter < stage2Decimation) continue
             stage2Counter = 0

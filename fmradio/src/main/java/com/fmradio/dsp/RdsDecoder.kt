@@ -13,7 +13,7 @@ import kotlin.math.*
  * Extracts: PS (station name), RT (radio text), PTY (program type),
  * AF (alternate frequencies), TA/TP (traffic announcements).
  */
-class RdsDecoder(private val sampleRate: Int = 192000) {
+class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) {
 
     companion object {
         private const val TAG = "RdsDecoder"
@@ -84,8 +84,11 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
     private var rdsLpfBufQ = FloatArray(rdsLpfOrder * 2)
     private var rdsLpfIdx = 0
 
-    // Decimation from 192 kHz to 24 kHz — more samples per bit for better clock recovery
-    private val rdsDecimation = 8
+    // Down to 24 kHz — more samples per bit for better clock recovery.
+    // Derived, not written as 8: the intermediate rate moved from 192 kHz to
+    // 240 kHz and a fixed 8 would have left the decoder decoding at 30 kHz
+    // while every bit-timing constant here still assumed 24 kHz.
+    private val rdsDecimation = (sampleRate / 24000).coerceAtLeast(1)
     private val rdsRate = sampleRate / rdsDecimation  // 24000
     private var rdsDecimCounter = 0
 
@@ -290,11 +293,20 @@ class RdsDecoder(private val sampleRate: Int = 192000) {
      * three straight into the RDS carrier: about 3.3 Hz of moving frequency
      * error, on a signal already running at 66% block errors. Nominal 57 kHz is
      * strictly better than three times a free-running guess.
+     *
+     * The plausibility window is derived from the sample rate, not written as
+     * the literal 0.6..0.65 it used to be. Those numbers were the 19 kHz pilot
+     * expressed in radians per sample AT 192 kHz (2*pi*19000/192000 = 0.6218).
+     * At the 240 kHz intermediate rate the same pilot is 0.4974, which the old
+     * window rejects — so a perfectly locked PLL would have been discarded on
+     * every station and the carrier left free-running, silently.
      */
     @JvmOverloads
     fun setPilotFreq(pilotFreqRadPerSample: Double, locked: Boolean = true) {
+        val nominalPilot = 2.0 * PI * 19000.0 / sampleRate
         carrierInc = if (locked &&
-            pilotFreqRadPerSample > 0.6 && pilotFreqRadPerSample < 0.65) {
+            pilotFreqRadPerSample > nominalPilot * 0.965 &&
+            pilotFreqRadPerSample < nominalPilot * 1.045) {
             pilotFreqRadPerSample * 3.0
         } else {
             2.0 * PI * 57000.0 / sampleRate

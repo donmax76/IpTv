@@ -582,7 +582,9 @@ class FmRadioService : Service() {
 
         demodulator = FmDemodulator(inputSampleRate = sampleRate, audioSampleRate = 48000)
 
-        rdsDecoder = RdsDecoder(192000).also { rds ->  // intermediate rate is fixed at 192 kHz
+        // The rate must match whatever the DSP hands the wideband buffer at —
+        // native and Kotlin both use FmDemodulator.INTERMEDIATE_RATE.
+        rdsDecoder = RdsDecoder(FmDemodulator.INTERMEDIATE_RATE).also { rds ->
             rds.listener = object : RdsDecoder.RdsListener {
                 override fun onRdsData(data: RdsDecoder.RdsData) {
                     currentRdsData = data
