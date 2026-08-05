@@ -88,8 +88,20 @@ class FmRadioService : Service() {
         // 0.02-0.22% at 0.24, and only becomes real at 0.257.
         //
         // 0.185 to 0.240 is 2.26 dB — just over one step, so still no hunting.
-        private const val ADC_RMS_HIGH = 0.240f
-        private const val ADC_RMS_LOW = 0.185f
+        // The zone must CONTAIN an achievable operating point, and the previous
+        // 0.185..0.240 did not. Measured from the field on this tuner, adjacent
+        // gain steps land at 0.182 and 0.249 — the step is 2.73 dB, not the
+        // 2 dB the datasheet implies — so both sit outside a 2.26 dB zone and
+        // the loop oscillated between them for ever, one change every few
+        // seconds, each one a 2.7 dB jump in everything downstream.
+        //
+        // That was mine, from narrowing the zone to recover ADC range. The
+        // range was worth recovering; the arithmetic was wrong. 0.170..0.265 is
+        // 3.86 dB, wider than the real step with margin for the reading moving
+        // with programme content, so both points are inside and the loop can
+        // stop.
+        private const val ADC_RMS_HIGH = 0.265f
+        private const val ADC_RMS_LOW = 0.170f
         // Middle of the dead zone — what the proportional correction aims at.
         private const val ADC_RMS_TARGET = 0.21f
         // Where the loop starts. Mid-scale rather than maximum so a strong
