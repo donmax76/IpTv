@@ -233,6 +233,8 @@ class FmRadioService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private var mediaSession: MediaSession? = null
+    /** Last text published to the cluster, so identical updates are not resent. */
+    private var lastMetadataKey: String = ""
     private var audioManager: AudioManager? = null
     private var audioFocusRequest: AudioFocusRequest? = null
     private var wakeLock: android.os.PowerManager.WakeLock? = null
@@ -426,22 +428,57 @@ class FmRadioService : Service() {
                 .build()
         )
 
-        val freqText = String.format("%.1f MHz", currentFrequency / 1e6)
-        // Priority: RDS PS → user-entered station name → frequency
-        val stationName = stationStorage.loadStations()
+        publishMetadata()
+    }
+
+    /**
+     * What the car shows on the instrument cluster.
+     *
+     * The cluster reads whatever the active MediaSession publishes, which is
+     * how the stock apps get a "now playing" line next to the speedometer. Three
+     * things were missing for that to work here.
+     *
+     * The DISPLAY_* keys were only half filled in. TITLE/ARTIST is what a phone
+     * notification reads; a lot of head-unit HMIs — Chinese ones especially —
+     * read DISPLAY_TITLE/DISPLAY_SUBTITLE/DISPLAY_DESCRIPTION instead, and fall
+     * back to nothing rather than to TITLE. Both families are filled now, with
+     * the same text, so it does not matter which the car looks at.
+     *
+     * DURATION was absent. A session with no duration makes some HMIs treat the
+     * item as invalid and draw nothing at all; -1 is the convention for a live
+     * stream and is what tells them there is no seek bar to draw.
+     *
+     * And it was only republished when RDS delivered a station NAME. On a
+     * station whose PS never arrives but whose RadioText does — which is most of
+     * a marginal signal — the cluster kept whatever it was given at tune time
+     * for ever. It now republishes on any change, and only on a change.
+     */
+    private fun publishMetadata() {
+        val freqText = com.fmradio.util.Freq.mhz(currentFrequency) + " MHz"
+        val savedName = stationStorage.loadStations()
             .find { Math.abs(it.frequencyHz - currentFrequency) < 50000 }
             ?.name?.takeIf { it.isNotBlank() }
-        val title = currentRdsData.ps.takeIf { it.isNotBlank() }
-            ?: stationName
+        val station = currentRdsData.ps.trim().takeIf { it.isNotBlank() }
+            ?: savedName
             ?: freqText
-        val subtitle = if (currentRdsData.rt.isNotBlank()) currentRdsData.rt else freqText
+        // What is playing goes on the top line — that is the line the request
+        // was about. The station and frequency go underneath it.
+        val nowPlaying = currentRdsData.rt.trim().takeIf { it.isNotBlank() } ?: station
+        val under = if (nowPlaying == station) freqText else "$station · $freqText"
+
+        val key = "$nowPlaying|$under"
+        if (key == lastMetadataKey) return          // nothing changed
+        lastMetadataKey = key
 
         mediaSession?.setMetadata(
             MediaMetadata.Builder()
-                .putString(MediaMetadata.METADATA_KEY_TITLE, title)
-                .putString(MediaMetadata.METADATA_KEY_ARTIST, subtitle)
-                .putString(MediaMetadata.METADATA_KEY_ALBUM, "FM Radio RTL-SDR")
-                .putString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE, freqText)
+                .putString(MediaMetadata.METADATA_KEY_TITLE, nowPlaying)
+                .putString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE, nowPlaying)
+                .putString(MediaMetadata.METADATA_KEY_ARTIST, under)
+                .putString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE, under)
+                .putString(MediaMetadata.METADATA_KEY_ALBUM, station)
+                .putString(MediaMetadata.METADATA_KEY_DISPLAY_DESCRIPTION, freqText)
+                .putLong(MediaMetadata.METADATA_KEY_DURATION, -1L)
                 .build()
         )
     }
@@ -454,6 +491,7 @@ class FmRadioService : Service() {
         currentFrequency = frequencyHz
 
         rdsGeneration++  // invalidate any pending RDS data in queue
+        lastMetadataKey = ""   // new station: always republish to the cluster
 
         // Note which branch runs. When isPlaying is false the tuner is NOT
         // told anything — only the DSP is reset — so if audio is somehow still
@@ -549,7 +587,10 @@ class FmRadioService : Service() {
                 override fun onRdsData(data: RdsDecoder.RdsData) {
                     currentRdsData = data
                     onRdsDataReceived?.invoke(data)
-                    if (data.ps.isNotBlank()) {
+                    // Any change, not just a station name: RadioText is the
+                    // "now playing" line and on a marginal signal it often
+                    // arrives while PS never does.
+                    if (data.ps.isNotBlank() || data.rt.isNotBlank()) {
                         updateMediaSessionState()
                         updateNotification()
                     }
