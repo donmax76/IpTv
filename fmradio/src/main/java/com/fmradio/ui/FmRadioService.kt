@@ -234,6 +234,9 @@ class FmRadioService : Service() {
     private var rdsGeneration = 0  // increments on freq change, RDS thread checks this
     /** Wideband packets the RDS thread could not keep up with. Any at all is a fault. */
     @Volatile private var rdsDropped = 0L
+    @Volatile private var rdsDroppedAtStart = 0L
+    /** True once the RDS thread has taken its first packet. */
+    @Volatile private var rdsConsumerStarted = false
 
     var currentBand: FmScanner.Band = FmScanner.Band.FM_BROADCAST
 
@@ -567,8 +570,21 @@ class FmRadioService : Service() {
                     // index run ahead of what the consumer has taken.
                     rdsPacketIdx = (rdsPacketIdx + 1) % RDS_POOL
                 } else {
-                    rdsDropped++
-                    com.fmradio.util.StatusSnapshot.rdsDropped = rdsDropped
+                    // Separate the startup burst from ongoing loss. The RDS
+                    // consumer coroutine is not scheduled until after the first
+                    // packets are already arriving, so a handful of drops at the
+                    // very beginning are expected and harmless. Drops AFTER that
+                    // are the ones that break bit timing, and only those say
+                    // anything — a single count cannot tell the two apart, which
+                    // is exactly the question a report of "dropped=21" leaves
+                    // open.
+                    if (rdsConsumerStarted) {
+                        rdsDropped++
+                        com.fmradio.util.StatusSnapshot.rdsDropped = rdsDropped
+                    } else {
+                        rdsDroppedAtStart++
+                        com.fmradio.util.StatusSnapshot.rdsDroppedAtStart = rdsDroppedAtStart
+                    }
                 }
             }
         }
@@ -576,6 +592,7 @@ class FmRadioService : Service() {
         // RDS decoder runs in its own thread — no impact on audio
         serviceScope.launch(rdsDispatcher) {
             for (pkt in rdsChannel) {
+                rdsConsumerStarted = true
                 if (pkt.gen != rdsGeneration) continue
                 val rds = rdsDecoder ?: continue
                 // Pass pkt.count — the number of valid samples actually written,
