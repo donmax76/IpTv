@@ -762,6 +762,7 @@ class FmRadioService : Service() {
                         snap.stereoBlend = it.getStereoBlend()
                         snap.hiCutHz = it.getHiCutHz()
                         snap.blanked = it.getBlankedCount()
+                        snap.softClipPct = it.getSoftClipPct()
                     }
                 }
                 if (DebugLog.fileLoggingEnabled && (demodCallCount <= 3 || now - lastDemodLog > 1000)) {

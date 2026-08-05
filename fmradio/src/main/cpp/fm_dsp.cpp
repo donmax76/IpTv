@@ -247,6 +247,8 @@ struct DspState {
     int   nbRun = 0;
     float nbLastI = 0.0f, nbLastQ = 0.0f;
     long  nbBlanked = 0;             // diagnostics
+    long  softClipHits = 0;          // audio samples that reached the limiter knee
+    long  softClipTotal = 0;
 
     // Signal strength
     double sigPowerAcc = 0;
@@ -531,6 +533,7 @@ struct DspState {
         hiCutHz = HICUT_MAX_HZ; hiCutAlpha = 1.0f;
         hiCutStateL = hiCutStateR = 0;
         nbAvg = 0.2f; nbRun = 0; nbLastI = nbLastQ = 0.0f; nbBlanked = 0;
+        softClipHits = 0; softClipTotal = 0;
         sigPowerAcc = 0;
         sigPowerCount = 0;
         signalDb = -100.0f;
@@ -683,6 +686,12 @@ Java_com_fmradio_dsp_NativeFmDsp_getHiCutHz(JNIEnv*, jobject) {
 JNIEXPORT jlong JNICALL
 Java_com_fmradio_dsp_NativeFmDsp_getBlankedCount(JNIEnv*, jobject) {
     return (jlong)g_dsp.nbBlanked;
+}
+
+JNIEXPORT jfloat JNICALL
+Java_com_fmradio_dsp_NativeFmDsp_getSoftClipPct(JNIEnv*, jobject) {
+    if (g_dsp.softClipTotal <= 0) return 0.0f;
+    return (jfloat)(100.0 * (double)g_dsp.softClipHits / (double)g_dsp.softClipTotal);
 }
 
 JNIEXPORT void JNICALL
@@ -1053,9 +1062,27 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
             if (d.muteRamp > 1.0f) d.muteRamp = 1.0f;
         }
 
-        float gain = d.muteRamp * d.squelchLevel * 28000.0f;
-        float clippedL = softClip(d.hiCutStateL * gain / 32767.0f) * 32767.0f;
-        float clippedR = softClip(d.hiCutStateR * gain / 32767.0f) * 32767.0f;
+        // 28000 of 32767 put the audio at 0.855 of full scale before the soft
+        // clipper, whose knee is at 0.8. On loud stereo material — which is
+        // most of it, broadcasters process hard — mono plus difference reaches
+        // that knee and the limiter works on the PROGRAMME rather than on rare
+        // peaks. It is heard as grit that appears with the music and vanishes
+        // in the pauses, which is exactly what came back from the car: "in
+        // silence there is no noise, only when there is sound".
+        //
+        // 22000 puts a fully modulated signal at about half the knee. It costs
+        // 2.1 dB of loudness, which the volume control covers, and it is the
+        // difference between a limiter that catches transients and one that is
+        // always on.
+        float gain = d.muteRamp * d.squelchLevel * 22000.0f;
+        const float preL = d.hiCutStateL * gain / 32767.0f;
+        const float preR = d.hiCutStateR * gain / 32767.0f;
+        // Count it rather than assume it: if the knee is never reached, the
+        // distortion is somewhere else and this was the wrong tree.
+        if (fabsf(preL) > 0.8f || fabsf(preR) > 0.8f) d.softClipHits++;
+        d.softClipTotal++;
+        float clippedL = softClip(preL) * 32767.0f;
+        float clippedR = softClip(preR) * 32767.0f;
         int sL = (int)clippedL;
         int sR = (int)clippedR;
         if (sL > 32767) sL = 32767; else if (sL < -32767) sL = -32767;

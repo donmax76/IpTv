@@ -34,6 +34,9 @@ object StatusSnapshot {
     @Volatile var audioBufferFrames = 0
     /** Samples the impulse blanker gated out; 0 means it is off or found nothing. */
     @Volatile var blanked = 0L
+    /** Audio reaching the limiter knee. Above a fraction of a percent it is
+     *  working on the programme, not on peaks, and that is audible grit. */
+    @Volatile var softClipPct = 0f
 
     /** RDS health — the numbers that say whether text can arrive at all. */
     @Volatile var rdsSynced = false
@@ -63,7 +66,7 @@ object StatusSnapshot {
             .format(frequencyHz / 1e6, signalDb, if (stereo) "STEREO" else "MONO",
                     gainStep, adcRms, adcClipPct, noiseLevel, stereoBlend, hiCutHz,
                     iqQueueDepth, if (nativeDsp) "native" else "kotlin") +
-              " | audio: underruns=%d buf=%dB real=%dframes | nb=%d".format(audioUnderruns, audioBufferBytes, audioBufferFrames, blanked) +
+              " | audio: underruns=%d buf=%dB real=%dframes | nb=%d limiter=%.2f%%".format(audioUnderruns, audioBufferBytes, audioBufferFrames, blanked, softClipPct) +
               " | dial='" + freqText + "'"
 
     fun rds(): String =

@@ -70,6 +70,9 @@ class NativeFmDsp {
     /** Samples suppressed by the impulse blanker since reset. */
     external fun getBlankedCount(): Long
 
+    /** Share of audio samples that reached the limiter knee, in percent. */
+    external fun getSoftClipPct(): Float
+
     /**
      * Runtime A/B test flag bitfield. See TEST_* constants below.
      * Allows toggling DSP tweaks live from the UI without rebuilding.
