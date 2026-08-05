@@ -117,6 +117,17 @@ class FmRadioService : Service() {
 
         /** Mirrors TEST_FORCE_MONO in fm_dsp.cpp. */
         const val TEST_FORCE_MONO = 0x40
+        /**
+         * Mirrors TEST_NB_ON in fm_dsp.cpp — the impulse blanker.
+         *
+         * Off by default because on a clean signal it can only take away. But
+         * this receiver lives inside an electric car, on the whip that came in
+         * the box, a few centimetres from a traction inverter and a DC-DC
+         * converter — which is exactly the broadband switching hash it exists
+         * to gate out. Whether it helps here is an empirical question, so it
+         * gets a switch rather than a new default.
+         */
+        const val TEST_NOISE_BLANKER = 0x20
 
         // More buffers than the channel can hold, so the producer can never
         // wrap onto one the consumer is still reading.
@@ -716,6 +727,7 @@ class FmRadioService : Service() {
                         snap.noiseLevel = it.getNoiseLevel()
                         snap.stereoBlend = it.getStereoBlend()
                         snap.hiCutHz = it.getHiCutHz()
+                        snap.blanked = it.getBlankedCount()
                     }
                 }
                 if (DebugLog.fileLoggingEnabled && (demodCallCount <= 3 || now - lastDemodLog > 1000)) {

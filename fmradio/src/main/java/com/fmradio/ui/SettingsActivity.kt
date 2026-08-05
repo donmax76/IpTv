@@ -315,6 +315,40 @@ class SettingsActivity : Activity() {
             monoRow.addView(monoToggle)
             addView(monoRow)
 
+            // Impulse blanker. See TEST_NOISE_BLANKER.
+            val nbRow = LinearLayout(this@SettingsActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, 4, 0, 4)
+            }
+            val nbLabel = TextView(this@SettingsActivity).apply {
+                text = "Подавитель импульсных помех"
+                setTextColor(0xFFCCCCCC.toInt())
+                textSize = 14f
+                typeface = android.graphics.Typeface.MONOSPACE
+            }
+            nbRow.addView(nbLabel, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            val nbToggle = Switch(this@SettingsActivity).apply {
+                isChecked = (monoPrefs.getInt("dsp_test_flags", 0) and
+                             FmRadioService.TEST_NOISE_BLANKER) != 0
+                thumbTintList = android.content.res.ColorStateList(
+                    arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                    intArrayOf(greenColor, 0xFF888888.toInt())
+                )
+                trackTintList = android.content.res.ColorStateList(
+                    arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                    intArrayOf(0xFF005533.toInt(), 0xFF444444.toInt())
+                )
+                setOnCheckedChangeListener { _, checked ->
+                    val cur = monoPrefs.getInt("dsp_test_flags", 0)
+                    val next = if (checked) cur or FmRadioService.TEST_NOISE_BLANKER
+                               else cur and FmRadioService.TEST_NOISE_BLANKER.inv()
+                    monoPrefs.edit().putInt("dsp_test_flags", next).apply()
+                }
+            }
+            nbRow.addView(nbToggle)
+            addView(nbRow)
+
             val logRow = LinearLayout(this@SettingsActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL

@@ -32,6 +32,8 @@ object StatusSnapshot {
     @Volatile var audioBufferBytes = 0
     /** What the device really gave, in frames — see AudioPlayer.bufferFrames. */
     @Volatile var audioBufferFrames = 0
+    /** Samples the impulse blanker gated out; 0 means it is off or found nothing. */
+    @Volatile var blanked = 0L
 
     /** RDS health — the numbers that say whether text can arrive at all. */
     @Volatile var rdsSynced = false
@@ -59,7 +61,7 @@ object StatusSnapshot {
             .format(frequencyHz / 1e6, signalDb, if (stereo) "STEREO" else "MONO",
                     gainStep, adcRms, adcClipPct, noiseLevel, stereoBlend, hiCutHz,
                     iqQueueDepth, if (nativeDsp) "native" else "kotlin") +
-              " | audio: underruns=%d buf=%dB real=%dframes".format(audioUnderruns, audioBufferBytes, audioBufferFrames) +
+              " | audio: underruns=%d buf=%dB real=%dframes | nb=%d".format(audioUnderruns, audioBufferBytes, audioBufferFrames, blanked) +
               " | dial='" + freqText + "'"
 
     fun rds(): String =
