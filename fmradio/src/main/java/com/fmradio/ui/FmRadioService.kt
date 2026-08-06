@@ -318,7 +318,8 @@ class FmRadioService : android.service.media.MediaBrowserService() {
      * cluster's connection attempt gets handed a binder it cannot talk to.
      */
     override fun onBind(intent: Intent): IBinder? =
-        if (SERVICE_INTERFACE == intent.action) super.onBind(intent) else binder
+        if (android.service.media.MediaBrowserService.SERVICE_INTERFACE == intent.action)
+            super.onBind(intent) else binder
 
     /**
      * Anyone may browse. This is a broadcast radio: there is nothing here that
@@ -330,10 +331,10 @@ class FmRadioService : android.service.media.MediaBrowserService() {
         clientPackageName: String,
         clientUid: Int,
         rootHints: android.os.Bundle?
-    ): BrowserRoot {
+    ): android.service.media.MediaBrowserService.BrowserRoot {
         com.fmradio.util.StatusSnapshot.noteBrowserClient(clientPackageName)
         DebugLog.log(TAG, "MediaBrowser connect from $clientPackageName (uid $clientUid)")
-        return BrowserRoot(BROWSER_ROOT, null)
+        return android.service.media.MediaBrowserService.BrowserRoot(BROWSER_ROOT, null)
     }
 
     /**
