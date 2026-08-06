@@ -1162,6 +1162,25 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
         totalBadBlocks = 0L
         totalGroupsDecoded = 0L
         berEma = -1f
+        // Clear what the report reads, not just what the decoder reads.
+        //
+        // These counters reset here, but their StatusSnapshot mirrors are only
+        // written from inside the group-decode path — so on a station with no
+        // RDS nothing overwrites them and the report keeps showing the last
+        // station that had any. A field report taken on 106.0 read
+        // "synced=true groups=112 PS='RETRO FM' RT='BAKU RETRO  M 93.3MH'",
+        // all of it from 93.3 MHz, forty seconds and eight stations earlier.
+        // Every number in that line was true of a frequency the radio was no
+        // longer tuned to, which is worse than having no line at all.
+        com.fmradio.util.StatusSnapshot.let {
+            it.rdsSynced = false
+            it.rdsBerPct = 0f
+            it.rdsBerLifetimePct = 0f
+            it.rdsGroups = 0L
+            it.rdsPs = ""
+            it.rdsRt = ""
+            it.rdsSearch = ""
+        }
         searchHitA = 0; searchHitB = 0; searchHitC = 0
         searchHitCp = 0; searchHitD = 0; searchBits = 0
         lastStatsLogTime = 0L

@@ -169,7 +169,21 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         audioTrack?.pause()
         audioTrack?.flush()
         // Rebuild the reservoir; a flush throws it away with everything else.
-        primeSilence(sampleRate / 4)
+        //
+        // As much as the device will take, not a quarter second. The only
+        // thing that calls this is a retune, and a retune stops the IQ stream
+        // for as long as the tuner takes to move its PLL — measured on the
+        // FC0013 at about 180 ms between writing the synthesiser and the VCO
+        // reporting lock, with three empty USB reads in the gap. A 250 ms
+        // reservoir barely covers that, so a field report showed 79 underruns
+        // across 26 station changes: almost exactly the three per change that
+        // the empty reads predict. Priming to capacity covers the stall with
+        // margin. It costs latency that only exists immediately after a
+        // retune, where a fraction of a second is not noticeable and a gap in
+        // the audio is.
+        //
+        // NON_BLOCKING means asking for more than fits simply stops when full.
+        primeSilence(sampleRate / 2)
         audioTrack?.play()
         framesWritten = 0L
     }

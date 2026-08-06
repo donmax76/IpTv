@@ -771,6 +771,46 @@ class MainActivity : Activity() {
         }
     }
 
+    // RDS text is assembled a character at a time, so it passes through every
+    // truncation of itself on the way to being complete. A field log shows the
+    // name arriving as 'O', then 'TRO', then 'RETRO', then 'RETRO FM', and the
+    // RadioText as 'BAKU', 'BAKU R', 'BAKU R  RO', 'BAKU R  RO  M 93',
+    // 'BAKU RETRO  M 93.3'. Each of those was written straight to the saved
+    // station, and the saved station is what the screen shows the moment you
+    // tune back. Drive out of range, or step to the next preset, at any point
+    // during those few seconds and the truncated version is what is kept — for
+    // good, because nothing ever writes a shorter name back over a longer one.
+    // That is the "RDS is cut short" seen on 103.3 and 105.5.
+    //
+    // So: only remember text that has stopped changing. A longer version of
+    // what is already stored is allowed through at once, since it is strictly
+    // more of the same message and waiting only risks losing it.
+    private var rdsPendingPs = ""
+    private var rdsPendingRt = ""
+    private var rdsPendingSince = 0L
+    private val RDS_SETTLE_MS = 4000L
+
+    private fun rememberRdsIfSettled(rdsData: RdsDecoder.RdsData) {
+        if (rdsData.ps.isBlank()) return
+        val now = System.currentTimeMillis()
+        if (rdsData.ps != rdsPendingPs || rdsData.rt != rdsPendingRt) {
+            rdsPendingPs = rdsData.ps
+            rdsPendingRt = rdsData.rt
+            rdsPendingSince = now
+        }
+        val station = stationStorage.loadStations()
+            .find { Math.abs(it.frequencyHz - currentFrequency) < 25000 } ?: return
+        if (station.rdsPs == rdsData.ps && station.rdsRt == rdsData.rt) return
+
+        val extendsStored = rdsData.ps.startsWith(station.rdsPs) &&
+                            rdsData.ps.length >= station.rdsPs.length
+        if (!extendsStored && now - rdsPendingSince < RDS_SETTLE_MS) return
+
+        stationStorage.updateStation(
+            station.copy(rdsPs = rdsData.ps, rdsRt = rdsData.rt, rdsPty = rdsData.ptyName))
+        loadSavedStations()
+    }
+
     private fun updateRdsDisplay(rdsData: RdsDecoder.RdsData) {
         tvRdsIndicator.setTextColor(if (rdsData.hasData) getColor(R.color.lcd_green) else getColor(R.color.lcd_dim))
 
@@ -789,14 +829,7 @@ class MainActivity : Activity() {
                 getColor(R.color.lcd_green) else getColor(R.color.lcd_dim)
         )
 
-        if (rdsData.ps.isNotBlank()) {
-            val stations = stationStorage.loadStations()
-            val station = stations.find { Math.abs(it.frequencyHz - currentFrequency) < 25000 }
-            if (station != null && station.rdsPs != rdsData.ps) {
-                stationStorage.updateStation(station.copy(rdsPs = rdsData.ps, rdsRt = rdsData.rt, rdsPty = rdsData.ptyName))
-                loadSavedStations()
-            }
-        }
+        rememberRdsIfSettled(rdsData)
     }
 
     private fun clearRdsDisplay() {
