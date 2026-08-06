@@ -77,7 +77,16 @@ jobs:
           if [ ! -f "$APK" ]; then APK=fmradio/build/outputs/apk/debug/fmradio-debug.apk; fi
           if [ ! -f "$APK" ]; then echo "::error::no APK to publish"; exit 1; fi
           gh release view fmradio-latest >/dev/null 2>&1 || gh release create fmradio-latest --title "FM Radio (latest)" --notes "Automatic build"
-          gh release upload fmradio-latest "$APK#FmRadio-release.apk" --clobber
+          # Copy to the published name instead of "$APK#FmRadio-release.apk": the
+          # "#" suffix sets the asset's display LABEL, while the asset NAME still
+          # comes from the file — fmradio-release.apk, lowercase. --clobber then
+          # looked for an asset by that lowercase name, found none, deleted
+          # nothing, and the upload hit the existing FmRadio-release.apk, whose
+          # name differs only in case:
+          #   HTTP 422: ReleaseAsset.name already exists
+          # The APK built fine and once again did not reach the phone.
+          cp "$APK" FmRadio-release.apk
+          gh release upload fmradio-latest FmRadio-release.apk --clobber
           COMMIT_COUNT=$(git rev-list --count HEAD)
           cat > fmradio/version.json << EOF
           {
