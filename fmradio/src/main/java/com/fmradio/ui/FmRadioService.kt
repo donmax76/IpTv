@@ -72,6 +72,15 @@ class FmRadioService : android.service.media.MediaBrowserService() {
         // FC0013 IF gain is 2 dB per step; 31 is the ~62 dB maximum that the
         // driver has always used, and the loop never goes above it.
         private const val IF_GAIN_MAX_STEP = 31
+        /**
+         * How much one FC0013 IF gain step really moves the level, in dB.
+         *
+         * The datasheet implies 2 dB. Measured on this tuner from field logs,
+         * adjacent steps land at rms 0.182 and 0.249 — 2.73 dB. The gain loop
+         * divides its dB error by this to decide how far to move, so using the
+         * datasheet figure made every correction 37% too large.
+         */
+        private const val IF_GAIN_STEP_DB = 2.73
         // One decision every 200 ms tracks fading at driving speed while
         // staying far slower than programme modulation. The meters are sampled
         // ten times inside that window and averaged, because a single reading
@@ -1089,13 +1098,31 @@ class FmRadioService : android.service.media.MediaBrowserService() {
                 val newStep = when {
                     clipRun >= CLIP_CONFIRM -> {
                         // Clipping compresses the reading, so rms understates
-                        // how far out we are — but not by 12 dB. One to three
-                        // steps, 2 to 6 dB, and then look again.
-                        step - (clip / CLIP_LIMIT_PCT).toInt().coerceIn(1, 3)
+                        // how far out we are. But three steps is 8 dB on this
+                        // tuner, and a field log shows what that costs: a 3.5%
+                        // clip took the gain from step 15 to 12, the level fell
+                        // to rms 0.121 — far below the 0.170 floor — and the
+                        // loop spent the next second climbing back to 14. That
+                        // round trip repeated every few seconds for the whole
+                        // recording. Each move is a step in everything
+                        // downstream, and clipping is caused by loud programme,
+                        // so the pumping follows the programme.
+                        //
+                        // One step, then look again. If it is still clipping the
+                        // next decision moves it again 200 ms later, which
+                        // converges without ever overshooting the floor.
+                        step - 1
                     }
                     rms > ADC_RMS_HIGH || rms < ADC_RMS_LOW -> {
                         val errDb = 20.0 * kotlin.math.log10((rms / ADC_RMS_TARGET).toDouble())
-                        val delta = Math.round(errDb / 2.0).toInt().coerceIn(-8, 8)
+                        // Divide by the step size this tuner really has, not the
+                        // 2 dB the datasheet claims. The comment on ADC_RMS_LOW
+                        // above records the measurement: adjacent steps land at
+                        // rms 0.182 and 0.249, which is 2.73 dB. Dividing a dB
+                        // error by 2 when each step moves 2.73 asks for 37% more
+                        // correction than is needed, every single time — a loop
+                        // that overshoots by a third hunts instead of settling.
+                        val delta = Math.round(errDb / IF_GAIN_STEP_DB).toInt().coerceIn(-8, 8)
                         step - delta
                     }
                     else -> step
