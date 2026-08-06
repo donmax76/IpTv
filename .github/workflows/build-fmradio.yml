@@ -5,22 +5,10 @@ on:
     branches: [ 'claude/fm-radio-app-*', 'claude/rebuild-apk-sync-audio-*', 'main', 'master' ]
   workflow_dispatch:
 
-# Only the newest commit on a branch may publish.
-#
-# Each run rewrites the same release and pushes its own version.json, so two
-# runs overlapping means the release comes from one commit and the version file
-# from another. Cancelling superseded runs keeps the published APK and the
-# version that advertises it describing the same build.
-concurrency:
-  group: build-fmradio-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   build-android-apk:
     name: Build Android APK
     runs-on: ubuntu-latest
-    permissions:
-      contents: write   # so a failure can publish its own log — see below
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,16 +25,14 @@ jobs:
 
       - name: Install NDK and CMake
         run: |
-          set -o pipefail
-          sdkmanager "ndk;26.1.10909125" "cmake;3.22.1" 2>&1 | tee /tmp/sdk.log
+          sdkmanager "ndk;26.1.10909125" "cmake;3.22.1"
 
       - name: Build FM Radio APK (debug + release)
         env:
           IPTV_ISSUE_TOKEN: ${{ secrets.IPTV_ISSUE_TOKEN }}
         run: |
           chmod +x gradlew
-          set -o pipefail
-          ./gradlew :fmradio:assembleDebug :fmradio:assembleRelease :app:assembleDebug 2>&1 | tee /tmp/build.log
+          ./gradlew :fmradio:assembleDebug :fmradio:assembleRelease :app:assembleDebug
 
       - name: Upload FM Radio Debug APK
         uses: actions/upload-artifact@v4
@@ -66,104 +52,6 @@ jobs:
         with:
           name: TVViewer-debug.apk
           path: app/build/outputs/apk/debug/app-debug.apk
-
-      # Publish from THIS job, which has already been given a runner.
-      #
-      # Releasing used to happen only in create-release, a separate job needing
-      # a runner of its own. GitHub failed to give it one — "the job was not
-      # acquired by Runner of type hosted even after multiple attempts" — while
-      # both build jobs went green. So the APK built perfectly and was never
-      # published, four times running, and the phone kept being told 3.0.488 was
-      # the newest version there was.
-      #
-      # The APK is what someone waiting for an update needs, and it exists right
-      # here. It goes out now, from the runner that built it, so a second runner
-      # never being granted can no longer stand between a working build and the
-      # car. create-release still runs when it can and rebuilds the whole
-      # release including the desktop pieces; this only guarantees the floor.
-      - name: Publish APK and version.json
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -e
-          exec > >(tee /tmp/publish.log) 2>&1
-          APK=fmradio/build/outputs/apk/release/fmradio-release.apk
-          if [ ! -f "$APK" ]; then
-            APK=fmradio/build/outputs/apk/debug/fmradio-debug.apk
-          fi
-          if [ ! -f "$APK" ]; then
-            echo "::error::no APK to publish"; exit 1
-          fi
-          gh release view fmradio-latest >/dev/null 2>&1 ||             gh release create fmradio-latest --title "FM Radio (latest)"               --notes "Automatic build from ${{ github.sha }}"
-          # --clobber replaces just this asset, leaving anything else attached.
-          gh release upload fmradio-latest "$APK#FmRadio-release.apk" --clobber
-
-          # Only now advertise it. The version file must never name a build that
-          # is not downloadable yet, or the app offers an update it cannot get.
-          COMMIT_COUNT=$(git rev-list --count HEAD)
-          cat > fmradio/version.json << EOF
-          {
-            "versionCode": $COMMIT_COUNT,
-            "versionName": "3.0.$COMMIT_COUNT",
-            "downloadUrl": "https://github.com/donmax76/IpTv/releases/download/fmradio-latest/FmRadio-release.apk"
-          }
-          EOF
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add fmradio/version.json
-          if git diff --cached --quiet; then
-            echo "version.json already current"; exit 0
-          fi
-          git commit -m "Auto-update version.json to 3.0.$COMMIT_COUNT"
-          for attempt in 1 2 3 4 5; do
-            git push && exit 0
-            git fetch origin "${{ github.ref_name }}" || true
-            git rebase "origin/${{ github.ref_name }}" || { git rebase --abort || true; }
-            sleep $((attempt * 3))
-          done
-          echo "::error::could not publish version.json"
-          exit 1
-      # LAST in the job on purpose. A failure() step only runs when the step
-      # that failed comes BEFORE it, so sitting in the middle it could report a
-      # compile error and nothing else — the artifact uploads and the publish
-      # step below it were invisible. A red build with no log at all is exactly
-      # what that looks like, and that is what happened.
-      #
-      # Nothing that develops this project can read the Actions logs — GitHub is
-      # not reachable from that environment, API or web. So a failure here is
-      # completely invisible: builds stopped publishing after 3.0.488 and the
-      # only way to tell was that the release APK never changed. Whatever broke
-      # gets written back into the repository, where it can be fetched with git
-      # like anything else. Pushes made with GITHUB_TOKEN do not start new
-      # workflow runs, so this cannot loop.
-      - name: Publish the failure log
-        if: failure()
-        run: |
-          mkdir -p ci-logs
-          {
-            echo "=== failed run: ${{ github.run_id }} attempt ${{ github.run_attempt }}"
-            echo "=== commit: ${{ github.sha }}"
-            echo
-            echo "=== sdkmanager (tail) ==="
-            tail -c 20000 /tmp/sdk.log 2>/dev/null || echo "(no sdk log — step never ran)"
-            echo
-            echo "=== gradle (tail) ==="
-            tail -c 150000 /tmp/build.log 2>/dev/null || echo "(no build log — step never ran)"
-            echo
-            echo "=== publish step (tail) ==="
-            tail -c 20000 /tmp/publish.log 2>/dev/null || echo "(no publish log — step never ran)"
-          } > ci-logs/last-failure.log
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add -f ci-logs/last-failure.log
-          git commit -m "CI: build failure log for ${{ github.sha }}" || exit 0
-          for attempt in 1 2 3; do
-            git push && exit 0
-            git fetch origin "${{ github.ref_name }}" || true
-            git rebase "origin/${{ github.ref_name }}" || { git rebase --abort || true; }
-            sleep $((attempt * 3))
-          done
-
   build-desktop-jar:
     name: Build Desktop JAR (Kotlin)
     runs-on: ubuntu-latest
@@ -284,34 +172,8 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add fmradio/version.json
-          if git diff --cached --quiet; then
-            echo "version.json already current"
-            exit 0
-          fi
-          git commit -m "Auto-update version.json to 3.0.$COMMIT_COUNT"
-          # This push used to end in "|| true", which hid the one failure that
-          # actually happens: the branch moving while the build ran. Three
-          # commits pushed in quick succession each produced a build whose
-          # version.json push was rejected as non-fast-forward and silently
-          # dropped, so the file kept advertising an old version and the app
-          # reported "no update available" for three releases running.
-          #
-          # The file's contents are NOT regenerated after a rebase. Its number
-          # has to keep describing the commit whose APK was built and uploaded,
-          # or the app downloads a build older than the version it was promised
-          # and offers the same update for ever.
-          for attempt in 1 2 3 4 5; do
-            if git push; then
-              echo "version.json published on attempt $attempt"
-              exit 0
-            fi
-            echo "push rejected, rebasing onto ${{ github.ref_name }} and retrying"
-            git fetch origin "${{ github.ref_name }}" || true
-            git rebase "origin/${{ github.ref_name }}" || { git rebase --abort || true; }
-            sleep $((attempt * 3))
-          done
-          echo "::error::could not publish version.json — the app will not see this build"
-          exit 1
+          git diff --cached --quiet || git commit -m "Auto-update version.json to 3.0.$COMMIT_COUNT"
+          git push || true
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
