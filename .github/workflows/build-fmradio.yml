@@ -98,6 +98,62 @@ jobs:
         with:
           name: TVViewer-debug.apk
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      # Publish from THIS job, which has already been given a runner.
+      #
+      # Releasing used to happen only in create-release, a separate job needing
+      # a runner of its own. GitHub failed to give it one — "the job was not
+      # acquired by Runner of type hosted even after multiple attempts" — while
+      # both build jobs went green. So the APK built perfectly and was never
+      # published, four times running, and the phone kept being told 3.0.488 was
+      # the newest version there was.
+      #
+      # The APK is what someone waiting for an update needs, and it exists right
+      # here. It goes out now, from the runner that built it, so a second runner
+      # never being granted can no longer stand between a working build and the
+      # car. create-release still runs when it can and rebuilds the whole
+      # release including the desktop pieces; this only guarantees the floor.
+      - name: Publish APK and version.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          APK=fmradio/build/outputs/apk/release/fmradio-release.apk
+          if [ ! -f "$APK" ]; then
+            APK=fmradio/build/outputs/apk/debug/fmradio-debug.apk
+          fi
+          if [ ! -f "$APK" ]; then
+            echo "::error::no APK to publish"; exit 1
+          fi
+          gh release view fmradio-latest >/dev/null 2>&1 ||             gh release create fmradio-latest --title "FM Radio (latest)"               --notes "Automatic build from ${{ github.sha }}"
+          # --clobber replaces just this asset, leaving anything else attached.
+          gh release upload fmradio-latest "$APK#FmRadio-release.apk" --clobber
+
+          # Only now advertise it. The version file must never name a build that
+          # is not downloadable yet, or the app offers an update it cannot get.
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+          cat > fmradio/version.json << EOF
+          {
+            "versionCode": $COMMIT_COUNT,
+            "versionName": "3.0.$COMMIT_COUNT",
+            "downloadUrl": "https://github.com/donmax76/IpTv/releases/download/fmradio-latest/FmRadio-release.apk"
+          }
+          EOF
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add fmradio/version.json
+          if git diff --cached --quiet; then
+            echo "version.json already current"; exit 0
+          fi
+          git commit -m "Auto-update version.json to 3.0.$COMMIT_COUNT"
+          for attempt in 1 2 3 4 5; do
+            git push && exit 0
+            git fetch origin "${{ github.ref_name }}" || true
+            git rebase "origin/${{ github.ref_name }}" || { git rebase --abort || true; }
+            sleep $((attempt * 3))
+          done
+          echo "::error::could not publish version.json"
+          exit 1
   build-desktop-jar:
     name: Build Desktop JAR (Kotlin)
     runs-on: ubuntu-latest
