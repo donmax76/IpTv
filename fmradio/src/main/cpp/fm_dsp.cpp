@@ -74,6 +74,15 @@ static constexpr double PI_D = 3.14159265358979323846;
 // past the stereo threshold and past the treble roll-off threshold, collapsing
 // a perfect signal to mono with the highs cut. The audio would have got worse
 // while every measurement said it got better.
+// A trap for the next person who reads this, because it looks like a bug and
+// is not. The probe's Q was raised from 84/6 = 14 to 48 (see the BPF design)
+// AFTER those thresholds were set, and the reading scales as sqrt(1/Q) — so on
+// paper every reading has been 1.85x low ever since, and the obvious fix is to
+// multiply it back. Don't. The 0.017-0.027 quoted above was measured on the
+// Q=48 scale, against these same thresholds: good signal already sits just
+// below them. Scaling by 1.85 puts a perfect station past both and collapses
+// it to mono with the treble cut, which is the exact failure Q=48 was raised
+// to fix. The scale is empirically consistent as it stands.
 static constexpr float NOISE_PROBE_CAL = 1.0f / 2.049f;
 
 // ========== Byte→Float LUT ==========
