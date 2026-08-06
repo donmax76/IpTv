@@ -481,6 +481,66 @@ class FmRadioService : Service() {
                 .putLong(MediaMetadata.METADATA_KEY_DURATION, -1L)
                 .build()
         )
+        broadcastNowPlaying(nowPlaying, under, station)
+        com.fmradio.util.StatusSnapshot.clusterLine = "$nowPlaying / $under"
+    }
+
+    /**
+     * The other way a head unit learns what is playing.
+     *
+     * Everything the Android media stack asks for is already in place: the
+     * session is active, it carries metadata in both the TITLE and DISPLAY_*
+     * families, and the foreground notification is a MediaStyle bound to that
+     * session's token. On a DiLink 4.0 the cluster still showed nothing, so the
+     * cluster is not reading the session.
+     *
+     * What it is reading is almost certainly the broadcast the original Android
+     * music player sent. Chinese head units, and OEM clusters generally, were
+     * built against that de-facto protocol years before MediaSession existed and
+     * many still listen for it and nothing else. Third-party players have
+     * emitted it for the same reason for over a decade.
+     *
+     * Several action names are sent because each vendor kept its own: a unit
+     * that listens for one ignores the rest, and a unit that listens for none is
+     * no worse off than it is now. These are implicit broadcasts, so since
+     * Android 8 they only reach receivers registered at runtime — which is what
+     * a system-side cluster service uses — and they need no permission.
+     *
+     * This is a reasonable guess, not a diagnosis: it cannot be verified without
+     * the car. StatusSnapshot.clusterLine records what was published so the next
+     * report says whether the app had the right text to send in the first place.
+     */
+    private fun broadcastNowPlaying(track: String, artist: String, album: String) {
+        val actions = arrayOf(
+            "com.android.music.metachanged",
+            "com.android.music.playstatechanged",
+            "com.htc.music.metachanged",
+            "com.sonyericsson.music.metachanged",
+            "com.samsung.sec.android.MusicPlayer.metachanged",
+            "com.nullsoft.winamp.metachanged",
+            "com.andrew.apollo.metachanged"
+        )
+        for (action in actions) {
+            try {
+                sendBroadcast(Intent(action).apply {
+                    putExtra("track", track)
+                    putExtra("title", track)
+                    putExtra("artist", artist)
+                    putExtra("album", album)
+                    putExtra("playing", isPlaying)
+                    putExtra("isplaying", isPlaying)
+                    // Live radio: no length and no position to scrub to. Some
+                    // HMIs hide the row when duration is absent entirely, so it
+                    // is sent as zero rather than left out.
+                    putExtra("duration", 0L)
+                    putExtra("position", 0L)
+                    putExtra("id", currentFrequency)
+                    putExtra("package", packageName)
+                })
+            } catch (_: Throwable) {
+                // A unit that refuses one of these must not stop the others.
+            }
+        }
     }
 
     fun initDevice(rtlSdrDevice: RtlSdrDevice) {
@@ -953,6 +1013,11 @@ class FmRadioService : Service() {
                     clipRun = 0
                     com.fmradio.util.StatusSnapshot.gainStep = step
                     dev.setFc0013IfGainStep(step)
+                    // A gain step moves the tuner's DC offset in one jump. The
+                    // blocker now runs slowly on purpose, so tell it to catch
+                    // up rather than let it carry the old offset for most of a
+                    // minute. See reseedDc in fm_dsp.cpp.
+                    try { ndsp.reseedDc() } catch (_: Throwable) {}
                     settleTicks = 0
                     settleAfterChange = GAIN_SETTLE_CYCLES
                     DebugLog.log("AGC", "IF gain -> step $step (${step * 2} dB), " +

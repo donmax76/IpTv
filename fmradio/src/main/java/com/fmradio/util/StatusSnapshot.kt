@@ -57,6 +57,9 @@ object StatusSnapshot {
     /** Exactly what was written to the dial, for diagnosing the display itself. */
     @Volatile var freqText = ""
 
+    /** Last "now playing" line handed to the car — see FmRadioService.publishMetadata. */
+    @Volatile var clusterLine = ""
+
     @Volatile var lastError = ""
 
     fun radio(): String =
@@ -67,7 +70,7 @@ object StatusSnapshot {
                     gainStep, adcRms, adcClipPct, noiseLevel, stereoBlend, hiCutHz,
                     iqQueueDepth, if (nativeDsp) "native" else "kotlin") +
               " | audio: underruns=%d buf=%dB real=%dframes | nb=%d limiter=%.2f%%".format(audioUnderruns, audioBufferBytes, audioBufferFrames, blanked, softClipPct) +
-              " | dial='" + freqText + "'"
+              " | dial='" + freqText + "' cluster='" + clusterLine + "'"
 
     fun rds(): String =
         "synced=%s BERnow=%.1f%% BERlife=%.1f%% groups=%d dropped=%d(+%d при старте) PS='%s' RT='%s'"

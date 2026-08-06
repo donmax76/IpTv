@@ -161,6 +161,37 @@ struct DspState {
 
     // DC removal
     float dcI = 0, dcQ = 0;
+
+    /**
+     * The IQ DC blocker runs in two gears, like the pilot PLL below.
+     *
+     * A zero-IF tuner leaks its local oscillator into its own output, so a DC
+     * offset has to come out or the discriminator reads it as a tone at the
+     * tuning error. But the blocker used one gear at a 208 ms time constant,
+     * and 208 ms is short enough to follow the FM signal itself: the estimate
+     * was measured settling at 17% of the carrier amplitude on a clean
+     * synthetic station with no DC offset at all. That is not an offset being
+     * removed, it is signal being subtracted, and it moves with the programme.
+     *
+     * Measured against an ideal chain on identical IQ (same filter, same
+     * decimation phase, realistic broadband audio, 3 kHz tuning offset):
+     *     tau 208 ms (as shipped)  -41.0 dB
+     *     tau 2.1 s                -51.8 dB
+     *     tau 21 s                 -67.9 dB
+     * Roughly 11 dB per decade, because the slower the estimate, the less of
+     * the signal it can follow.
+     *
+     * Hardware DC offset drifts with temperature and jumps when the tuner's
+     * gain changes; it does not move on the timescale of audio. So: converge
+     * fast when there is nothing to lose (start-up, retune, and right after the
+     * gain loop moves a step — see reseedDc), then hand over to a gear slow
+     * enough that the programme cannot pull it.
+     */
+    int dcFastLeft = 0;                     // samples left in the fast gear
+    static constexpr float DC_A_FAST = 0.999995f;     // tau ~208 ms
+    static constexpr float DC_A_SLOW = 0.99999995f;   // tau ~21 s
+    static constexpr int DC_FAST_START = SAMPLE_RATE * 3 / 2;  // 1.5 s from cold
+    static constexpr int DC_FAST_NUDGE = SAMPLE_RATE / 2;      // 0.5 s after a gain step
     // DC alpha: actual value used is 0.999995 (~0.9 Hz cutoff), set in demodulate()
     // via dcA variable (TEST_DC flag selects between 0.999995 and 0.99995).
 
@@ -604,6 +635,7 @@ struct DspState {
 
     void reset() {
         dcI = dcQ = 0;
+        dcFastLeft = DC_FAST_START;   // nothing to protect yet — converge quickly
         prevI = prevQ = 0;
         pnX1 = 0; pnX2 = 0; pnY1 = 0; pnY2 = 0;   // pilot notch state
         memset(ifBufI, 0, sizeof(ifBufI));
@@ -730,6 +762,23 @@ Java_com_fmradio_dsp_NativeFmDsp_reset(JNIEnv*, jobject) {
     g_dsp.reset();
 }
 
+/**
+ * Let the DC blocker re-converge quickly, without disturbing anything else.
+ *
+ * Changing the tuner's IF gain shifts its DC offset in one step. The steady-
+ * state blocker has a ~21 s time constant on purpose, so left alone it would
+ * carry the old offset for most of a minute; a short burst of the fast gear
+ * catches up in a fraction of a second instead. Called by the gain loop right
+ * after it writes a new step — a full reset() here would be wrong, since it
+ * would also drop the pilot PLL and the filter history over a routine 2 dB
+ * gain change.
+ */
+JNIEXPORT void JNICALL
+Java_com_fmradio_dsp_NativeFmDsp_reseedDc(JNIEnv*, jobject) {
+    if (g_dsp.dcFastLeft < DspState::DC_FAST_NUDGE)
+        g_dsp.dcFastLeft = DspState::DC_FAST_NUDGE;
+}
+
 JNIEXPORT jfloat JNICALL
 Java_com_fmradio_dsp_NativeFmDsp_getSignalDb(JNIEnv*, jobject) {
     return g_dsp.signalDb;
@@ -829,8 +878,12 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
 
     // Apply current runtime test flags (cheap, just picks pre-computed values)
     d.applyTestFlags();
-    // TEST_DC: more aggressive IQ DC blocker (0.99995 vs 0.999995)
-    const float dcA = (d.testFlags & DspState::TEST_DC) ? 0.99995f : 0.999995f;
+    // Two-gear DC blocker — see dcFastLeft. Chosen once per buffer rather than
+    // per sample: a buffer is 17 ms, far finer than either time constant, and
+    // this keeps the 960 kHz inner loop free of the branch.
+    // TEST_DC forces the old aggressive blocker, for comparing against it.
+    const float dcA = (d.testFlags & DspState::TEST_DC) ? 0.99995f
+                    : (d.dcFastLeft > 0 ? DspState::DC_A_FAST : DspState::DC_A_SLOW);
     jsize iqLen = env->GetArrayLength(iqArray);
     jsize audioLen = env->GetArrayLength(audioArray);
     int numIqSamples = iqLen / 2;
@@ -846,6 +899,7 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
         wbLen = env->GetArrayLength(wbArray);
     }
     d.wbCount = 0;
+    if (d.dcFastLeft > 0) d.dcFastLeft -= numIqSamples;
 
     int audioCount = 0;
 

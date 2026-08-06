@@ -45,6 +45,14 @@ class NativeFmDsp {
 
     external fun init()
     external fun reset()
+
+    /**
+     * Re-converge the IQ DC blocker after the tuner's gain changed.
+     *
+     * Cheaper and safer than reset(): it leaves the pilot PLL, the filters and
+     * the squelch alone. See reseedDc in fm_dsp.cpp.
+     */
+    external fun reseedDc()
     external fun getSignalDb(): Float
     external fun getIsStereo(): Boolean
     external fun getPilotPhase(): Double
