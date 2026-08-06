@@ -60,20 +60,6 @@ object StatusSnapshot {
     /** Last "now playing" line handed to the car — see FmRadioService.publishMetadata. */
     @Volatile var clusterLine = ""
 
-    /**
-     * Every package that has connected to the media browser, in order.
-     *
-     * This is the one question that could not be answered from here: which
-     * component, if any, the instrument cluster uses to read what is playing.
-     * If it connects, it names itself, and the guessing stops.
-     */
-    @Volatile var browserClients = ""
-
-    @Synchronized fun noteBrowserClient(pkg: String) {
-        if (pkg.isBlank() || browserClients.split(", ").contains(pkg)) return
-        browserClients = if (browserClients.isBlank()) pkg else "$browserClients, $pkg"
-    }
-
     @Volatile var lastError = ""
 
     fun radio(): String =
@@ -84,8 +70,7 @@ object StatusSnapshot {
                     gainStep, adcRms, adcClipPct, noiseLevel, stereoBlend, hiCutHz,
                     iqQueueDepth, if (nativeDsp) "native" else "kotlin") +
               " | audio: underruns=%d buf=%dB real=%dframes | nb=%d limiter=%.2f%%".format(audioUnderruns, audioBufferBytes, audioBufferFrames, blanked, softClipPct) +
-              " | dial='" + freqText + "' cluster='" + clusterLine + "'" +
-              " | mediabrowser: " + (if (browserClients.isBlank()) "NOBODY CONNECTED" else browserClients)
+              " | dial='" + freqText + "' cluster='" + clusterLine + "'"
 
     fun rds(): String =
         "synced=%s BERnow=%.1f%% BERlife=%.1f%% groups=%d dropped=%d(+%d при старте) PS='%s' RT='%s'"

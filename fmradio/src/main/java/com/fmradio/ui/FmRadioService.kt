@@ -7,7 +7,6 @@ import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
-import android.media.MediaDescription
 import android.media.MediaMetadata
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
@@ -29,34 +28,11 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import java.util.concurrent.Executors
 
-/**
- * The radio, and — since 3.0.490 — a media browser too.
- *
- * A car's instrument cluster does not go looking for arbitrary foreground
- * services. It enumerates media apps the documented way: by querying the
- * package manager for services that answer
- * android.media.browse.MediaBrowserService, connecting to them, and reading
- * the MediaSession token they hand back. Everything else here was already
- * right — the session is active, its metadata is filled in both the TITLE and
- * DISPLAY_* families, and the notification is a MediaStyle bound to that
- * session's token — but with no browser service to find, none of it was ever
- * asked for. That is consistent with the cluster showing nothing at all while
- * the app's own screen shows the RDS text perfectly.
- *
- * The framework MediaBrowserService is used rather than the androidx one
- * because the session here is a framework MediaSession, and setSessionToken
- * then takes the token we already have instead of needing the whole session
- * converted to the compat classes.
- *
- * onGetRoot records who connected. If the cluster ever does ask, the next
- * report names it, and this stops being guesswork.
- */
-class FmRadioService : android.service.media.MediaBrowserService() {
+class FmRadioService : Service() {
 
     companion object {
         private const val TAG = "FmRadioService"
         private const val CHANNEL_ID = "fm_radio_playback"
-        private const val BROWSER_ROOT = "fmradio_root"
         private const val NOTIFICATION_ID = 1001
         private const val SEEK_THRESHOLD = -15f
         /** See FmScanner.CHANNEL_RATIO_DB — the same test, same reasoning. */
@@ -312,63 +288,7 @@ class FmRadioService : android.service.media.MediaBrowserService() {
     var onSignalStrengthChanged: ((Float) -> Unit)? = null
     var onAudioData: ((ShortArray, Int) -> Unit)? = null
 
-    /**
-     * The activity binds for direct control; the system binds for browsing.
-     * MediaBrowserService owns the second case and must be given it, or the
-     * cluster's connection attempt gets handed a binder it cannot talk to.
-     */
-    override fun onBind(intent: Intent): IBinder? =
-        if (android.service.media.MediaBrowserService.SERVICE_INTERFACE == intent.action)
-            super.onBind(intent) else binder
-
-    /**
-     * Anyone may browse. This is a broadcast radio: there is nothing here that
-     * is not already coming out of the speakers, so refusing a caller could
-     * only mean refusing the one that matters — and the whole difficulty has
-     * been not knowing which caller that is.
-     */
-    override fun onGetRoot(
-        clientPackageName: String,
-        clientUid: Int,
-        rootHints: android.os.Bundle?
-    ): android.service.media.MediaBrowserService.BrowserRoot {
-        com.fmradio.util.StatusSnapshot.noteBrowserClient(clientPackageName)
-        DebugLog.log(TAG, "MediaBrowser connect from $clientPackageName (uid $clientUid)")
-        return android.service.media.MediaBrowserService.BrowserRoot(BROWSER_ROOT, null)
-    }
-
-    /**
-     * The saved stations, as a browsable list. A cluster that offers next and
-     * previous gets something to move through, and one that only draws the
-     * current item still gets its metadata from the session.
-     */
-    override fun onLoadChildren(
-        parentId: String,
-        result: android.service.media.MediaBrowserService.Result<MutableList<android.media.browse.MediaBrowser.MediaItem>>
-    ) {
-        if (parentId != BROWSER_ROOT) {
-            result.sendResult(mutableListOf())
-            return
-        }
-        val items = try {
-            stationStorage.loadStations().sortedBy { it.frequencyHz }.map { st ->
-                val label = st.rdsPs.takeIf { it.isNotBlank() }
-                    ?: st.name.takeIf { it.isNotBlank() }
-                    ?: com.fmradio.util.Freq.mhz(st.frequencyHz)
-                android.media.browse.MediaBrowser.MediaItem(
-                    MediaDescription.Builder()
-                        .setMediaId(st.frequencyHz.toString())
-                        .setTitle(label)
-                        .setSubtitle(com.fmradio.util.Freq.mhz(st.frequencyHz) + " MHz")
-                        .build(),
-                    android.media.browse.MediaBrowser.MediaItem.FLAG_PLAYABLE
-                )
-            }.toMutableList()
-        } catch (_: Throwable) {
-            mutableListOf<android.media.browse.MediaBrowser.MediaItem>()
-        }
-        result.sendResult(items)
-    }
+    override fun onBind(intent: Intent): IBinder = binder
 
     override fun onCreate() {
         com.fmradio.util.StartupLog.write("FmRadioService.onCreate")
@@ -416,8 +336,7 @@ class FmRadioService : android.service.media.MediaBrowserService() {
                         PlaybackState.ACTION_SKIP_TO_NEXT or
                         PlaybackState.ACTION_SKIP_TO_PREVIOUS or
                         PlaybackState.ACTION_FAST_FORWARD or
-                        PlaybackState.ACTION_REWIND or
-                        PlaybackState.ACTION_PLAY_FROM_MEDIA_ID
+                        PlaybackState.ACTION_REWIND
                     )
                     .setState(PlaybackState.STATE_STOPPED, 0, 1f)
                     .build()
@@ -456,13 +375,6 @@ class FmRadioService : android.service.media.MediaBrowserService() {
                     tuneToFrequency((currentFrequency + step).coerceAtMost(currentBand.endHz))
                 }
 
-                /** A station chosen in the car's browser. The id is its frequency. */
-                override fun onPlayFromMediaId(mediaId: String?, extras: android.os.Bundle?) {
-                    val hz = mediaId?.toLongOrNull() ?: return
-                    tuneToFrequency(hz)
-                    if (!isPlaying) startPlayback()
-                }
-
                 override fun onRewind() {
                     val step = currentBand.stepHz
                     tuneToFrequency((currentFrequency - step).coerceAtLeast(currentBand.startHz))
@@ -471,10 +383,6 @@ class FmRadioService : android.service.media.MediaBrowserService() {
 
             isActive = true
         }
-        // Hand the token to MediaBrowserService. A browser client that connects
-        // before this is set gets a null token and nothing to read, so it is
-        // done here rather than lazily.
-        try { sessionToken = mediaSession?.sessionToken } catch (_: Throwable) {}
     }
 
     private fun navigateStation(forward: Boolean) {
@@ -514,8 +422,7 @@ class FmRadioService : android.service.media.MediaBrowserService() {
                     PlaybackState.ACTION_SKIP_TO_NEXT or
                     PlaybackState.ACTION_SKIP_TO_PREVIOUS or
                     PlaybackState.ACTION_FAST_FORWARD or
-                    PlaybackState.ACTION_REWIND or
-                    PlaybackState.ACTION_PLAY_FROM_MEDIA_ID
+                    PlaybackState.ACTION_REWIND
                 )
                 .setState(state, currentFrequency, 1f)
                 .build()

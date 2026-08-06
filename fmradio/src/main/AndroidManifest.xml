@@ -41,18 +41,10 @@
                 android:resource="@xml/usb_device_filter" />
         </activity>
 
-        <!-- exported and answering MediaBrowserService: this is how a car's
-             head unit and instrument cluster find a media app at all. Without
-             the intent-filter nothing queries it, and the session's metadata is
-             never read no matter how correctly it is filled in. -->
         <service
             android:name=".ui.FmRadioService"
             android:foregroundServiceType="mediaPlayback"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.media.browse.MediaBrowserService" />
-            </intent-filter>
-        </service>
+            android:exported="false" />
 
         <activity
             android:name=".ui.SettingsActivity"
