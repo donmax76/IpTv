@@ -25,8 +25,24 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
         private const val RDS_BITRATE = 1187.5
 
         // Groups to wait before giving up on assembling a complete RadioText
-        // message and showing the fragment gathered so far (~30 s at 11.4 groups/s).
-        private const val RT_PARTIAL_AFTER = 350
+        // message and showing what has arrived so far.
+        //
+        // This was 350, about 30 seconds. That is fine for a station whose
+        // RadioText is its own name and never changes, and useless for one
+        // that puts the current track there: 106.3 rewrites its text every
+        // few seconds, and each rewrite toggles the A/B flag, which clears the
+        // buffer and restarts this counter. The new message then had to become
+        // COMPLETE before it could be shown — every one of its positions
+        // filled — because a previous message had once completed. At the block
+        // error rate this tuner sees, that rarely happens inside the few
+        // seconds the message exists, so the screen kept showing the previous
+        // text and the new one never appeared. "It cannot keep up" is exactly
+        // right.
+        //
+        // 70 groups is about six seconds at the ~9-11 groups/s actually
+        // decoded in the field: long enough to prefer a complete message when
+        // one is coming, short enough that a changing station still gets seen.
+        private const val RT_PARTIAL_AFTER = 70
 
         // ~100 blocks of memory, about two seconds of reception.
         private const val BER_EMA_ALPHA = 0.01f
@@ -1077,6 +1093,27 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
         return true
     }
 
+    /**
+     * The message up to its first missing character.
+     *
+     * A partly-received message used to be rendered straight out of rtChars,
+     * where a position that has not arrived yet still holds a space — so a
+     * hole is indistinguishable from a real space and the text reads as
+     * damaged: 'BAKU R  RO  M 93' for what is actually 'BAKU RETRO FM 93.3'.
+     * Cutting at the first hole instead shows a shorter message rather than a
+     * wrong one, and it grows left to right as the segments land, which looks
+     * like text arriving instead of text broken.
+     *
+     * Segments do not have to arrive in order, so if the very first one is
+     * missing this is empty while later positions are known. The caller falls
+     * back to the gapped form in that case: something imperfect beats nothing.
+     */
+    private fun rtHoleFreePrefix(): String {
+        var end = 0
+        while (end < rtLength && rtFilled[end]) end++
+        return if (end <= 0) "" else sanitize(String(rtChars, 0, end))
+    }
+
     private fun buildRdsData(): RdsData {
         val ps = sanitize(String(psChars))
         val building = sanitize(String(rtChars, 0, rtLength))
@@ -1085,7 +1122,7 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
             rtEverComplete = true
         } else if (!rtEverComplete || rtGroupsSinceClear > RT_PARTIAL_AFTER) {
             // Nothing complete to fall back on, or this one is taking too long.
-            rtDisplay = building
+            rtDisplay = rtHoleFreePrefix().ifBlank { building }
         }
         val rt = rtDisplay
         val ptyName = if (ptyCode in PTY_NAMES.indices) PTY_NAMES[ptyCode] else ""

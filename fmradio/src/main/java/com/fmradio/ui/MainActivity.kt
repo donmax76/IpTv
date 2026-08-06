@@ -771,43 +771,53 @@ class MainActivity : Activity() {
         }
     }
 
-    // RDS text is assembled a character at a time, so it passes through every
-    // truncation of itself on the way to being complete. A field log shows the
-    // name arriving as 'O', then 'TRO', then 'RETRO', then 'RETRO FM', and the
-    // RadioText as 'BAKU', 'BAKU R', 'BAKU R  RO', 'BAKU R  RO  M 93',
-    // 'BAKU RETRO  M 93.3'. Each of those was written straight to the saved
-    // station, and the saved station is what the screen shows the moment you
-    // tune back. Drive out of range, or step to the next preset, at any point
-    // during those few seconds and the truncated version is what is kept — for
-    // good, because nothing ever writes a shorter name back over a longer one.
-    // That is the "RDS is cut short" seen on 103.3 and 105.5.
-    //
-    // So: only remember text that has stopped changing. A longer version of
-    // what is already stored is allowed through at once, since it is strictly
-    // more of the same message and waiting only risks losing it.
     private var rdsPendingPs = ""
+    private var rdsPsSince = 0L
     private var rdsPendingRt = ""
-    private var rdsPendingSince = 0L
+    private var rdsRtSince = 0L
     private val RDS_SETTLE_MS = 4000L
 
+    /**
+     * Remember RDS text, but only once it has stopped moving.
+     *
+     * RDS text is assembled a character at a time, so on its way to being
+     * complete it passes through every truncation of itself: a field log shows
+     * the name arriving as 'O', then 'TRO', then 'RETRO', then 'RETRO FM'.
+     * Each of those used to be written straight into the saved station, and the
+     * saved station is what the screen shows the instant you tune back — so
+     * stepping to the next preset partway through kept the truncated version
+     * for good, since nothing ever writes a shorter name back over a longer one.
+     *
+     * The name and the RadioText are timed separately, and that is the whole
+     * point. On a station that puts the current track in its RadioText the text
+     * changes every few seconds and never settles, while the name never changes
+     * at all. Timing them together — as the first version of this did — let the
+     * churning text hold the settled name hostage and neither was ever saved.
+     */
     private fun rememberRdsIfSettled(rdsData: RdsDecoder.RdsData) {
-        if (rdsData.ps.isBlank()) return
         val now = System.currentTimeMillis()
-        if (rdsData.ps != rdsPendingPs || rdsData.rt != rdsPendingRt) {
-            rdsPendingPs = rdsData.ps
-            rdsPendingRt = rdsData.rt
-            rdsPendingSince = now
-        }
+        if (rdsData.ps != rdsPendingPs) { rdsPendingPs = rdsData.ps; rdsPsSince = now }
+        if (rdsData.rt != rdsPendingRt) { rdsPendingRt = rdsData.rt; rdsRtSince = now }
+        if (rdsData.ps.isBlank()) return
+
         val station = stationStorage.loadStations()
             .find { Math.abs(it.frequencyHz - currentFrequency) < 25000 } ?: return
-        if (station.rdsPs == rdsData.ps && station.rdsRt == rdsData.rt) return
 
-        val extendsStored = rdsData.ps.startsWith(station.rdsPs) &&
-                            rdsData.ps.length >= station.rdsPs.length
-        if (!extendsStored && now - rdsPendingSince < RDS_SETTLE_MS) return
+        // A longer version of what is already stored is strictly more of the
+        // same message, so it goes in at once; waiting could only lose it.
+        val psExtends = rdsData.ps.startsWith(station.rdsPs) &&
+                        rdsData.ps.length >= station.rdsPs.length
+        val psReady = rdsData.ps != station.rdsPs &&
+                      (psExtends || now - rdsPsSince >= RDS_SETTLE_MS)
+        val rtReady = rdsData.rt.isNotBlank() && rdsData.rt != station.rdsRt &&
+                      now - rdsRtSince >= RDS_SETTLE_MS
+        if (!psReady && !rtReady) return
 
         stationStorage.updateStation(
-            station.copy(rdsPs = rdsData.ps, rdsRt = rdsData.rt, rdsPty = rdsData.ptyName))
+            station.copy(
+                rdsPs = if (psReady) rdsData.ps else station.rdsPs,
+                rdsRt = if (rtReady) rdsData.rt else station.rdsRt,
+                rdsPty = rdsData.ptyName.ifBlank { station.rdsPty }))
         loadSavedStations()
     }
 
