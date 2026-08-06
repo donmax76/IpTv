@@ -1527,6 +1527,7 @@ class RtlSdrDevice(private val context: Context) {
             var totalBytes = 0L
             val streamStartMs = System.currentTimeMillis()
             var lastLogTime = System.currentTimeMillis()
+            var lastLogBytes = 0L
             var nullReads = 0
             while (isStreaming && isActive) {
                 try {
@@ -1571,17 +1572,39 @@ class RtlSdrDevice(private val context: Context) {
                         // Log first few reads and then periodically
                         val now = System.currentTimeMillis()
                         if (readCount <= 3 || now - lastLogTime > 5000) {
-                            // Report achieved vs required byte rate: this is the
-                            // single number that tells whether the USB host is
-                            // keeping up (shortfall = lost samples = clicks + RDS
-                            // block errors).
-                            val elapsedMs = now - streamStartMs
-                            val mbps = if (elapsedMs > 0) totalBytes * 1000.0 / elapsedMs / 1e6 else 0.0
+                            // Achieved vs required byte rate, measured over the
+                            // window since the PREVIOUS log line — not since the
+                            // stream started. The cumulative average never
+                            // recovers from a scan: a handful of retune gaps
+                            // drag it down and it then sits at "97.6%" for the
+                            // rest of the session while the stream is actually
+                            // running at 100.0% with nulls=0. Two diagnoses have
+                            // now been built on that number, and both blamed the
+                            // USB path for noise and RDS errors that a parked
+                            // tuner was still showing at a full 1.920 MB/s.
+                            // The average is kept, clearly labelled, because the
+                            // retune losses it accumulates are themselves real.
                             val needMbps = sampleRate * 2.0 / 1e6
-                            DebugLog.log("USB", "read #$readCount: ${data.size}B, total=${totalBytes/1024}KB, " +
-                                "rate=${String.format("%.3f", mbps)}/${String.format("%.3f", needMbps)}MB/s " +
-                                "(${String.format("%.1f", mbps / needMbps * 100)}%), nulls=$nullReads")
+                            val avgMs = now - streamStartMs
+                            val avgMbps = if (avgMs > 0) totalBytes * 1000.0 / avgMs / 1e6 else 0.0
+                            val winMs = now - lastLogTime
+                            val winBytes = totalBytes - lastLogBytes
+                            // The first few lines fire milliseconds apart; a
+                            // window that short says nothing, so report only the
+                            // average until a full window has elapsed.
+                            val nowPart = if (winMs >= 1000) {
+                                val mbps = winBytes * 1000.0 / winMs / 1e6
+                                "${String.format("%.3f", mbps)}/${String.format("%.3f", needMbps)}MB/s " +
+                                "(${String.format("%.1f", mbps / needMbps * 100)}% now, " +
+                                "${String.format("%.1f", avgMbps / needMbps * 100)}% avg)"
+                            } else {
+                                "${String.format("%.3f", avgMbps)}/${String.format("%.3f", needMbps)}MB/s " +
+                                "(${String.format("%.1f", avgMbps / needMbps * 100)}% avg)"
+                            }
+                            DebugLog.log("USB", "read #$readCount: ${data.size}B, " +
+                                "total=${totalBytes/1024}KB, rate=$nowPart, nulls=$nullReads")
                             lastLogTime = now
+                            lastLogBytes = totalBytes
                             nullReads = 0
                         }
                         try {
