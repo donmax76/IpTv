@@ -9,6 +9,8 @@ jobs:
   build-android-apk:
     name: Build Android APK
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,6 +54,44 @@ jobs:
         with:
           name: TVViewer-debug.apk
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      # Publish from this job, which already holds a runner.
+      #
+      # Releasing lives in create-release, a separate job needing a runner of
+      # its own, and that is precisely what GitHub has been refusing: "the job
+      # was not acquired by Runner of type hosted even after multiple attempts",
+      # while both build jobs went green. The APK was built correctly and never
+      # published, over and over, and the phone kept being told 3.0.488 was the
+      # newest version in existence.
+      #
+      # Needing one runner instead of two cannot make that worse and may well
+      # make it work. create-release still runs when it can and rebuilds the
+      # full release including the desktop pieces; this only guarantees that a
+      # working build reaches the car.
+      - name: Publish APK and version.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          APK=fmradio/build/outputs/apk/release/fmradio-release.apk
+          if [ ! -f "$APK" ]; then APK=fmradio/build/outputs/apk/debug/fmradio-debug.apk; fi
+          if [ ! -f "$APK" ]; then echo "::error::no APK to publish"; exit 1; fi
+          gh release view fmradio-latest >/dev/null 2>&1 || gh release create fmradio-latest --title "FM Radio (latest)" --notes "Automatic build"
+          gh release upload fmradio-latest "$APK#FmRadio-release.apk" --clobber
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+          cat > fmradio/version.json << EOF
+          {
+            "versionCode": $COMMIT_COUNT,
+            "versionName": "3.0.$COMMIT_COUNT",
+            "downloadUrl": "https://github.com/donmax76/IpTv/releases/download/fmradio-latest/FmRadio-release.apk"
+          }
+          EOF
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add fmradio/version.json
+          if git diff --cached --quiet; then echo "version.json already current"; exit 0; fi
+          git commit -m "Auto-update version.json to 3.0.$COMMIT_COUNT"
+          git push || echo "version.json push lost a race; the APK is published regardless"
   build-desktop-jar:
     name: Build Desktop JAR (Kotlin)
     runs-on: ubuntu-latest
