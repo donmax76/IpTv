@@ -48,38 +48,6 @@ jobs:
           set -o pipefail
           ./gradlew :fmradio:assembleDebug :fmradio:assembleRelease :app:assembleDebug 2>&1 | tee /tmp/build.log
 
-      # Nothing that develops this project can read the Actions logs — GitHub is
-      # not reachable from that environment, API or web. So a failure here is
-      # completely invisible: builds stopped publishing after 3.0.488 and the
-      # only way to tell was that the release APK never changed. Whatever broke
-      # gets written back into the repository, where it can be fetched with git
-      # like anything else. Pushes made with GITHUB_TOKEN do not start new
-      # workflow runs, so this cannot loop.
-      - name: Publish the failure log
-        if: failure()
-        run: |
-          mkdir -p ci-logs
-          {
-            echo "=== failed run: ${{ github.run_id }} attempt ${{ github.run_attempt }}"
-            echo "=== commit: ${{ github.sha }}"
-            echo
-            echo "=== sdkmanager (tail) ==="
-            tail -c 20000 /tmp/sdk.log 2>/dev/null || echo "(no sdk log — step never ran)"
-            echo
-            echo "=== gradle (tail) ==="
-            tail -c 150000 /tmp/build.log 2>/dev/null || echo "(no build log — step never ran)"
-          } > ci-logs/last-failure.log
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add -f ci-logs/last-failure.log
-          git commit -m "CI: build failure log for ${{ github.sha }}" || exit 0
-          for attempt in 1 2 3; do
-            git push && exit 0
-            git fetch origin "${{ github.ref_name }}" || true
-            git rebase "origin/${{ github.ref_name }}" || { git rebase --abort || true; }
-            sleep $((attempt * 3))
-          done
-
       - name: Upload FM Radio Debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -118,6 +86,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
+          exec > >(tee /tmp/publish.log) 2>&1
           APK=fmradio/build/outputs/apk/release/fmradio-release.apk
           if [ ! -f "$APK" ]; then
             APK=fmradio/build/outputs/apk/debug/fmradio-debug.apk
@@ -154,6 +123,47 @@ jobs:
           done
           echo "::error::could not publish version.json"
           exit 1
+      # LAST in the job on purpose. A failure() step only runs when the step
+      # that failed comes BEFORE it, so sitting in the middle it could report a
+      # compile error and nothing else — the artifact uploads and the publish
+      # step below it were invisible. A red build with no log at all is exactly
+      # what that looks like, and that is what happened.
+      #
+      # Nothing that develops this project can read the Actions logs — GitHub is
+      # not reachable from that environment, API or web. So a failure here is
+      # completely invisible: builds stopped publishing after 3.0.488 and the
+      # only way to tell was that the release APK never changed. Whatever broke
+      # gets written back into the repository, where it can be fetched with git
+      # like anything else. Pushes made with GITHUB_TOKEN do not start new
+      # workflow runs, so this cannot loop.
+      - name: Publish the failure log
+        if: failure()
+        run: |
+          mkdir -p ci-logs
+          {
+            echo "=== failed run: ${{ github.run_id }} attempt ${{ github.run_attempt }}"
+            echo "=== commit: ${{ github.sha }}"
+            echo
+            echo "=== sdkmanager (tail) ==="
+            tail -c 20000 /tmp/sdk.log 2>/dev/null || echo "(no sdk log — step never ran)"
+            echo
+            echo "=== gradle (tail) ==="
+            tail -c 150000 /tmp/build.log 2>/dev/null || echo "(no build log — step never ran)"
+            echo
+            echo "=== publish step (tail) ==="
+            tail -c 20000 /tmp/publish.log 2>/dev/null || echo "(no publish log — step never ran)"
+          } > ci-logs/last-failure.log
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add -f ci-logs/last-failure.log
+          git commit -m "CI: build failure log for ${{ github.sha }}" || exit 0
+          for attempt in 1 2 3; do
+            git push && exit 0
+            git fetch origin "${{ github.ref_name }}" || true
+            git rebase "origin/${{ github.ref_name }}" || { git rebase --abort || true; }
+            sleep $((attempt * 3))
+          done
+
   build-desktop-jar:
     name: Build Desktop JAR (Kotlin)
     runs-on: ubuntu-latest
