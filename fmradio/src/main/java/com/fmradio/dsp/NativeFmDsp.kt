@@ -75,6 +75,9 @@ class NativeFmDsp {
     /** Current audio high-cut corner, Hz. */
     external fun getHiCutHz(): Float
 
+    /** Current loudness-normalisation gain, 1.0 = untouched. See loudGain in fm_dsp.cpp. */
+    external fun getLoudnessGain(): Float
+
     /** Samples suppressed by the impulse blanker since reset. */
     external fun getBlankedCount(): Long
 

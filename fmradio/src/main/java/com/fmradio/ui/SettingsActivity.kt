@@ -315,6 +315,41 @@ class SettingsActivity : Activity() {
             monoRow.addView(monoToggle)
             addView(monoRow)
 
+            // Loudness normalisation. See loudGain in fm_dsp.cpp. The switch
+            // turns it OFF, so an unchecked box is the normalised default.
+            val loudRow = LinearLayout(this@SettingsActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, 4, 0, 4)
+            }
+            val loudLabel = TextView(this@SettingsActivity).apply {
+                text = "Не выравнивать громкость станций"
+                setTextColor(0xFFCCCCCC.toInt())
+                textSize = 14f
+                typeface = android.graphics.Typeface.MONOSPACE
+            }
+            loudRow.addView(loudLabel, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            val loudToggle = Switch(this@SettingsActivity).apply {
+                isChecked = (monoPrefs.getInt("dsp_test_flags", 0) and
+                             FmRadioService.TEST_NO_LOUDNESS) != 0
+                thumbTintList = android.content.res.ColorStateList(
+                    arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                    intArrayOf(greenColor, 0xFF888888.toInt())
+                )
+                trackTintList = android.content.res.ColorStateList(
+                    arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                    intArrayOf(0xFF005533.toInt(), 0xFF444444.toInt())
+                )
+                setOnCheckedChangeListener { _, checked ->
+                    val cur = monoPrefs.getInt("dsp_test_flags", 0)
+                    val next = if (checked) cur or FmRadioService.TEST_NO_LOUDNESS
+                               else cur and FmRadioService.TEST_NO_LOUDNESS.inv()
+                    monoPrefs.edit().putInt("dsp_test_flags", next).apply()
+                }
+            }
+            loudRow.addView(loudToggle)
+            addView(loudRow)
+
             // Impulse blanker. See TEST_NOISE_BLANKER.
             val nbRow = LinearLayout(this@SettingsActivity).apply {
                 orientation = LinearLayout.HORIZONTAL

@@ -174,6 +174,12 @@ class FmRadioService : android.service.media.MediaBrowserService() {
          */
         const val TEST_NOISE_BLANKER = 0x20
 
+        /**
+         * Mirrors TEST_NO_LOUDNESS in fm_dsp.cpp — switches loudness
+         * normalisation OFF, leaving each station at the level it transmits.
+         */
+        const val TEST_NO_LOUDNESS = 0x80
+
         // More buffers than the channel can hold, so the producer can never
         // wrap onto one the consumer is still reading.
         // The queue was 12 packets — 205 ms. A field report on a station with
@@ -980,6 +986,7 @@ class FmRadioService : android.service.media.MediaBrowserService() {
                         snap.hiCutHz = it.getHiCutHz()
                         snap.blanked = it.getBlankedCount()
                         snap.softClipPct = it.getSoftClipPct()
+                        snap.loudnessGain = it.getLoudnessGain()
                     }
                 }
                 if (DebugLog.fileLoggingEnabled && (demodCallCount <= 3 || now - lastDemodLog > 1000)) {

@@ -38,6 +38,9 @@ object StatusSnapshot {
      *  working on the programme, not on peaks, and that is audible grit. */
     @Volatile var softClipPct = 0f
 
+    /** Loudness normalisation, 1.00 = station left alone. See loudGain in fm_dsp.cpp. */
+    @Volatile var loudnessGain = 1f
+
     /** RDS health — the numbers that say whether text can arrive at all. */
     @Volatile var rdsSynced = false
     /** Blocks failing CRC right now, averaged over ~2 s. Reception quality. */
@@ -83,7 +86,7 @@ object StatusSnapshot {
             .format(frequencyHz / 1e6, signalDb, if (stereo) "STEREO" else "MONO",
                     gainStep, adcRms, adcClipPct, noiseLevel, stereoBlend, hiCutHz,
                     iqQueueDepth, if (nativeDsp) "native" else "kotlin") +
-              " | audio: underruns=%d buf=%dB real=%dframes | nb=%d limiter=%.2f%%".format(audioUnderruns, audioBufferBytes, audioBufferFrames, blanked, softClipPct) +
+              " | audio: underruns=%d buf=%dB real=%dframes | nb=%d limiter=%.2f%% loud=%.2fx".format(audioUnderruns, audioBufferBytes, audioBufferFrames, blanked, softClipPct, loudnessGain) +
               " | dial='" + freqText + "' cluster='" + clusterLine + "'" +
               " | mediabrowser: " + (if (browserClients.isBlank()) "NOBODY CONNECTED" else browserClients)
 

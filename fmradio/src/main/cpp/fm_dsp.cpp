@@ -365,6 +365,45 @@ struct DspState {
     float hiCutAlpha = 1.0f;         // one-pole coefficient at AUDIO_RATE
     float hiCutStateL = 0, hiCutStateR = 0;
 
+    /**
+     * Loudness normalisation across stations.
+     *
+     * How loud an FM station sounds is how hard it modulates, and that is the
+     * broadcaster's choice, not the receiver's: one station runs its processing
+     * flat out near 100% deviation while the next is conservative, and the
+     * difference is easily 6-10 dB. Every receiver hears it. Reaching for the
+     * volume on every preset is the symptom.
+     *
+     * So the audio level is measured and driven towards a fixed reference. Three
+     * things keep that from becoming the pumping this radio has already been
+     * cured of once:
+     *
+     *   - it is slow. 25 s in steady state, which is far slower than music and
+     *     cannot follow a quiet passage;
+     *   - it does not adapt during silence, or while muted or squelched. A gate
+     *     that winds the gain up into a pause is what makes a receiver hiss
+     *     between tracks;
+     *   - it is clamped to +/-9 dB, so a station can be evened out but a weak
+     *     one cannot be amplified into its own noise.
+     *
+     * It converges quickly for the first seconds after a retune, when there is
+     * nothing to protect and waiting 25 s would be the whole complaint again.
+     */
+    double loudAcc = 0;
+    int loudCount = 0;
+    int loudWindow;                       // samples per measurement
+    float loudGain = 1.0f;
+    int loudFastLeft = 0;
+    // Full modulation puts the mono audio near 0.45 in these units, and
+    // broadcast processing runs a crest factor around 12 dB, so a typical
+    // station sits near this. Choosing it a little wrong shifts every station
+    // by the same amount, which is one turn of the volume knob, not a fault.
+    static constexpr float LOUD_TARGET_RMS = 0.11f;
+    static constexpr float LOUD_MIN_RMS = 0.02f;    // quieter than this is a pause
+    static constexpr float LOUD_GAIN_MIN = 0.355f;  // -9 dB
+    static constexpr float LOUD_GAIN_MAX = 2.82f;   // +9 dB
+    static constexpr int LOUD_FAST_FRAMES = AUDIO_RATE * 3;
+
     // ===== Impulse noise blanker (operates on raw IQ) =====
     // Ignition sparks and multipath transients arrive as short bursts that
     // momentarily break the FM carrier's constant envelope. Working on |IQ|
@@ -459,6 +498,8 @@ struct DspState {
     // stations were flattened, too shy and noisy ones hissed. This hands the
     // decision over.
     static constexpr int TEST_FORCE_MONO = 0x40;
+    /** Switches loudness normalisation off, leaving the level exactly as sent. */
+    static constexpr int TEST_NO_LOUDNESS = 0x80;
 
     // Two pre-computed gain values, selected by TEST_GAIN flag at runtime.
     float fmGainDefault;
@@ -549,6 +590,7 @@ struct DspState {
             nzHpA1 = (-2.0 * cw) / a0n;
             nzHpA2 = (1.0 - al) / a0n;
         }
+        loudWindow = AUDIO_RATE / 4;      // 250 ms per measurement
         nzWindow = INTERMEDIATE_RATE / 100;   // 10 ms per measurement
 
         // Pilot BPF (Q=80, 19 kHz)
@@ -667,6 +709,8 @@ struct DspState {
         snrBlend = 1.0f;
         hiCutHz = HICUT_MAX_HZ; hiCutAlpha = 1.0f;
         hiCutStateL = hiCutStateR = 0;
+        loudAcc = 0; loudCount = 0; loudGain = 1.0f;
+        loudFastLeft = LOUD_FAST_FRAMES;
         nbAvg = 0.2f; nbRun = 0; nbLastI = nbLastQ = 0.0f; nbBlanked = 0;
         softClipHits = 0; softClipTotal = 0;
         sigPowerAcc = 0;
@@ -829,6 +873,11 @@ Java_com_fmradio_dsp_NativeFmDsp_getStereoBlend(JNIEnv*, jobject) {
 }
 
 /** Current audio high-cut corner in Hz. */
+JNIEXPORT jfloat JNICALL
+Java_com_fmradio_dsp_NativeFmDsp_getLoudnessGain(JNIEnv*, jobject) {
+    return g_dsp.loudGain;
+}
+
 JNIEXPORT jfloat JNICALL
 Java_com_fmradio_dsp_NativeFmDsp_getHiCutHz(JNIEnv*, jobject) {
     return g_dsp.hiCutHz;
@@ -1236,7 +1285,29 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
         // 2.1 dB of loudness, which the volume control covers, and it is the
         // difference between a limiter that catches transients and one that is
         // always on.
-        float gain = d.muteRamp * d.squelchLevel * 22000.0f;
+        // ===== Loudness normalisation — see loudGain =====
+        {
+            const float m = 0.5f * (d.hiCutStateL + d.hiCutStateR);
+            d.loudAcc += (double)m * (double)m;
+            if (++d.loudCount >= d.loudWindow) {
+                const float rms = (float)sqrt(d.loudAcc / d.loudCount);
+                d.loudAcc = 0; d.loudCount = 0;
+                // Only while there is actually programme to measure.
+                if (d.squelchLevel > 0.9f && d.muteRamp > 0.99f &&
+                    rms > DspState::LOUD_MIN_RMS) {
+                    float want = DspState::LOUD_TARGET_RMS / rms;
+                    if (want < DspState::LOUD_GAIN_MIN) want = DspState::LOUD_GAIN_MIN;
+                    if (want > DspState::LOUD_GAIN_MAX) want = DspState::LOUD_GAIN_MAX;
+                    // 0.25 per 250 ms window while settling, 0.01 after: about
+                    // 3 s to find a new station, 25 s to drift with one.
+                    const float a = (d.loudFastLeft > 0) ? 0.25f : 0.01f;
+                    d.loudGain += a * (want - d.loudGain);
+                }
+            }
+            if (d.loudFastLeft > 0) d.loudFastLeft--;
+        }
+        const float loud = (d.testFlags & DspState::TEST_NO_LOUDNESS) ? 1.0f : d.loudGain;
+        float gain = d.muteRamp * d.squelchLevel * loud * 22000.0f;
         const float preL = d.hiCutStateL * gain / 32767.0f;
         const float preR = d.hiCutStateR * gain / 32767.0f;
         // Count it rather than assume it: if the knee is never reached, the
