@@ -1064,6 +1064,9 @@ class FmRadioService : android.service.media.MediaBrowserService() {
             var settleTicks = 0
             var settleAfterChange = 0
             var clipRun = 0
+            // Consecutive decisions asking to move the SAME way — see below.
+            var moveRun = 0
+            var moveDir = 0
             while (isActive && isPlaying) {
                 // Average the meters over the whole interval instead of taking
                 // one reading. Each reading covers a single 17 ms USB block,
@@ -1135,7 +1138,36 @@ class FmRadioService : android.service.media.MediaBrowserService() {
                     else -> step
                 }.coerceIn(0, IF_GAIN_MAX_STEP)
 
-                if (newStep != step) {
+                // Two decisions agreeing before the gain moves.
+                //
+                // The level this loop steers on is the power of the whole
+                // 960 kHz window, which holds nine channels of the 100 kHz
+                // grid. Any one FM carrier has a constant envelope, but a sum
+                // of them does not — they beat against each other — so the
+                // reading wanders by several dB with the gain untouched. A
+                // field log at 107.7 shows it going from rms 0.164 to 0.305 at
+                // a fixed step 18: 5.4 dB, wider than the 3.9 dB dead zone,
+                // which means the zone cannot contain it and the loop cannot
+                // settle inside it however well the arithmetic is done.
+                //
+                // What came out was a limit cycle every few seconds: a peak
+                // reads as clipping, the gain drops a step, the next reading
+                // falls under the floor, the gain goes back up, and round
+                // again. One notch is 2.73 dB through everything downstream.
+                //
+                // Requiring the same direction twice running costs 200 ms of
+                // response and throws away exactly the excursions that are the
+                // window wandering rather than the signal changing. A real
+                // level change persists and still moves the gain on the second
+                // decision.
+                val dir = if (newStep > step) 1 else if (newStep < step) -1 else 0
+                if (dir == 0) { moveRun = 0; moveDir = 0 }
+                else if (dir == moveDir) moveRun++
+                else { moveDir = dir; moveRun = 1 }
+                val confirmed = dir != 0 && moveRun >= 2
+
+                if (confirmed) {
+                    moveRun = 0; moveDir = 0
                     step = newStep
                     clipRun = 0
                     com.fmradio.util.StatusSnapshot.gainStep = step
@@ -1147,11 +1179,11 @@ class FmRadioService : android.service.media.MediaBrowserService() {
                     try { ndsp.reseedDc() } catch (_: Throwable) {}
                     settleTicks = 0
                     settleAfterChange = GAIN_SETTLE_CYCLES
-                    DebugLog.log("AGC", "IF gain -> step $step (${step * 2} dB), " +
+                    DebugLog.log("AGC", "IF gain -> step $step (${"%.1f".format(step * IF_GAIN_STEP_DB)} dB), " +
                             "rms=%.3f clip=%.3f%%".format(rms, clip))
                 } else if (++settleTicks >= GAIN_LOG_TICKS) {
                     settleTicks = 0
-                    DebugLog.log("AGC", "steady: step $step (${step * 2} dB), " +
+                    DebugLog.log("AGC", "steady: step $step (${"%.1f".format(step * IF_GAIN_STEP_DB)} dB), " +
                             "rms=%.3f clip=%.3f%% | noise=%.4f stereo=%.2f hicut=%.0fHz nb=%d"
                                 .format(rms, clip, ndsp.getNoiseLevel(),
                                         ndsp.getStereoBlend(), ndsp.getHiCutHz(),
