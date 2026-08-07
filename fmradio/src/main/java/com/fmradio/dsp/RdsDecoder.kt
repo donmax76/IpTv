@@ -730,7 +730,38 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
                 // Once confirmed, lose sync after 40 consecutive bad blocks.
                 // FC0013 has 89% BER — at 40, a confirmed sync survives noise
                 // bursts long enough to decode PS over multiple groups.
-                if (syncConfirmed && badBlocks > 40) {
+                // Give up on the framing after twelve consecutive failures,
+                // not forty-one.
+                //
+                // Forty-one in a row is not something reception does. On 107.0,
+                // at -10 dB with a noise reading of 0.013 and the subcarrier
+                // measured 6.1 dB above the band beside it, the field log loses
+                // sync every two to five seconds and ALWAYS with badBlocks=41.
+                // Half the blocks on that station fail; forty-one consecutive
+                // failures by chance is a probability of 5e-13. What actually
+                // happens is that the bit framing slips, after which every
+                // block fails by construction — and the proof is in the next
+                // line of the log every time: sync is re-confirmed 50 to 150 ms
+                // later, on the same signal, because the data was never bad.
+                //
+                // So the forty-one is pure waste: nine tenths of a second of
+                // decoding thrown away each time, several times a minute.
+                // Measured end to end on a standards-correct signal, 40 s at 4%
+                // injection, block error rate at 41 / 12 / 6:
+                //
+                //   L-R    noise    41 ->  12 ->   6      RadioText complete
+                //   mono   0.070   11.7   7.4    6.4      6.5 s throughout
+                //   mono   0.090   73.9  48.2   42.0      never -> 36.1 -> 24.7 s
+                //   0.45   0.090   69.7  48.0   41.6      name 7.3 -> 3.4 -> 2.0 s
+                //
+                // Still improving at six, and it should: giving up costs the
+                // hundred milliseconds the field log shows re-acquisition
+                // taking, while carrying on at a slipped framing costs
+                // everything until the counter runs out. Six consecutive
+                // failures happen by chance often enough at these error rates,
+                // and that is fine — being wrong is cheap and being right is
+                // not.
+                if (syncConfirmed && badBlocks > 6) {
                     Log.d(TAG, "RDS sync LOST (badBlocks=$badBlocks)")
                     DebugLog.log(TAG, "RDS sync LOST (badBlocks=$badBlocks)")
                     synced = false

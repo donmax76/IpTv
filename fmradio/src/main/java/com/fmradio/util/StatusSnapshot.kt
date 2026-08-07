@@ -159,10 +159,14 @@ object StatusSnapshot {
     fun rds(): String =
         "subcarrier=%.4f shoulder=%.4f -> %+.1f dB, %s (noise=%.4f)\n     "
             .format(rdsCarrierLevel, rdsShoulderLevel, subcarrierDb(),
+                    // Calibrated on 107.0, which decodes its name in half a
+                    // second and its text in half a minute: that station reads
+                    // +6.1 dB. A working reference sitting exactly on the
+                    // boundary means the boundary was in the wrong place.
                     when {
                         rdsCarrierLevel <= 0f -> "not measured yet"
-                        subcarrierDb() >= 6f  -> "RDS IS ON AIR — any failure is ours"
-                        subcarrierDb() >= 3f  -> "weak subcarrier, marginal"
+                        subcarrierDb() >= 4f  -> "RDS IS ON AIR — any failure is ours"
+                        subcarrierDb() >= 2f  -> "weak subcarrier, marginal"
                         else -> "NO SUBCARRIER — this station sends no RDS"
                     }, noiseLevel) +
         "synced=%s BERnow=%.1f%% BERlife=%.1f%% groups=%d dropped=%d(+%d при старте) PS='%s' RT='%s'"
