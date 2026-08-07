@@ -90,24 +90,20 @@ class FmRadioService : android.service.media.MediaBrowserService() {
         // ten times inside that window and averaged, because a single reading
         // is one 17 ms USB block and far too noisy to steer on.
         private const val GAIN_SAMPLE_MS = 20L
-        // Half a second of readings behind every decision, up from a fifth.
+        // 300 ms of readings behind every decision.
         //
-        // With the median in place the 3.0.512 log stopped chasing overload
-        // bursts, but it still moved six times in three minutes on a station
-        // that never changed — and twice the move was undone within a second:
-        // step 17 sat at rms 0.171-0.176 for a minute, one decision read 0.315,
-        // the gain went to 16, and 657 ms later a reading of 0.133 put it
-        // straight back. A median of ten 17 ms blocks still only spans 200 ms,
-        // so an excursion lasting a third of a second IS the median.
+        // 200 ms was too short even with the median: a median of ten 17 ms
+        // blocks spans a fifth of a second, so an excursion lasting a third of
+        // a second IS the median, and the 3.0.512 log has two corrections
+        // undone within a second because of it. Half a second fixed that and
+        // went too far the other way — with the two-decision confirmation and a
+        // settle cycle on top, a correction took up to a second and a half, and
+        // a car driving out of coverage cannot wait that long for the converter
+        // to be fed properly.
         //
-        // Nothing needs the gain to react in a fifth of a second. What it
-        // tracks is the aerial signal changing as the car moves, which happens
-        // over seconds. Fast fading is not its business at all: FM carries no
-        // information in the envelope, so as long as the converter is neither
-        // clipped nor starved the demodulator does not care, and every
-        // correction costs 2.73 dB through the whole chain plus a broken RDS
-        // block sync.
-        private const val GAIN_SAMPLES = 25
+        // Fifteen blocks still needs eight of them corrupted before a burst can
+        // move the middle one, and pairs the confirmation down to 600 ms.
+        private const val GAIN_SAMPLES = 15
         // Ignore one decision (200 ms) after a change so the loop does not
         // react to its own move before the level has settled. One is enough
         // now that corrections are proportional and therefore few.
@@ -154,24 +150,29 @@ class FmRadioService : android.service.media.MediaBrowserService() {
         // 3.86 dB, wider than the real step with margin for the reading moving
         // with programme content, so both points are inside and the loop can
         // stop.
-        // The dead zone has to be wider than one gain step PLUS how far the
-        // reading wanders on its own, or no zone can hold the loop still.
+        // A dead zone this loop can still regulate inside.
         //
-        // Measured over three minutes on 107.7 in 3.0.512, with the level
-        // medians logged every ten seconds: step 17 settles at 0.166-0.179,
-        // step 18 at 0.211-0.229, and single decisions reach 0.268, 0.282 and
-        // 0.315 with no clipping and no bursts — the signal itself moving. So
-        // the step is about 2.0 dB here and the wander is another 3 to 5 dB on
-        // top. A 3.9 dB zone cannot contain that; 0.145 to 0.295 is 6.2 dB,
-        // holds two adjacent steps at once, and leaves the excursions inside.
+        // It was widened to 0.145..0.295 — 6.2 dB — on the reasoning that the
+        // reading wandered 3 to 5 dB on its own. That reasoning read the
+        // 3.0.512 log wrongly: the spread quoted there was measured ACROSS gain
+        // steps, so most of it was the step change itself, not wander. The
+        // 3.0.516 log settles it, because by then the medians were in and the
+        // loop never moved: on 107.7, twenty-seven consecutive decisions over
+        // four and a half minutes at a fixed step read 0.251 to 0.268. That is
+        // six tenths of a decibel, not five.
         //
-        // 0.145 costs about 3 dB of converter range against the 0.21 target,
-        // which the loop still aims for whenever it does correct. That is
-        // affordable: the noise figures in the same log, 0.017 to 0.025, are
-        // set by the aerial and the front end, not by the last bit of the
-        // converter.
-        private const val ADC_RMS_HIGH = 0.295f
-        private const val ADC_RMS_LOW = 0.145f
+        // What a zone that wide actually did was stop the loop working. It
+        // starts at step 20; 0.25 is inside 0.145..0.295; so it stayed at step
+        // 20 on every station in the log — 105.5, 107.0 and 107.7 alike — and
+        // never regulated anything. More IF gain than the signal needs is more
+        // intermodulation from the eight other carriers in the 960 kHz window,
+        // on every station at once, which is exactly what was reported.
+        //
+        // 0.170..0.265 is 3.9 dB: wider than one 2.73 dB step plus the six
+        // tenths the reading really moves, and narrow enough that the loop has
+        // to find the right step instead of accepting wherever it started.
+        private const val ADC_RMS_HIGH = 0.265f
+        private const val ADC_RMS_LOW = 0.170f
         // Middle of the dead zone — what the proportional correction aims at.
         private const val ADC_RMS_TARGET = 0.21f
         // Where the loop starts. Mid-scale rather than maximum so a strong
@@ -1255,7 +1256,12 @@ class FmRadioService : android.service.media.MediaBrowserService() {
                 if (dir == 0) { moveRun = 0; moveDir = 0 }
                 else if (dir == moveDir) moveRun++
                 else { moveDir = dir; moveRun = 1 }
-                val confirmed = dir != 0 && (clipping || moveRun >= 2)
+                // A correction of two steps or more is a real level change,
+                // not dither, and waiting a second to believe it is what makes
+                // the level lurch when driving. Five and a half decibels of
+                // error does not arrive by accident.
+                val bigMove = kotlin.math.abs(newStep - step) >= 2
+                val confirmed = dir != 0 && (clipping || bigMove || moveRun >= 2)
 
                 if (confirmed) {
                     moveRun = 0; moveDir = 0

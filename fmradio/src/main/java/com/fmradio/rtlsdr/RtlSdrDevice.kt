@@ -1528,7 +1528,8 @@ class RtlSdrDevice(private val context: Context) {
             val streamStartMs = System.currentTimeMillis()
             var lastLogTime = System.currentTimeMillis()
             var lastLogBytes = 0L
-            var nullReads = 0
+            var nullReads = 0          // per log window, for the rate line
+            var consecutiveNulls = 0   // in a row, which is what "stalled" means
             while (isStreaming && isActive) {
                 try {
                     // 500 ms read timeout: long enough to be reliable under normal
@@ -1567,6 +1568,16 @@ class RtlSdrDevice(private val context: Context) {
                     val data = if (pipe != null && pipe.isValid) pipe.read(500)
                                else readSamples(bufferSize, 500)
                     if (data != null && data.isNotEmpty()) {
+                        // A read that worked means the endpoint is not stalled.
+                        // Without this the counter below is a running total for
+                        // the whole five-second log window, not a run of
+                        // consecutive failures — and a retune contributes three
+                        // empty reads every time, so two station changes inside
+                        // one window were enough to reach five and trigger an
+                        // endpoint reset on a pipe that was working perfectly.
+                        // The reset costs a clearHalt and a FIFO flush, which
+                        // is another gap in the audio, caused by nothing.
+                        consecutiveNulls = 0
                         readCount++
                         totalBytes += data.size
                         // Log first few reads and then periodically
@@ -1623,12 +1634,13 @@ class RtlSdrDevice(private val context: Context) {
                         }
                     } else {
                         nullReads++
-                        if (nullReads <= 3) {
-                            DebugLog.log("USB", "readSamples returned null/empty (#$nullReads)")
+                        consecutiveNulls++
+                        if (consecutiveNulls <= 3) {
+                            DebugLog.log("USB", "readSamples returned null/empty (#$consecutiveNulls)")
                         }
                         // Endpoint likely stalled (bulkTransfer=-1 / EPIPE). Try to
                         // unstall it instead of looping forever on a dead endpoint.
-                        if (nullReads == 5 || (nullReads > 5 && nullReads % 20 == 0)) {
+                        if (consecutiveNulls == 5 || (consecutiveNulls > 5 && consecutiveNulls % 20 == 0)) {
                             recoverEndpoint()
                             delay(20)
                         }
