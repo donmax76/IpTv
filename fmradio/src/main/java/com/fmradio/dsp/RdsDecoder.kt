@@ -296,6 +296,8 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
     private var ptyCandidateCount = 0
     private var tpFlag = false
     private var taFlag = false
+    private var taCandidate = false
+    private var taCandidateCount = 0
     private var msFlag = false
     private val afFrequencies = mutableSetOf<Float>()
     @Volatile
@@ -908,18 +910,38 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
             DebugLog.log(TAG, line)
         }
 
-        // TP (Traffic Programme) flag — bit 10 of block B
-        tpFlag = (blockB and 0x0400) != 0
+        // TP (Traffic Programme) and TA (Traffic Announcement), both from
+        // block B, and both only from a block B that passed CRC UNTOUCHED.
+        //
+        // These were read from blockB unconditionally, which is wrong twice
+        // over. groupData holds the last block B that passed, so on a failing
+        // block the flags were re-read from a stale word; and a block that
+        // needed a bit corrected carries a random value in any single bit,
+        // which is exactly what these flags are. TA now drives the volume, so
+        // one wrong bit is a jump in loudness with no announcement behind it —
+        // it has to be right, not merely likely.
+        //
+        // Two agreeing clean readings, the same rule PTY already uses. On air
+        // group 0 repeats about four times a second, so a real announcement is
+        // acted on within a second of starting.
+        if (groupClean[1]) {
+            tpFlag = (blockB and 0x0400) != 0
 
-        // TA (Traffic Announcement) — bit 4 of block B in group 0
-        if (groupType == 0) {
-            val newTa = (blockB and 0x0010) != 0
-            if (newTa != taFlag) {
-                taFlag = newTa
-                dataChanged = true
+            if (groupType == 0) {
+                val newTa = (blockB and 0x0010) != 0
+                if (newTa == taCandidate) {
+                    if (++taCandidateCount >= 2 && newTa != taFlag) {
+                        taFlag = newTa
+                        dataChanged = true
+                        DebugLog.log(TAG, "TA -> $taFlag (TP=$tpFlag)")
+                    }
+                } else {
+                    taCandidate = newTa
+                    taCandidateCount = 1
+                }
+                // M/S flag — bit 3 of block B in group 0
+                msFlag = (blockB and 0x0008) != 0
             }
-            // M/S flag — bit 3 of block B in group 0
-            msFlag = (blockB and 0x0008) != 0
         }
 
         val cValid = groupValid[2]
@@ -1306,6 +1328,8 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
         ptyCandidateCount = 0
         tpFlag = false
         taFlag = false
+        taCandidate = false
+        taCandidateCount = 0
         msFlag = false
         afFrequencies.clear()
         dataChanged = false

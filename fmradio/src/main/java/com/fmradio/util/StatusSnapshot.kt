@@ -72,6 +72,13 @@ object StatusSnapshot {
     @Volatile var rdsPs = ""
     @Volatile var rdsRt = ""
 
+    /** Station carries traffic bulletins at all (RDS TP bit). */
+    @Volatile var rdsTp = false
+    /** A bulletin is on air right now and the volume is being held up. */
+    @Volatile var taActive = false
+    /** Bulletins acted on since the app started — 0 says the bit never arrives. */
+    @Volatile var taCount = 0
+
     /** Exactly what was written to the dial, for diagnosing the display itself. */
     @Volatile var freqText = ""
 
@@ -111,5 +118,6 @@ object StatusSnapshot {
     fun rds(): String =
         "synced=%s BERnow=%.1f%% BERlife=%.1f%% groups=%d dropped=%d(+%d при старте) PS='%s' RT='%s'"
             .format(rdsSynced, rdsBerPct, rdsBerLifetimePct, rdsGroups, rdsDropped, rdsDroppedAtStart, rdsPs, rdsRt) +
+            "\n     traffic: TP=%s TA=%s announcements=%d".format(rdsTp, taActive, taCount) +
             (if (rdsSearch.isNotBlank()) "\n     search: $rdsSearch" else "")
 }

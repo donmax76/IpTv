@@ -127,6 +127,12 @@ class StationStorage(context: Context) {
         get() = prefs.getFloat(KEY_LAST_VOLUME, 0.8f)
         set(value) = prefs.edit().putFloat(KEY_LAST_VOLUME, value).apply()
 
+    /** Raise the volume for the duration of a traffic bulletin. See
+     *  handleTrafficAnnouncement in FmRadioService. */
+    var taVolumeEnabled: Boolean
+        get() = prefs.getBoolean("ta_volume_enabled", true)
+        set(value) = prefs.edit().putBoolean("ta_volume_enabled", value).apply()
+
     fun getPreset(index: Int): Long {
         return prefs.getLong("${KEY_PRESET_PREFIX}$index", 0L)
     }

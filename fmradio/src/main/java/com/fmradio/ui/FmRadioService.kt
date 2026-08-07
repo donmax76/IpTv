@@ -55,6 +55,10 @@ class FmRadioService : android.service.media.MediaBrowserService() {
 
     companion object {
         private const val TAG = "FmRadioService"
+        /** Floor the volume is held at during a traffic bulletin. */
+        private const val TA_VOLUME = 0.85f
+        /** A bulletin this long has lost its end flag, not run this long. */
+        private const val TA_MAX_MS = 5 * 60 * 1000L
         private const val CHANNEL_ID = "fm_radio_playback"
         private const val BROWSER_ROOT = "fmradio_root"
         private const val NOTIFICATION_ID = 1001
@@ -86,7 +90,24 @@ class FmRadioService : android.service.media.MediaBrowserService() {
         // ten times inside that window and averaged, because a single reading
         // is one 17 ms USB block and far too noisy to steer on.
         private const val GAIN_SAMPLE_MS = 20L
-        private const val GAIN_SAMPLES = 10
+        // Half a second of readings behind every decision, up from a fifth.
+        //
+        // With the median in place the 3.0.512 log stopped chasing overload
+        // bursts, but it still moved six times in three minutes on a station
+        // that never changed — and twice the move was undone within a second:
+        // step 17 sat at rms 0.171-0.176 for a minute, one decision read 0.315,
+        // the gain went to 16, and 657 ms later a reading of 0.133 put it
+        // straight back. A median of ten 17 ms blocks still only spans 200 ms,
+        // so an excursion lasting a third of a second IS the median.
+        //
+        // Nothing needs the gain to react in a fifth of a second. What it
+        // tracks is the aerial signal changing as the car moves, which happens
+        // over seconds. Fast fading is not its business at all: FM carries no
+        // information in the envelope, so as long as the converter is neither
+        // clipped nor starved the demodulator does not care, and every
+        // correction costs 2.73 dB through the whole chain plus a broken RDS
+        // block sync.
+        private const val GAIN_SAMPLES = 25
         // Ignore one decision (200 ms) after a change so the loop does not
         // react to its own move before the level has settled. One is enough
         // now that corrections are proportional and therefore few.
@@ -133,14 +154,24 @@ class FmRadioService : android.service.media.MediaBrowserService() {
         // 3.86 dB, wider than the real step with margin for the reading moving
         // with programme content, so both points are inside and the loop can
         // stop.
-        // The floor came down from 0.170 with the move to a median reading.
-        // A field log on 107.7 has the level settling at 0.183 to 0.192 on one
-        // step and 0.228 to 0.234 on the next, so 0.170 left less than a
-        // decibel of margin under the lower of the two — every dip below it
-        // sent the gain up, and the step above then read high and sent it back.
-        // 0.160 puts both operating points properly inside with room to sit.
-        private const val ADC_RMS_HIGH = 0.265f
-        private const val ADC_RMS_LOW = 0.160f
+        // The dead zone has to be wider than one gain step PLUS how far the
+        // reading wanders on its own, or no zone can hold the loop still.
+        //
+        // Measured over three minutes on 107.7 in 3.0.512, with the level
+        // medians logged every ten seconds: step 17 settles at 0.166-0.179,
+        // step 18 at 0.211-0.229, and single decisions reach 0.268, 0.282 and
+        // 0.315 with no clipping and no bursts — the signal itself moving. So
+        // the step is about 2.0 dB here and the wander is another 3 to 5 dB on
+        // top. A 3.9 dB zone cannot contain that; 0.145 to 0.295 is 6.2 dB,
+        // holds two adjacent steps at once, and leaves the excursions inside.
+        //
+        // 0.145 costs about 3 dB of converter range against the 0.21 target,
+        // which the loop still aims for whenever it does correct. That is
+        // affordable: the noise figures in the same log, 0.017 to 0.025, are
+        // set by the aerial and the front end, not by the last bit of the
+        // converter.
+        private const val ADC_RMS_HIGH = 0.295f
+        private const val ADC_RMS_LOW = 0.145f
         // Middle of the dead zone — what the proportional correction aims at.
         private const val ADC_RMS_TARGET = 0.21f
         // Where the loop starts. Mid-scale rather than maximum so a strong
@@ -164,7 +195,7 @@ class FmRadioService : android.service.media.MediaBrowserService() {
         // acts on it. One noisy 200 ms window is not overload.
         private const val CLIP_CONFIRM = 2
         // Log a steady-state line every ~10 s so field logs show the level.
-        private const val GAIN_LOG_TICKS = 50
+        private const val GAIN_LOG_TICKS = 20
 
         /** Mirrors TEST_FORCE_MONO in fm_dsp.cpp. */
         const val TEST_FORCE_MONO = 0x40
@@ -691,6 +722,11 @@ class FmRadioService : android.service.media.MediaBrowserService() {
 
         rdsDecoder?.reset()
         currentRdsData = RdsDecoder.RdsData()
+        // A different station knows nothing about the bulletin that was
+        // playing, and its own RDS may never say anything at all, so nothing
+        // would ever put the volume back.
+        endTaBoost("station changed")
+        com.fmradio.util.StatusSnapshot.rdsTp = false
 
         updateMediaSessionState()
         updateNotification()
@@ -762,6 +798,7 @@ class FmRadioService : android.service.media.MediaBrowserService() {
             rds.listener = object : RdsDecoder.RdsListener {
                 override fun onRdsData(data: RdsDecoder.RdsData) {
                     currentRdsData = data
+                    handleTrafficAnnouncement(data)
                     onRdsDataReceived?.invoke(data)
                     // Any change, not just a station name: RadioText is the
                     // "now playing" line and on a marginal signal it often
@@ -1365,7 +1402,69 @@ class FmRadioService : android.service.media.MediaBrowserService() {
         }
     }
 
-    fun setVolume(volume: Float) { audioPlayer?.setVolume(volume.coerceIn(0f, 1f)) }
+    /** What the user set, before any traffic-announcement override. */
+    @Volatile private var userVolume = 1f
+    /** True while a traffic bulletin is being carried at the raised level. */
+    @Volatile private var taBoostActive = false
+    private var taBoostStartedAt = 0L
+
+    fun setVolume(volume: Float) {
+        userVolume = volume.coerceIn(0f, 1f)
+        applyVolume()
+    }
+
+    private fun applyVolume() {
+        val v = if (taBoostActive) maxOf(userVolume, TA_VOLUME) else userVolume
+        audioPlayer?.setVolume(v)
+    }
+
+    /**
+     * Raise the volume for the duration of a traffic bulletin.
+     *
+     * This is what TA is for, and until now the app only lit an indicator with
+     * it. A bulletin is worth hearing over whatever the volume happens to be
+     * set to, so the level is a FLOOR, not an increase: a listener already
+     * above it is left alone, which is how car radios have always done it, and
+     * it means the announcement cannot come out quieter or louder than
+     * expected depending on where the knob was.
+     *
+     * TP is required as well as TA. TA alone means "an announcement is on",
+     * TP means "this station carries them at all", and a station that does not
+     * carry traffic has no business raising the volume whatever its TA bit
+     * says. The decoder only sets either from a block B that passed CRC
+     * untouched, twice running — one wrong bit here is a jump in loudness with
+     * nothing behind it.
+     *
+     * The time limit is the other half of that. RDS here loses about half its
+     * blocks, so the bulletin's END can go missing as easily as its start; a
+     * real one runs a couple of minutes, and after five the flag is not
+     * telling the truth any more.
+     */
+    private fun handleTrafficAnnouncement(data: RdsDecoder.RdsData) {
+        val announcing = data.ta && data.tp
+        val now = System.currentTimeMillis()
+        com.fmradio.util.StatusSnapshot.rdsTp = data.tp
+        if (announcing && !taBoostActive) {
+            if (!stationStorage.taVolumeEnabled) return
+            taBoostActive = true
+            taBoostStartedAt = now
+            applyVolume()
+            com.fmradio.util.StatusSnapshot.taActive = true
+            com.fmradio.util.StatusSnapshot.taCount++
+            DebugLog.log(TAG, "TA: announcement started, volume ${"%.0f".format(userVolume * 100)}% -> " +
+                    "${"%.0f".format(maxOf(userVolume, TA_VOLUME) * 100)}%")
+        } else if (taBoostActive && (!announcing || now - taBoostStartedAt >= TA_MAX_MS)) {
+            endTaBoost(if (announcing) "no end flag after ${TA_MAX_MS / 1000}s" else "ended")
+        }
+    }
+
+    private fun endTaBoost(why: String) {
+        if (!taBoostActive) return
+        taBoostActive = false
+        applyVolume()
+        com.fmradio.util.StatusSnapshot.taActive = false
+        DebugLog.log(TAG, "TA: $why, volume back to ${"%.0f".format(userVolume * 100)}%")
+    }
 
     // ========= DSP A/B test flags (runtime toggles for sound quality tuning) =========
     @Volatile
