@@ -41,6 +41,21 @@ object StatusSnapshot {
     /** Loudness normalisation, 1.00 = station left alone. See loudGain in fm_dsp.cpp. */
     @Volatile var loudnessGain = 1f
 
+    /**
+     * How often the converter is being driven into its rails, in 17 ms blocks.
+     *
+     * Not a property of the station: a field log at a steady rms of 0.19 with
+     * no clipping had single blocks reading 12% and 13% clipped, seconds apart,
+     * while the impulse blanker counted away in the background. That is
+     * interference getting into the receiver — the car's own electrics, the
+     * cable, the head unit's supply — and it is invisible in every other number
+     * here because the level and the noise figure are both averages that
+     * swallow it. As a percentage it says plainly whether the tuner is being
+     * hit, and how hard.
+     */
+    @Volatile var adcBurstBlocks = 0L
+    @Volatile var adcTotalBlocks = 0L
+
     /** RDS health — the numbers that say whether text can arrive at all. */
     @Volatile var rdsSynced = false
     /** Blocks failing CRC right now, averaged over ~2 s. Reception quality. */
@@ -87,6 +102,9 @@ object StatusSnapshot {
                     gainStep, adcRms, adcClipPct, noiseLevel, stereoBlend, hiCutHz,
                     iqQueueDepth, if (nativeDsp) "native" else "kotlin") +
               " | audio: underruns=%d buf=%dB real=%dframes | nb=%d limiter=%.2f%% loud=%.2fx".format(audioUnderruns, audioBufferBytes, audioBufferFrames, blanked, softClipPct, loudnessGain) +
+              " | overload bursts: %.1f%% of blocks (%d/%d)".format(
+                  if (adcTotalBlocks > 0) adcBurstBlocks * 100.0 / adcTotalBlocks else 0.0,
+                  adcBurstBlocks, adcTotalBlocks) +
               " | dial='" + freqText + "' cluster='" + clusterLine + "'" +
               " | mediabrowser: " + (if (browserClients.isBlank()) "NOBODY CONNECTED" else browserClients)
 

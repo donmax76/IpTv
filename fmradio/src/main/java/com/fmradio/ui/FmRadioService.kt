@@ -133,8 +133,14 @@ class FmRadioService : android.service.media.MediaBrowserService() {
         // 3.86 dB, wider than the real step with margin for the reading moving
         // with programme content, so both points are inside and the loop can
         // stop.
+        // The floor came down from 0.170 with the move to a median reading.
+        // A field log on 107.7 has the level settling at 0.183 to 0.192 on one
+        // step and 0.228 to 0.234 on the next, so 0.170 left less than a
+        // decibel of margin under the lower of the two — every dip below it
+        // sent the gain up, and the step above then read high and sent it back.
+        // 0.160 puts both operating points properly inside with room to sit.
         private const val ADC_RMS_HIGH = 0.265f
-        private const val ADC_RMS_LOW = 0.170f
+        private const val ADC_RMS_LOW = 0.160f
         // Middle of the dead zone — what the proportional correction aims at.
         private const val ADC_RMS_TARGET = 0.21f
         // Where the loop starts. Mid-scale rather than maximum so a strong
@@ -1060,6 +1066,8 @@ class FmRadioService : android.service.media.MediaBrowserService() {
             // on tuning in that then clears up.
             var step = IF_GAIN_START_STEP
             com.fmradio.util.StatusSnapshot.gainStep = step
+            com.fmradio.util.StatusSnapshot.adcBurstBlocks = 0
+            com.fmradio.util.StatusSnapshot.adcTotalBlocks = 0
             dev.setFc0013IfGainStep(step)
             var settleTicks = 0
             var settleAfterChange = 0
@@ -1068,28 +1076,59 @@ class FmRadioService : android.service.media.MediaBrowserService() {
             var moveRun = 0
             var moveDir = 0
             while (isActive && isPlaying) {
-                // Average the meters over the whole interval instead of taking
-                // one reading. Each reading covers a single 17 ms USB block,
-                // and on FM that swings about 2:1 from block to block — a field
-                // log showed the loop chasing that noise and hunting between
-                // 28 and 34 dB several times a second, which is audible as the
-                // level breathing and disturbs the RDS decoder as well.
-                var rmsSum = 0f
-                var clipMax = 0f
+                // Ten readings over the interval, and the MIDDLE one is used —
+                // not the mean of the levels and not the worst of the clipping.
+                //
+                // Each reading covers a single 17 ms USB block. On FM the level
+                // swings about 2:1 from block to block, which is why a single
+                // reading was never enough. But a field log from this car shows
+                // something the mean cannot survive: bursts of interference
+                // that saturate the converter outright for a block or two at a
+                // time. Inside one 200 ms decision, with the steady level at
+                // rms 0.19 and no clipping at all, the loop saw rms 0.277 with
+                // 12.1% clipped, then 0.282 with 13.2%, then once rms 0.505
+                // with 4.5%. Nothing about the station changed; the noise
+                // blanker was counting impulses throughout.
+                //
+                // The mean carries those blocks straight into the decision and
+                // the max is made ENTIRELY of them, so the loop read overload,
+                // dropped a step, found itself under the floor, climbed back,
+                // and went round again — 18, 19, 18, 19, 17, 18 for three
+                // minutes, each move 2.73 dB through everything downstream and
+                // each one enough to break RDS block sync, which in that log
+                // never held longer than a second.
+                //
+                // The median asks the right question. Real overload is in every
+                // block, so the middle reading shows it and the gain still
+                // comes down. A burst is in one or two, so the middle reading
+                // ignores it — which is correct: turning the gain down does not
+                // make a burst of interference go away, it only makes the
+                // station quieter until the next burst pushes it back.
+                val rmsAll = FloatArray(GAIN_SAMPLES)
+                val clipAll = FloatArray(GAIN_SAMPLES)
                 var samples = 0
+                var bursts = 0
                 repeat(GAIN_SAMPLES) {
                     delay(GAIN_SAMPLE_MS)
                     val r = ndsp.getAdcRms()
                     if (r > 0f) {
-                        rmsSum += r
                         val c = ndsp.getAdcClipPct()
-                        if (c > clipMax) clipMax = c
+                        rmsAll[samples] = r
+                        clipAll[samples] = c
+                        if (c > CLIP_LIMIT_PCT) bursts++
                         samples++
                     }
                 }
                 if (samples == 0) continue       // no data yet
-                val rms = rmsSum / samples
-                val clip = clipMax
+                java.util.Arrays.sort(rmsAll, 0, samples)
+                java.util.Arrays.sort(clipAll, 0, samples)
+                val rms = rmsAll[samples / 2]
+                val clip = clipAll[samples / 2]
+                // Blocks the converter was overloaded in, whatever the loop
+                // decided to do about it. This is the interference itself, and
+                // until now no number in the report showed it.
+                com.fmradio.util.StatusSnapshot.adcBurstBlocks += bursts
+                com.fmradio.util.StatusSnapshot.adcTotalBlocks += samples
 
                 // After a change, let the tuner and the meters settle before
                 // judging the result, or the loop reacts to its own move.
@@ -1194,12 +1233,12 @@ class FmRadioService : android.service.media.MediaBrowserService() {
                     settleTicks = 0
                     settleAfterChange = GAIN_SETTLE_CYCLES
                     DebugLog.log("AGC", "IF gain -> step $step (${"%.1f".format(step * IF_GAIN_STEP_DB)} dB), " +
-                            "rms=%.3f clip=%.3f%%".format(rms, clip))
+                            "rms=%.3f clip=%.3f%% (median of $samples) burstBlocks=$bursts".format(rms, clip))
                 } else if (++settleTicks >= GAIN_LOG_TICKS) {
                     settleTicks = 0
                     DebugLog.log("AGC", "steady: step $step (${"%.1f".format(step * IF_GAIN_STEP_DB)} dB), " +
-                            "rms=%.3f clip=%.3f%% | noise=%.4f stereo=%.2f hicut=%.0fHz nb=%d"
-                                .format(rms, clip, ndsp.getNoiseLevel(),
+                            "rms=%.3f clip=%.3f%% burst=%d/%d | noise=%.4f stereo=%.2f hicut=%.0fHz nb=%d"
+                                .format(rms, clip, bursts, samples, ndsp.getNoiseLevel(),
                                         ndsp.getStereoBlend(), ndsp.getHiCutHz(),
                                         ndsp.getBlankedCount()))
                 }
