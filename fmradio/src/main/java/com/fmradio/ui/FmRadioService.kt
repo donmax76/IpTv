@@ -1105,8 +1105,9 @@ class FmRadioService : android.service.media.MediaBrowserService() {
                 // decibels and divide by the 2 dB a step is worth. One notch
                 // at a time is fine once settled but hopeless from a cold
                 // start, which is where the audible problem was.
+                val clipping = clipRun >= CLIP_CONFIRM
                 val newStep = when {
-                    clipRun >= CLIP_CONFIRM -> {
+                    clipping -> {
                         // Clipping compresses the reading, so rms understates
                         // how far out we are. But three steps is 8 dB on this
                         // tuner, and a field log shows what that costs: a 3.5%
@@ -1160,11 +1161,24 @@ class FmRadioService : android.service.media.MediaBrowserService() {
                 // window wandering rather than the signal changing. A real
                 // level change persists and still moves the gain on the second
                 // decision.
+                //
+                // CLIPPING IS EXEMPT, and that is not a detail. A level reading
+                // is an estimate that this rule exists to doubt; a sample
+                // sitting on the converter's rail is a fact. Worse, making
+                // clipping wait for agreement can stop the gain moving at all:
+                // a peak reads as clipping and asks to go down, the next window
+                // reads under the floor and asks to go up, the direction flips
+                // every time and the run never reaches two. The gain then sits
+                // for ever at a level that clips a percent of its samples, and
+                // an 8-bit converter clipping is broadband distortion right
+                // across the window — noise that appears only when there is
+                // programme, which is precisely what was reported after the
+                // confirmation rule shipped.
                 val dir = if (newStep > step) 1 else if (newStep < step) -1 else 0
                 if (dir == 0) { moveRun = 0; moveDir = 0 }
                 else if (dir == moveDir) moveRun++
                 else { moveDir = dir; moveRun = 1 }
-                val confirmed = dir != 0 && moveRun >= 2
+                val confirmed = dir != 0 && (clipping || moveRun >= 2)
 
                 if (confirmed) {
                     moveRun = 0; moveDir = 0

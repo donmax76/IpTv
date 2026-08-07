@@ -147,9 +147,9 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
     // whether or not the CRC passed. PS is allowed to use a CRC-failed block D
     // (otherwise it barely ever populates at FC0013's error rate), but it must
     // read those bits from HERE, not from groupData. groupData keeps the
-    // PREVIOUS group's value while a block keeps failing, so the "received the
-    // same pair twice" test would be satisfied by one stale reading repeated —
-    // confirming wrong characters instead of filtering them.
+    // PREVIOUS group's value while a block keeps failing, so a vote taken on it
+    // would count one stale reading over and over and elect wrong characters
+    // rather than filter them.
     private val groupRaw = IntArray(4)
     private val groupValid = BooleanArray(4)  // true = this block passed CRC in current group
     // true = block passed CRC WITHOUT error correction. Single-bit correction
@@ -160,16 +160,106 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
     // clean blocks; corrected ones are still fine as confirmation evidence.
     private val groupClean = BooleanArray(4)
 
-    // PS consistency checking — require 2 identical receptions before accepting
+    /**
+     * Which character really belongs at each position, decided by weighted vote.
+     *
+     * The old rule was "show it once the same code arrives twice RUNNING". That
+     * is a filter, not a decision, and it wastes most of the evidence: if a
+     * position comes through correctly a fraction p of the time, two consecutive
+     * receptions agree with probability p squared. A PS segment only comes round
+     * about once a second, so at the block error rates this tuner actually sees
+     * — the field reports show 46% to 93% — whole segments were still blank
+     * after a minute. That is what "it takes forever to write the text" means,
+     * and it is why a station whose RadioText changes every few minutes never
+     * finished a single message.
+     *
+     * Counting instead of comparing takes the same evidence much further. The
+     * correct character is the most common one, because errors scatter across
+     * many different wrong values while the truth always lands on the same one:
+     * a leader emerges after a handful of receptions instead of waiting for two
+     * to line up by luck. Receptions are weighted by what they are worth — a
+     * block that passed CRC untouched is strong evidence, one that needed a bit
+     * corrected is weaker (single-bit correction mis-corrects about 2.5% of
+     * random multi-bit errors), and the raw bits of a block that failed outright
+     * are weakest. At this error rate the weakest kind is most of what arrives,
+     * and throwing it away is why RadioText barely accumulated at all.
+     *
+     * A candidate is shown only once it has enough weight AND enough of a lead
+     * over the runner-up, so noise that happens to agree twice cannot install a
+     * character that the rest of the evidence contradicts.
+     */
+    private class CharVote(private val positions: Int) {
+        companion object {
+            /** Candidates tracked per position. Errors scatter; three is plenty. */
+            private const val SLOTS = 3
+            /** One CRC-clean reception is enough on its own, as it was before. */
+            const val W_CLEAN = 6
+            /** Two error-corrected ones, matching the old confirm threshold. */
+            const val W_CORRECTED = 3
+            /** Three raw ones — the old rule wanted three CONSECUTIVE. */
+            const val W_RAW = 2
+            private const val ACCEPT = 6
+            private const val LEAD = 3
+        }
+
+        private val cand = CharArray(positions * SLOTS)
+        private val score = IntArray(positions * SLOTS)
+
+        fun clear() = clearFrom(0)
+
+        fun clearFrom(from: Int) {
+            for (i in from * SLOTS until positions * SLOTS) {
+                cand[i] = ' '; score[i] = 0
+            }
+        }
+
+        /** Record one reception. Returns the winner, or null while undecided. */
+        fun vote(pos: Int, c: Char, weight: Int): Char? {
+            val base = pos * SLOTS
+            var slot = -1
+            var weakest = base
+            for (s in 0 until SLOTS) {
+                val i = base + s
+                if (score[i] > 0 && cand[i] == c) { slot = i; break }
+                if (score[i] < score[weakest]) weakest = i
+            }
+            if (slot < 0) {
+                // No free slot: discount the weakest rather than evicting it, so
+                // a burst of noise cannot displace a candidate that a minute of
+                // reception has already built up.
+                if (score[weakest] > weight) { score[weakest] -= weight; return leader(base) }
+                slot = weakest
+                cand[slot] = c; score[slot] = 0
+            }
+            score[slot] += weight
+            return leader(base)
+        }
+
+        private fun leader(base: Int): Char? {
+            var best = base
+            for (s in 1 until SLOTS) if (score[base + s] > score[best]) best = base + s
+            var runner = 0
+            for (s in 0 until SLOTS) {
+                val i = base + s
+                if (i != best && score[i] > runner) runner = score[i]
+            }
+            return if (score[best] >= ACCEPT && score[best] - runner >= LEAD) cand[best] else null
+        }
+    }
+
+    /** Weight one reception by how much the block it came from can be trusted. */
+    private fun charWeight(valid: Boolean, clean: Boolean): Int = when {
+        valid && clean -> CharVote.W_CLEAN
+        valid -> CharVote.W_CORRECTED
+        else -> CharVote.W_RAW
+    }
+
+    // PS is decided by weighted vote per character — see CharVote.
     private val psChars = CharArray(8) { ' ' }
-    private val psPending = CharArray(8) { ' ' }
-    private val psConfirmed = CharArray(8) { ' ' }
-    private val psHitCount = IntArray(4)
-    private val PS_CONFIRM_THRESHOLD = 2  // require 2 identical receptions to filter noise
+    private val psVote = CharVote(8)
 
     // RT data
     private val rtChars = CharArray(64) { ' ' }
-    private val rtPending = CharArray(64) { ' ' }
     private var rtLength = 0
     private var rtConfirmedLength = 0
     private var rtAbFlag = -1  // RT A/B flag: toggles when station changes text → clear buffer
@@ -193,12 +283,8 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
     private var rtMaxSeg = -1
     private var rtLastSeg = -1
     private var rtWrapsAtMax = 0
-    // Per-character confirmation for RadioText, mirroring what PS already does.
-    // A character is only shown once the SAME code arrives twice at the same
-    // position (or once from a CRC-clean block). Garbage from a mis-corrected
-    // block practically never repeats identically, so hieroglyphs never reach
-    // the screen.
-    private val rtHitCount = IntArray(64)
+    // Per-character confirmation for RadioText, by the same weighted vote PS uses.
+    private val rtVote = CharVote(64)
 
     // RDS decoded fields
     private var piCode = 0
@@ -838,9 +924,21 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
 
         val cValid = groupValid[2]
         val dValid = groupValid[3]
-        when (groupType) {
-            0 -> decodeGroup0(blockB, blockC, blockD, versionB, cValid, dValid)  // PS name + AF
-            2 -> decodeGroup2(blockB, blockC, blockD, versionB, cValid, dValid)  // RadioText
+        // Nothing is placed anywhere unless block B passed CRC.
+        //
+        // Both text groups take their position in the message from block B, and
+        // groupData keeps the PREVIOUS group's block B while this one is
+        // failing — so a failed block B does not mean "no address", it means a
+        // STALE one, indistinguishable from a real one. Characters were being
+        // written confidently into whatever slot the last group happened to
+        // use: at the error rates here that is roughly every other group,
+        // scattering good characters across the wrong positions. It looks like
+        // reception noise and is not.
+        if (groupValid[1]) {
+            when (groupType) {
+                0 -> decodeGroup0(blockB, blockC, blockD, versionB, cValid, dValid)  // PS name + AF
+                2 -> decodeGroup2(blockB, blockC, blockD, versionB, cValid, dValid)  // RadioText
+            }
         }
 
         // Notify listener
@@ -851,13 +949,14 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
     }
 
     // Group 0: Programme Service name (2 chars per group) + Alternative Frequencies
-    // Uses consistency checking: character pair must be received identically twice
+    // Each character is decided by weighted vote — see CharVote.
     private fun decodeGroup0(blockB: Int, blockC: Int, blockD: Int, versionB: Boolean,
                              cValid: Boolean, dValid: Boolean) {
         // Don't build the PS name until the PI code is confirmed: before PI
         // lock, a consistently-misaligned sync (possible during acquisition)
-        // can repeat identical wrong characters and pass the consistency
-        // check. PI confirms within ~1 s on air, so this costs nothing.
+        // repeats the same wrong characters, and a vote cannot tell a
+        // consistent error from the truth. PI confirms within ~1 s on air, so
+        // this costs nothing.
         if (piCode == 0) return
 
         val segmentAddr = blockB and 0x03
@@ -865,38 +964,29 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
 
         // PS chars from block D. At 89% BER on FC0013, requiring dValid means PS
         // never populates (block D rarely passes CRC), so a failed block is
-        // still used — but its bits are read from groupRaw so that each
-        // reception is genuinely independent, and it must then agree with a
-        // third one before being shown.
+        // still used — but its bits are read from groupRaw, never groupData,
+        // so that each reception is genuinely independent. groupData holds the
+        // last block D that PASSED, and re-reading that would let one lucky
+        // block vote for itself over and over.
         val dCode = if (dValid) blockD else groupRaw[3]
         val c1 = rdsCharToUnicode((dCode shr 8) and 0xFF)
         val c2 = rdsCharToUnicode(dCode and 0xFF)
 
-        if (isValidRdsChar(c1) && isValidRdsChar(c2)) {
-            // Consistency checking: require identical receptions before accepting
-            if (psPending[pos] == c1 && psPending[pos + 1] == c2) {
-                psHitCount[segmentAddr]++
-            } else {
-                psPending[pos] = c1
-                psPending[pos + 1] = c2
-                psHitCount[segmentAddr] = 1
-            }
-
-            val enough = when {
-                dValid && groupClean[3] -> 1
-                dValid -> PS_CONFIRM_THRESHOLD
-                else -> PS_CONFIRM_THRESHOLD + 1
-            }
-            if (psHitCount[segmentAddr] >= enough) {
-                if (psConfirmed[pos] != c1 || psConfirmed[pos + 1] != c2) {
-                    psConfirmed[pos] = c1
-                    psConfirmed[pos + 1] = c2
-                    psChars[pos] = c1
-                    psChars[pos + 1] = c2
-                    dataChanged = true
-                    Log.d(TAG, "PS update: ${String(psChars).trim()}")
-                }
-            }
+        // Each of the two characters is voted on separately. They arrive in the
+        // same block, but a block that failed CRC has usually only damaged part
+        // of itself, so tying the two together throws away a good half whenever
+        // the other half is wrong.
+        val w = charWeight(dValid, dValid && groupClean[3])
+        var psChanged = false
+        if (isValidRdsChar(c1)) psVote.vote(pos, c1, w)?.let {
+            if (psChars[pos] != it) { psChars[pos] = it; psChanged = true }
+        }
+        if (isValidRdsChar(c2)) psVote.vote(pos + 1, c2, w)?.let {
+            if (psChars[pos + 1] != it) { psChars[pos + 1] = it; psChanged = true }
+        }
+        if (psChanged) {
+            dataChanged = true
+            Log.d(TAG, "PS update: ${String(psChars).trim()}")
         }
 
         // AF (Alternative Frequencies) from block C in version A
@@ -934,8 +1024,8 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
                 // mixed into the old one. Requiring a clean block B is what
                 // prevents a mis-corrected block from wiping good text; adding
                 // a further confirmation delay would itself cause mixing.
-                for (i in rtChars.indices) { rtChars[i] = ' '; rtPending[i] = '\u0000' }
-                for (i in rtHitCount.indices) rtHitCount[i] = 0
+                for (i in rtChars.indices) rtChars[i] = ' '
+                rtVote.clear()
                 for (i in rtFilled.indices) rtFilled[i] = false
                 rtLength = 0
                 rtEndSeen = false; rtEndExplicit = false; rtMinLength = 0
@@ -967,39 +1057,52 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
             if (!rtEndExplicit) rtMinLength = (rtMaxSeg + 1) * perSegment
         }
 
+        // A block that failed CRC is still read, at the lowest weight.
+        //
+        // Discarding it was safe but expensive: RadioText used to take only
+        // blocks that passed, and in the field 46% to 93% of blocks do not.
+        // On 106.3 that meant a message was still half-assembled when the
+        // station replaced it, so nothing was ever finished — the exact
+        // complaint. The vote is what makes reading them safe: a wrong bit
+        // lands on a different character each time and never builds a lead,
+        // while the right one is reinforced by every reception including the
+        // failed blocks. Only the two decisions that damage the whole message —
+        // the A/B toggle above and the 0x0D terminator — still insist on a
+        // block that passed CRC untouched.
+        val rawC = groupRaw[2]
+        val rawD = groupRaw[3]
+        val srcC = if (cValid) blockC else rawC
+        val srcD = if (dValid) blockD else rawD
+        val wC = charWeight(cValid, cValid && groupClean[2])
+        val wD = charWeight(dValid, dValid && groupClean[3])
+        val cleanC = cValid && groupClean[2]
+        val cleanD = dValid && groupClean[3]
+
         if (!versionB) {
-            // RT has no consistency checking like PS, so corrupt blocks write
-            // garbled chars directly → "hieroglyphs". Require at least block D
-            // valid for the 2 chars from D. Block C chars only if cValid.
             val pos = segmentAddr * 4
             if (pos + 3 < rtChars.size) {
                 val chars = intArrayOf(
-                    if (cValid) (blockC shr 8) and 0xFF else -1,
-                    if (cValid) blockC and 0xFF else -1,
-                    if (dValid) (blockD shr 8) and 0xFF else -1,
-                    if (dValid) blockD and 0xFF else -1
+                    (srcC shr 8) and 0xFF, srcC and 0xFF,
+                    (srcD shr 8) and 0xFF, srcD and 0xFF
                 )
-                val clean = booleanArrayOf(
-                    groupClean[2], groupClean[2], groupClean[3], groupClean[3]
-                )
+                val clean = booleanArrayOf(cleanC, cleanC, cleanD, cleanD)
+                val weight = intArrayOf(wC, wC, wD, wD)
                 var anyValid = false
                 for (j in 0..3) {
-                    if (chars[j] < 0) continue  // block not CRC-valid, skip this char
-                    if (commitRtChar(pos + j, chars[j], clean[j])) anyValid = true
+                    if (commitRtChar(pos + j, chars[j], clean[j], weight[j])) anyValid = true
                     if (chars[j] == RDS_END_OF_TEXT && clean[j]) break
                 }
                 if (anyValid) dataChanged = true
             }
         } else {
-            // Version B: 2 chars per segment from block D — require dValid
-            if (!dValid) return
+            // Version B: 2 chars per segment from block D.
             val pos = segmentAddr * 2
             if (pos + 1 < rtChars.size) {
-                val chars = intArrayOf((blockD shr 8) and 0xFF, blockD and 0xFF)
+                val chars = intArrayOf((srcD shr 8) and 0xFF, srcD and 0xFF)
                 var anyValid = false
                 for (j in 0..1) {
-                    if (commitRtChar(pos + j, chars[j], groupClean[3])) anyValid = true
-                    if (chars[j] == RDS_END_OF_TEXT && groupClean[3]) return
+                    if (commitRtChar(pos + j, chars[j], cleanD, wD)) anyValid = true
+                    if (chars[j] == RDS_END_OF_TEXT && cleanD) return
                 }
                 if (anyValid) dataChanged = true
             }
@@ -1007,12 +1110,16 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
     }
 
     /**
-     * Commit one RadioText character with confirmation.
-     * Clean (uncorrected) blocks are trusted immediately; error-corrected ones
-     * must deliver the same code twice at the same position before it is shown.
+     * Commit one RadioText character.
+     *
+     * [weight] says how much this reception counts for — see CharVote. [clean]
+     * is separate and stricter: it gates the decisions that damage the whole
+     * message rather than one character, so a 0x0D from anything but a block
+     * that passed CRC untouched is ignored outright rather than merely weighed.
+     *
      * Returns true if the visible buffer changed.
      */
-    private fun commitRtChar(pos: Int, code: Int, clean: Boolean): Boolean {
+    private fun commitRtChar(pos: Int, code: Int, clean: Boolean, weight: Int): Boolean {
         if (pos < 0 || pos >= rtChars.size) return false
 
         if (code == RDS_END_OF_TEXT) {
@@ -1030,8 +1137,9 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
             if (pos < rtLength) {
                 rtLength = pos
                 for (k in pos until rtChars.size) {
-                    rtChars[k] = ' '; rtHitCount[k] = 0; rtFilled[k] = false
+                    rtChars[k] = ' '; rtFilled[k] = false
                 }
+                rtVote.clearFrom(pos)
                 return true
             }
             return false
@@ -1040,23 +1148,10 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
         val c = rdsCharToUnicode(code)
         if (!isValidRdsChar(c)) return false
 
-        val confirmed = if (clean) {
-            true
-        } else {
-            if (rtPending[pos] == c) {
-                rtHitCount[pos]++
-                rtHitCount[pos] >= 2
-            } else {
-                rtPending[pos] = c
-                rtHitCount[pos] = 1
-                false
-            }
-        }
-        if (!confirmed) return false
+        val win = rtVote.vote(pos, c, weight) ?: return false
 
-        rtPending[pos] = c
-        val changed = rtChars[pos] != c || rtLength <= pos
-        rtChars[pos] = c
+        val changed = rtChars[pos] != win || rtLength <= pos
+        rtChars[pos] = win
         rtFilled[pos] = true
         if (pos >= rtLength) rtLength = pos + 1
         return changed
@@ -1114,6 +1209,32 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
         return if (end <= 0) "" else sanitize(String(rtChars, 0, end))
     }
 
+    /**
+     * The best readable form of a message that has not finished arriving.
+     *
+     * Cutting at the first hole is right while the message is mostly holes, and
+     * wrong once it is mostly there. Segments do not arrive in order, so a
+     * single missing position near the front hides everything behind it: a
+     * bench run at the error rate this tuner sees had 47 of the 52 characters
+     * decoded and was displaying four of them, for the whole minute. That is
+     * the "it writes the text very slowly" complaint — the text had arrived,
+     * the display was refusing to show it.
+     *
+     * So once two thirds of the span is known, show the span. A word missing a
+     * letter still reads; a message truncated to its first word does not. Below
+     * that the gapped form really would be more hole than text, and the prefix
+     * is the honest choice.
+     */
+    private fun rtPartial(): String {
+        var last = -1
+        var filled = 0
+        for (i in 0 until rtLength) if (rtFilled[i]) { last = i; filled++ }
+        if (last < 0) return ""
+        val span = last + 1
+        if (filled * 3 >= span * 2) return sanitize(String(rtChars, 0, span))
+        return rtHoleFreePrefix()
+    }
+
     private fun buildRdsData(): RdsData {
         val ps = sanitize(String(psChars))
         val building = sanitize(String(rtChars, 0, rtLength))
@@ -1122,7 +1243,7 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
             rtEverComplete = true
         } else if (!rtEverComplete || rtGroupsSinceClear > RT_PARTIAL_AFTER) {
             // Nothing complete to fall back on, or this one is taking too long.
-            rtDisplay = rtHoleFreePrefix().ifBlank { building }
+            rtDisplay = rtPartial().ifBlank { building }
         }
         val rt = rtDisplay
         val ptyName = if (ptyCode in PTY_NAMES.indices) PTY_NAMES[ptyCode] else ""
@@ -1165,11 +1286,8 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
         for (i in groupData.indices) { groupData[i] = 0; groupRaw[i] = 0 }
         for (i in groupValid.indices) groupValid[i] = false
         for (i in psChars.indices) psChars[i] = ' '
-        for (i in psPending.indices) psPending[i] = ' '
-        for (i in psConfirmed.indices) psConfirmed[i] = ' '
-        for (i in psHitCount.indices) psHitCount[i] = 0
+        psVote.clear()
         for (i in rtChars.indices) rtChars[i] = ' '
-        for (i in rtPending.indices) rtPending[i] = ' '
         rtLength = 0
         rtConfirmedLength = 0
         for (i in rtFilled.indices) rtFilled[i] = false
@@ -1178,7 +1296,7 @@ class RdsDecoder(private val sampleRate: Int = FmDemodulator.INTERMEDIATE_RATE) 
         rtMaxSeg = -1; rtLastSeg = -1; rtWrapsAtMax = 0
         rtAbFlag = -1
         rtAbPendingFlag = -1; rtAbPendingCount = 0
-        for (i in rtHitCount.indices) rtHitCount[i] = 0
+        rtVote.clear()
         piCode = 0
         piConfirmCount = 0
         piCandidate = 0
