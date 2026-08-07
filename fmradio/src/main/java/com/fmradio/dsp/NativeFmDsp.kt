@@ -80,6 +80,18 @@ class NativeFmDsp {
      */
     external fun getRdsCarrierLevel(): Float
 
+    /**
+     * Level in an empty band beside RDS, for comparison with
+     * [getRdsCarrierLevel].
+     *
+     * A station running its composite hard splashes intermodulation above the
+     * stereo difference signal's 53 kHz edge, straight into the RDS band —
+     * energy there is not the same as data there. Splatter and noise are both
+     * broad and read the same at 58.2 kHz and at 62; a real subcarrier is
+     * narrow and reads only at 58.2. See rdsShoulderLevel in fm_dsp.cpp.
+     */
+    external fun getRdsShoulderLevel(): Float
+
     /** Stereo separation currently in use: 0 = mono, 1 = full. */
     external fun getStereoBlend(): Float
 

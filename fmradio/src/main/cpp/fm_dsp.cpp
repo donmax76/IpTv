@@ -361,6 +361,30 @@ struct DspState {
     float  rdsCarrierLevel = 0.0f;
     float  rdsCarrierEma = 0.0f;
 
+    // ===== ...and is that really RDS, or the station splashing? =====
+    //
+    // The probe above has a hole in it, and 105.5 found it: subcarrier 0.0466
+    // against a noise floor of 0.0298, four and a half decibels of something
+    // sitting in the RDS band — and 97% block errors, with every syndrome
+    // search counter at the rate random bits produce. Two readings that cannot
+    // both be about RDS.
+    //
+    // The catch is that 105.5 is in stereo. A station running its composite
+    // hard puts intermodulation above the 53 kHz edge of the difference
+    // signal, and that lands exactly where RDS lives. Energy in the band is
+    // not the same as data in the band.
+    //
+    // So measure a band next to it that carries nothing. 62 kHz is above
+    // RDS's 59.4 kHz edge and below the 67 kHz where SCA and DARC sit, and
+    // noise and splatter are both broad — they read the same at 58.2 and at
+    // 62. A real subcarrier is narrow and reads only at 58.2. The difference
+    // between the two, not either one alone, is the answer.
+    double shHpB0, shHpB1, shHpB2, shHpA1, shHpA2;
+    double shX1 = 0, shX2 = 0, shY1 = 0, shY2 = 0;
+    double shAcc = 0;
+    float  rdsShoulderLevel = 0.0f;
+    float  rdsShoulderEma = 0.0f;
+
     // Blend to mono as noise rises. Below FULL the signal is clean enough for
     // full separation; above NONE the L-R path carries more noise than
     // information and is dropped entirely. Between the two the separation is
@@ -642,6 +666,17 @@ struct DspState {
             rdsHpB2 = -alr / a0r;
             rdsHpA1 = (-2.0 * cwr) / a0r;
             rdsHpA2 = (1.0 - alr) / a0r;
+
+            // The shoulder — same filter, empty band. See rdsShoulderLevel.
+            double w0s = 2.0 * PI_D * 62000.0 / INTERMEDIATE_RATE;
+            double cws = cos(w0s), sws = sin(w0s);
+            double als = sws / (2.0 * qr);
+            double a0s = 1.0 + als;
+            shHpB0 = als / a0s;
+            shHpB1 = 0.0;
+            shHpB2 = -als / a0s;
+            shHpA1 = (-2.0 * cws) / a0s;
+            shHpA2 = (1.0 - als) / a0s;
         }
         loudWindow = AUDIO_RATE / 4;      // 250 ms per measurement
         nzWindow = INTERMEDIATE_RATE / 100;   // 10 ms per measurement
@@ -761,6 +796,8 @@ struct DspState {
         noiseLevel = 0.0f; noiseEma = 0.0f;
         rdsAcc = 0; rdsX1 = rdsX2 = rdsY1 = rdsY2 = 0;
         rdsCarrierLevel = 0.0f; rdsCarrierEma = 0.0f;
+        shAcc = 0; shX1 = shX2 = shY1 = shY2 = 0;
+        rdsShoulderLevel = 0.0f; rdsShoulderEma = 0.0f;
         snrBlend = 1.0f;
         hiCutHz = HICUT_MAX_HZ; hiCutAlpha = 1.0f;
         hiCutStateL = hiCutStateR = 0;
@@ -920,6 +957,13 @@ Java_com_fmradio_dsp_NativeFmDsp_getAdcClipPct(JNIEnv*, jobject) {
 JNIEXPORT jfloat JNICALL
 Java_com_fmradio_dsp_NativeFmDsp_getRdsCarrierLevel(JNIEnv*, jobject) {
     return g_dsp.rdsCarrierLevel;
+}
+
+/** Level in an empty band beside RDS. Splatter and noise read the same here
+ *  as at 58.2 kHz; a real subcarrier does not. See rdsShoulderLevel. */
+JNIEXPORT jfloat JNICALL
+Java_com_fmradio_dsp_NativeFmDsp_getRdsShoulderLevel(JNIEnv*, jobject) {
+    return g_dsp.rdsShoulderLevel;
 }
 
 /** Ultrasonic noise level — the reception-quality metric (lower is better). */
@@ -1124,11 +1168,21 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
             d.rdsY2 = d.rdsY1; d.rdsY1 = yr;
             d.rdsAcc += yr * yr;
 
+            double ys = d.shHpB0 * x + d.shHpB1 * d.shX1 + d.shHpB2 * d.shX2
+                      - d.shHpA1 * d.shY1 - d.shHpA2 * d.shY2;
+            d.shX2 = d.shX1; d.shX1 = x;
+            d.shY2 = d.shY1; d.shY1 = ys;
+            d.shAcc += ys * ys;
+
             if (++d.nzCount >= d.nzWindow) {
                 float rdsRms = (float)sqrt(d.rdsAcc / d.nzCount) * NOISE_PROBE_CAL;
                 d.rdsAcc = 0;
                 d.rdsCarrierEma += DspState::NOISE_EMA_A * (rdsRms - d.rdsCarrierEma);
                 d.rdsCarrierLevel = d.rdsCarrierEma;
+                float shRms = (float)sqrt(d.shAcc / d.nzCount) * NOISE_PROBE_CAL;
+                d.shAcc = 0;
+                d.rdsShoulderEma += DspState::NOISE_EMA_A * (shRms - d.rdsShoulderEma);
+                d.rdsShoulderLevel = d.rdsShoulderEma;
                 float rms = (float)sqrt(d.nzAcc / d.nzCount) * NOISE_PROBE_CAL;
                 d.nzAcc = 0; d.nzCount = 0;
                 d.noiseEma += DspState::NOISE_EMA_A * (rms - d.noiseEma);

@@ -79,6 +79,17 @@ object StatusSnapshot {
      */
     @Volatile var rdsCarrierLevel = 0f
 
+    /**
+     * The same measurement in an empty band beside RDS, at 62 kHz.
+     *
+     * [rdsCarrierLevel] on its own cannot tell a subcarrier from a station
+     * splashing into the band, and on 105.5 it did not: 0.0466 against a noise
+     * floor of 0.0298, next to 97% block errors. Splatter and noise read the
+     * same here as they do at 58.2 kHz; a subcarrier does not. The gap between
+     * the two is the answer.
+     */
+    @Volatile var rdsShoulderLevel = 0f
+
     /** RDS health — the numbers that say whether text can arrive at all. */
     @Volatile var rdsSynced = false
     /** Blocks failing CRC right now, averaged over ~2 s. Reception quality. */
@@ -139,9 +150,21 @@ object StatusSnapshot {
               " | dial='" + freqText + "' cluster='" + clusterLine + "'" +
               " | mediabrowser: " + (if (browserClients.isBlank()) "NOBODY CONNECTED" else browserClients)
 
+    /** How far the RDS band stands above the empty band next to it, in dB. */
+    private fun subcarrierDb(): Float =
+        if (rdsCarrierLevel > 0f && rdsShoulderLevel > 0f)
+            (20.0 * kotlin.math.log10(rdsCarrierLevel / rdsShoulderLevel)).toFloat()
+        else 0f
+
     fun rds(): String =
-        "subcarrier=%.4f (noise=%.4f, below %.4f means the station sends no RDS)\n     "
-            .format(rdsCarrierLevel, noiseLevel, noiseLevel * 0.8f) +
+        "subcarrier=%.4f shoulder=%.4f -> %+.1f dB, %s (noise=%.4f)\n     "
+            .format(rdsCarrierLevel, rdsShoulderLevel, subcarrierDb(),
+                    when {
+                        rdsCarrierLevel <= 0f -> "not measured yet"
+                        subcarrierDb() >= 6f  -> "RDS IS ON AIR — any failure is ours"
+                        subcarrierDb() >= 3f  -> "weak subcarrier, marginal"
+                        else -> "NO SUBCARRIER — this station sends no RDS"
+                    }, noiseLevel) +
         "synced=%s BERnow=%.1f%% BERlife=%.1f%% groups=%d dropped=%d(+%d при старте) PS='%s' RT='%s'"
             .format(rdsSynced, rdsBerPct, rdsBerLifetimePct, rdsGroups, rdsDropped, rdsDroppedAtStart, rdsPs, rdsRt) +
             "\n     traffic: TP=%s TA=%s announcements=%d".format(rdsTp, taActive, taCount) +
