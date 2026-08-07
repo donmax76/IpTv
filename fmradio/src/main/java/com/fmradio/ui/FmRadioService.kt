@@ -1283,10 +1283,18 @@ class FmRadioService : android.service.media.MediaBrowserService() {
                 } else if (++settleTicks >= GAIN_LOG_TICKS) {
                     settleTicks = 0
                     DebugLog.log("AGC", "steady: step $step (${"%.1f".format(step * IF_GAIN_STEP_DB)} dB), " +
-                            "rms=%.3f clip=%.3f%% burst=%d/%d | noise=%.4f stereo=%.2f hicut=%.0fHz nb=%d"
+                            "rms=%.3f clip=%.3f%% burst=%d/%d | noise=%.4f stereo=%.2f hicut=%.0fHz nb=%d" +
+                            // The subcarrier measurement, in the log as well as
+                            // in the report. A report covers one station; a log
+                            // covers every station the drive passed through,
+                            // and the question "does this one transmit RDS at
+                            // all" is worth answering for all of them at once.
+                            " | rds=%.4f/%.4f"
                                 .format(rms, clip, bursts, samples, ndsp.getNoiseLevel(),
                                         ndsp.getStereoBlend(), ndsp.getHiCutHz(),
-                                        ndsp.getBlankedCount()))
+                                        ndsp.getBlankedCount(),
+                                        try { ndsp.getRdsCarrierLevel() } catch (_: Throwable) { 0f },
+                                        try { ndsp.getRdsShoulderLevel() } catch (_: Throwable) { 0f }))
                 }
             }
         }
