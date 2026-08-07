@@ -56,6 +56,16 @@ object StatusSnapshot {
     @Volatile var adcBurstBlocks = 0L
     @Volatile var adcTotalBlocks = 0L
 
+    /**
+     * Level in the RDS band, on the same scale as [noiseLevel].
+     *
+     * The one measurement that says whether a station transmits RDS at all.
+     * Below about 0.8x the noise reading there is no subcarrier and no decoder
+     * can help; well above it the data is on air and any failure is ours.
+     * See rdsCarrierLevel in fm_dsp.cpp.
+     */
+    @Volatile var rdsCarrierLevel = 0f
+
     /** RDS health — the numbers that say whether text can arrive at all. */
     @Volatile var rdsSynced = false
     /** Blocks failing CRC right now, averaged over ~2 s. Reception quality. */
@@ -116,6 +126,8 @@ object StatusSnapshot {
               " | mediabrowser: " + (if (browserClients.isBlank()) "NOBODY CONNECTED" else browserClients)
 
     fun rds(): String =
+        "subcarrier=%.4f (noise=%.4f, below %.4f means the station sends no RDS)\n     "
+            .format(rdsCarrierLevel, noiseLevel, noiseLevel * 0.8f) +
         "synced=%s BERnow=%.1f%% BERlife=%.1f%% groups=%d dropped=%d(+%d при старте) PS='%s' RT='%s'"
             .format(rdsSynced, rdsBerPct, rdsBerLifetimePct, rdsGroups, rdsDropped, rdsDroppedAtStart, rdsPs, rdsRt) +
             "\n     traffic: TP=%s TA=%s announcements=%d".format(rdsTp, taActive, taCount) +

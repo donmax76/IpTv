@@ -69,6 +69,17 @@ class NativeFmDsp {
     /** Ultrasonic noise level — the reception-quality metric (lower is better). */
     external fun getNoiseLevel(): Float
 
+    /**
+     * Level in the RDS band, on the same scale as [getNoiseLevel].
+     *
+     * Separates "this station sends no RDS" from "it does and we cannot read
+     * it" — two things that look identical from the decoder, which sees a
+     * stream of noise either way. With no subcarrier present this reads about
+     * 0.8 of the noise level; a station transmitting RDS reads well above it,
+     * whatever its block error rate. See rdsCarrierLevel in fm_dsp.cpp.
+     */
+    external fun getRdsCarrierLevel(): Float
+
     /** Stereo separation currently in use: 0 = mono, 1 = full. */
     external fun getStereoBlend(): Float
 

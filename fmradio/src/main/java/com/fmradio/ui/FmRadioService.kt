@@ -1025,6 +1025,7 @@ class FmRadioService : android.service.media.MediaBrowserService() {
                         snap.adcRms = it.getAdcRms()
                         snap.adcClipPct = it.getAdcClipPct()
                         snap.noiseLevel = it.getNoiseLevel()
+                        snap.rdsCarrierLevel = try { it.getRdsCarrierLevel() } catch (_: Throwable) { 0f }
                         snap.stereoBlend = it.getStereoBlend()
                         snap.hiCutHz = it.getHiCutHz()
                         snap.blanked = it.getBlankedCount()

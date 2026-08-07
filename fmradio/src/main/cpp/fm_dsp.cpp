@@ -331,6 +331,36 @@ struct DspState {
     float  noiseEma = 0.0f;
     static constexpr float NOISE_EMA_A = 0.15f;
 
+    // ===== Is there an RDS subcarrier on this station at all? =====
+    //
+    // Three field logs now show the same split: the decoder produces a station
+    // name in under a second on 107.0, 106.3 and 105.5, and nothing whatever on
+    // 107.7 after four and a half minutes — on the STRONGEST signal in the log,
+    // -9.2 dB, with the lowest noise reading in the log, and the pilot locked
+    // solid. Nothing in the receiver explains that. But the decoder cannot tell
+    // "the station sends no RDS" from "the RDS is there and we are failing to
+    // read it": both look like a bit stream of noise, and no amount of staring
+    // at block error rates separates them.
+    //
+    // Measuring the subcarrier does. This is the same probe as the noise one
+    // above, moved to 58.2 kHz — 1187 Hz above the 57 kHz carrier, where the
+    // biphase spectrum PEAKS. Centring it on 57 kHz itself would be a mistake:
+    // biphase coding puts a null exactly at the carrier, which is the whole
+    // point of it. Q of 24 gives a 2.4 kHz window, wide enough to hold that
+    // peak and 19 dB down at 53 kHz, where a stereo station's difference
+    // sideband ends.
+    //
+    // Read it against noiseLevel, which uses the same calibration. FM noise
+    // density rises with frequency, so with NO subcarrier present this probe
+    // sits at about 0.8 times the 84 kHz one. A station transmitting RDS at the
+    // usual few per cent injection reads far above that, whatever its block
+    // error rate. One number, and the question is closed.
+    double rdsHpB0, rdsHpB1, rdsHpB2, rdsHpA1, rdsHpA2;
+    double rdsX1 = 0, rdsX2 = 0, rdsY1 = 0, rdsY2 = 0;
+    double rdsAcc = 0;
+    float  rdsCarrierLevel = 0.0f;
+    float  rdsCarrierEma = 0.0f;
+
     // Blend to mono as noise rises. Below FULL the signal is clean enough for
     // full separation; above NONE the L-R path carries more noise than
     // information and is dropped entirely. Between the two the separation is
@@ -598,6 +628,20 @@ struct DspState {
             nzHpB2 = -al / a0n;
             nzHpA1 = (-2.0 * cw) / a0n;
             nzHpA2 = (1.0 - al) / a0n;
+
+            // The RDS subcarrier probe — see rdsCarrierLevel. Same band-pass,
+            // centred on the biphase peak rather than on the suppressed
+            // carrier, and wide enough to hold it.
+            double w0r = 2.0 * PI_D * 58200.0 / INTERMEDIATE_RATE;
+            double cwr = cos(w0r), swr = sin(w0r);
+            double qr = 24.0;
+            double alr = swr / (2.0 * qr);
+            double a0r = 1.0 + alr;
+            rdsHpB0 = alr / a0r;
+            rdsHpB1 = 0.0;
+            rdsHpB2 = -alr / a0r;
+            rdsHpA1 = (-2.0 * cwr) / a0r;
+            rdsHpA2 = (1.0 - alr) / a0r;
         }
         loudWindow = AUDIO_RATE / 4;      // 250 ms per measurement
         nzWindow = INTERMEDIATE_RATE / 100;   // 10 ms per measurement
@@ -715,6 +759,8 @@ struct DspState {
         nzX1 = nzX2 = nzY1 = nzY2 = 0;
         nzAcc = 0; nzCount = 0;
         noiseLevel = 0.0f; noiseEma = 0.0f;
+        rdsAcc = 0; rdsX1 = rdsX2 = rdsY1 = rdsY2 = 0;
+        rdsCarrierLevel = 0.0f; rdsCarrierEma = 0.0f;
         snrBlend = 1.0f;
         hiCutHz = HICUT_MAX_HZ; hiCutAlpha = 1.0f;
         hiCutStateL = hiCutStateR = 0;
@@ -867,6 +913,13 @@ Java_com_fmradio_dsp_NativeFmDsp_getAdcRms(JNIEnv*, jobject) {
 JNIEXPORT jfloat JNICALL
 Java_com_fmradio_dsp_NativeFmDsp_getAdcClipPct(JNIEnv*, jobject) {
     return g_dsp.adcClipPct;
+}
+
+/** RDS subcarrier level, on the same scale as the noise reading above it.
+ *  Below about 0.8x that reading there is no subcarrier. See rdsCarrierLevel. */
+JNIEXPORT jfloat JNICALL
+Java_com_fmradio_dsp_NativeFmDsp_getRdsCarrierLevel(JNIEnv*, jobject) {
+    return g_dsp.rdsCarrierLevel;
 }
 
 /** Ultrasonic noise level — the reception-quality metric (lower is better). */
@@ -1063,7 +1116,19 @@ Java_com_fmradio_dsp_NativeFmDsp_demodulate(
             d.nzX2 = d.nzX1; d.nzX1 = x;
             d.nzY2 = d.nzY1; d.nzY1 = y;
             d.nzAcc += y * y;
+
+            // Same input, same window, different band — see rdsCarrierLevel.
+            double yr = d.rdsHpB0 * x + d.rdsHpB1 * d.rdsX1 + d.rdsHpB2 * d.rdsX2
+                      - d.rdsHpA1 * d.rdsY1 - d.rdsHpA2 * d.rdsY2;
+            d.rdsX2 = d.rdsX1; d.rdsX1 = x;
+            d.rdsY2 = d.rdsY1; d.rdsY1 = yr;
+            d.rdsAcc += yr * yr;
+
             if (++d.nzCount >= d.nzWindow) {
+                float rdsRms = (float)sqrt(d.rdsAcc / d.nzCount) * NOISE_PROBE_CAL;
+                d.rdsAcc = 0;
+                d.rdsCarrierEma += DspState::NOISE_EMA_A * (rdsRms - d.rdsCarrierEma);
+                d.rdsCarrierLevel = d.rdsCarrierEma;
                 float rms = (float)sqrt(d.nzAcc / d.nzCount) * NOISE_PROBE_CAL;
                 d.nzAcc = 0; d.nzCount = 0;
                 d.noiseEma += DspState::NOISE_EMA_A * (rms - d.noiseEma);
