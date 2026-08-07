@@ -1282,19 +1282,28 @@ class FmRadioService : android.service.media.MediaBrowserService() {
                             "rms=%.3f clip=%.3f%% (median of $samples) burstBlocks=$bursts".format(rms, clip))
                 } else if (++settleTicks >= GAIN_LOG_TICKS) {
                     settleTicks = 0
-                    DebugLog.log("AGC", "steady: step $step (${"%.1f".format(step * IF_GAIN_STEP_DB)} dB), " +
-                            "rms=%.3f clip=%.3f%% burst=%d/%d | noise=%.4f stereo=%.2f hicut=%.0fHz nb=%d" +
+                    // The format string is built and bracketed BEFORE .format
+                    // is called on it. Splitting it across a + and calling
+                    // .format at the end binds the call to the LAST fragment
+                    // only — 3.0.528 shipped exactly that and every steady line
+                    // in the field log came out reading "rms=%.3f clip=%.3f%%"
+                    // literally, with the two leading arguments consumed by the
+                    // fragment that did get formatted. A whole drive's worth of
+                    // measurements lost to operator precedence.
+                    val steadyFmt = "rms=%.3f clip=%.3f%% burst=%d/%d | " +
+                            "noise=%.4f stereo=%.2f hicut=%.0fHz nb=%d" +
                             // The subcarrier measurement, in the log as well as
                             // in the report. A report covers one station; a log
                             // covers every station the drive passed through,
                             // and the question "does this one transmit RDS at
                             // all" is worth answering for all of them at once.
                             " | rds=%.4f/%.4f"
-                                .format(rms, clip, bursts, samples, ndsp.getNoiseLevel(),
-                                        ndsp.getStereoBlend(), ndsp.getHiCutHz(),
-                                        ndsp.getBlankedCount(),
-                                        try { ndsp.getRdsCarrierLevel() } catch (_: Throwable) { 0f },
-                                        try { ndsp.getRdsShoulderLevel() } catch (_: Throwable) { 0f }))
+                    DebugLog.log("AGC", "steady: step $step (${"%.1f".format(step * IF_GAIN_STEP_DB)} dB), " +
+                            steadyFmt.format(rms, clip, bursts, samples, ndsp.getNoiseLevel(),
+                                    ndsp.getStereoBlend(), ndsp.getHiCutHz(),
+                                    ndsp.getBlankedCount(),
+                                    try { ndsp.getRdsCarrierLevel() } catch (_: Throwable) { 0f },
+                                    try { ndsp.getRdsShoulderLevel() } catch (_: Throwable) { 0f }))
                 }
             }
         }
