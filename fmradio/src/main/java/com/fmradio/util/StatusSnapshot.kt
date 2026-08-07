@@ -26,6 +26,19 @@ object StatusSnapshot {
     @Volatile var stereoBlend = 0f
     @Volatile var hiCutHz = 0f
     @Volatile var iqQueueDepth = 0
+
+    /**
+     * Raw USB buffers thrown away because the DSP could not take them.
+     *
+     * This has to be in the report, not only in a debug log nobody has switched
+     * on. It went from never happening to bursts of seven after every retune
+     * between two builds, and the only reason it was caught is that the user
+     * happened to send a log. Each one is 17 ms of missing signal and a
+     * discontinuity the RDS decoder cannot decode across; anything but 0 here
+     * means the pipeline is not keeping up and nothing downstream is
+     * trustworthy.
+     */
+    @Volatile var iqDropped = 0L
     @Volatile var nativeDsp = false
     /** Times the audio device ran dry — this is what "stuttering" means. */
     @Volatile var audioUnderruns = 0
@@ -118,6 +131,7 @@ object StatusSnapshot {
             .format(frequencyHz / 1e6, signalDb, if (stereo) "STEREO" else "MONO",
                     gainStep, adcRms, adcClipPct, noiseLevel, stereoBlend, hiCutHz,
                     iqQueueDepth, if (nativeDsp) "native" else "kotlin") +
+              " iqdropped=%d".format(iqDropped) +
               " | audio: underruns=%d buf=%dB real=%dframes | nb=%d limiter=%.2f%% loud=%.2fx".format(audioUnderruns, audioBufferBytes, audioBufferFrames, blanked, softClipPct, loudnessGain) +
               " | overload bursts: %.1f%% of blocks (%d/%d)".format(
                   if (adcTotalBlocks > 0) adcBurstBlocks * 100.0 / adcTotalBlocks else 0.0,

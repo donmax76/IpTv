@@ -25,28 +25,6 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
     private var audioTrack: AudioTrack? = null
     @Volatile
     private var isPlaying = false
-    /**
-     * The device is loaded with silence but not yet running.
-     *
-     * Priming and starting in the same breath throws the reservoir away. The
-     * device begins consuming at 48 kHz the instant play() is called, and after
-     * a retune nothing arrives for a while: the tuner needs about 180 ms to
-     * move its synthesiser, the USB reads come back empty across that gap, and
-     * the DSP has to refill its pipeline afterwards. Half a second of primed
-     * silence covers exactly half a second of that, so by the time real audio
-     * turns up the reservoir is mostly gone — and with blocking writes it can
-     * never be rebuilt, because the writer only ever produces at real time.
-     *
-     * A field log shows the result plainly: the buffer level, which used to
-     * sit between 11500 and 23800 frames, ran at 4000 to 5900 for a whole
-     * session. That is a hundred milliseconds of headroom on a head unit that
-     * schedules when it feels like it, and it is heard as the sound breaking
-     * up after a station change.
-     *
-     * Starting the device on the first real buffer instead costs nothing and
-     * keeps the whole reservoir.
-     */
-    private var startPending = false
     private var framesWritten = 0L
     /** Silence queued by primeSilence, counted so the buffer-level log stays honest. */
     private var primedFrames = 0L
@@ -65,27 +43,30 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
             AudioFormat.CHANNEL_OUT_STEREO,
             AudioFormat.ENCODING_PCM_16BIT
         )
-        // A second and a half, and 30x whatever the device claims it needs.
+        // 500 ms, and it must stay about here — this number is what throttles
+        // the whole pipeline, not just a place to keep audio.
         //
-        // This was measured on THIS head unit and then lost. Build 3.0.315
-        // raised it from 400 ms because the DiLink reports a tiny minBufSize —
-        // it has a low-latency audio HAL — and the buffer it actually handed
-        // back was 939 to 2560 frames, twenty to fifty milliseconds, which any
-        // scheduling delay empties. A later rewrite of this file to blocking
-        // writes replaced the whole calculation with 500 ms and 4x, and the
-        // measurement went with it.
+        // 3.0.520 raised it to 30x minBufSize, which on this head unit is 2.4
+        // seconds, on the reasoning that with blocking writes a bigger buffer
+        // is free headroom. That was wrong, and the field log says so: bursts
+        // of "IQ queue full, dropped 32768B" appeared for the first time,
+        // six or seven in a row, 3.2 to 3.6 seconds after every single retune
+        // and after the initial start. Six thousand USB reads and not one such
+        // line in 3.0.516.
         //
-        // The 3.0.516 field log shows what that costs now: 'real=24000frames'
-        // in the report, and a running level of 4000 to 5900 frames where it
-        // used to sit between 11500 and 23800. About a hundred milliseconds of
-        // headroom on a device that schedules when it feels like it.
+        // The write below is what rate-limits the DSP thread. It blocks when
+        // the device is full, and that back-pressure is the only thing holding
+        // the demodulator to the audio clock; the comment on that write calls
+        // AudioTrack the master clock and means it literally. Make the buffer
+        // large and the back-pressure stops being continuous and becomes a
+        // stall: the level drifts up for seconds, hits the ceiling, and the
+        // write blocks long enough for the sixty-four-deep IQ queue behind it
+        // to overflow. Every dropped IQ buffer is a discontinuity in the
+        // wideband stream, and RDS block sync cannot survive one.
         //
-        // With blocking writes the size is a ceiling, not a cost: the reservoir
-        // is filled once by priming and the writer then produces in real time,
-        // so a bigger buffer buys headroom and nothing else. The latency it
-        // adds is the priming, which is chosen separately below.
-        val minDesired = sampleRate * 2 * 2 * 3 / 2   // 1500 ms, stereo 16-bit
-        val bufferSize = maxOf(minBufSize * 30, minDesired)
+        // Headroom against scheduling jitter comes from priming, which is
+        // chosen separately below. The size only sets the ceiling.
+        val bufferSize = maxOf(minBufSize * 4, sampleRate * 2 * 2 / 2)
 
         audioTrack = AudioTrack.Builder()
             .setAudioAttributes(
@@ -115,17 +96,25 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         // hiccup on a head unit empties the device. That is the 31 underruns
         // in the same report, and what is heard as choking.
         //
-        // Half a second of silence up front costs a latency nobody can
-        // perceive on a radio and gives the pipeline something to spend. It is
-        // the same figure the retune path primes, and the same one build
-        // 3.0.315 measured on this head unit.
-        primeSilence(sampleRate / 2)
-        startPending = true
+        // Quarter of a second of silence up front costs a latency nobody can
+        // perceive on a radio and gives the pipeline something to spend.
+        //
+        // play() goes here, immediately, and not on the first real buffer.
+        // Deferring it in 3.0.520 looked like a way to keep the whole primed
+        // reservoir across a retune, and it did — by adding every millisecond
+        // of it to the delay before the new station is heard. The silence is
+        // supposed to be spent covering the tuner's synthesiser and the empty
+        // USB reads, which is time when there is nothing to hear anyway.
+        // Holding it back instead means half a second of real silence AFTER
+        // the audio is ready, which is the "the station only starts playing a
+        // couple of seconds later" report.
+        primeSilence(sampleRate / 4)
+        audioTrack?.play()
         framesWritten = 0L
         isPlaying = true
 
         bufferBytes = bufferSize
-        Log.i(TAG, "Started: ${sampleRate}Hz asked=$bufferSize got=${bufferFrames()}frames")
+        Log.i(TAG, "Started: ${sampleRate}Hz buf=$bufferSize")
     }
 
     /**
@@ -160,15 +149,6 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
 
     fun writeSamples(samples: ShortArray, count: Int = samples.size) {
         if (!isPlaying || count <= 0) return
-
-        // Real audio has arrived — now let the device start. This must happen
-        // BEFORE the write below: the buffer is full of primed silence, so a
-        // blocking write into a device that is not running would wait for a
-        // reader that does not exist. See startPending.
-        if (startPending) {
-            startPending = false
-            audioTrack?.play()
-        }
 
         // Fade-in to avoid click on start
         if (framesWritten < FADE_IN_FRAMES) {
@@ -236,7 +216,7 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
         //
         // NON_BLOCKING means asking for more than fits simply stops when full.
         primeSilence(sampleRate / 2)
-        startPending = true
+        audioTrack?.play()
         framesWritten = 0L
     }
 
@@ -268,7 +248,6 @@ class AudioPlayer(private val sampleRate: Int = 48000) {
 
     fun stop() {
         isPlaying = false
-        startPending = false
         try {
             audioTrack?.stop()
             audioTrack?.release()

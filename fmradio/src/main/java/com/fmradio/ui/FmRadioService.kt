@@ -941,6 +941,7 @@ class FmRadioService : android.service.media.MediaBrowserService() {
                 if (iqQueue.size < IQ_QUEUE_DEPTH) {
                     iqQueue.add(iqData)
                 } else {
+                    com.fmradio.util.StatusSnapshot.iqDropped++
                     Log.w("FmRadio", "IQ queue full (${iqQueue.size}), dropped ${iqData.size}B")
                     DebugLog.log("USB", "IQ queue full, dropped ${iqData.size}B")
                 }
