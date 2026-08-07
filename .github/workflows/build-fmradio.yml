@@ -100,7 +100,25 @@ jobs:
           git add fmradio/version.json
           if git diff --cached --quiet; then echo "version.json already current"; exit 0; fi
           git commit -m "Auto-update version.json to 3.0.$COMMIT_COUNT"
-          git push || echo "version.json push lost a race; the APK is published regardless"
+          # Retry rather than shrug. This push is what makes the update appear
+          # in the app at all, and it loses to any commit that lands while the
+          # build runs — which, with work going on in the repository, is most
+          # of them. Giving up quietly left the file advertising 3.0.488 while
+          # 3.0.503 sat published in the release, so the app kept reporting
+          # that no update existed.
+          #
+          # The file's contents are NOT regenerated between attempts. Its
+          # number has to keep describing the APK that was just uploaded, not
+          # whatever the branch has advanced to, or the app downloads a build
+          # older than the version it was promised and offers the same update
+          # for ever.
+          for attempt in 1 2 3 4 5; do
+            if git push; then echo "version.json published"; exit 0; fi
+            git fetch origin "${{ github.ref_name }}" || true
+            git rebase "origin/${{ github.ref_name }}" || { git rebase --abort || true; }
+            sleep $((attempt * 3))
+          done
+          echo "::warning::could not publish version.json; the APK is in the release regardless"
   build-desktop-jar:
     name: Build Desktop JAR (Kotlin)
     runs-on: ubuntu-latest
