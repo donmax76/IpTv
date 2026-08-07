@@ -24,6 +24,7 @@ class StationStorage(context: Context) {
         private const val KEY_TA_ENABLED = "ta_enabled"
         private const val KEY_BAND = "current_band"
         private const val KEY_PRESETS_LIST = "presets_list"
+        private const val KEY_RDS_TEXT_RESET = "rds_text_reset_v2"
         const val PRESET_COUNT = 6
     }
 
@@ -83,6 +84,27 @@ class StationStorage(context: Context) {
         stations.removeAll { it.frequencyHz == frequencyHz }
         saveStations(stations)
         autoBackup()
+    }
+
+    /**
+     * Throw away RDS text saved before the app knew whether it was finished.
+     *
+     * Until now anything that sat still for four seconds was written to
+     * storage, including a name caught mid-assembly and a RadioText cut off at
+     * its first missing character. Those entries are indistinguishable from
+     * real ones and are shown again every time the frequency is tuned, so a
+     * station whose RDS is not being received at all still displays text —
+     * short, wrong, and permanent. Nothing in the stored data says which are
+     * which, so the only honest thing is to drop them all once and let them
+     * come back decoded: a name takes under a second now on a station that has
+     * one, and only a complete message is ever written from here on.
+     */
+    fun forgetUnverifiedRdsTextOnce() {
+        if (prefs.getBoolean(KEY_RDS_TEXT_RESET, false)) return
+        prefs.edit().putBoolean(KEY_RDS_TEXT_RESET, true).apply()
+        val stations = loadStations()
+        if (stations.isEmpty()) return
+        saveStations(stations.map { it.copy(rdsPs = "", rdsRt = "", rdsPty = "") })
     }
 
     fun updateStation(station: RadioStation) {

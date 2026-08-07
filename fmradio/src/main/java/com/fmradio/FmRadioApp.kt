@@ -72,6 +72,11 @@ class FmRadioApp : Application() {
         try { DebugLog.init(this) } catch (t: Throwable) {
             StartupLog.write("DebugLog.init failed: $t")
         }
+        try {
+            com.fmradio.data.StationStorage(this).forgetUnverifiedRdsTextOnce()
+        } catch (t: Throwable) {
+            StartupLog.write("RDS text reset failed: $t")
+        }
         StartupLog.write("Application.onCreate done")
     }
 

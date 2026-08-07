@@ -803,13 +803,28 @@ class MainActivity : Activity() {
         val station = stationStorage.loadStations()
             .find { Math.abs(it.frequencyHz - currentFrequency) < 25000 } ?: return
 
-        // A longer version of what is already stored is strictly more of the
-        // same message, so it goes in at once; waiting could only lose it.
+        // Only ever store the WHOLE message.
+        //
+        // What is on screen is allowed to be half-assembled: it is live, it
+        // grows as segments land, and a partial name is more use than none.
+        // Storage is a different thing. It is kept for ever and shown again
+        // the next time this frequency is tuned, with nothing to say it was
+        // never finished — so a name caught mid-assembly becomes the station's
+        // permanent name and a truncated RadioText becomes its permanent text.
+        // That is the "it shows it, but cut short" report: the text on screen
+        // was not being decoded at all, it was being remembered, and it had
+        // been remembered short.
+        //
+        // Complete means every character position has been decided, which the
+        // decoder already knows. A longer version of what is stored is strictly
+        // more of the same message, so it still goes in at once; waiting could
+        // only lose it.
         val psExtends = rdsData.ps.startsWith(station.rdsPs) &&
                         rdsData.ps.length >= station.rdsPs.length
-        val psReady = rdsData.ps != station.rdsPs &&
+        val psReady = rdsData.psComplete && rdsData.ps != station.rdsPs &&
                       (psExtends || now - rdsPsSince >= RDS_SETTLE_MS)
-        val rtReady = rdsData.rt.isNotBlank() && rdsData.rt != station.rdsRt &&
+        val rtReady = rdsData.rtComplete && rdsData.rt.isNotBlank() &&
+                      rdsData.rt != station.rdsRt &&
                       now - rdsRtSince >= RDS_SETTLE_MS
         if (!psReady && !rtReady) return
 
